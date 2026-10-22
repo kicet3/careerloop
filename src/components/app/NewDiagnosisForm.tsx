@@ -7,6 +7,7 @@ import { Button } from "@/components/ui/Button";
 import { Card } from "@/components/ui/Card";
 import { SITUATION_LABELS } from "@/lib/domain/reviewers";
 import { SITUATIONS, type Situation } from "@/lib/domain/schemas";
+import { saveCreationWarnings } from "./creation-warnings";
 import { FileDrop } from "./FileDrop";
 import { SegmentedTabs } from "./Tabs";
 
@@ -99,9 +100,9 @@ export function NewDiagnosisForm() {
         setSubmitting(false);
         return;
       }
-      // 생성 경고(예: 채용 공고가 매우 짧음)는 진행 화면 상단에 한 번 보여 준다.
-      const warnings = (data.warnings ?? []).slice(0, 5);
-      router.push(`/app/d/${data.id}${warnings.length ? `?w=${encodeURIComponent(JSON.stringify(warnings))}` : ""}`);
+      // 생성 경고(예: 채용 공고가 매우 짧음)는 진행 화면 상단에 한 번 보여 준다(URL이 아니라 sessionStorage로 넘긴다).
+      saveCreationWarnings(data.id, data.warnings ?? []);
+      router.push(`/app/d/${data.id}`);
     } catch {
       setError("서버에 연결하지 못했습니다. 네트워크를 확인해 주세요.");
       setSubmitting(false);

@@ -31,7 +31,7 @@ beforeAll(async () => {
   await ensureDatabase();
   ({ db, schema } = await import("@/lib/db/client"));
   svc = await import("./service");
-  for (const id of ["u1", "u2"]) {
+  for (const id of ["u1", "u2", "u3", "u4", "u5"]) {
     await db.insert(schema.users).values({ id, email: `${id}@x.com`, passwordHash: "x" });
   }
 });
@@ -89,7 +89,13 @@ describe("diagnoses service", () => {
       .set({ status: "done", output: { matchScore: 72 } })
       .where(and(eq(schema.diagnosisStages.diagnosisId, id), eq(schema.diagnosisStages.stage, "fit")));
     const [item] = await svc.listDiagnoses("u2");
-    expect(item).toMatchObject({ id, positiveCount: 3, matchScore: 72, hasJd: true });
+    expect(item).toMatchObject({ id, positiveCount: 3, matchScore: 72, hasJd: true, subtitle: "JD 기준 심사" });
+    // JD 분석이 끝나면 회사·공고 포지션명으로 진단을 구별한다.
+    await db
+      .update(schema.diagnosisStages)
+      .set({ status: "done", output: { source: "jd", company: "머니브릿지", roleTitle: "결제 플랫폼 백엔드" } })
+      .where(and(eq(schema.diagnosisStages.diagnosisId, id), eq(schema.diagnosisStages.stage, "jd")));
+    expect((await svc.listDiagnoses("u2"))[0].subtitle).toBe("머니브릿지 · 결제 플랫폼 백엔드");
   });
 
   it("오래 멈춘 실행은 failed로, 재시도하면 실패 단계만 pending", async () => {
@@ -128,5 +134,53 @@ describe("diagnoses service", () => {
     expect(await svc.deleteDiagnosis(id, "u1")).toBe(false);
     expect(await svc.deleteDiagnosis(id, "u2")).toBe(true);
     expect(await svc.getDiagnosisForUser(id, "u2")).toBeNull();
+  });
+
+  it("진행 중인 진단은 삭제할 수 없다(409), 삭제해도 하루 제한은 줄지 않는다", async () => {
+    const { id } = await svc.createDiagnosis("u3", input);
+    await expect(svc.deleteDiagnosis(id, "u3")).rejects.toMatchObject({ status: 409 });
+    await setStatus(id, "running");
+    await expect(svc.deleteDiagnosis(id, "u3")).rejects.toMatchObject({ status: 409 });
+    await setStatus(id, "done");
+    expect(await svc.deleteDiagnosis(id, "u3")).toBe(true);
+
+    // 하루 제한 3건: 만들고 지우기를 반복해도 3건째 이후는 429
+    for (let i = 0; i < 2; i++) {
+      const { id: next } = await svc.createDiagnosis("u3", input);
+      await setStatus(next, "done");
+      expect(await svc.deleteDiagnosis(next, "u3")).toBe(true);
+    }
+    await expect(svc.createDiagnosis("u3", input)).rejects.toMatchObject({ status: 429 });
+  });
+
+  it("재시도: failed일 때만, 진단당 3회까지, 다른 진행 중 진단이 있으면 409", async () => {
+    const { id } = await svc.createDiagnosis("u4", input);
+    await expect(svc.prepareRetry(id, "u4")).rejects.toMatchObject({ status: 409 }); // queued
+    for (let i = 0; i < 3; i++) {
+      await setStatus(id, "failed");
+      await svc.prepareRetry(id, "u4");
+      expect((await svc.getDiagnosisForUser(id, "u4"))?.diagnosis.status).toBe("queued");
+    }
+    await setStatus(id, "failed");
+    await expect(svc.prepareRetry(id, "u4")).rejects.toMatchObject({ status: 429 });
+  });
+
+  it("재시도 중 다른 진단이 진행 중이면 409", async () => {
+    const a = await svc.createDiagnosis("u5", input);
+    await setStatus(a.id, "failed");
+    const b = await svc.createDiagnosis("u5", input); // a가 failed라 생성 가능
+    await expect(svc.prepareRetry(a.id, "u5")).rejects.toMatchObject({ status: 409 });
+    await setStatus(b.id, "done");
+    await svc.prepareRetry(a.id, "u5");
+    // 이제 a가 queued이므로 새 진단은 409
+    await expect(svc.createDiagnosis("u5", input)).rejects.toMatchObject({ status: 409 });
+  });
+
+  it("최근 하트비트가 있는 실행은 멈춤으로 보지 않는다", async () => {
+    const [{ id }] = await svc.listDiagnoses("u5");
+    await setStatus(id, "running", new Date(Date.now() - 60 * 1000));
+    expect(await svc.markStaleRunsFailed("u5")).toBe(0);
+    await setStatus(id, "running", new Date(Date.now() - 3 * 60 * 1000));
+    expect(await svc.markStaleRunsFailed("u5")).toBe(1);
   });
 });

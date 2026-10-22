@@ -1,7 +1,7 @@
 import type { FitItem } from "@/lib/domain/schemas";
-import { CATEGORY_LABELS, FIT_STATUS_LABELS, PRIORITY_LABELS } from "@/lib/report/model";
+import { CATEGORY_LABELS, FIT_STATUS_LABELS, PRIORITY_LABELS, keywordStatus } from "@/lib/report/model";
 import type { FitRow, ReportModel } from "@/lib/report/types";
-import { BulletList, Card, Chip, EmptyState, Pill, QuoteBlock, SubHeading, cx } from "./primitives";
+import { BulletList, Card, Chip, EmptyState, Pill, QuoteBlock, SubHeading, UnverifiedMark, cx } from "./primitives";
 
 const STATUS_TONE: Record<FitItem["status"], "positive" | "neutral" | "negative"> = {
   met: "positive",
@@ -22,12 +22,37 @@ function StatusPill({ row }: { row: FitRow }) {
 }
 
 function keywordTone(keyword: string, present: string[], missing: string[]): "default" | "positive" | "negative" {
-  const k = keyword.toLowerCase();
-  const hit = (list: string[]) => list.some((x) => x.toLowerCase().includes(k) || k.includes(x.toLowerCase()));
-  if (missing.some((x) => x.toLowerCase() === k)) return "negative";
-  if (hit(present)) return "positive";
-  if (hit(missing)) return "negative";
-  return "default";
+  const st = keywordStatus(keyword, present, missing);
+  return st === "present" ? "positive" : st === "missing" ? "negative" : "default";
+}
+
+/** 요건 본문 + 구분 + 공고 원문 인용(있으면). 표와 모바일 카드가 함께 쓴다. */
+function RequirementCell({ row }: { row: FitRow }) {
+  return (
+    <>
+      <p className="font-medium text-slate-900">{row.requirement.text}</p>
+      <p className="mt-1 text-xs text-slate-500">
+        <span className={row.priority === "must" ? "font-semibold text-indigo-700" : ""}>{PRIORITY_LABELS[row.priority]}</span>
+        {" · "}
+        {CATEGORY_LABELS[row.requirement.category] ?? row.requirement.category}
+      </p>
+      {row.jdQuote && (
+        <p className="mt-1.5 text-xs leading-relaxed text-slate-500">
+          <span className="font-semibold text-slate-400">공고 </span>“{row.jdQuote.text}”
+          {!row.jdQuote.verified && <UnverifiedMark source="jd" />}
+        </p>
+      )}
+    </>
+  );
+}
+
+function EvidenceCell({ row }: { row: FitRow }) {
+  return (
+    <>
+      {row.evidence && <QuoteBlock quote={row.evidence} className="mb-2 text-xs" />}
+      <p className="text-sm leading-relaxed text-slate-600">{row.item?.note ?? "-"}</p>
+    </>
+  );
 }
 
 function CountBar({ counts }: { counts: { met: number; partial: number; missing: number } }) {
@@ -128,8 +153,29 @@ export function JdFitSection({ report }: { report: ReportModel }) {
         <CountBar counts={jd.counts} />
         {jd.fitSummary && <p className="mt-3 text-sm leading-relaxed text-slate-700">{jd.fitSummary}</p>}
 
-        <div className="mt-4 overflow-x-auto rounded-xl border border-slate-200 bg-white">
-          <table className="w-full min-w-[640px] border-collapse text-left text-sm">
+        {/* 좁은 화면: 요건마다 카드로 쌓아 근거·메모가 화면 밖으로 밀리지 않게 한다. */}
+        <ul className="mt-4 space-y-3 sm:hidden">
+          {jd.rows.map((row) => (
+            <li
+              key={`${row.priority}-${row.requirement.id}`}
+              className="break-inside-avoid rounded-xl border border-slate-200 bg-white p-4"
+            >
+              <div className="flex items-start justify-between gap-3">
+                <span className="font-mono text-xs text-slate-500">{row.requirement.id}</span>
+                <StatusPill row={row} />
+              </div>
+              <div className="mt-2">
+                <RequirementCell row={row} />
+              </div>
+              <div className="mt-3 border-t border-slate-100 pt-3">
+                <EvidenceCell row={row} />
+              </div>
+            </li>
+          ))}
+        </ul>
+
+        <div className="mt-4 hidden overflow-x-auto rounded-xl border border-slate-200 bg-white sm:block">
+          <table className="w-full border-collapse text-left text-sm">
             <thead className="bg-slate-50 text-xs font-semibold text-slate-500">
               <tr>
                 <th scope="col" className="w-14 px-4 py-2.5">ID</th>
@@ -143,21 +189,13 @@ export function JdFitSection({ report }: { report: ReportModel }) {
                 <tr key={`${row.priority}-${row.requirement.id}`} className="break-inside-avoid align-top">
                   <td className="px-4 py-3 font-mono text-xs text-slate-500">{row.requirement.id}</td>
                   <td className="px-4 py-3">
-                    <p className="font-medium text-slate-900">{row.requirement.text}</p>
-                    <p className="mt-1 text-xs text-slate-500">
-                      <span className={row.priority === "must" ? "font-semibold text-indigo-700" : ""}>
-                        {PRIORITY_LABELS[row.priority]}
-                      </span>
-                      {" · "}
-                      {CATEGORY_LABELS[row.requirement.category] ?? row.requirement.category}
-                    </p>
+                    <RequirementCell row={row} />
                   </td>
                   <td className="px-4 py-3">
                     <StatusPill row={row} />
                   </td>
                   <td className="px-4 py-3">
-                    {row.evidence && <QuoteBlock quote={row.evidence} className="mb-2 text-xs" />}
-                    <p className="text-sm leading-relaxed text-slate-600">{row.item?.note ?? "-"}</p>
+                    <EvidenceCell row={row} />
                   </td>
                 </tr>
               ))}

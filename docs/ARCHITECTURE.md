@@ -19,7 +19,7 @@
 |---|---|
 | `src/lib/domain/schemas.ts` | 단계 키, 의존 관계, 각 단계 출력 zod 스키마, 입력 스키마 |
 | `src/lib/domain/reviewers.ts` | 심사위원 한국어 이름·역할·판정 라벨, `isPositiveVerdict(reviewer, verdict)` |
-| `src/lib/db/schema.ts`, `src/lib/db/client.ts` | 테이블·DB 클라이언트 |
+| `src/lib/db/schema.ts`, `src/lib/db/client.ts` | 테이블·DB 클라이언트(`diagnoses.run_id`, 실행 원장 `diagnosis_runs` 포함) |
 | `src/lib/llm/types.ts` | `LlmClient` 인터페이스 |
 | `src/lib/report/types.ts` | `ReportModel` — 웹/PDF/MD 렌더러의 유일한 입력 |
 
@@ -39,6 +39,11 @@
 ```
 
 - 의존 관계가 충족된 단계는 **동시에** 실행한다(`STAGE_DEPENDENCIES`). 1회 진단 = LLM 호출 13회.
+- `fit.matchScore`는 모델 값을 그대로 쓰지 않는다. 파이프라인이 저장 전에 `panel/fit-score.ts`(필수 70%·우대 30%,
+  판정 없는 요건은 미충족)로 다시 계산하고, 보고서 빌더도 같은 식으로 계산해 머리 점수·매트릭스·이력 목록이 일치한다.
+- ATS(와 rescreen)는 JD가 추정(`inferred`)이면 키워드 누락을 탈락 사유로 쓰지 않는다. 실제 공고면 `mustHave`에 나오는 키워드를 필수로 본다.
+- rewrite는 synthesis에 더해 적합도의 공백(partial/missing)과 묻힌 강점(`untappedStrengths`)을 받는다.
+  plan은 synthesis·fit에 더해 채용 담당자의 면접 질문·가장 약한 줄을 받고, 문장 수정은 재작성본에 맡긴다.
 - 각 단계 결과는 즉시 `diagnosis_stages`에 저장 → 진행 화면이 폴링으로 표시. 이미 `done`인 단계는 재시도 시 건너뛴다(재개 가능).
 - 독립성: 리뷰어 7명과 fit은 **이력서 + JD 분석만** 받는다. 다른 리뷰어 결과를 넣지 않는다.
 - 원본 스킬의 규칙을 프롬프트에 그대로 유지한다:
@@ -51,21 +56,43 @@
 ## 4. 실행 모델
 
 - `POST /api/diagnoses`가 진단 행과 13개 단계 행(pending)을 만들고 `after()`로 `runDiagnosis(id)`를 백그라운드 실행 → 즉시 `{id}` 반환.
-- 클라이언트는 `GET /api/diagnoses/[id]`를 2초 간격 폴링. 응답: 진단 상태, 단계별 상태, 완료 시 `ReportModel`.
-- 멈춘 실행 복구: `running`인데 `updatedAt`이 10분 이상 지났으면 조회 시 `failed`로 바꾸고 재시도 버튼 노출.
-- `POST /api/diagnoses/[id]/retry`: 실패/대기 단계만 다시 실행.
-- 제한: 사용자당 동시 실행 1건, 하루 `DAILY_DIAGNOSIS_LIMIT`(기본 5)건.
+- 클라이언트는 `GET /api/diagnoses/[id]`를 2초 간격 폴링. 응답: 진단 상태, 단계별 상태, 보고서(아래 '부분 보고서').
+- 실행 식별·하트비트: runner는 진단을 차지할 때 새 `run_id`를 정하고, 모든 쓰기(진단·단계 행)를
+  `status='running' AND run_id=내 것`일 때만 반영한다. 실행 중에는 30초(`HEARTBEAT_MS`)마다 `updatedAt`을 갱신하고,
+  갱신이 0행이면(멈춤 판정·다른 실행이 차지) `AbortSignal`로 파이프라인을 멈춰 LLM을 더 부르지 않는다.
+- 멈춘 실행 복구: `queued/running`인데 `updatedAt`이 2분(`STALE_AFTER_MS`) 넘게 갱신되지 않았으면(=프로세스가 죽음)
+  조회 시 `failed`로 바꾸고 재시도 버튼 노출.
+- 시간 예산: Vercel에서는 라우트 `maxDuration`(800초)에서 30초를 뺀 시각에 runner가 스스로 멈추고 '실패(재시도 가능)'로
+  기록한다(`DIAGNOSIS_TIME_BUDGET_SEC`로 지정 가능, 자체 호스팅은 기본 없음). 재시도하면 끝난 단계는 건너뛴다.
+- `POST /api/diagnoses/[id]/retry`: `failed`인 진단만, 한 트랜잭션에서 '다른 진행 중 진단 없음'을 확인하고
+  `failed → queued`로 조건부 전환. 진단당 3회(`MAX_RETRIES_PER_DIAGNOSIS`)까지.
+- 제한: 사용자당 동시 실행 1건, 하루 `DAILY_DIAGNOSIS_LIMIT`(기본 5)건. 하루 제한·재시도 횟수는 append-only 원장
+  `diagnosis_runs`로 센다(진단을 지워도 줄지 않는다). 진행 중(queued/running)인 진단은 삭제할 수 없다(409).
+  IP당 하루 20건 생성 제한(메모리)도 있다.
+- 업로드: 본문은 Content-Length 유무와 관계없이 바이트를 세며 읽다가 22MB를 넘으면 413(`diagnoses/body.ts`).
+  DOCX는 mammoth 전에 ZIP 항목을 실제로 풀어 보며 항목당 20MB·합계 60MB를 넘으면 413(zip bomb).
+  PDF는 50쪽 초과 413, 페이지 사이 15초 예산, 글자 수 상한을 넘으면 더 읽지 않는다.
+- 부분 보고서: `done`이면 전체 보고서. `failed`라도 jd·심사위원 7명·fit이 끝났으면 부분 보고서(빠진 섹션 안내 +
+  재시도)를 웹·PDF·Markdown(소유자)으로 제공한다. 공유 링크는 `done`만.
 - `ANTHROPIC_API_KEY`가 없거나 `LLM_MOCK=1`이면 mock 클라이언트(결정적 가짜 출력, 실제 이력서 줄을 인용, 단계당 짧은 지연).
 
 ## 5. LLM 호출 규칙 (src/lib/llm/anthropic.ts)
 
 - `client.beta.messages` + 구조화 출력(`output_config.format`, zod → `betaZodOutputFormat` 또는 JSON schema). 결과는 zod로 다시 검증.
 - 서버 측 거절 fallback: `betas: ["server-side-fallback-2026-07-01"]`, `fallbacks: "default"`. `stop_reason === "refusal"`이면 `LlmPermanentError`.
-- 스트리밍(`.stream()` → `finalMessage()`)으로 타임아웃 회피. `max_tokens`는 단계별(리뷰어 8k, 재작성·계획 32k 등).
+- 스트리밍(`.stream()` → `finalMessage()`)으로 타임아웃 회피. Opus 5.5는 thinking이 항상 켜져 있고 thinking 토큰도
+  `max_tokens`에 들어가므로 단계별로 넉넉히 준다(리뷰어·jd·fit·rescreen 32k, synthesis·rewrite·plan 64k).
+  `stop_reason=max_tokens`면 한도를 두 배(최대 128k)로 올려 1회 재요청, 그래도 끊기면 `LlmPermanentError("max_tokens")`
+  (사용자 문구는 입력 탓을 하지 않는다). `model_context_window_exceeded`는 별도 사유 `context_window`.
 - `thinking`은 생략(Opus 5.5는 adaptive 고정), `output_config.effort`를 단계별로 명시: 리뷰어 `medium`, jd/fit `medium`, synthesis/rewrite/plan `high`.
 - `temperature` 등 샘플링 파라미터 금지(400).
 - 재시도: 429/5xx/연결 오류는 SDK 재시도(maxRetries)에 맡기고, 스키마 검증 실패는 1회 재요청 후 `LlmPermanentError("invalid_output")`.
-- 프롬프트 캐싱: `system`(페르소나 고정문)과 이력서·JD 블록을 앞에 두고 `cache_control` 적용, 단계별 가변 내용은 뒤.
+- 사용량: `usage.iterations`가 있으면(서버 측 fallback 등) 시도별 값을 합산한다. 실패한 호출도 그때까지의 사용량을
+  오류 객체(`error.usage`)에 붙이고, runner가 진단 사용량에 더한다.
+- 프롬프트 캐싱: `system`은 모든 단계·진단이 같은 공통 규칙(`SYSTEM_PROMPT`) 하나이고 `cache_control`을 붙인다.
+  user 메시지는 [공유 자료 블록(cache_control)] + [단계 역할 + 할 일 + 이전 결과] 순서다. system 캐시는 단계·진단을
+  넘어 재사용된다. 자료 블록까지의 캐시는 effort와 출력 스키마가 같은 요청끼리만 맞을 수 있고, 동시에 출발한 요청은
+  서로의 쓰기를 읽지 못하므로(팬아웃 8개) 단계 간 재사용은 보장하지 않는다. 실제 효과는 `diagnoses.usage.cacheReadTokens`로 확인한다.
 
 ## 6. 인증
 
@@ -74,6 +101,9 @@
 - `getCurrentUser()`(서버 전용) / `requireUser()`(없으면 `/login?next=` 리다이렉트) / API용 `requireApiUser()`(401 JSON).
 - 모든 진단 조회·수정은 `userId` 소유권 확인. 공유 토큰(`/share/[token]`)만 비로그인 읽기 허용.
 - 로그인·가입 실패 메시지는 계정 존재 여부를 드러내지 않는다. 상태 변경 요청은 same-origin(`Origin` 헤더) 확인.
+- 레이트 리밋(인스턴스 메모리): 로그인은 IP당·이메일+IP당·계정당, 가입은 IP당, 진단 생성은 IP당 하루, 공개 공유
+  페이지·PDF는 IP당 분당. 클라이언트 IP는 X-Forwarded-For 맨 왼쪽을 믿지 않는다 — Vercel은 `x-real-ip`,
+  리버스 프록시 뒤면 `TRUSTED_PROXY_HOPS`, 그 밖은 맨 오른쪽 값(`auth/rate-limit.ts clientIp`).
 
 ## 7. 라우트
 
@@ -83,14 +113,14 @@
 | `/signup`, `/login` | 인증 |
 | `/app` | 내 진단 이력(제목, 직무, 상태, 날짜, 7명 중 통과 수) |
 | `/app/new` | 새 진단: 이력서(PDF·DOCX·TXT·MD 업로드 또는 붙여넣기), 지원 직무(필수), JD(붙여넣기 또는 파일, 선택이지만 강력 권장), 상황, 메모 |
-| `/app/d/[id]` | 진행 중이면 단계별 진행 화면, 완료되면 보고서 |
+| `/app/d/[id]` | 진행 중이면 단계별 진행 화면, 완료되면 보고서, 실패했지만 부분 보고서가 가능하면 진행 화면(재시도) + 부분 보고서. 생성 직후 입력 경고는 URL이 아니라 sessionStorage로 넘겨 한 번 표시 |
 | `/share/[token]` | 읽기 전용 공유 보고서 |
 | `POST /api/auth/signup` `POST /api/auth/login` `POST /api/auth/logout` | |
 | `GET/POST /api/diagnoses` | 목록 / 생성(multipart) |
 | `GET/DELETE /api/diagnoses/[id]` | 상태+보고서 / 삭제 |
 | `POST /api/diagnoses/[id]/retry` | 재시도 |
 | `POST/DELETE /api/diagnoses/[id]/share` | 공유 링크 생성/해제 |
-| `GET /api/diagnoses/[id]/pdf`, `GET /api/share/[token]/pdf` | PDF 다운로드 |
+| `GET /api/diagnoses/[id]/pdf`, `GET /api/share/[token]/pdf` | PDF 다운로드. 렌더 결과는 메모리 캐시(내용 키)·ETag/304, 동시 요청은 한 번만 렌더. 공유 PDF에는 진단 ID를 넣지 않음 |
 | `GET /api/diagnoses/[id]/markdown?file=panel\|resume` | 원본 스킬 호환 `PANEL.md` / `RESUME-IMPROVED.md` |
 
 ## 8. 보고서 구성 (웹·PDF 동일 순서)
@@ -105,6 +135,9 @@
 8. 고지: 언어 모델이 만든 구조화된 두 번째 의견이며 면접·합격을 보장하지 않음. 원본 스킬 크레딧.
 
 인용 검증 실패(`verified=false`)는 "원문에서 찾지 못함" 표시. JD가 추정(`inferred`)이면 섹션 상단에 "공고 없이 직무명으로 추정한 요건" 경고.
+요건의 공고 인용(`jdQuote`)은 JD 원문과, 재심사 근거 인용은 재작성본과 대조한다. 문제점 번호는 `rank` 그대로(변경 내역·
+개선 방향성의 `#N`과 같다). 재심사가 여전히 탈락이면 근거·파싱 문제·연락처/날짜 검사를 함께 보여 준다.
+JD 키워드 칩은 웹·PDF 모두 찾음(초록)/못 찾음(빨강)으로 표시한다(`keywordStatus`).
 
 ## 9. 파일 소유권 (병렬 작업 시 자기 영역만 수정)
 
@@ -126,14 +159,15 @@ export function currentModelName(): string;              // 진단 행의 model 
 // A. src/lib/panel/quotes.ts
 export function verifyQuote(resumeText: string, quote: string): boolean; // 공백·따옴표·대소문자·글머리표 정규화 후 부분 일치
 // A. src/lib/panel/runner.ts  (DB를 읽고 써서 진단 하나를 끝까지 실행. 이미 done인 단계는 건너뜀. 예외를 밖으로 던지지 않음)
-export async function runDiagnosis(diagnosisId: string, opts?: { llm?: LlmClient }): Promise<void>;
+export async function runDiagnosis(diagnosisId: string, opts?: { llm?: LlmClient; deadlineAt?: number; heartbeatMs?: number }): Promise<void>;
 // A. src/lib/panel/pipeline.ts  (DB 무관 순수 오케스트레이션 — 테스트 대상)
 export async function runPipeline(input: DiagnosisInput, deps: {
   llm: LlmClient;
   existing: Partial<StageOutputs>;                       // 이미 끝난 단계(재개용)
   onStageStart(stage: StageKey): Promise<void>;
   onStageDone<K extends StageKey>(stage: K, output: StageOutputs[K], usage: LlmUsage): Promise<void>;
-  onStageFailed(stage: StageKey, error: Error): Promise<void>;
+  onStageFailed(stage: StageKey, error: Error): Promise<void>;   // error.usage에 실패 전까지 쓴 토큰이 있을 수 있음
+  signal?: AbortSignal;                                  // 중단되면 남은 단계를 시작하지 않음
 }): Promise<{ ok: boolean }>;                            // 실패 단계에 의존하는 단계는 실행하지 않음
 
 // B. src/lib/auth/session.ts (server-only)
@@ -147,21 +181,23 @@ export function assertSameOrigin(req: Request): Response | null;                
 export async function getDiagnosisForUser(id: string, userId: string): Promise<{ diagnosis: Diagnosis; stages: DiagnosisStage[] } | null>;
 export async function getDiagnosisByShareToken(token: string): Promise<{ diagnosis: Diagnosis; stages: DiagnosisStage[] } | null>;
 export async function listDiagnoses(userId: string): Promise<DiagnosisListItem[]>;
-export type DiagnosisListItem = { id: string; title: string; targetRole: string; status: DiagnosisStatus;
+export type DiagnosisListItem = { id: string; title: string; subtitle: string; targetRole: string; status: DiagnosisStatus;
   positiveCount: number | null; matchScore: number | null; createdAt: Date; hasJd: boolean };
 // GET /api/diagnoses/[id] 응답 JSON
 export type DiagnosisStatusResponse = {
   id: string; status: DiagnosisStatus; error: string | null; title: string; shareToken: string | null;
   stages: { stage: StageKey; status: StageStatus; error: string | null }[];
-  report: ReportModel | null;   // status==='done'일 때만 (Date는 ISO 문자열로 직렬화됨)
+  report: ReportModel | null;   // done이거나, failed라도 jd·심사위원 7명·fit이 끝났으면 (Date는 ISO 문자열로 직렬화됨)
+  partial: boolean;             // report가 부분 보고서이면 true
 };
 // C. src/lib/ingest/extract.ts
-export async function extractText(file: { name: string; type: string; bytes: Uint8Array }): Promise<{ text: string; warnings: string[] }>;
+export async function extractText(file: { name: string; type: string; bytes: Uint8Array }, opts?: { maxChars?: number }): Promise<{ text: string; warnings: string[] }>;
 // PDF(unpdf), DOCX(mammoth), TXT/MD. 10MB 제한, 텍스트 50자 미만이면 "이미지 PDF로 보임 — 텍스트를 붙여넣어 달라" 오류.
 // PDF는 pdfjs-dist의 CMap(node_modules/pdfjs-dist/cmaps)을 넘겨 ToUnicode 없는 한국어 CID 글꼴(macOS 인쇄 PDF 등)도 읽는다.
 
 // D. src/lib/report/model.ts
 export function buildReportModel(diagnosis: Diagnosis, stages: DiagnosisStage[]): ReportModel; // 완료된 단계만으로도 부분 생성 가능
+export function reportAvailability(status: DiagnosisStatus, stages): { show: boolean; partial: boolean; missing: string[] };
 // D. src/lib/report/markdown.ts
 export function renderPanelMarkdown(r: ReportModel): string; export function renderResumeMarkdown(r: ReportModel): string;
 // D. src/components/report/Report.tsx  (서버/클라이언트 양쪽에서 쓸 수 있는 순수 표현 컴포넌트, 훅 없음)

@@ -1,7 +1,7 @@
 import { verdictLabel } from "@/lib/domain/reviewers";
 import type { ReportModel } from "@/lib/report/types";
 import { MiniMarkdown, renderInline } from "./MiniMarkdown";
-import { BulletList, Chip, EmptyState, SubHeading, VerdictBadge } from "./primitives";
+import { BulletList, Chip, EmptyState, QuoteBlock, SubHeading, VerdictBadge } from "./primitives";
 
 export function RewriteSection({ report }: { report: ReportModel }) {
   const rw = report.rewrite;
@@ -23,6 +23,38 @@ export function RewriteSection({ report }: { report: ReportModel }) {
         {rescreen && (
           <>
             <p className="mt-3 text-sm leading-relaxed text-slate-700">{rescreen.oneLiner}</p>
+            {rescreen.verdict === "REJECT" && (
+              <div className="mt-4 space-y-3">
+                <div className="flex flex-wrap gap-1.5 text-xs">
+                  <span className={rescreen.contactOk ? "text-emerald-700" : "font-semibold text-rose-700"}>
+                    연락처 {rescreen.contactOk ? "확인" : "문제"}
+                  </span>
+                  <span className="text-slate-300">·</span>
+                  <span className={rescreen.titlesAndDatesClear ? "text-emerald-700" : "font-semibold text-rose-700"}>
+                    직함·날짜 {rescreen.titlesAndDatesClear ? "명확" : "불명확"}
+                  </span>
+                </div>
+                {rw.rescreenReasons.length > 0 && (
+                  <div>
+                    <p className="mb-1.5 text-xs font-semibold text-slate-500">여전히 걸리는 이유 (재작성본 인용)</p>
+                    <ul className="space-y-2">
+                      {rw.rescreenReasons.map((x, i) => (
+                        <li key={i}>
+                          <QuoteBlock quote={x.quote} source="rewrite" className="text-xs" />
+                          <p className="mt-1 text-sm leading-relaxed text-slate-700">{x.issue}</p>
+                        </li>
+                      ))}
+                    </ul>
+                  </div>
+                )}
+                {rescreen.parseIssues.length > 0 && (
+                  <div>
+                    <p className="mb-1.5 text-xs font-semibold text-slate-500">파싱 문제</p>
+                    <BulletList items={rescreen.parseIssues} />
+                  </div>
+                )}
+              </div>
+            )}
             {rescreen.keywordsMissing.length > 0 && (
               <div className="mt-3 flex flex-wrap items-center gap-1.5">
                 <span className="mr-1 text-xs text-slate-500">여전히 빠진 키워드</span>

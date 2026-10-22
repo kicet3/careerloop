@@ -16,6 +16,7 @@ import {
 } from "@react-pdf/renderer";
 import type { VerdictTone } from "@/lib/domain/reviewers";
 import type { AtsResult, Requirement } from "@/lib/domain/schemas";
+import { keywordStatus } from "./model";
 import type { CheckedQuote, ReportModel, ReviewerCard, VerdictView } from "./types";
 
 // ---------------------------------------------------------------------------
@@ -167,9 +168,15 @@ const s = StyleSheet.create({
   small: { fontSize: 8 },
   bold: { fontWeight: 700 },
   // 표
-  table: { borderWidth: 0.75, borderColor: C.line, borderRadius: 4 },
-  tr: { flexDirection: "row", borderTopWidth: 0.5, borderTopColor: C.line },
-  th: { flexDirection: "row", backgroundColor: C.panel },
+  // 표는 바깥 테두리 하나로 감싸지 않고 행마다 테두리를 그린다. 페이지가 넘어갈 때 열린 테두리·빈 띠가 생기지 않는다.
+  tr: {
+    flexDirection: "row",
+    borderLeftWidth: 0.75,
+    borderRightWidth: 0.75,
+    borderBottomWidth: 0.5,
+    borderColor: C.line,
+  },
+  th: { flexDirection: "row", backgroundColor: C.panel, borderWidth: 0.75, borderColor: C.line },
   thCell: { fontSize: 8, fontWeight: 700, color: C.muted, padding: 6 },
   td: { padding: 6 },
   // 조각
@@ -234,36 +241,44 @@ function Bullets({ items, color }: { items: string[]; color?: string }) {
   );
 }
 
-function Chips({ items, tone }: { items: string[]; tone: VerdictTone | "plain" }) {
+const PLAIN_CHIP = { fg: C.body, bg: "#ffffff", bd: "#d1d5db" };
+
+function Chips({ items, tone }: { items: string[]; tone: VerdictTone | "plain" | ((item: string) => VerdictTone | "plain") }) {
   if (items.length === 0) return <T style={[s.muted, s.small]}>없음</T>;
-  const c = tone === "plain" ? { fg: C.body, bg: "#ffffff", bd: "#d1d5db" } : { ...TONE[tone], bd: TONE[tone].bd };
+  const colors = (k: string) => {
+    const t = typeof tone === "function" ? tone(k) : tone;
+    return t === "plain" ? PLAIN_CHIP : TONE[t];
+  };
   return (
     <View style={s.chips}>
-      {items.map((k, i) => (
-        <T key={i} style={[s.chip, { color: c.fg, backgroundColor: c.bg, borderColor: c.bd }]}>
-          {k}
-        </T>
-      ))}
+      {items.map((k, i) => {
+        const c = colors(k);
+        return (
+          <T key={i} style={[s.chip, { color: c.fg, backgroundColor: c.bg, borderColor: c.bd }]}>
+            {k}
+          </T>
+        );
+      })}
     </View>
   );
 }
 
-function Quote({ q }: { q: CheckedQuote }) {
+function Quote({ q, sourceLabel = "원문" }: { q: CheckedQuote; sourceLabel?: string }) {
   return (
     <View style={s.quote} wrap={false}>
       <T>“{q.text.trim().replace(/^([-*•·▪]|\d+[.)])\s+/, "")}”</T>
-      {!q.verified && <T style={[s.small, { color: C.neg, marginTop: 2 }]}>원문에서 찾지 못함 — 원문 확인 필요</T>}
+      {!q.verified && <T style={[s.small, { color: C.neg, marginTop: 2 }]}>{sourceLabel}에서 찾지 못함 — 원문 확인 필요</T>}
     </View>
   );
 }
 
-function QuotedIssues({ items }: { items: { quote: CheckedQuote; issue: string }[] }) {
+function QuotedIssues({ items, sourceLabel }: { items: { quote: CheckedQuote; issue: string }[]; sourceLabel?: string }) {
   if (items.length === 0) return <T style={s.muted}>없음</T>;
   return (
     <View>
       {items.map((it, i) => (
         <View key={i} style={{ marginBottom: 5 }} wrap={false}>
-          <Quote q={it.quote} />
+          <Quote q={it.quote} sourceLabel={sourceLabel} />
           <T>{it.issue}</T>
         </View>
       ))}
@@ -303,7 +318,7 @@ function Table({ cols, rows }: { cols: { label: string; flex: number }[]; rows: 
     </View>
   );
   return (
-    <View style={s.table}>
+    <View>
       {/* 머리글이 페이지 끝에 홀로 남지 않도록 첫 행과 묶는다 */}
       <View wrap={false}>
         <View style={s.th}>
@@ -539,6 +554,8 @@ function ReviewerTable({ r, no }: { r: ReportModel; no: number }) {
   );
 }
 
+const KEYWORD_TONE = { present: "positive", missing: "negative", unknown: "plain" } as const;
+
 function JdSection({ r, no }: { r: ReportModel; no: number }) {
   const jd = r.jd;
   if (!jd) {
@@ -549,6 +566,9 @@ function JdSection({ r, no }: { r: ReportModel; no: number }) {
     );
   }
   const a = jd.analysis;
+  const ats = r.reviewers.find((rv) => rv.id === "ats");
+  const present = ats?.detail.kind === "ats" ? ats.detail.result.keywordsPresent : [];
+  const missing = ats?.detail.kind === "ats" ? ats.detail.result.keywordsMissing : [];
   return (
     <Section no={no} title="JD 분석 · 적합도 매트릭스" breakBefore>
       {a.source === "inferred" && (
@@ -571,7 +591,13 @@ function JdSection({ r, no }: { r: ReportModel; no: number }) {
       )}
 
       <H3>ATS 키워드</H3>
-      <Chips items={a.keywords} tone="plain" />
+      <Chips items={a.keywords} tone={(k) => KEYWORD_TONE[keywordStatus(k, present, missing)]} />
+      {(present.length > 0 || missing.length > 0) && (
+        <T style={[s.small, s.muted, { marginBottom: 4 }]}>
+          <Text style={{ color: C.pos, fontWeight: 700 }}>초록</Text>은 이력서에서 찾은 키워드,{" "}
+          <Text style={{ color: C.neg, fontWeight: 700 }}>빨강</Text>은 서류 자동 필터가 찾지 못한 키워드입니다.
+        </T>
+      )}
 
       {a.hiddenSignals.length > 0 && (
         <>
@@ -604,7 +630,12 @@ function JdSection({ r, no }: { r: ReportModel; no: number }) {
                 <Text style={{ color: C.faint }}>{row.requirement.id} </Text>
                 {row.requirement.text}
               </T>
-              {row.requirement.jdQuote ? <T style={[s.small, s.muted]}>공고: “{row.requirement.jdQuote}”</T> : null}
+              {row.jdQuote ? (
+                <T style={[s.small, s.muted]}>
+                  공고: “{row.jdQuote.text}”
+                  {!row.jdQuote.verified ? <Text style={{ color: C.neg }}> (공고 원문에서 찾지 못함)</Text> : null}
+                </T>
+              ) : null}
             </View>,
             <View key="c">
               <T style={[s.small, { fontWeight: 700, color: row.priority === "must" ? C.accent : C.muted }]}>
@@ -634,10 +665,10 @@ function MistakesSection({ r, no }: { r: ReportModel; no: number }) {
   return (
     <Section no={no} title="문제점 — 심각도순" breakBefore>
       {r.mistakes.length === 0 && <T style={s.muted}>심사위원들이 공통으로 지적한 문제가 없습니다.</T>}
-      {r.mistakes.map((m) => {
+      {r.mistakes.map((m, i) => {
         const sev = SEVERITY[m.severity];
         return (
-          <View key={m.rank} style={[s.card, { borderLeftWidth: 3, borderLeftColor: TONE[sev.tone].fg }]} wrap={false}>
+          <View key={i} style={[s.card, { borderLeftWidth: 3, borderLeftColor: TONE[sev.tone].fg }]} wrap={false}>
             <View style={{ flexDirection: "row", alignItems: "center", marginBottom: 3 }}>
               <T style={{ fontSize: 11, fontWeight: 800, color: C.faint, marginRight: 6 }}>#{m.rank}</T>
               <Badge tone={sev.tone}>{sev.label}</Badge>
@@ -806,14 +837,25 @@ function ChangesSection({ r, no }: { r: ReportModel; no: number }) {
       )}
 
       <H3>재작성본 서류 자동 필터 재심사</H3>
-      <RescreenBlock before={r.summary.atsBefore} after={r.summary.atsAfter} rescreen={w.rescreen} />
+      <RescreenBlock before={r.summary.atsBefore} after={r.summary.atsAfter} rescreen={w.rescreen} reasons={w.rescreenReasons} />
     </Section>
   );
 }
 
-function RescreenBlock({ before, after, rescreen }: { before: VerdictView; after: VerdictView | null; rescreen: AtsResult | null }) {
+function RescreenBlock({
+  before,
+  after,
+  rescreen,
+  reasons,
+}: {
+  before: VerdictView;
+  after: VerdictView | null;
+  rescreen: AtsResult | null;
+  reasons: { quote: CheckedQuote; issue: string }[];
+}) {
+  const rejected = rescreen?.verdict === "REJECT";
   return (
-    <View style={s.card} wrap={false}>
+    <View style={s.card} wrap={rejected}>
       <View style={{ flexDirection: "row", alignItems: "center", marginBottom: 4 }}>
         <T style={[s.small, s.muted, { marginRight: 6 }]}>원본</T>
         <VerdictBadge v={before} />
@@ -826,6 +868,29 @@ function RescreenBlock({ before, after, rescreen }: { before: VerdictView; after
           <T style={{ color: C.ink }}>{rescreen.oneLiner}</T>
           <T style={[s.small, s.bold, { marginTop: 5 }]} minPresenceAhead={40}>여전히 빠진 키워드</T>
           <Chips items={rescreen.keywordsMissing} tone="negative" />
+          {rejected && (
+            <>
+              <View style={{ flexDirection: "row", marginBottom: 4 }}>
+                <Badge tone={rescreen.contactOk ? "positive" : "negative"}>연락처 {rescreen.contactOk ? "확인" : "문제"}</Badge>
+                <View style={{ width: 4 }} />
+                <Badge tone={rescreen.titlesAndDatesClear ? "positive" : "negative"}>
+                  직함·날짜 {rescreen.titlesAndDatesClear ? "명확" : "불명확"}
+                </Badge>
+              </View>
+              {reasons.length > 0 && (
+                <>
+                  <T style={[s.small, s.bold, { marginTop: 3 }]} minPresenceAhead={60}>여전히 걸리는 이유 (재작성본 인용)</T>
+                  <QuotedIssues items={reasons} sourceLabel="개선된 이력서" />
+                </>
+              )}
+              {rescreen.parseIssues.length > 0 && (
+                <>
+                  <T style={[s.small, s.bold]} minPresenceAhead={40}>파싱 문제</T>
+                  <Bullets items={rescreen.parseIssues} color={C.neg} />
+                </>
+              )}
+            </>
+          )}
         </>
       ) : null}
     </View>
@@ -834,14 +899,22 @@ function RescreenBlock({ before, after, rescreen }: { before: VerdictView; after
 
 function ReviewerDetail({ rv }: { rv: ReviewerCard }) {
   const d = rv.detail;
+  // 짧은 카드(리더 5명)는 한 페이지에 통째로 둔다. 긴 카드(ATS·채용 담당자)는 상자 테두리 대신 왼쪽 선만 그려
+  // 페이지가 넘어가도 열린 테두리가 생기지 않게 하고, 머리글이 본문 없이 페이지 끝에 홀로 남지 않게 한다.
+  const long = d.kind !== "reader";
+  const box = long
+    ? { borderLeftWidth: 2, borderLeftColor: TONE[rv.verdict.tone].fg, paddingLeft: 10, paddingVertical: 2, marginBottom: 14 }
+    : [s.card, { marginBottom: 10 }];
   return (
-    <View style={[s.card, { marginBottom: 10 }]}>
-      <View style={{ flexDirection: "row", alignItems: "center", marginBottom: 2 }} wrap={false} minPresenceAhead={40}>
-        <T style={{ fontSize: 11, fontWeight: 800, color: C.ink, marginRight: 6 }}>{rv.name}</T>
-        <VerdictBadge v={rv.verdict} />
+    <View style={box} wrap={long}>
+      <View wrap={false} minPresenceAhead={140}>
+        <View style={{ flexDirection: "row", alignItems: "center", marginBottom: 2 }}>
+          <T style={{ fontSize: 11, fontWeight: 800, color: C.ink, marginRight: 6 }}>{rv.name}</T>
+          <VerdictBadge v={rv.verdict} />
+        </View>
+        <T style={[s.small, s.muted, { marginBottom: 4 }]}>{rv.role}</T>
+        <T style={{ color: C.ink, marginBottom: 4 }}>{rv.oneLiner}</T>
       </View>
-      <T style={[s.small, s.muted, { marginBottom: 4 }]}>{rv.role}</T>
-      <T style={{ color: C.ink, marginBottom: 4 }}>{rv.oneLiner}</T>
 
       {d.kind === "ats" && (
         <>
@@ -905,7 +978,8 @@ function Disclaimer({ r }: { r: ReportModel }) {
       </T>
       <T style={[s.small, s.muted, { marginTop: 4 }]}>
         심사 방식은 Alex Chen의 hiring-panel 스킬(MIT 라이선스, github.com/alexyc9381/hiring-panel-skill)을 바탕으로 했습니다.
-        {r.meta.model ? ` 모델: ${r.meta.model}.` : ""} 진단 ID: {r.meta.diagnosisId}
+        {r.meta.model ? ` 모델: ${r.meta.model}.` : ""}
+        {r.meta.diagnosisId ? ` 진단 ID: ${r.meta.diagnosisId}` : ""}
       </T>
     </View>
   );
@@ -951,7 +1025,7 @@ function HeaderContent({ r }: { r: ReportModel }) {
   return (
     <View style={s.header}>
       <Text style={{ maxWidth: "65%" }}>{truncate(r.meta.title, 40)}</Text>
-      <Text>{r.meta.targetRole} · 진단 보고서</Text>
+      <Text>이력서 심사위원단 진단 보고서</Text>
     </View>
   );
 }

@@ -1,21 +1,35 @@
 /**
  * 진단 하나를 DB에서 읽어 끝까지 실행하고 결과를 단계마다 저장한다. 예외를 밖으로 던지지 않는다.
- * 동시 실행 방지: 진단 상태를 queued/failed → running으로 조건부 갱신하고, 바뀐 행이 없으면 바로 끝낸다.
+ * - 동시 실행 방지: 진단 상태를 queued/failed → running으로 조건부 갱신하며 새 runId를 정한다. 바뀐 행이 없으면 끝낸다.
+ * - 실행 식별: 이후 모든 쓰기(진단·단계 행)는 "status=running AND run_id=내 runId"일 때만 반영된다. 멈춘 실행으로
+ *   판정(markStaleRunsFailed)되고 재시도가 새 실행을 시작하면, 예전 실행의 늦은 쓰기는 아무 행에도 닿지 않는다.
+ * - 하트비트: HEARTBEAT_MS마다 updatedAt을 갱신한다. 갱신이 0행이면(중단 판정·삭제·다른 실행이 차지) 파이프라인을
+ *   중단(AbortSignal)해 더 이상 LLM을 부르지 않는다.
+ * - 시간 예산: opts.deadlineAt이 있으면 그 시각에 중단하고 실패로 기록한다(함수 시간 제한에 강제 종료되기 전에).
  */
 import "server-only";
-import { and, eq, inArray, ne } from "drizzle-orm";
+import { and, eq, inArray, ne, sql } from "drizzle-orm";
+import { nanoid } from "nanoid";
 import { db } from "@/lib/db/client";
 import { diagnoses, diagnosisStages, type UsageTotals } from "@/lib/db/schema";
 import { STAGE_LABELS } from "@/lib/domain/reviewers";
 import { STAGE_KEYS, STAGE_SCHEMAS, type DiagnosisInput, type StageKey, type StageOutputs } from "@/lib/domain/schemas";
+import { HEARTBEAT_MS } from "@/lib/diagnoses/summary";
 import { createLlmClient } from "@/lib/llm";
-import { LlmPermanentError, type LlmClient, type LlmUsage } from "@/lib/llm/types";
+import { LlmPermanentError, usageOfError, type LlmClient, type LlmUsage } from "@/lib/llm/types";
 import { runPipeline } from "./pipeline";
 
 const ZERO_USAGE: UsageTotals = { inputTokens: 0, outputTokens: 0, cacheReadTokens: 0, cacheWriteTokens: 0 };
 
 /** 단계 실패 사유를 사용자에게 보여줄 한국어 문장으로. */
 export function stageErrorMessage(error: unknown): string {
+  const name = (error as { name?: unknown } | null)?.name;
+  if (name === "AbortError" || name === "APIUserAbortError" || name === "RunAbortedError") {
+    const reason = (error as { reason?: unknown }).reason;
+    return reason === "deadline"
+      ? "서버 실행 시간 제한에 걸려 중단되었습니다. 다시 시도하면 끝난 단계는 건너뛰고 이어서 진행합니다."
+      : "실행이 중단되었습니다. 다시 시도해 주세요.";
+  }
   if (error instanceof LlmPermanentError) {
     switch (error.reason) {
       case "refusal":
@@ -23,7 +37,9 @@ export function stageErrorMessage(error: unknown): string {
       case "invalid_output":
         return "AI 응답이 정해진 형식과 맞지 않았습니다(재요청 후에도 실패). 다시 시도해 주세요.";
       case "max_tokens":
-        return "AI 응답이 길이 제한에서 끊겼습니다. 이력서나 공고가 너무 길면 줄여서 다시 시도해 주세요.";
+        return "AI 응답이 서버의 출력 길이 한도에서 끊겼습니다(한도를 올려 다시 요청한 뒤에도). 다시 시도해 주세요.";
+      case "context_window":
+        return "이력서와 공고를 합친 입력이 AI 모델이 한 번에 읽을 수 있는 양을 넘었습니다. 줄여서 다시 진단해 주세요.";
       case "bad_request":
         return "AI 서비스가 요청을 받아들이지 않았습니다(입력이 너무 길거나 형식 오류).";
     }
@@ -35,7 +51,6 @@ export function stageErrorMessage(error: unknown): string {
     if (status >= 500) return `AI 서비스에 일시적인 장애가 있습니다(상태 ${status}). 잠시 뒤 다시 시도해 주세요.`;
     return `AI 서비스 호출에 실패했습니다(상태 ${status}).`;
   }
-  const name = (error as { name?: unknown } | null)?.name;
   if (name === "APIConnectionError" || name === "APIConnectionTimeoutError") {
     return "AI 서비스에 연결하지 못했습니다. 잠시 뒤 다시 시도해 주세요.";
   }
@@ -62,7 +77,18 @@ function existingOutputs(rows: { stage: StageKey; status: string; output: unknow
   return out as Partial<StageOutputs>;
 }
 
-export async function runDiagnosis(diagnosisId: string, opts?: { llm?: LlmClient }): Promise<void> {
+/** 실행 중단 사유를 담은 오류(파이프라인의 진행 중 호출을 끊을 때 쓴다). */
+class RunAbortedError extends Error {
+  constructor(readonly reason: "deadline" | "lost_ownership") {
+    super(reason === "deadline" ? "실행 시간 예산 초과" : "실행 소유권 상실(중단 판정·삭제·다른 실행)");
+    this.name = "RunAbortedError";
+  }
+}
+
+export async function runDiagnosis(
+  diagnosisId: string,
+  opts?: { llm?: LlmClient; deadlineAt?: number; heartbeatMs?: number },
+): Promise<void> {
   // 진단 행 갱신은 순서대로 한다(사용량 누적값이 늦게 쓰인 작은 값으로 덮이지 않도록).
   let chain: Promise<unknown> = Promise.resolve();
   const serial = (fn: () => Promise<unknown>) => {
@@ -71,10 +97,19 @@ export async function runDiagnosis(diagnosisId: string, opts?: { llm?: LlmClient
     return next;
   };
 
+  const runId = nanoid();
+  const controller = new AbortController();
+  let heartbeat: ReturnType<typeof setInterval> | undefined;
+  let deadlineTimer: ReturnType<typeof setTimeout> | undefined;
+  const mine = and(eq(diagnoses.id, diagnosisId), eq(diagnoses.runId, runId), eq(diagnoses.status, "running"));
+  const loseOwnership = () => {
+    if (!controller.signal.aborted) controller.abort(new RunAbortedError("lost_ownership"));
+  };
+
   try {
     const claimed = await db
       .update(diagnoses)
-      .set({ status: "running", error: null, completedAt: null, updatedAt: new Date() })
+      .set({ status: "running", runId, error: null, completedAt: null, updatedAt: new Date() })
       .where(and(eq(diagnoses.id, diagnosisId), inArray(diagnoses.status, ["queued", "failed"])))
       .returning({ id: diagnoses.id });
     if (claimed.length === 0) return; // 없거나 이미 실행 중/완료
@@ -108,26 +143,43 @@ export async function runDiagnosis(diagnosisId: string, opts?: { llm?: LlmClient
 
     let usage: UsageTotals = { ...ZERO_USAGE, ...(diagnosis.usage ?? {}) };
     const failed: StageKey[] = [];
+    // 단계 행 쓰기도 이 실행이 아직 진단을 소유할 때만 반영한다.
+    const ownsRun = sql`exists (select 1 from ${diagnoses} where ${diagnoses.id} = ${diagnosisId} and ${diagnoses.runId} = ${runId} and ${diagnoses.status} = 'running')`;
     const stageWhere = (stage: StageKey) =>
-      and(eq(diagnosisStages.diagnosisId, diagnosisId), eq(diagnosisStages.stage, stage));
+      and(eq(diagnosisStages.diagnosisId, diagnosisId), eq(diagnosisStages.stage, stage), ownsRun);
+    const writeStage = async (stage: StageKey, values: Partial<typeof diagnosisStages.$inferInsert>) => {
+      const rows = await db.update(diagnosisStages).set(values).where(stageWhere(stage)).returning({ id: diagnosisStages.id });
+      if (rows.length === 0) loseOwnership();
+    };
     const touch = (extra: Partial<typeof diagnoses.$inferInsert> = {}) =>
-      serial(() => db.update(diagnoses).set({ updatedAt: new Date(), ...extra }).where(eq(diagnoses.id, diagnosisId)));
+      serial(async () => {
+        const rows = await db
+          .update(diagnoses)
+          .set({ updatedAt: new Date(), ...extra })
+          .where(mine)
+          .returning({ id: diagnoses.id });
+        if (rows.length === 0) loseOwnership();
+      });
+
+    heartbeat = setInterval(() => void touch().catch(() => undefined), opts?.heartbeatMs ?? HEARTBEAT_MS);
+    if (opts?.deadlineAt) {
+      deadlineTimer = setTimeout(
+        () => controller.abort(new RunAbortedError("deadline")),
+        Math.max(0, opts.deadlineAt - Date.now()),
+      );
+    }
 
     const { ok } = await runPipeline(input, {
       llm: opts?.llm ?? createLlmClient(),
       existing,
+      signal: controller.signal,
       async onStageStart(stage) {
-        await db
-          .update(diagnosisStages)
-          .set({ status: "running", error: null, startedAt: new Date(), finishedAt: null })
-          .where(stageWhere(stage));
+        if (controller.signal.aborted) throw controller.signal.reason;
+        await writeStage(stage, { status: "running", error: null, startedAt: new Date(), finishedAt: null });
         await touch();
       },
       async onStageDone(stage, output, stageUsage) {
-        await db
-          .update(diagnosisStages)
-          .set({ status: "done", output, error: null, finishedAt: new Date() })
-          .where(stageWhere(stage));
+        await writeStage(stage, { status: "done", output, error: null, finishedAt: new Date() });
         usage = addUsage(usage, stageUsage);
         const snapshot = usage;
         await touch({ usage: snapshot });
@@ -135,35 +187,47 @@ export async function runDiagnosis(diagnosisId: string, opts?: { llm?: LlmClient
       async onStageFailed(stage, error) {
         failed.push(stage);
         console.error(`[runDiagnosis] ${diagnosisId} ${stage} 실패:`, error);
-        await db
-          .update(diagnosisStages)
-          .set({ status: "failed", error: stageErrorMessage(error), finishedAt: new Date() })
-          .where(stageWhere(stage));
-        await touch();
+        // 실패한 단계도 그때까지 쓴 토큰은 사용량에 넣는다.
+        const spent = usageOfError(error);
+        if (spent) usage = addUsage(usage, spent);
+        // 중단(시간 예산·소유권 상실)으로 끊긴 호출은 원인을 단계 오류로 보여 준다.
+        const shown = controller.signal.aborted ? (controller.signal.reason ?? error) : error;
+        await writeStage(stage, { status: "failed", error: stageErrorMessage(shown), finishedAt: new Date() });
+        const snapshot = usage;
+        await touch({ usage: snapshot });
       },
     });
 
+    clearInterval(heartbeat);
     await chain;
     const now = new Date();
+    const deadlineHit = (controller.signal.reason as RunAbortedError | undefined)?.reason === "deadline";
     const error = ok
       ? null
-      : failed.length > 0
-        ? `${failed.map((s) => STAGE_LABELS[s]).join(", ")} 단계가 실패했습니다. 다시 시도하면 완료된 단계는 건너뛰고 이어서 진행합니다.`
-        : "일부 단계를 완료하지 못했습니다. 다시 시도해 주세요.";
+      : deadlineHit
+        ? "서버 실행 시간 제한에 걸려 중단되었습니다. 다시 시도하면 완료된 단계는 건너뛰고 이어서 진행합니다."
+        : failed.length > 0
+          ? `${failed.map((s) => STAGE_LABELS[s]).join(", ")} 단계가 실패했습니다. 다시 시도하면 완료된 단계는 건너뛰고 이어서 진행합니다.`
+          : "일부 단계를 완료하지 못했습니다. 다시 시도해 주세요.";
+    // 이 실행이 아직 소유한 경우에만 최종 상태를 쓴다(멈춤 판정 뒤 다른 실행이 시작됐으면 건드리지 않는다).
     await db
       .update(diagnoses)
       .set({ status: ok ? "done" : "failed", error, completedAt: ok ? now : null, updatedAt: now, usage })
-      .where(and(eq(diagnoses.id, diagnosisId), eq(diagnoses.status, "running")));
+      .where(mine);
   } catch (e) {
     console.error(`[runDiagnosis] ${diagnosisId} 실행 오류:`, e);
     try {
+      clearInterval(heartbeat);
       await chain;
       await db
         .update(diagnoses)
         .set({ status: "failed", error: "진단을 실행하는 중 오류가 발생했습니다. 다시 시도해 주세요.", updatedAt: new Date() })
-        .where(and(eq(diagnoses.id, diagnosisId), ne(diagnoses.status, "done")));
+        .where(and(eq(diagnoses.id, diagnosisId), eq(diagnoses.runId, runId), ne(diagnoses.status, "done")));
     } catch (e2) {
       console.error(`[runDiagnosis] ${diagnosisId} 실패 상태 기록 실패:`, e2);
     }
+  } finally {
+    clearInterval(heartbeat);
+    clearTimeout(deadlineTimer);
   }
 }

@@ -8,6 +8,10 @@
  * - 스트리밍(`.stream().finalMessage()`): 재작성·계획 단계의 큰 max_tokens에서도 SDK의 비스트리밍 10분 제한에
  *   걸리지 않도록 모든 단계에서 스트리밍을 쓴다. 출력은 finalMessage로 한 번에 받는다.
  * - thinking·temperature는 보내지 않는다. 깊이는 output_config.effort로만 조절한다.
+ *   Opus 5.5는 thinking이 항상 켜져 있고 thinking 토큰도 max_tokens에 들어가므로 단계별 max_tokens를 넉넉히 잡고,
+ *   그래도 max_tokens에서 끊기면 한도를 두 배(최대 MAX_OUTPUT_TOKENS)로 올려 한 번 더 요청한다.
+ * - 사용량: fallback이 일어나면 top-level usage는 마지막 시도만 담으므로 usage.iterations(시도별)를 합산한다.
+ *   실패로 끝나도 그때까지의 사용량을 오류 객체의 usage에 붙여 진단 사용량에 반영되게 한다.
  */
 import Anthropic from "@anthropic-ai/sdk";
 import type {
@@ -29,7 +33,9 @@ import {
 
 export const DEFAULT_MODEL = "claude-opus-5-5";
 const FALLBACK_BETA = "server-side-fallback-2026-07-01";
-const DEFAULT_MAX_TOKENS = 16000;
+const DEFAULT_MAX_TOKENS = 32000;
+/** 모델 출력 상한(Opus 5.5 128K). max_tokens 재시도는 여기까지만 올린다. */
+const MAX_OUTPUT_TOKENS = 128000;
 
 export function anthropicModelName(): string {
   return process.env.ANTHROPIC_MODEL?.trim() || DEFAULT_MODEL;
@@ -101,14 +107,30 @@ function userContent(user: string): BetaTextBlockParam[] {
   ];
 }
 
-function addUsage(acc: LlmUsage, msg: BetaMessage): LlmUsage {
-  const u = msg.usage;
-  return {
-    inputTokens: acc.inputTokens + (u.input_tokens ?? 0),
-    outputTokens: acc.outputTokens + (u.output_tokens ?? 0),
-    cacheReadTokens: acc.cacheReadTokens + (u.cache_read_input_tokens ?? 0),
-    cacheWriteTokens: acc.cacheWriteTokens + (u.cache_creation_input_tokens ?? 0),
-  };
+type UsageLike = {
+  input_tokens?: number | null;
+  output_tokens?: number | null;
+  cache_read_input_tokens?: number | null;
+  cache_creation_input_tokens?: number | null;
+};
+
+/**
+ * 응답 하나의 사용량을 더한다. usage.iterations가 있으면(서버 측 fallback 등 여러 시도) 시도별 값을 모두 합한다 —
+ * top-level usage는 마지막 시도만 담기 때문이다. 없으면 top-level 값을 쓴다.
+ */
+export function addUsage(acc: LlmUsage, msg: Pick<BetaMessage, "usage">): LlmUsage {
+  const iterations = (msg.usage as { iterations?: UsageLike[] | null }).iterations;
+  const parts: UsageLike[] = iterations && iterations.length > 0 ? iterations : [msg.usage as UsageLike];
+  let out = acc;
+  for (const u of parts) {
+    out = {
+      inputTokens: out.inputTokens + (u.input_tokens ?? 0),
+      outputTokens: out.outputTokens + (u.output_tokens ?? 0),
+      cacheReadTokens: out.cacheReadTokens + (u.cache_read_input_tokens ?? 0),
+      cacheWriteTokens: out.cacheWriteTokens + (u.cache_creation_input_tokens ?? 0),
+    };
+  }
+  return out;
 }
 
 /**
@@ -164,26 +186,62 @@ export class AnthropicLlmClient implements LlmClient {
   }
 
   async generate<T>(req: GenerateRequest<T>): Promise<GenerateResult<T>> {
-    const messages: BetaMessageParam[] = [{ role: "user", content: userContent(req.user) }];
     let usage: LlmUsage = { inputTokens: 0, outputTokens: 0, cacheReadTokens: 0, cacheWriteTokens: 0 };
+    try {
+      return await this.generateInner(req, (msg) => {
+        usage = addUsage(usage, msg);
+        return usage;
+      });
+    } catch (e) {
+      // 실패해도 이미 쓴 토큰은 남긴다(runner가 진단 사용량에 더한다).
+      if (e && typeof e === "object" && (e as { usage?: unknown }).usage === undefined) {
+        try {
+          (e as { usage?: LlmUsage }).usage = usage;
+        } catch {
+          // 고정된 오류 객체면 무시
+        }
+      }
+      throw e;
+    }
+  }
 
-    // 스키마 검증 실패 시 1회만 재요청한다.
-    for (let attempt = 0; attempt < 2; attempt++) {
-      const msg = await this.call(req, messages);
-      usage = addUsage(usage, msg);
+  private async generateInner<T>(
+    req: GenerateRequest<T>,
+    record: (msg: BetaMessage) => LlmUsage,
+  ): Promise<GenerateResult<T>> {
+    const messages: BetaMessageParam[] = [{ role: "user", content: userContent(req.user) }];
+    let maxTokens = req.maxTokens ?? DEFAULT_MAX_TOKENS;
+    let usage: LlmUsage = { inputTokens: 0, outputTokens: 0, cacheReadTokens: 0, cacheWriteTokens: 0 };
+    let raisedLimit = false;
+    let schemaRetried = false;
+
+    // 스키마 검증 실패는 1회 재요청, max_tokens 끊김은 한도를 올려 1회 재요청한다.
+    for (let attempt = 0; attempt < 3; attempt++) {
+      const msg = await this.call(req, messages, maxTokens);
+      usage = record(msg);
 
       if (msg.stop_reason === "refusal") {
-        throw new LlmPermanentError(`모델이 응답을 거절했습니다 (${req.stage})`, "refusal");
+        throw new LlmPermanentError(`모델이 응답을 거절했습니다 (${req.stage})`, "refusal", usage);
       }
-      if (msg.stop_reason === "max_tokens" || msg.stop_reason === "model_context_window_exceeded") {
-        throw new LlmPermanentError(`응답이 길이 제한에서 끊겼습니다 (${req.stage})`, "max_tokens");
+      if (msg.stop_reason === "model_context_window_exceeded") {
+        throw new LlmPermanentError(`입력이 모델 컨텍스트를 넘었습니다 (${req.stage})`, "context_window", usage);
+      }
+      if (msg.stop_reason === "max_tokens") {
+        if (!raisedLimit && maxTokens < MAX_OUTPUT_TOKENS) {
+          raisedLimit = true;
+          maxTokens = Math.min(MAX_OUTPUT_TOKENS, maxTokens * 2);
+          continue;
+        }
+        throw new LlmPermanentError(`응답이 출력 한도(${maxTokens})에서 끊겼습니다 (${req.stage})`, "max_tokens", usage);
       }
 
       const parsed = parseOutput(msg.content, req.schema);
       if (parsed.ok) return { output: parsed.value, usage, model: msg.model };
+      if (schemaRetried) break;
+      schemaRetried = true;
 
       const previous = textCandidates(msg.content)[0] ?? "";
-      if (attempt === 0 && previous) {
+      if (previous) {
         messages.push(
           { role: "assistant", content: previous },
           {
@@ -191,20 +249,18 @@ export class AnthropicLlmClient implements LlmClient {
             content: `방금 출력이 스키마 검증을 통과하지 못했다:\n${parsed.problem}\n\n같은 내용을 스키마에 정확히 맞는 JSON 하나로 다시 출력한다.`,
           },
         );
-      } else if (attempt === 0) {
-        // 빈 응답이면 같은 요청을 그대로 다시 보낸다.
-        continue;
       }
+      // 빈 응답이면 같은 요청을 그대로 다시 보낸다.
     }
-    throw new LlmPermanentError(`모델 출력이 스키마와 맞지 않습니다 (${req.stage})`, "invalid_output");
+    throw new LlmPermanentError(`모델 출력이 스키마와 맞지 않습니다 (${req.stage})`, "invalid_output", usage);
   }
 
-  private async call<T>(req: GenerateRequest<T>, messages: BetaMessageParam[]): Promise<BetaMessage> {
+  private async call<T>(req: GenerateRequest<T>, messages: BetaMessageParam[], maxTokens: number): Promise<BetaMessage> {
     try {
       const stream = this.client.beta.messages.stream(
         {
           model: this.model,
-          max_tokens: req.maxTokens ?? DEFAULT_MAX_TOKENS,
+          max_tokens: maxTokens,
           betas: [FALLBACK_BETA],
           fallbacks: "default",
           system: [{ type: "text", text: req.system, cache_control: { type: "ephemeral" } }],

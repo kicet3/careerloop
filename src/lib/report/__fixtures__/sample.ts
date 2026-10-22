@@ -160,7 +160,7 @@ export const SAMPLE_OUTPUTS: StageOutputs = {
     otherProblems: ["코드 리뷰나 기술 공유 경험이 있다면 드러나지 않는다."],
   },
   fit: {
-    matchScore: 58,
+    matchScore: 35,
     summary: "언어·프레임워크와 결제 도메인은 맞지만, 클라우드 운영과 규모 증거가 비어 있어 필수요건 4개 중 2개만 확실하다.",
     items: [
       { requirementId: "R1", status: "met", evidenceQuote: "(주)바른커머스 — 백엔드 개발자 (2022.03 ~ 현재)", note: "Java/Spring 3년차로 기간 요건을 충족한다." },
@@ -360,6 +360,7 @@ export function makeSampleDiagnosis(overrides: Partial<Diagnosis> = {}): Diagnos
     status: "done",
     error: null,
     shareToken: null,
+    runId: null,
     model: "claude-opus-5-5",
     usage: null,
     createdAt: SAMPLE_CREATED_AT,

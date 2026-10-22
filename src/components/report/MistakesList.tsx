@@ -24,7 +24,8 @@ export function MistakesList({ mistakes }: { mistakes: MistakeView[] }) {
                   s.rank,
                 )}
               >
-                {i + 1}
+                {/* 변경 내역·개선 방향성이 "#N"으로 가리키는 번호와 같도록 rank를 그대로 쓴다. */}
+                {m.rank}
               </span>
               <div className="min-w-0 flex-1">
                 <div className="flex flex-wrap items-center gap-2">

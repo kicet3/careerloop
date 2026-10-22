@@ -2,6 +2,7 @@ import { describe, expect, it } from "vitest";
 import { STAGE_DEPENDENCIES, STAGE_KEYS, type DiagnosisInput, type StageKey, type StageOutputs } from "@/lib/domain/schemas";
 import { MockLlmClient } from "@/lib/llm/mock";
 import type { GenerateRequest, GenerateResult, LlmClient } from "@/lib/llm/types";
+import { scoreFit } from "./fit-score";
 import { runPipeline } from "./pipeline";
 
 const INPUT: DiagnosisInput = {
@@ -157,5 +158,40 @@ describe("runPipeline", () => {
     expect(res.ok).toBe(false);
     expect(c.failed.get("fit")?.message).toBe("db down");
     expect(llm.calls).not.toContain("synthesis");
+  });
+
+  it("fit의 matchScore는 모델 값 대신 매트릭스로 다시 계산해 저장하고 다음 단계에 넘긴다", async () => {
+    class WrongScoreLlm extends RecordingLlm {
+      async generate<T>(req: GenerateRequest<T>): Promise<GenerateResult<T>> {
+        const r = await super.generate(req);
+        if (req.stage === "fit") return { ...r, output: { ...(r.output as object), matchScore: 99 } as T };
+        return r;
+      }
+    }
+    const llm = new WrongScoreLlm();
+    const c = collect();
+    await runPipeline(INPUT, { llm, existing: {}, ...c.callbacks });
+    const jd = c.done.get("jd") as StageOutputs["jd"];
+    const fit = c.done.get("fit") as StageOutputs["fit"];
+    expect(fit.matchScore).not.toBe(99);
+    expect(fit.matchScore).toBe(scoreFit(jd, fit));
+  });
+
+  it("signal이 중단되면 남은 단계를 시작하지 않는다", async () => {
+    const controller = new AbortController();
+    const llm = new RecordingLlm();
+    const c = collect();
+    const res = await runPipeline(INPUT, {
+      llm,
+      existing: {},
+      signal: controller.signal,
+      ...c.callbacks,
+      onStageDone: async (s, out) => {
+        c.done.set(s, out);
+        if (s === "jd") controller.abort();
+      },
+    });
+    expect(res.ok).toBe(false);
+    expect(llm.calls).toEqual(["jd"]);
   });
 });

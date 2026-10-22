@@ -1,9 +1,11 @@
 import type { Metadata } from "next";
+import { headers } from "next/headers";
 import Link from "next/link";
 import { notFound } from "next/navigation";
 import { Logo } from "@/components/app/Logo";
 import { Report } from "@/components/report/Report";
 import { buttonClass } from "@/components/ui/Button";
+import { clientIp, shareLimiter } from "@/lib/auth/rate-limit";
 import { ensureDatabase } from "@/lib/db/migrate";
 import { getDiagnosisByShareToken } from "@/lib/diagnoses/service";
 import { buildReportModel } from "@/lib/report/model";
@@ -18,6 +20,14 @@ export const metadata: Metadata = {
 
 export default async function SharedReportPage({ params }: Props) {
   const { token } = await params;
+  // 공개 링크라 로그인 없이 누구나 부를 수 있다. IP당 요청 수를 제한한다.
+  if (!shareLimiter.hit(clientIp({ headers: await headers() })).ok) {
+    return (
+      <main className="mx-auto w-full max-w-xl flex-1 px-4 py-16 text-center text-sm text-slate-600">
+        요청이 너무 많습니다. 잠시 후 다시 열어 주세요.
+      </main>
+    );
+  }
   await ensureDatabase();
   const found = await getDiagnosisByShareToken(token);
   if (!found || found.diagnosis.status !== "done") notFound();

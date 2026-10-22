@@ -6,8 +6,18 @@ import { Button, buttonClass } from "@/components/ui/Button";
 
 const noopSubscribe = () => () => {};
 
-/** 보고서 상단 액션: PDF·Markdown 내려받기, 공유 링크, 삭제. */
-export function ReportActions({ id, shareToken: initialToken }: { id: string; shareToken: string | null }) {
+/** 보고서 상단 액션: PDF·Markdown 내려받기, 공유 링크, 삭제. partial(부분 보고서)이면 공유 링크는 만들 수 없다. */
+export function ReportActions({
+  id,
+  shareToken: initialToken,
+  partial = false,
+  hasRewrite = true,
+}: {
+  id: string;
+  shareToken: string | null;
+  partial?: boolean;
+  hasRewrite?: boolean;
+}) {
   const router = useRouter();
   const [token, setToken] = useState(initialToken);
   const [busy, setBusy] = useState<"share" | "delete" | null>(null);
@@ -90,12 +100,16 @@ export function ReportActions({ id, shareToken: initialToken }: { id: string; sh
         <a href={`/api/diagnoses/${id}/markdown?file=panel`} className={buttonClass("secondary", "md")} download>
           PANEL.md
         </a>
-        <a href={`/api/diagnoses/${id}/markdown?file=resume`} className={buttonClass("secondary", "md")} download>
-          RESUME-IMPROVED.md
-        </a>
-        <Button variant="secondary" onClick={toggleShare} loading={busy === "share"} aria-pressed={!!token}>
-          {token ? "공유 해제" : "공유 링크 만들기"}
-        </Button>
+        {hasRewrite && (
+          <a href={`/api/diagnoses/${id}/markdown?file=resume`} className={buttonClass("secondary", "md")} download>
+            RESUME-IMPROVED.md
+          </a>
+        )}
+        {!partial && (
+          <Button variant="secondary" onClick={toggleShare} loading={busy === "share"} aria-pressed={!!token}>
+            {token ? "공유 해제" : "공유 링크 만들기"}
+          </Button>
+        )}
         <Button variant="danger" onClick={remove} loading={busy === "delete"} className="sm:ml-auto">
           삭제
         </Button>

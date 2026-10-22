@@ -105,8 +105,26 @@ export function ImprovementPlanSection({ report }: { report: ReportModel }) {
       {p.skillGaps.length > 0 && (
         <Block title="역량 공백과 메우는 법">
           <p className="-mt-1 mb-3 text-xs text-slate-500">이력서 문장만으로는 메울 수 없는 실제 공백입니다.</p>
-          <div className="overflow-x-auto rounded-xl border border-slate-200 bg-white">
-            <table className="w-full min-w-[560px] border-collapse text-left text-sm">
+          {/* 좁은 화면: 공백마다 카드로 쌓는다. */}
+          <ul className="space-y-3 sm:hidden">
+            {p.skillGaps.map((g, i) => (
+              <li key={i} className="break-inside-avoid rounded-xl border border-slate-200 bg-white p-4 text-sm">
+                <div className="flex items-start justify-between gap-3">
+                  <p className="font-medium text-slate-900">{g.skill}</p>
+                  <span className="shrink-0 rounded bg-slate-100 px-2 py-0.5 text-xs font-medium text-slate-700">{g.timeframe}</span>
+                </div>
+                {g.requirementId && (
+                  <p className="mt-0.5 text-xs text-slate-500">
+                    <span className="font-mono">{g.requirementId}</span>
+                    {reqText.get(g.requirementId) ? ` · ${reqText.get(g.requirementId)}` : ""}
+                  </p>
+                )}
+                <p className="mt-2 leading-relaxed text-slate-700">{g.howToClose}</p>
+              </li>
+            ))}
+          </ul>
+          <div className="hidden overflow-x-auto rounded-xl border border-slate-200 bg-white sm:block">
+            <table className="w-full border-collapse text-left text-sm">
               <thead className="bg-slate-50 text-xs font-semibold text-slate-500">
                 <tr>
                   <th scope="col" className="px-4 py-2.5">역량</th>

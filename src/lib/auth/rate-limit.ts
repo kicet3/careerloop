@@ -28,15 +28,37 @@ export function createRateLimiter(opts: { limit: number; windowMs: number; maxKe
   };
 }
 
-export function clientIp(req: Request): string {
-  const fwd = req.headers.get("x-forwarded-for");
-  if (fwd) return fwd.split(",")[0]!.trim();
-  return req.headers.get("x-real-ip") ?? "unknown";
+/**
+ * 레이트 리밋 키로 쓸 클라이언트 IP. 클라이언트가 마음대로 넣을 수 있는 값(X-Forwarded-For의 맨 왼쪽)은 믿지 않는다.
+ * - Vercel(VERCEL 환경 변수): 플랫폼이 덮어쓰는 x-real-ip.
+ * - TRUSTED_PROXY_HOPS=n: 우리 쪽 프록시 n개가 X-Forwarded-For 끝에 붙인 값 중 가장 바깥(오른쪽에서 n번째).
+ * - 그 밖: X-Forwarded-For의 맨 오른쪽(가장 가까운 프록시가 붙인 값). 프록시 없이 직접 노출된 서버라면 이 값도
+ *   클라이언트가 넣을 수 있으므로 TRUSTED_PROXY_HOPS를 설정한 리버스 프록시 뒤에서 운영해야 한다.
+ */
+export function clientIp(req: { headers: { get(name: string): string | null } }, env: Record<string, string | undefined> = process.env): string {
+  if (env.VERCEL) {
+    const real = req.headers.get("x-real-ip")?.trim();
+    if (real) return real;
+  }
+  const parts = (req.headers.get("x-forwarded-for") ?? "")
+    .split(",")
+    .map((p) => p.trim())
+    .filter(Boolean);
+  const hops = Number(env.TRUSTED_PROXY_HOPS);
+  if (parts.length > 0) {
+    if (Number.isInteger(hops) && hops > 0) return parts[Math.max(0, parts.length - hops)]!;
+    return parts[parts.length - 1]!;
+  }
+  return req.headers.get("x-real-ip")?.trim() || "unknown";
 }
 
 const globalForLimits = globalThis as unknown as {
   __loginLimiter?: ReturnType<typeof createRateLimiter>;
+  __loginIpLimiter?: ReturnType<typeof createRateLimiter>;
+  __loginAccountLimiter?: ReturnType<typeof createRateLimiter>;
   __signupLimiter?: ReturnType<typeof createRateLimiter>;
+  __diagnosisIpLimiter?: ReturnType<typeof createRateLimiter>;
+  __shareLimiter?: ReturnType<typeof createRateLimiter>;
 };
 
 /** 로그인: 이메일+IP당 15분에 10회. */
@@ -45,8 +67,32 @@ export const loginLimiter = (globalForLimits.__loginLimiter ??= createRateLimite
   windowMs: 15 * 60_000,
 }));
 
+/** 로그인: IP당 15분에 30회(이메일을 바꿔 가며 시도해도 막힌다 — bcrypt 비용 남용 방지). */
+export const loginIpLimiter = (globalForLimits.__loginIpLimiter ??= createRateLimiter({
+  limit: 30,
+  windowMs: 15 * 60_000,
+}));
+
+/** 로그인 실패: 계정(이메일)당 15분에 20회(IP를 바꿔 가며 한 계정을 노리는 경우). 성공하면 초기화. */
+export const loginAccountLimiter = (globalForLimits.__loginAccountLimiter ??= createRateLimiter({
+  limit: 20,
+  windowMs: 15 * 60_000,
+}));
+
 /** 가입: IP당 1시간에 10회. */
 export const signupLimiter = (globalForLimits.__signupLimiter ??= createRateLimiter({
   limit: 10,
   windowMs: 60 * 60_000,
+}));
+
+/** 진단 생성: IP당 하루 20건(계정을 여러 개 만들어 하루 제한을 우회하는 것을 늦춘다). */
+export const diagnosisIpLimiter = (globalForLimits.__diagnosisIpLimiter ??= createRateLimiter({
+  limit: 20,
+  windowMs: 24 * 60 * 60_000,
+}));
+
+/** 공개 공유 링크(페이지·PDF): IP당 1분에 30회. */
+export const shareLimiter = (globalForLimits.__shareLimiter ??= createRateLimiter({
+  limit: 30,
+  windowMs: 60_000,
 }));

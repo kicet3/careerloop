@@ -70,10 +70,13 @@ export function Chip({ children, tone = "default" }: { children: ReactNode; tone
   return <span className={cx("inline-block rounded-md border px-2 py-0.5 text-xs font-medium", cls)}>{children}</span>;
 }
 
-export function UnverifiedMark() {
+const SOURCE_NAME = { resume: "이력서 원문", jd: "채용 공고 원문", rewrite: "개선된 이력서" } as const;
+export type QuoteSource = keyof typeof SOURCE_NAME;
+
+export function UnverifiedMark({ source = "resume" }: { source?: QuoteSource }) {
   return (
     <span
-      title="이 인용을 이력서 원문에서 찾지 못했습니다. 모델이 문장을 바꿔 옮겼을 수 있습니다."
+      title={`이 인용을 ${SOURCE_NAME[source]}에서 찾지 못했습니다. 모델이 문장을 바꿔 옮겼을 수 있습니다.`}
       className="ml-2 inline-flex items-center rounded bg-amber-100 px-1.5 py-0.5 align-middle text-[11px] font-semibold text-amber-800 not-italic"
     >
       원문에서 찾지 못함
@@ -81,8 +84,16 @@ export function UnverifiedMark() {
   );
 }
 
-/** 이력서 원문 인용 블록. */
-export function QuoteBlock({ quote, className }: { quote: CheckedQuote; className?: string }) {
+/** 원문 인용 블록(기본은 이력서 원문). */
+export function QuoteBlock({
+  quote,
+  className,
+  source = "resume",
+}: {
+  quote: CheckedQuote;
+  className?: string;
+  source?: QuoteSource;
+}) {
   return (
     <blockquote
       className={cx(
@@ -92,7 +103,7 @@ export function QuoteBlock({ quote, className }: { quote: CheckedQuote; classNam
       )}
     >
       <span className="break-words">“{quote.text}”</span>
-      {!quote.verified && <UnverifiedMark />}
+      {!quote.verified && <UnverifiedMark source={source} />}
     </blockquote>
   );
 }

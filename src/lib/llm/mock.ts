@@ -17,6 +17,7 @@ import type {
   StageOutputs,
   SynthesisResult,
 } from "@/lib/domain/schemas";
+import { computeMatchScore } from "@/lib/panel/fit-score";
 import { extractField, extractJson, extractTag, TAGS } from "@/lib/panel/prompts";
 import { LlmPermanentError, type GenerateRequest, type GenerateResult, type LlmClient } from "./types";
 
@@ -254,15 +255,6 @@ function mockReader(ctx: Ctx, id: ReaderId): ReaderResult {
 }
 
 const FIT_CYCLE: FitResult["items"][number]["status"][] = ["met", "partial", "missing", "met", "partial"];
-
-export function computeMatchScore(items: { status: string; must: boolean }[]): number {
-  const score = (s: string) => (s === "met" ? 1 : s === "partial" ? 0.5 : 0);
-  const avg = (xs: typeof items) => (xs.length ? xs.reduce((n, x) => n + score(x.status), 0) / xs.length : null);
-  const must = avg(items.filter((x) => x.must));
-  const nice = avg(items.filter((x) => !x.must));
-  const total = must == null ? (nice ?? 0) : nice == null ? must : must * 0.7 + nice * 0.3;
-  return Math.round(total * 100);
-}
 
 function mockFit(ctx: Ctx): FitResult {
   const reqs = requirements(ctx.jd);

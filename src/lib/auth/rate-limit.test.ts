@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { createRateLimiter } from "./rate-limit";
+import { clientIp, createRateLimiter } from "./rate-limit";
 
 describe("createRateLimiter", () => {
   it("창 안에서 limit 초과 시 거부, 창이 지나면 초기화", () => {
@@ -19,5 +19,27 @@ describe("createRateLimiter", () => {
     expect(rl.hit("k", 1).ok).toBe(false);
     rl.reset("k");
     expect(rl.hit("k", 2).ok).toBe(true);
+  });
+});
+
+describe("clientIp", () => {
+  const req = (h: Record<string, string>) => new Request("http://x", { headers: h });
+
+  it("X-Forwarded-For의 맨 왼쪽(클라이언트가 넣을 수 있는 값)을 믿지 않는다", () => {
+    expect(clientIp(req({ "x-forwarded-for": "6.6.6.6, 10.0.0.1" }), {})).toBe("10.0.0.1");
+  });
+
+  it("TRUSTED_PROXY_HOPS=n이면 오른쪽에서 n번째", () => {
+    const r = req({ "x-forwarded-for": "6.6.6.6, 203.0.113.9, 10.0.0.1" });
+    expect(clientIp(r, { TRUSTED_PROXY_HOPS: "2" })).toBe("203.0.113.9");
+    expect(clientIp(r, { TRUSTED_PROXY_HOPS: "9" })).toBe("6.6.6.6");
+  });
+
+  it("Vercel에서는 플랫폼이 넣는 x-real-ip", () => {
+    expect(clientIp(req({ "x-forwarded-for": "6.6.6.6", "x-real-ip": "198.51.100.7" }), { VERCEL: "1" })).toBe("198.51.100.7");
+  });
+
+  it("헤더가 없으면 unknown", () => {
+    expect(clientIp(req({}), {})).toBe("unknown");
   });
 });

@@ -49,8 +49,10 @@ http://localhost:3000 에서 가입하면 바로 쓸 수 있습니다.
 | `MOCK_DELAY_MS` | mock 단계당 지연(ms) |
 | `DATABASE_URL` | 로컬 `file:./data/app.db`, 배포 `libsql://…` |
 | `DATABASE_AUTH_TOKEN` | Turso 토큰 |
-| `DAILY_DIAGNOSIS_LIMIT` | 사용자당 하루 진단 수(기본 5) |
+| `DAILY_DIAGNOSIS_LIMIT` | 사용자당 하루 진단 수(기본 5). 삭제한 진단도 센다 |
 | `APP_URL` | (선택) 리버스 프록시 뒤에서 Origin 검사에 쓸 공개 URL |
+| `TRUSTED_PROXY_HOPS` | (선택, 자체 호스팅) X-Forwarded-For를 덧붙이는 우리 쪽 프록시 수. 레이트 리밋의 클라이언트 IP를 이 값으로 정한다 |
+| `DIAGNOSIS_TIME_BUDGET_SEC` | (선택) 백그라운드 진단의 시간 예산(초). Vercel 기본은 `maxDuration - 30`, 자체 호스팅 기본은 제한 없음 |
 
 ### 명령
 
@@ -72,9 +74,15 @@ npm run build && npm start
 
 - **진단은 백그라운드에서 돕니다.** `POST /api/diagnoses`는 진단 행을 만들고 즉시 `{id}`를 돌려준 뒤,
   Next.js `after()`로 같은 함수 호출 안에서 13단계를 이어서 실행합니다. 그래서 이 라우트(와 재시도 라우트)의
-  `maxDuration`(현재 300초)이 진단 전체 시간보다 길어야 합니다. Vercel 플랜의 함수 최대 실행 시간을 확인하고,
-  필요하면 `src/app/api/diagnoses/route.ts`, `src/app/api/diagnoses/[id]/retry/route.ts`의 `maxDuration`을 올리세요.
-  시간 안에 끝나지 않으면 진단은 10분 뒤 '실패'로 표시되고, 재시도하면 끝난 단계는 건너뛰고 이어서 실행합니다.
+  `maxDuration`이 진단 전체 시간보다 길어야 합니다. 현재 **800초**(Vercel Pro/Enterprise의 최대값)입니다.
+  **Hobby 플랜은 300초까지만 허용되므로** `src/app/api/diagnoses/route.ts`, `src/app/api/diagnoses/[id]/retry/route.ts`의
+  `maxDuration`을 300으로 낮춰야 배포됩니다(값은 리터럴이어야 합니다).
+  Vercel에서는 runner가 `maxDuration - 30초`에 스스로 멈추고 '실패(재시도 가능)'로 기록합니다. 함수가 강제로 끊긴 경우에도
+  하트비트가 끊긴 지 2분이면 '실패'로 바뀝니다. 재시도하면 끝난 단계는 건너뛰고 이어서 실행합니다(진단당 3회).
+- 일부 단계가 실패해도 심사위원 7명과 JD 적합도가 끝났으면 부분 보고서(웹·PDF·Markdown)를 볼 수 있습니다.
 - PDF 라우트는 `process.cwd()/src/lib/report/fonts`의 폰트를 읽습니다(추적 포함 설정 완료). Node 런타임 전용입니다.
-- 로그인 시도 제한은 서버 인스턴스 메모리에 있어 인스턴스마다 따로 셉니다.
+- 로그인·가입·진단 생성(IP당)·공유 링크 요청 제한은 서버 인스턴스 메모리에 있어 인스턴스마다 따로 셉니다.
+  자체 호스팅이면 리버스 프록시 뒤에 두고 `TRUSTED_PROXY_HOPS`를 설정하세요(설정하지 않으면 X-Forwarded-For의
+  맨 오른쪽 값을 씁니다). 이메일 인증은 없으므로 계정 여러 개로 하루 제한을 늘리는 것은 IP당 제한으로만 늦춥니다.
+- 업로드 제한: 요청 본문 22MB(Content-Length 없는 chunked 요청 포함), 파일당 10MB, PDF 50쪽, DOCX 압축 해제 60MB.
 - 로컬 SQLite 파일은 서버리스 환경에서 유지되지 않으므로 배포에서는 반드시 Turso(libsql)를 쓰세요.

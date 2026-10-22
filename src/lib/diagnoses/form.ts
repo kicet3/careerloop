@@ -19,9 +19,13 @@ function file(form: FormData, key: string): File | null {
   return v && typeof v === "object" && "arrayBuffer" in v && v.size > 0 ? (v as File) : null;
 }
 
-async function readFile(f: File, label: string, warnings: string[]): Promise<string> {
+async function readFile(f: File, label: string, warnings: string[], maxChars: number): Promise<string> {
   try {
-    const r = await extractText({ name: f.name, type: f.type, bytes: new Uint8Array(await f.arrayBuffer()) });
+    // maxChars를 조금 넘게 읽으면 멈춘다(넘친 결과는 아래 길이 검사가 거절한다).
+    const r = await extractText(
+      { name: f.name, type: f.type, bytes: new Uint8Array(await f.arrayBuffer()) },
+      { maxChars: maxChars + 1000 },
+    );
     warnings.push(...r.warnings.map((w) => `${label}: ${w}`));
     return r.text;
   } catch (err) {
@@ -45,7 +49,7 @@ export async function parseDiagnosisForm(form: FormData): Promise<{ input: Diagn
   if (resumePasted) {
     resumeText = resumePasted;
   } else if (resumeFile) {
-    resumeText = await readFile(resumeFile, "이력서", warnings);
+    resumeText = await readFile(resumeFile, "이력서", warnings, MAX_RESUME_CHARS);
     resumeFileName = resumeFile.name.slice(0, 255) || null;
   } else {
     throw new IngestError("이력서 파일을 올리거나 이력서 내용을 붙여넣어 주세요.");
@@ -64,7 +68,7 @@ export async function parseDiagnosisForm(form: FormData): Promise<{ input: Diagn
   const jdFile = file(form, "jdFile");
   let jdText: string | null = null;
   if (jdPasted) jdText = jdPasted;
-  else if (jdFile) jdText = await readFile(jdFile, "채용 공고", warnings);
+  else if (jdFile) jdText = await readFile(jdFile, "채용 공고", warnings, MAX_JD_CHARS);
   if (jdText && jdText.length > MAX_JD_CHARS) {
     throw new IngestError(
       `채용 공고가 너무 깁니다(${jdText.length.toLocaleString("ko-KR")}자). 직무 설명·자격 요건 부분만 ${MAX_JD_CHARS.toLocaleString("ko-KR")}자 이내로 붙여넣어 주세요.`,

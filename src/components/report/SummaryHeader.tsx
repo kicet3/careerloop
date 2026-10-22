@@ -61,7 +61,8 @@ export function SummaryHeader({ report, actions }: { report: ReportModel; action
   const passRatio = summary.totalReviewers ? summary.positiveCount / summary.totalReviewers : 0;
   return (
     <header id="summary" className="scroll-mt-24">
-      <div className="flex flex-col gap-4 sm:flex-row sm:items-start sm:justify-between">
+      {/* 버튼이 많아도 제목 폭을 빼앗지 않도록 제목과 액션을 위아래로 둔다. */}
+      <div className="flex flex-col gap-4">
         <div className="min-w-0">
           <p className="text-xs font-semibold tracking-widest text-indigo-600">이력서 심사위원단 보고서</p>
           <h1 className="mt-2 break-words text-2xl font-bold tracking-tight text-slate-900 sm:text-3xl">{meta.title}</h1>
@@ -85,7 +86,7 @@ export function SummaryHeader({ report, actions }: { report: ReportModel; action
             )}
           </dl>
         </div>
-        {actions && <div className="flex shrink-0 flex-wrap gap-2 print:hidden">{actions}</div>}
+        {actions && <div className="border-t border-slate-100 pt-4 print:hidden">{actions}</div>}
       </div>
 
       <p className="mt-8 border-l-4 border-indigo-600 pl-4 text-lg font-semibold leading-relaxed text-slate-900 sm:text-xl">

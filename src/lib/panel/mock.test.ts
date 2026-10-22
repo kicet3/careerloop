@@ -1,7 +1,7 @@
 import { describe, expect, it } from "vitest";
 import { STAGE_KEYS, STAGE_SCHEMAS, type DiagnosisInput, type StageOutputs } from "@/lib/domain/schemas";
 import { MockLlmClient } from "@/lib/llm/mock";
-import { buildStagePrompt, extractTag, splitUserPrompt, STAGE_TASK_DELIMITER, TAGS } from "./prompts";
+import { buildStagePrompt, extractTag, splitUserPrompt, STAGE_TASK_DELIMITER, SYSTEM_PROMPT, TAGS } from "./prompts";
 import { verifyQuote } from "./quotes";
 
 const RESUME = `Jane Park
@@ -90,6 +90,42 @@ describe("prompts 형식", () => {
     expect(shared("manager")).toBe(shared("ats"));
     expect(shared("fit")).toBe(shared("ats"));
     expect(shared("synthesis")).toBe(shared("ats"));
+  });
+
+  it("system 프롬프트는 모든 단계에서 같다(캐시 접두사 공유), 단계 역할은 공유 자료 뒤에 온다", async () => {
+    const o = await runAll(base);
+    for (const stage of STAGE_KEYS) {
+      const p = buildStagePrompt(stage, base, o);
+      expect(p.system).toBe(SYSTEM_PROMPT);
+      const [, task] = splitUserPrompt(p.user);
+      expect(task).toMatch(/^# 이번 역할:/);
+    }
+  });
+
+  it("ATS는 추정 JD의 키워드 누락을 탈락 사유로 쓰지 않도록 지시받는다", async () => {
+    const o = await runAll(base);
+    const task = splitUserPrompt(buildStagePrompt("ats", base, o).user)[1]!;
+    expect(task).toContain('source="inferred"');
+    expect(task).toContain("키워드 누락을 REJECT 사유로 쓰지 않는다");
+    expect(task).toContain("mustHave");
+  });
+
+  it("rewrite는 적합도 공백·묻힌 강점을, plan은 채용 담당자 면접 질문을 받는다", async () => {
+    const o = await runAll(base);
+    const rewrite = buildStagePrompt("rewrite", base, o).user;
+    const gaps = JSON.parse(extractTag(rewrite, TAGS.fitGaps)!);
+    expect(gaps.untappedStrengths).toEqual(o.fit.untappedStrengths);
+    expect(gaps.gaps.every((g: { status: string }) => g.status !== "met")).toBe(true);
+    const plan = buildStagePrompt("plan", base, o).user;
+    const gk = JSON.parse(extractTag(plan, TAGS.gatekeeper)!);
+    expect(gk.interviewQuestions).toEqual(o.gatekeeper.interviewQuestions);
+  });
+
+  it("synthesis는 문제 개수를 정해 두지 않는다(강한 이력서에 억지로 채우지 않음)", async () => {
+    const o = await runAll(base);
+    const task = splitUserPrompt(buildStagePrompt("synthesis", base, o).user)[1]!;
+    expect(task).not.toContain("5~12개");
+    expect(task).toContain("억지로 채우지 않는다");
   });
 
   it("system 프롬프트에 요청별 값이 들어가지 않는다", async () => {

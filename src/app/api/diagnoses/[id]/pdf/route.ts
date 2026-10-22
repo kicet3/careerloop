@@ -7,7 +7,7 @@ import { getDiagnosisForUser } from "@/lib/diagnoses/service";
 export const runtime = "nodejs";
 export const maxDuration = 60;
 
-export async function GET(_req: Request, { params }: { params: Promise<{ id: string }> }) {
+export async function GET(req: Request, { params }: { params: Promise<{ id: string }> }) {
   await ensureDatabase();
   const user = await requireApiUser();
   if (user instanceof Response) return user;
@@ -16,7 +16,7 @@ export async function GET(_req: Request, { params }: { params: Promise<{ id: str
   try {
     const found = await getDiagnosisForUser(id, user.id);
     if (!found) return notFound();
-    return await reportPdfResponse(found);
+    return await reportPdfResponse(found, { ifNoneMatch: req.headers.get("if-none-match") });
   } catch (err) {
     return errorResponse(err, "GET /api/diagnoses/[id]/pdf");
   }

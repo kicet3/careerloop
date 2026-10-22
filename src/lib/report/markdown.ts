@@ -113,8 +113,9 @@ export function renderPanelMarkdown(r: ReportModel): string {
   if (!r.mistakes.length) {
     out.push("종합 결과가 없습니다.", "");
   } else {
-    r.mistakes.forEach((m, i) => {
-      out.push(`${i + 1}. **${oneLine(m.title)}** [${SEVERITY_LABELS[m.severity]}]`);
+    r.mistakes.forEach((m) => {
+      // 변경 내역·개선 방향성이 가리키는 "#N"과 같은 번호(rank)를 쓴다.
+      out.push(`${m.rank}. **${oneLine(m.title)}** [${SEVERITY_LABELS[m.severity]}]`);
       if (m.quote) out.push(quoteLine(m.quote, "   "));
       out.push(`   - 왜 떨어지나: ${oneLine(m.why)}`);
       out.push(`   - 고칠 방향: ${oneLine(m.fix)}`);
@@ -177,6 +178,14 @@ export function renderResumeMarkdown(r: ReportModel): string {
     const before = r.summary.atsBefore.label;
     const after = rw.rescreen ? REVIEWERS.ats.verdicts[rw.rescreen.verdict]?.label ?? rw.rescreen.verdict : "재심사 없음";
     out.push(`서류 자동 필터: ${before} → ${after}`, "");
+    if (rw.rescreen?.verdict === "REJECT") {
+      if (rw.rescreenReasons.length) {
+        out.push("재심사 탈락 근거:", "");
+        for (const x of rw.rescreenReasons) out.push(quoteLine(x.quote), `  ${oneLine(x.issue)}`);
+        out.push("");
+      }
+      if (rw.rescreen.parseIssues.length) out.push("파싱 문제:", "", ...rw.rescreen.parseIssues.map((x) => `- ${oneLine(x)}`), "");
+    }
   }
   out.push("---", "", CREDIT_LINE, "");
   return out.join("\n");

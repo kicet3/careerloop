@@ -43,4 +43,21 @@ describe("renderReportPdf", () => {
     expect(isPdf(pdf)).toBe(true);
     if (process.env.PDF_STRESS_OUT) writeFileSync(process.env.PDF_STRESS_OUT, pdf);
   }, 60_000);
+
+  it("재심사 탈락 근거·공고 인용 검증·공유용(ID 없음) 보고서도 렌더링한다", async () => {
+    const base = makeSampleReport();
+    const r: ReportModel = {
+      ...base,
+      meta: { ...base.meta, diagnosisId: "" },
+      rewrite: base.rewrite
+        ? {
+            ...base.rewrite,
+            rescreen: base.rewrite.rescreen ? { ...base.rewrite.rescreen, verdict: "REJECT", parseIssues: ["표"] } : null,
+            rescreenReasons: [{ quote: { text: "없는 줄", verified: false }, issue: "여전히 모호" }],
+          }
+        : null,
+    };
+    const pdf = await renderReportPdf(r);
+    expect(isPdf(pdf)).toBe(true);
+  }, 60_000);
 });

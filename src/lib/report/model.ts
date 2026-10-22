@@ -18,9 +18,11 @@ import {
 import {
   REVIEWERS,
   SITUATION_LABELS,
+  STAGE_LABELS,
   isPositiveVerdict,
   verdictLabel,
 } from "@/lib/domain/reviewers";
+import { scoreFit } from "@/lib/panel/fit-score";
 import { verifyQuote } from "@/lib/panel/quotes";
 import type {
   CheckedQuote,
@@ -87,6 +89,19 @@ export function formatReportDate(value: Date | string | null | undefined): strin
   }).format(d);
 }
 
+/**
+ * JD 키워드가 이력서에서 찾은 것인지(present), 서류 자동 필터가 못 찾은 것인지(missing) 판정한다(웹·PDF 공용).
+ * 정확히 같은 missing 항목이 있으면 missing, 아니면 부분 일치로 present → missing 순으로 본다.
+ */
+export function keywordStatus(keyword: string, present: string[], missing: string[]): "present" | "missing" | "unknown" {
+  const k = keyword.toLowerCase();
+  const hit = (list: string[]) => list.some((x) => x.toLowerCase().includes(k) || k.includes(x.toLowerCase()));
+  if (missing.some((x) => x.toLowerCase() === k)) return "missing";
+  if (hit(present)) return "present";
+  if (hit(missing)) return "missing";
+  return "unknown";
+}
+
 /** ImprovementPlan의 impact/effort를 우선순위 정렬용 점수로(높을수록 먼저). */
 export function priorityScore(p: ImprovementPlan["priorities"][number]): number {
   const impact = { high: 3, medium: 2, low: 1 }[p.impact];
@@ -118,10 +133,31 @@ function parseStageOutputs(stages: DiagnosisStage[]): Outputs {
   return out;
 }
 
+/** 실패한 진단이라도 이 단계들이 모두 끝났으면 부분 보고서를 보여 준다(판정 7개 + JD 적합도). */
+export const PARTIAL_REPORT_STAGES: readonly StageKey[] = ["jd", ...REVIEWER_IDS, "fit"];
+
+/**
+ * 보고서를 보여 줄 수 있는지. done이면 전체 보고서, failed라도 PARTIAL_REPORT_STAGES가 끝났으면 부분 보고서.
+ * missing은 부분 보고서에 빠진 단계의 표시 이름(재시도로 채울 수 있는 것).
+ */
+export function reportAvailability(
+  status: Diagnosis["status"],
+  stages: Pick<DiagnosisStage, "stage" | "status">[],
+): { show: boolean; partial: boolean; missing: string[] } {
+  if (status === "done") return { show: true, partial: false, missing: [] };
+  if (status !== "failed") return { show: false, partial: false, missing: [] };
+  const done = new Set(stages.filter((s) => s.status === "done").map((s) => s.stage));
+  if (!PARTIAL_REPORT_STAGES.every((k) => done.has(k))) return { show: false, partial: false, missing: [] };
+  const missing = STAGE_KEYS.filter((k) => !done.has(k)).map((k) => STAGE_LABELS[k]);
+  return { show: true, partial: true, missing };
+}
+
 export function buildReportModel(diagnosis: Diagnosis, stages: DiagnosisStage[]): ReportModel {
   const o = parseStageOutputs(stages);
   const resume = diagnosis.resumeText;
   const check = (text: string): CheckedQuote => ({ text, verified: safeVerify(resume, text) });
+  const jdText = diagnosis.jdText ?? "";
+  const checkJd = (text: string): CheckedQuote => ({ text, verified: safeVerify(jdText, text) });
 
   const reviewers = buildReviewerCards(o, check);
   const positiveCount = reviewers.filter((r) => isPositiveVerdict(r.id, r.verdict.raw)).length;
@@ -153,7 +189,8 @@ export function buildReportModel(diagnosis: Diagnosis, stages: DiagnosisStage[])
       headline: synthesis?.headline ?? fallbackHeadline(reviewers.length, positiveCount),
       positiveCount,
       totalReviewers: REVIEWER_IDS.length,
-      matchScore: o.fit?.matchScore ?? null,
+      // 모델이 계산한 값 대신 매트릭스에서 다시 계산한다(머리 점수와 매트릭스가 어긋나지 않도록).
+      matchScore: o.fit ? (o.jd ? scoreFit(o.jd, o.fit) : o.fit.matchScore) : null,
       atsBefore: ats ? toView(ats) : PENDING_VERDICT,
       atsAfter: rescreen ? toView(rescreen) : null,
       strengths: synthesis?.strengths ?? [],
@@ -162,10 +199,10 @@ export function buildReportModel(diagnosis: Diagnosis, stages: DiagnosisStage[])
         : null,
     },
     reviewers,
-    jd: buildJd(o, check),
+    jd: buildJd(o, check, checkJd),
     mistakes: buildMistakes(o, check),
     plan: o.plan ?? null,
-    rewrite: o.rewrite ? { ...o.rewrite, rescreen: rescreen ?? null } : null,
+    rewrite: o.rewrite ? buildRewrite(o.rewrite, rescreen ?? null) : null,
     originalResume: resume,
   };
 }
@@ -228,7 +265,23 @@ function buildReviewerCards(o: Outputs, check: (t: string) => CheckedQuote): Rev
   return cards;
 }
 
-function buildJd(o: Outputs, check: (t: string) => CheckedQuote): ReportModel["jd"] {
+function buildRewrite(rw: StageOutputs["rewrite"], rescreen: StageOutputs["rescreen"] | null): ReportModel["rewrite"] {
+  const md = rw.resumeMarkdown;
+  return {
+    ...rw,
+    rescreen,
+    rescreenReasons: (rescreen?.reasons ?? []).map((x) => ({
+      quote: { text: x.quote, verified: safeVerify(md, x.quote) },
+      issue: x.issue,
+    })),
+  };
+}
+
+function buildJd(
+  o: Outputs,
+  check: (t: string) => CheckedQuote,
+  checkJd: (t: string) => CheckedQuote,
+): ReportModel["jd"] {
   const analysis = o.jd;
   if (!analysis) return null;
   const fit = o.fit;
@@ -243,6 +296,7 @@ function buildJd(o: Outputs, check: (t: string) => CheckedQuote): ReportModel["j
     const item = items.get(requirement.id) ?? null;
     return {
       requirement,
+      jdQuote: analysis.source === "jd" && requirement.jdQuote?.trim() ? checkJd(requirement.jdQuote) : null,
       priority,
       item,
       evidence: item?.evidenceQuote ? check(item.evidenceQuote) : null,

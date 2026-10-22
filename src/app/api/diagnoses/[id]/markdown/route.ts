@@ -3,7 +3,7 @@ import { ensureDatabase } from "@/lib/db/migrate";
 import { contentDisposition, errorResponse, jsonError, notFound } from "@/lib/diagnoses/http";
 import { getDiagnosisForUser } from "@/lib/diagnoses/service";
 import { renderPanelMarkdown, renderResumeMarkdown } from "@/lib/report/markdown";
-import { buildReportModel } from "@/lib/report/model";
+import { buildReportModel, reportAvailability } from "@/lib/report/model";
 
 export const runtime = "nodejs";
 
@@ -21,7 +21,7 @@ export async function GET(req: Request, { params }: { params: Promise<{ id: stri
   try {
     const found = await getDiagnosisForUser(id, user.id);
     if (!found) return notFound();
-    if (found.diagnosis.status !== "done") {
+    if (!reportAvailability(found.diagnosis.status, found.stages).show) {
       return jsonError("진단이 끝난 뒤에 내려받을 수 있습니다.", 409);
     }
     const report = buildReportModel(found.diagnosis, found.stages);

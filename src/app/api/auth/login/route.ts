@@ -1,7 +1,7 @@
 import { eq } from "drizzle-orm";
 import { authError, readJson } from "@/lib/auth/http";
 import { verifyAgainstDummy, verifyPassword } from "@/lib/auth/password";
-import { clientIp, loginLimiter } from "@/lib/auth/rate-limit";
+import { clientIp, loginAccountLimiter, loginIpLimiter, loginLimiter } from "@/lib/auth/rate-limit";
 import { assertSameOrigin, createSession } from "@/lib/auth/session";
 import { LoginInputSchema, toFieldErrors } from "@/lib/auth/validation";
 import { db, schema } from "@/lib/db/client";
@@ -17,13 +17,15 @@ export async function POST(req: Request) {
   if (!parsed.success) return authError(400, "입력값을 확인해 주세요.", toFieldErrors(parsed.error));
   const { email, password } = parsed.data;
 
-  // 인스턴스별 메모리 카운터(rate-limit.ts 참고)
-  const limitKey = `${email}|${clientIp(req)}`;
-  const limit = loginLimiter.hit(limitKey);
-  if (!limit.ok) {
-    return authError(429, "로그인 시도가 너무 많습니다. 잠시 후 다시 시도해 주세요.", undefined, {
-      "Retry-After": String(limit.retryAfterSec),
-    });
+  // 인스턴스별 메모리 카운터(rate-limit.ts 참고). IP 단독·계정 단독·둘의 조합을 모두 센다.
+  const ip = clientIp(req);
+  const limitKey = `${email}|${ip}`;
+  for (const limit of [loginIpLimiter.hit(ip), loginLimiter.hit(limitKey), loginAccountLimiter.hit(email)]) {
+    if (!limit.ok) {
+      return authError(429, "로그인 시도가 너무 많습니다. 잠시 후 다시 시도해 주세요.", undefined, {
+        "Retry-After": String(limit.retryAfterSec),
+      });
+    }
   }
 
   await ensureDatabase();
@@ -32,6 +34,7 @@ export async function POST(req: Request) {
   if (!user || !ok) return authError(401, INVALID);
 
   loginLimiter.reset(limitKey);
+  loginAccountLimiter.reset(email);
   await createSession(user.id);
   return Response.json({ ok: true, user: { id: user.id, email: user.email, name: user.name } });
 }

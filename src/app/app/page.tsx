@@ -60,10 +60,7 @@ function DiagnosisRow({ item }: { item: DiagnosisListItem }) {
       <div className="flex flex-wrap items-start justify-between gap-x-4 gap-y-2">
         <div className="min-w-0 flex-1">
           <p className="truncate font-semibold text-slate-900">{item.title}</p>
-          <p className="mt-0.5 truncate text-sm text-slate-500">
-            {item.targetRole}
-            {!item.hasJd && <span className="text-slate-400"> · JD 없음(직무명으로 추정)</span>}
-          </p>
+          <p className="mt-0.5 truncate text-sm text-slate-500">{item.subtitle}</p>
         </div>
         <Badge tone={status.tone}>{status.label}</Badge>
       </div>

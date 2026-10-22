@@ -5,7 +5,15 @@ import { isPositiveVerdict } from "@/lib/domain/reviewers";
 import { REVIEWER_IDS, type ReviewerId, type StageKey, type StageStatus } from "@/lib/domain/schemas";
 
 export const DEFAULT_DAILY_LIMIT = 5;
-export const STALE_AFTER_MS = 10 * 60 * 1000;
+/** 실행 중인 runDiagnosis가 진단 행의 updatedAt을 갱신하는 주기(하트비트). LLM 호출이 길어도 이 주기로 갱신된다. */
+export const HEARTBEAT_MS = 30 * 1000;
+/**
+ * 하트비트가 이만큼 끊기면 실행 프로세스가 죽은 것(함수 시간 초과·서버 재시작)으로 보고 failed로 바꾼다.
+ * 하트비트 주기의 4배라 살아 있는 실행을 잘못 끊지 않는다.
+ */
+export const STALE_AFTER_MS = 2 * 60 * 1000;
+/** 진단 하나당 재시도 횟수 상한(같은 단계가 계속 실패할 때 비용이 끝없이 늘지 않도록). */
+export const MAX_RETRIES_PER_DIAGNOSIS = 3;
 export const MAX_RESUME_CHARS = 40_000;
 export const MAX_JD_CHARS = 30_000;
 
@@ -37,6 +45,35 @@ export function matchScoreOf(stages: StageLike[]): number | null {
   const fit = stages.find((s) => s.stage === "fit" && s.status === "done");
   const score = fit ? field(fit.output, "matchScore") : undefined;
   return typeof score === "number" ? score : null;
+}
+
+/**
+ * 목록에서 진단을 서로 구별할 부제: JD 분석의 회사·포지션명(직무명과 다를 때), 이력서 파일명.
+ * 아무것도 없으면 JD 유무만 알려 준다. 제목(직무 · 날짜)을 되풀이하지 않는다.
+ */
+export function diagnosisSubtitle(opts: {
+  targetRole: string;
+  jdOutput: unknown;
+  resumeFileName: string | null;
+  hasJd: boolean;
+}): string {
+  const parts: string[] = [];
+  const company = field(opts.jdOutput, "company");
+  const roleTitle = field(opts.jdOutput, "roleTitle");
+  const source = field(opts.jdOutput, "source");
+  if (source === "jd" && typeof company === "string" && company.trim()) parts.push(company.trim());
+  if (
+    source === "jd" &&
+    typeof roleTitle === "string" &&
+    roleTitle.trim() &&
+    roleTitle.trim().toLowerCase() !== opts.targetRole.trim().toLowerCase()
+  ) {
+    parts.push(roleTitle.trim());
+  }
+  if (opts.resumeFileName) parts.push(opts.resumeFileName);
+  if (!opts.hasJd) parts.push("JD 없음(직무명으로 추정)");
+  else if (parts.length === 0) parts.push("JD 기준 심사");
+  return parts.join(" · ");
 }
 
 /** 진단 제목: "지원 직무 · YYYY-MM-DD"(한국 시간). 직무가 비면 파일명. */

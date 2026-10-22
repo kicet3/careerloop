@@ -8,7 +8,7 @@ vi.mock("@/lib/panel/quotes", () => ({
   },
 }));
 
-import { buildReportModel } from "./model";
+import { buildReportModel, keywordStatus, reportAvailability } from "./model";
 import { renderPanelMarkdown, renderResumeMarkdown } from "./markdown";
 import {
   SAMPLE_OUTPUTS,
@@ -28,7 +28,7 @@ describe("buildReportModel — 전체 데이터", () => {
     expect(r.summary.totalReviewers).toBe(7);
     // gatekeeper INTERVIEW + teammate HIRE (ATS REJECT, 리더 PASS는 거절)
     expect(r.summary.positiveCount).toBe(2);
-    expect(r.summary.matchScore).toBe(58);
+    expect(r.summary.matchScore).toBe(35);
     expect(r.summary.atsBefore).toEqual({ raw: "REJECT", label: "탈락", tone: "negative" });
     expect(r.summary.atsAfter).toEqual({ raw: "PASS", label: "통과", tone: "positive" });
   });
@@ -112,7 +112,7 @@ describe("buildReportModel — 부분 데이터", () => {
     const stages = makeSampleStages();
     const fit = stages.find((s) => s.stage === "fit")!;
     fit.output = JSON.stringify(fit.output);
-    expect(buildReportModel(makeSampleDiagnosis(), stages).summary.matchScore).toBe(58);
+    expect(buildReportModel(makeSampleDiagnosis(), stages).summary.matchScore).toBe(35);
   });
 
   it("rewrite가 있고 rescreen이 없으면 rescreen은 null", () => {
@@ -162,5 +162,78 @@ describe("markdown", () => {
     expect(panel).toContain("**대표** — 미완료");
     expect(panel).toContain("JD 분석이 완료되지 않았습니다.");
     expect(renderResumeMarkdown(partial)).toContain("이력서 재작성이 완료되지 않았습니다.");
+  });
+});
+
+describe("점수·인용 검증·부분 보고서 (리뷰 수정 사항)", () => {
+  it("모델이 낸 matchScore가 매트릭스와 다르면 매트릭스로 다시 계산한다", () => {
+    const stages = makeSampleStages({ outputs: { fit: { ...SAMPLE_OUTPUTS.fit, matchScore: 90 } } });
+    expect(buildReportModel(makeSampleDiagnosis(), stages).summary.matchScore).toBe(35);
+  });
+
+  it("매트릭스에 판정이 빠진 요건은 미충족으로 센다", () => {
+    const fit = { ...SAMPLE_OUTPUTS.fit, items: SAMPLE_OUTPUTS.fit.items.filter((i) => i.requirementId !== "R1") };
+    const r = buildReportModel(makeSampleDiagnosis(), makeSampleStages({ outputs: { fit } }));
+    // 필수: 0 + .5 + .5 + 0 = 1/4 → .25 * .7 = 17.5 → 18
+    expect(r.summary.matchScore).toBe(18);
+    expect(r.jd!.rows[0].item).toBeNull();
+  });
+
+  it("요건의 jdQuote를 JD 원문과 대조하고, 추정 요건이면 null", () => {
+    const jd = SAMPLE_OUTPUTS.jd;
+    const tampered = {
+      ...jd,
+      mustHave: jd.mustHave.map((m, i) => (i === 0 ? { ...m, jdQuote: "공고에 없는 지어낸 문장" } : m)),
+    };
+    const r = buildReportModel(makeSampleDiagnosis(), makeSampleStages({ outputs: { jd: tampered } }));
+    expect(r.jd!.rows[0].jdQuote).toEqual({ text: "공고에 없는 지어낸 문장", verified: false });
+    expect(r.jd!.rows.find((x) => x.requirement.id === "R5")!.jdQuote?.verified).toBe(true);
+
+    const inferred = { ...jd, source: "inferred" as const };
+    const r2 = buildReportModel(makeSampleDiagnosis(), makeSampleStages({ outputs: { jd: inferred } }));
+    expect(r2.jd!.rows.every((x) => x.jdQuote === null)).toBe(true);
+  });
+
+  it("재심사 판정 근거는 재작성본과 대조한다", () => {
+    const rescreen = {
+      ...SAMPLE_OUTPUTS.rescreen,
+      verdict: "REJECT" as const,
+      reasons: [
+        { quote: SAMPLE_OUTPUTS.rewrite.resumeMarkdown.split("\n")[0].replace(/^#\s*/, ""), issue: "a" },
+        { quote: "재작성본에 없는 줄", issue: "b" },
+      ],
+    };
+    const r = buildReportModel(makeSampleDiagnosis(), makeSampleStages({ outputs: { rescreen } }));
+    expect(r.rewrite!.rescreenReasons.map((x) => x.quote.verified)).toEqual([true, false]);
+  });
+
+  it("keywordStatus: 정확히 같은 누락 → missing, 부분 일치 present → present, 그 밖 unknown", () => {
+    expect(keywordStatus("Kafka", ["Java"], ["Kafka"])).toBe("missing");
+    expect(keywordStatus("Spring", ["Spring Boot"], [])).toBe("present");
+    expect(keywordStatus("Go", [], [])).toBe("unknown");
+  });
+
+  it("reportAvailability: done은 전체, failed라도 판정 7개+적합도가 끝났으면 부분 보고서", () => {
+    const all = makeSampleStages();
+    expect(reportAvailability("done", all)).toEqual({ show: true, partial: false, missing: [] });
+    const failedLate = makeSampleStages({ omit: ["rewrite", "rescreen"] });
+    expect(reportAvailability("failed", failedLate)).toEqual({
+      show: true,
+      partial: true,
+      missing: ["이력서 재작성", "재작성본 자동 필터 재심사"],
+    });
+    expect(reportAvailability("failed", makeSampleStages({ omit: ["fit", "synthesis"] })).show).toBe(false);
+    expect(reportAvailability("running", all).show).toBe(false);
+  });
+
+  it("PANEL.md의 문제점 번호는 rank를 쓴다(변경 내역의 #N과 일치)", () => {
+    const synthesis = {
+      ...SAMPLE_OUTPUTS.synthesis,
+      mistakes: SAMPLE_OUTPUTS.synthesis.mistakes.slice(0, 2).map((m, i) => ({ ...m, rank: i === 0 ? 1 : 4 })),
+    };
+    const md = renderPanelMarkdown(buildReportModel(makeSampleDiagnosis(), makeSampleStages({ outputs: { synthesis } })));
+    const second = SAMPLE_OUTPUTS.synthesis.mistakes[1].title;
+    expect(md).toContain(`4. **${second}**`);
+    expect(md).not.toContain(`2. **${second}**`);
   });
 });

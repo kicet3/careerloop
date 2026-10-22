@@ -45,6 +45,11 @@ export const diagnoses = sqliteTable(
     /** 공개 공유 링크 토큰. null이면 비공개. */
     shareToken: text("share_token").unique(),
     model: text("model").notNull(),
+    /**
+     * 현재 실행(run)의 식별자. runDiagnosis가 진단을 차지할 때 새로 정하고, 실행 중 모든 쓰기를 이 값으로 조건 건다.
+     * 멈춘 실행으로 판정된 뒤 재시도가 새 실행을 시작하면, 예전 실행의 늦은 쓰기는 아무 행에도 닿지 않는다.
+     */
+    runId: text("run_id"),
     /** 누적 토큰 사용량 JSON: { inputTokens, outputTokens, cacheReadTokens, cacheWriteTokens } */
     usage: text("usage", { mode: "json" }).$type<UsageTotals>(),
     createdAt: integer("created_at", { mode: "timestamp_ms" }).notNull().default(now),
@@ -70,6 +75,24 @@ export const diagnosisStages = sqliteTable(
     finishedAt: integer("finished_at", { mode: "timestamp_ms" }),
   },
   (t) => [uniqueIndex("diagnosis_stage_uq").on(t.diagnosisId, t.stage)],
+);
+
+/**
+ * 진단 실행 원장(append-only). 진단을 만들거나 재시도할 때마다 한 줄을 쓰고 지우지 않는다.
+ * 하루 제한·재시도 횟수는 이 표로 센다 — 진단을 삭제해도 줄어들지 않는다(diagnosisId에 FK를 걸지 않는 이유).
+ */
+export const diagnosisRuns = sqliteTable(
+  "diagnosis_runs",
+  {
+    id: integer("id").primaryKey({ autoIncrement: true }),
+    userId: text("user_id")
+      .notNull()
+      .references(() => users.id, { onDelete: "cascade" }),
+    diagnosisId: text("diagnosis_id").notNull(),
+    kind: text("kind").$type<"create" | "retry">().notNull(),
+    createdAt: integer("created_at", { mode: "timestamp_ms" }).notNull().default(now),
+  },
+  (t) => [index("diagnosis_runs_user_idx").on(t.userId, t.createdAt), index("diagnosis_runs_diag_idx").on(t.diagnosisId)],
 );
 
 export interface UsageTotals {

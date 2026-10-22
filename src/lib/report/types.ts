@@ -54,6 +54,8 @@ export interface ReviewerCard {
 
 export interface FitRow {
   requirement: Requirement;
+  /** requirement.jdQuote를 JD 원문과 대조한 결과(원문 그대로가 아니면 verified=false). 추정 요건이면 null. */
+  jdQuote: CheckedQuote | null;
   priority: "must" | "nice";
   item: FitItem | null;
   evidence: CheckedQuote | null;
@@ -98,7 +100,13 @@ export interface ReportModel {
   } | null;
   mistakes: MistakeView[];
   plan: ImprovementPlan | null;
-  rewrite: (RewriteResult & { rescreen: AtsResult | null }) | null;
+  rewrite:
+    | (RewriteResult & {
+        rescreen: AtsResult | null;
+        /** 재심사 판정 근거. 인용은 재작성본(resumeMarkdown)과 대조한다. */
+        rescreenReasons: { quote: CheckedQuote; issue: string }[];
+      })
+    | null;
   /** 원문(보고서 부록용) */
   originalResume: string;
 }

@@ -3,7 +3,7 @@ import { ensureDatabase } from "@/lib/db/migrate";
 import { errorResponse, notFound } from "@/lib/diagnoses/http";
 import { deleteDiagnosis, getDiagnosisForUser, markStaleRunsFailed } from "@/lib/diagnoses/service";
 import type { DiagnosisStatusResponse } from "@/lib/diagnoses/types";
-import { buildReportModel } from "@/lib/report/model";
+import { buildReportModel, reportAvailability } from "@/lib/report/model";
 
 export const runtime = "nodejs";
 
@@ -20,6 +20,8 @@ export async function GET(_req: Request, { params }: Ctx) {
     const found = await getDiagnosisForUser(id, user.id);
     if (!found) return notFound();
     const { diagnosis: d, stages } = found;
+    // 실패했어도 판정 7개와 적합도가 끝났으면 부분 보고서를 준다.
+    const avail = reportAvailability(d.status, stages);
 
     const body: DiagnosisStatusResponse = {
       id: d.id,
@@ -28,7 +30,8 @@ export async function GET(_req: Request, { params }: Ctx) {
       title: d.title,
       shareToken: d.shareToken,
       stages: stages.map((s) => ({ stage: s.stage, status: s.status, error: s.error })),
-      report: d.status === "done" ? buildReportModel(d, stages) : null,
+      report: avail.show ? buildReportModel(d, stages) : null,
+      partial: avail.partial,
     };
     return Response.json(body, { headers: { "Cache-Control": "no-store" } });
   } catch (err) {
