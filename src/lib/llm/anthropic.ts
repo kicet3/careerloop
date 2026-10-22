@@ -1,0 +1,224 @@
+/**
+ * Claude API 구현체. 규칙은 ARCHITECTURE.md §5.
+ *
+ * - beta messages + 서버 측 거절 fallback(`fallbacks: "default"`).
+ * - 구조화 출력: zod → JSON schema(toStrictJsonSchema)로 `output_config.format`에 넣고, 파싱·검증은 여기서
+ *   req.schema로 직접 한다. 설치된 SDK의 betaZodOutputFormat은 enum까지 description으로 내려 버려
+ *   판정 값(PASS/REJECT 등)이 강제되지 않으므로 쓰지 않는다.
+ * - 스트리밍(`.stream().finalMessage()`): 재작성·계획 단계의 큰 max_tokens에서도 SDK의 비스트리밍 10분 제한에
+ *   걸리지 않도록 모든 단계에서 스트리밍을 쓴다. 출력은 finalMessage로 한 번에 받는다.
+ * - thinking·temperature는 보내지 않는다. 깊이는 output_config.effort로만 조절한다.
+ */
+import Anthropic from "@anthropic-ai/sdk";
+import type {
+  BetaContentBlock,
+  BetaJSONOutputFormat,
+  BetaMessage,
+  BetaMessageParam,
+  BetaTextBlockParam,
+} from "@anthropic-ai/sdk/resources/beta/messages/messages";
+import { z } from "zod";
+import { splitUserPrompt } from "@/lib/panel/prompts";
+import {
+  LlmPermanentError,
+  type GenerateRequest,
+  type GenerateResult,
+  type LlmClient,
+  type LlmUsage,
+} from "./types";
+
+export const DEFAULT_MODEL = "claude-opus-5-5";
+const FALLBACK_BETA = "server-side-fallback-2026-07-01";
+const DEFAULT_MAX_TOKENS = 16000;
+
+export function anthropicModelName(): string {
+  return process.env.ANTHROPIC_MODEL?.trim() || DEFAULT_MODEL;
+}
+
+type Json = Record<string, unknown>;
+
+/**
+ * 구조화 출력이 지원하는 부분집합으로 변환한다: type/enum/const/anyOf/$ref/$defs/required/format 유지,
+ * 객체는 additionalProperties=false, minItems는 0·1만. 그 밖의 제약(최소·최대값, maxItems 등)은
+ * description에 적어 두고 실제 강제는 zod 재검증이 맡는다.
+ */
+export function toStrictJsonSchema(schema: z.ZodType): Json {
+  const raw = z.toJSONSchema(schema, { target: "draft-2020-12", unrepresentable: "any" }) as Json;
+  delete raw.$schema;
+  return strict(raw);
+}
+
+const KEEP = new Set(["type", "enum", "const", "anyOf", "$ref", "$defs", "description", "title", "properties", "required", "items", "additionalProperties"]);
+const STRING_FORMATS = new Set(["date-time", "time", "date", "duration", "email", "hostname", "uri", "ipv4", "ipv6", "uuid"]);
+
+function strict(node: Json): Json {
+  const out: Json = {};
+  const extra: string[] = [];
+  for (const [key, value] of Object.entries(node)) {
+    if (key === "$defs" && value && typeof value === "object") {
+      out.$defs = Object.fromEntries(Object.entries(value as Record<string, Json>).map(([k, v]) => [k, strict(v)]));
+    } else if (key === "properties" && value && typeof value === "object") {
+      out.properties = Object.fromEntries(Object.entries(value as Record<string, Json>).map(([k, v]) => [k, strict(v)]));
+    } else if (key === "items" && value && typeof value === "object" && !Array.isArray(value)) {
+      out.items = strict(value as Json);
+    } else if ((key === "anyOf" || key === "oneOf") && Array.isArray(value)) {
+      out.anyOf = (value as Json[]).map(strict);
+    } else if (key === "additionalProperties") {
+      // 아래에서 객체면 false로 고정
+    } else if (key === "minItems" && (value === 0 || value === 1)) {
+      out.minItems = value;
+    } else if (key === "format" && typeof value === "string" && STRING_FORMATS.has(value)) {
+      out.format = value;
+    } else if (KEEP.has(key)) {
+      out[key] = value;
+    } else if (!(key === "maximum" && value === Number.MAX_SAFE_INTEGER) && !(key === "minimum" && value === Number.MIN_SAFE_INTEGER)) {
+      extra.push(`${key}: ${JSON.stringify(value)}`);
+    }
+  }
+  if (out.type === "object") out.additionalProperties = false;
+  if (extra.length) out.description = [out.description, `{${extra.join(", ")}}`].filter(Boolean).join("\n\n");
+  return out;
+}
+
+// 변환 결과를 스키마 객체별로 캐시한다(동일 바이트 유지 → 프롬프트 캐시 유지).
+const formatCache = new WeakMap<object, BetaJSONOutputFormat>();
+function outputFormat(schema: z.ZodType): BetaJSONOutputFormat {
+  let f = formatCache.get(schema);
+  if (!f) {
+    f = { type: "json_schema", schema: toStrictJsonSchema(schema) };
+    formatCache.set(schema, f);
+  }
+  return f;
+}
+
+/** 공유 자료 블록(앞)과 단계 지시(뒤)를 나눠 앞 블록에 캐시 지점을 둔다. */
+function userContent(user: string): BetaTextBlockParam[] {
+  const [shared, task] = splitUserPrompt(user);
+  if (task == null) return [{ type: "text", text: user, cache_control: { type: "ephemeral" } }];
+  return [
+    { type: "text", text: shared, cache_control: { type: "ephemeral" } },
+    { type: "text", text: task },
+  ];
+}
+
+function addUsage(acc: LlmUsage, msg: BetaMessage): LlmUsage {
+  const u = msg.usage;
+  return {
+    inputTokens: acc.inputTokens + (u.input_tokens ?? 0),
+    outputTokens: acc.outputTokens + (u.output_tokens ?? 0),
+    cacheReadTokens: acc.cacheReadTokens + (u.cache_read_input_tokens ?? 0),
+    cacheWriteTokens: acc.cacheWriteTokens + (u.cache_creation_input_tokens ?? 0),
+  };
+}
+
+/**
+ * 응답 텍스트 후보. 스트리밍 중 fallback이 일어나면 거절 전 부분 출력과 fallback 블록이 content에 남으므로
+ * 전체 이어붙인 것과 마지막 fallback 블록 뒤의 텍스트를 모두 시도한다.
+ */
+function textCandidates(content: BetaContentBlock[]): string[] {
+  const texts = (blocks: BetaContentBlock[]) =>
+    blocks.flatMap((b) => (b.type === "text" ? [b.text] : [])).join("");
+  const all = texts(content);
+  const lastFallback = content.findLastIndex((b) => b.type === "fallback");
+  const out = [all];
+  if (lastFallback >= 0) {
+    const after = texts(content.slice(lastFallback + 1));
+    if (after && after !== all) out.unshift(after);
+  }
+  return out.filter((t) => t.trim().length > 0);
+}
+
+type ParseOutcome<T> = { ok: true; value: T } | { ok: false; problem: string };
+
+function parseOutput<T>(content: BetaContentBlock[], schema: z.ZodType<T>): ParseOutcome<T> {
+  const candidates = textCandidates(content);
+  if (candidates.length === 0) return { ok: false, problem: "응답에 텍스트가 없습니다." };
+  let problem = "";
+  for (const text of candidates) {
+    let raw: unknown;
+    try {
+      raw = JSON.parse(text);
+    } catch (e) {
+      problem = `JSON 파싱 실패: ${(e as Error).message}`;
+      continue;
+    }
+    const r = schema.safeParse(raw);
+    if (r.success) return { ok: true, value: r.data };
+    problem = r.error.issues
+      .slice(0, 10)
+      .map((i) => `${i.path.join(".") || "(root)"}: ${i.message}`)
+      .join("\n");
+  }
+  return { ok: false, problem };
+}
+
+export class AnthropicLlmClient implements LlmClient {
+  readonly name = "anthropic";
+  private readonly client: Anthropic;
+  private readonly model: string;
+
+  constructor(opts?: { client?: Anthropic; model?: string }) {
+    // 429·5xx·연결 오류는 SDK 재시도에 맡긴다.
+    this.client = opts?.client ?? new Anthropic({ maxRetries: 4 });
+    this.model = opts?.model ?? anthropicModelName();
+  }
+
+  async generate<T>(req: GenerateRequest<T>): Promise<GenerateResult<T>> {
+    const messages: BetaMessageParam[] = [{ role: "user", content: userContent(req.user) }];
+    let usage: LlmUsage = { inputTokens: 0, outputTokens: 0, cacheReadTokens: 0, cacheWriteTokens: 0 };
+
+    // 스키마 검증 실패 시 1회만 재요청한다.
+    for (let attempt = 0; attempt < 2; attempt++) {
+      const msg = await this.call(req, messages);
+      usage = addUsage(usage, msg);
+
+      if (msg.stop_reason === "refusal") {
+        throw new LlmPermanentError(`모델이 응답을 거절했습니다 (${req.stage})`, "refusal");
+      }
+      if (msg.stop_reason === "max_tokens" || msg.stop_reason === "model_context_window_exceeded") {
+        throw new LlmPermanentError(`응답이 길이 제한에서 끊겼습니다 (${req.stage})`, "max_tokens");
+      }
+
+      const parsed = parseOutput(msg.content, req.schema);
+      if (parsed.ok) return { output: parsed.value, usage, model: msg.model };
+
+      const previous = textCandidates(msg.content)[0] ?? "";
+      if (attempt === 0 && previous) {
+        messages.push(
+          { role: "assistant", content: previous },
+          {
+            role: "user",
+            content: `방금 출력이 스키마 검증을 통과하지 못했다:\n${parsed.problem}\n\n같은 내용을 스키마에 정확히 맞는 JSON 하나로 다시 출력한다.`,
+          },
+        );
+      } else if (attempt === 0) {
+        // 빈 응답이면 같은 요청을 그대로 다시 보낸다.
+        continue;
+      }
+    }
+    throw new LlmPermanentError(`모델 출력이 스키마와 맞지 않습니다 (${req.stage})`, "invalid_output");
+  }
+
+  private async call<T>(req: GenerateRequest<T>, messages: BetaMessageParam[]): Promise<BetaMessage> {
+    try {
+      const stream = this.client.beta.messages.stream(
+        {
+          model: this.model,
+          max_tokens: req.maxTokens ?? DEFAULT_MAX_TOKENS,
+          betas: [FALLBACK_BETA],
+          fallbacks: "default",
+          system: [{ type: "text", text: req.system, cache_control: { type: "ephemeral" } }],
+          messages,
+          output_config: { effort: req.effort, format: outputFormat(req.schema) },
+        },
+        { signal: req.signal },
+      );
+      return await stream.finalMessage();
+    } catch (e) {
+      if (e instanceof Anthropic.BadRequestError) {
+        throw new LlmPermanentError(`요청이 거부되었습니다: ${e.message}`, "bad_request");
+      }
+      throw e;
+    }
+  }
+}

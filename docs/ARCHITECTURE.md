@@ -158,6 +158,7 @@ export type DiagnosisStatusResponse = {
 // C. src/lib/ingest/extract.ts
 export async function extractText(file: { name: string; type: string; bytes: Uint8Array }): Promise<{ text: string; warnings: string[] }>;
 // PDF(unpdf), DOCX(mammoth), TXT/MD. 10MB 제한, 텍스트 50자 미만이면 "이미지 PDF로 보임 — 텍스트를 붙여넣어 달라" 오류.
+// PDF는 pdfjs-dist의 CMap(node_modules/pdfjs-dist/cmaps)을 넘겨 ToUnicode 없는 한국어 CID 글꼴(macOS 인쇄 PDF 등)도 읽는다.
 
 // D. src/lib/report/model.ts
 export function buildReportModel(diagnosis: Diagnosis, stages: DiagnosisStage[]): ReportModel; // 완료된 단계만으로도 부분 생성 가능

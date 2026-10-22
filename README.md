@@ -1,36 +1,80 @@
-This is a [Next.js](https://nextjs.org) project bootstrapped with [`create-next-app`](https://nextjs.org/docs/app/api-reference/cli/create-next-app).
+# 이력서 심사위원단 (Resume Panel)
 
-## Getting Started
+이력서를 올리면 AI 심사위원 7명(서류 자동 필터, 채용 담당자, 현업 매니저, 경쟁 지원자, 대표, 헤드헌터, 동료)이
+각자 떨어뜨릴 이유를 찾고, 그 결과를 하나의 보고서로 묶어 주는 웹 서비스입니다.
 
-First, run the development server:
+- **JD 분석·적합도 매트릭스**: 채용 공고(JD)를 붙여넣거나 파일로 올리면 필수/우대 요건과 키워드를 뽑고,
+  요건마다 이력서 근거를 인용해 충족·부분·미충족을 표시합니다. JD가 없으면 직무명으로 요건을 *추정*하고 보고서에 경고를 띄웁니다.
+- **문제점 목록**(심각도순, 지적한 심사위원 표시), **개선 방향성**(포지셔닝·우선순위·퀵윈·역량 공백·지원 전략·면접 대비)
+- **개선된 이력서**: 같은 사실로 재작성하고, 모르는 내용은 지어내지 않고 `[ADD: 질문]`으로 남깁니다. 재작성본을 서류 필터에 다시 돌려 전/후 판정을 보여 줍니다.
+- 웹 보고서, **PDF 다운로드**(한글 폰트 내장), 원본 스킬 호환 Markdown(`PANEL.md`, `RESUME-IMPROVED.md`), 읽기 전용 공유 링크
+- 이메일·비밀번호 로그인, 진단 이력
+
+설계 문서는 [`docs/ARCHITECTURE.md`](docs/ARCHITECTURE.md)에 있습니다.
+
+## 원본과 라이선스
+
+이 프로젝트는 Alex Chen(@nocodealex)의 Claude Code 스킬
+[hiring-panel-skill](https://github.com/alexyc9381/hiring-panel-skill)을 웹 서비스로 옮기고 확장한 것입니다.
+원본은 MIT 라이선스이며, 저작권 고지와 라이선스 전문은 [`THIRD_PARTY_NOTICES.md`](THIRD_PARTY_NOTICES.md)에 있습니다.
+PDF에 쓰는 나눔고딕 폰트는 SIL Open Font License 1.1을 따릅니다(`src/lib/report/fonts/OFL.txt`).
+
+보고서는 언어 모델이 만든 구조화된 두 번째 의견이며, 면접이나 합격을 보장하지 않습니다.
+
+## 로컬 실행
+
+Node.js 20 이상이 필요합니다.
 
 ```bash
+cp .env.example .env.local
+npm i
 npm run dev
-# or
-yarn dev
-# or
-pnpm dev
-# or
-bun dev
 ```
 
-Open [http://localhost:3000](http://localhost:3000) with your browser to see the result.
+http://localhost:3000 에서 가입하면 바로 쓸 수 있습니다.
 
-You can start editing the page by modifying `app/page.tsx`. The page auto-updates as you edit the file.
+- **마이그레이션은 자동입니다.** 서버가 뜰 때(`src/instrumentation.ts`) `./drizzle`의 마이그레이션을 적용하고,
+  기본값으로 `./data/app.db` SQLite 파일을 만듭니다. 따로 `db:migrate`를 돌릴 필요가 없습니다.
+- **키 없이 써 볼 수 있습니다.** `ANTHROPIC_API_KEY`를 비워 두거나 `LLM_MOCK=1`이면 가짜 심사위원(mock)이 실제 이력서 줄을 인용한
+  결정적 결과를 만듭니다. 화면·PDF·공유 흐름을 확인할 때 쓰세요. `MOCK_DELAY_MS`로 단계당 지연을 조절합니다.
+- 실제 진단은 `ANTHROPIC_API_KEY`를 넣으면 됩니다. 기본 모델은 `claude-opus-5-5`(`ANTHROPIC_MODEL`로 변경), 진단 1회에 LLM 호출 13회입니다.
 
-This project uses [`next/font`](https://nextjs.org/docs/app/building-your-application/optimizing/fonts) to automatically optimize and load [Geist](https://vercel.com/font), a new font family for Vercel.
+### 환경 변수
 
-## Learn More
+| 이름 | 설명 |
+|---|---|
+| `ANTHROPIC_API_KEY` | Claude API 키. 비우면 mock |
+| `ANTHROPIC_MODEL` | 기본 `claude-opus-5-5` |
+| `LLM_MOCK` | `1`이면 키가 있어도 mock |
+| `MOCK_DELAY_MS` | mock 단계당 지연(ms) |
+| `DATABASE_URL` | 로컬 `file:./data/app.db`, 배포 `libsql://…` |
+| `DATABASE_AUTH_TOKEN` | Turso 토큰 |
+| `DAILY_DIAGNOSIS_LIMIT` | 사용자당 하루 진단 수(기본 5) |
+| `APP_URL` | (선택) 리버스 프록시 뒤에서 Origin 검사에 쓸 공개 URL |
 
-To learn more about Next.js, take a look at the following resources:
+### 명령
 
-- [Next.js Documentation](https://nextjs.org/docs) - learn about Next.js features and API.
-- [Learn Next.js](https://nextjs.org/learn) - an interactive Next.js tutorial.
+```bash
+npm test          # vitest
+npm run lint
+npm run typecheck
+npm run build && npm start
+```
 
-You can check out [the Next.js GitHub repository](https://github.com/vercel/next.js) - your feedback and contributions are welcome!
+## 배포 (Vercel + Turso)
 
-## Deploy on Vercel
+1. Turso DB를 만들고 `DATABASE_URL=libsql://<db>.turso.io`, `DATABASE_AUTH_TOKEN`을 Vercel 환경 변수에 넣습니다.
+   테이블은 첫 요청 때 자동으로 만들어집니다(`./drizzle` 폴더가 배포물에 포함되도록 `next.config.ts`에 설정되어 있습니다).
+2. `ANTHROPIC_API_KEY`(필요하면 `ANTHROPIC_MODEL`, `DAILY_DIAGNOSIS_LIMIT`)를 넣습니다.
+3. 배포합니다.
 
-The easiest way to deploy your Next.js app is to use the [Vercel Platform](https://vercel.com/new?utm_medium=default-template&filter=next.js&utm_source=create-next-app&utm_campaign=create-next-app-readme) from the creators of Next.js.
+알아 둘 점:
 
-Check out our [Next.js deployment documentation](https://nextjs.org/docs/app/building-your-application/deploying) for more details.
+- **진단은 백그라운드에서 돕니다.** `POST /api/diagnoses`는 진단 행을 만들고 즉시 `{id}`를 돌려준 뒤,
+  Next.js `after()`로 같은 함수 호출 안에서 13단계를 이어서 실행합니다. 그래서 이 라우트(와 재시도 라우트)의
+  `maxDuration`(현재 300초)이 진단 전체 시간보다 길어야 합니다. Vercel 플랜의 함수 최대 실행 시간을 확인하고,
+  필요하면 `src/app/api/diagnoses/route.ts`, `src/app/api/diagnoses/[id]/retry/route.ts`의 `maxDuration`을 올리세요.
+  시간 안에 끝나지 않으면 진단은 10분 뒤 '실패'로 표시되고, 재시도하면 끝난 단계는 건너뛰고 이어서 실행합니다.
+- PDF 라우트는 `process.cwd()/src/lib/report/fonts`의 폰트를 읽습니다(추적 포함 설정 완료). Node 런타임 전용입니다.
+- 로그인 시도 제한은 서버 인스턴스 메모리에 있어 인스턴스마다 따로 셉니다.
+- 로컬 SQLite 파일은 서버리스 환경에서 유지되지 않으므로 배포에서는 반드시 Turso(libsql)를 쓰세요.
