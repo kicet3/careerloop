@@ -1,14 +1,15 @@
 import { createClient } from "@libsql/client";
 import { drizzle } from "drizzle-orm/libsql";
+import { resolveDatabase } from "./config";
 import * as schema from "./schema";
 
 /**
  * 로컬: DATABASE_URL 미설정 시 ./data/app.db(SQLite 파일).
- * 배포: Turso 등 libsql URL + DATABASE_AUTH_TOKEN.
+ * 배포: Turso 등 libsql URL + DATABASE_AUTH_TOKEN(없으면 Vercel Turso 연동의 TURSO_DATABASE_URL·TURSO_AUTH_TOKEN).
  */
 function createDb() {
-  const url = process.env.DATABASE_URL ?? "file:./data/app.db";
-  const client = createClient({ url, authToken: process.env.DATABASE_AUTH_TOKEN });
+  const { url, authToken } = resolveDatabase();
+  const client = createClient({ url, authToken });
   return drizzle(client, { schema });
 }
 

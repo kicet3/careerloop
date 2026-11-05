@@ -2,8 +2,7 @@
 
 import { useId, useRef, useState } from "react";
 import { cn } from "@/components/ui/cn";
-
-export const MAX_UPLOAD_BYTES = 10 * 1024 * 1024;
+import { formatMb, SELF_HOSTED_UPLOAD_LIMITS } from "@/lib/ingest/upload-limits";
 
 /** 이력서·포트폴리오·JD 업로드에서 받는 확장자(서버 src/lib/ingest/extract.ts UPLOAD_EXTENSIONS와 같게 유지). */
 export const UPLOAD_ACCEPT = [".pdf", ".docx", ".hwp", ".hwpx", ".html", ".htm", ".txt", ".md"];
@@ -24,14 +23,14 @@ export function formatsLabel(accept: string[]): string {
     .join(" · ");
 }
 
-/** 확장자·크기 검사. 문제가 없으면 null. */
-export function validateUpload(file: File, accept: string[]): string | null {
+/** 확장자·크기 검사. 문제가 없으면 null. maxBytes는 서버가 정한 파일당 상한(uploadLimitsFor). */
+export function validateUpload(file: File, accept: string[], maxBytes: number = SELF_HOSTED_UPLOAD_LIMITS.perFileBytes): string | null {
   const ext = file.name.toLowerCase().match(/\.[a-z0-9]+$/)?.[0] ?? "";
   if (!accept.includes(ext)) {
     if (ext === ".doc") return "DOC 파일은 읽지 못합니다. DOCX나 PDF로 저장해 올려 주세요.";
     return `${accept.join(", ")} 파일만 올릴 수 있습니다.`;
   }
-  if (file.size > MAX_UPLOAD_BYTES) return "파일은 10MB 이하만 올릴 수 있습니다.";
+  if (file.size > maxBytes) return `파일은 ${formatMb(maxBytes)} 이하만 올릴 수 있습니다.`;
   if (file.size === 0) return "빈 파일입니다.";
   return null;
 }
@@ -43,12 +42,15 @@ export function FileDrop({
   accept,
   label,
   hint,
+  maxBytes = SELF_HOSTED_UPLOAD_LIMITS.perFileBytes,
 }: {
   file: File | null;
   onChange: (file: File | null, error: string | null) => void;
   accept: string[];
   label: string;
   hint?: string;
+  /** 파일당 상한(바이트). */
+  maxBytes?: number;
 }) {
   const inputId = useId();
   const inputRef = useRef<HTMLInputElement>(null);
@@ -56,7 +58,7 @@ export function FileDrop({
 
   function pick(f: File | undefined | null) {
     if (!f) return;
-    const error = validateUpload(f, accept);
+    const error = validateUpload(f, accept, maxBytes);
     onChange(error ? null : f, error);
   }
 
@@ -101,7 +103,7 @@ export function FileDrop({
     >
       <span className="text-sm font-medium text-slate-800">{label}</span>
       <span className="text-xs text-slate-500">
-        {hint ?? `${formatsLabel(accept)} · 10MB 이하`}
+        {hint ?? `${formatsLabel(accept)} · ${formatMb(maxBytes)} 이하`}
       </span>
       <input
         ref={inputRef}

@@ -1,5 +1,5 @@
 import { createHash, createHmac, randomBytes, timingSafeEqual } from "node:crypto";
-import { googleLoginConfigured, httpsAppUrlHost, isProduction } from "@/lib/config/env";
+import { appUrl, googleLoginConfigured, httpsAppUrlHost, isProduction } from "@/lib/config/env";
 import { safeNextPath } from "./validation";
 
 /**
@@ -72,8 +72,8 @@ function requestOrigin(req: HeaderReq): string | null {
 
 /**
  * Google에 등록할 redirect_uri(`<origin>/api/auth/google/callback`). 못 정하면 null.
- * - PRODUCTION: APP_URL(https)만 쓴다. 요청의 Host 헤더는 믿지 않는다.
- * - DEV: GOOGLE_REDIRECT_ORIGIN → APP_URL → 요청 origin 순. 요청 origin은 localhost·*.ts.net·DEV_ALLOWED_ORIGINS 호스트만 허용.
+ * - PRODUCTION: 앱 주소(APP_URL, 없으면 Vercel 배포 주소 — env-rules appUrl)의 https만 쓴다. 요청의 Host 헤더는 믿지 않는다.
+ * - DEV: GOOGLE_REDIRECT_ORIGIN → 앱 주소 → 요청 origin 순. 요청 origin은 localhost·*.ts.net·DEV_ALLOWED_ORIGINS 호스트만 허용.
  *   (예: Tailscale https 주소로 고정하려면 GOOGLE_REDIRECT_ORIGIN=https://<기기>.<tailnet>.ts.net:9470)
  */
 export function resolveRedirectUri(req: HeaderReq, env: Env = process.env): string | null {
@@ -81,7 +81,7 @@ export function resolveRedirectUri(req: HeaderReq, env: Env = process.env): stri
     const host = httpsAppUrlHost(env);
     return host ? `https://${host}${GOOGLE_CALLBACK_PATH}` : null;
   }
-  const configured = originOf(env.GOOGLE_REDIRECT_ORIGIN) ?? originOf(env.APP_URL);
+  const configured = originOf(env.GOOGLE_REDIRECT_ORIGIN) ?? originOf(appUrl(env) ?? undefined);
   if (configured) return configured + GOOGLE_CALLBACK_PATH;
   const origin = requestOrigin(req);
   if (!origin || !devHostAllowed(new URL(origin).hostname, env)) return null;

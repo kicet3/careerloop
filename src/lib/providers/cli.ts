@@ -12,16 +12,16 @@ import { spawn, type ChildProcess } from "node:child_process";
 import { mkdirSync, mkdtempSync } from "node:fs";
 import os from "node:os";
 import path from "node:path";
-import { isProduction } from "@/lib/config/env";
+import { cliProvidersAllowed } from "@/lib/config/env";
 import type { CliProviderId } from "@/lib/domain/providers";
 
 /**
  * CLI 엔진 사용 여부. 임시·개인용 기능이라 CLI_PROVIDERS=1로 명시적으로 켜야 한다.
  * APP_ENV=PRODUCTION이면 한 서버 계정의 구독을 모든 사용자가 쓰게 되므로 CLI_PROVIDERS_IN_PRODUCTION=1까지 있어야 켠다.
+ * Vercel에서는 항상 꺼진다(claude·codex 실행 파일이 없고 배포 폴더가 읽기 전용, 로그인 세션도 인스턴스 사이에 남지 않는다).
  */
 export function cliProvidersEnabled(env: Record<string, string | undefined> = process.env): boolean {
-  if (env.CLI_PROVIDERS !== "1") return false;
-  return !isProduction(env) || env.CLI_PROVIDERS_IN_PRODUCTION === "1";
+  return cliProvidersAllowed(env);
 }
 
 export function cliBinary(provider: CliProviderId): string {

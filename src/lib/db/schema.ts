@@ -177,7 +177,8 @@ export const diagnosisRuns = sqliteTable(
       .notNull()
       .references(() => users.id, { onDelete: "cascade" }),
     diagnosisId: text("diagnosis_id").notNull(),
-    kind: text("kind").$type<"create" | "retry">().notNull(),
+    /** create: 새 진단, retry: 사용자 재시도, continue: 시간 예산에 걸린 뒤 자동 이어하기(재시도 횟수와 따로 센다). */
+    kind: text("kind").$type<"create" | "retry" | "continue">().notNull(),
     createdAt: integer("created_at", { mode: "timestamp_ms" }).notNull().default(now),
   },
   (t) => [index("diagnosis_runs_user_idx").on(t.userId, t.createdAt), index("diagnosis_runs_diag_idx").on(t.diagnosisId)],
@@ -320,6 +321,21 @@ export const applicationEvents = sqliteTable(
     at: integer("at", { mode: "timestamp_ms" }).notNull().default(now),
   },
   (t) => [index("application_events_app_idx").on(t.applicationId, t.at)],
+);
+
+/**
+ * 비용이 드는 기능의 요청 제한 원장(인스턴스 사이에 공유되는 레이트 리밋). bucket별로 key(사용자 ID 또는 IP 해시)의
+ * 창 안 기록 수를 센다(src/lib/auth/db-rate-limit.ts). 창이 지난 행은 기록할 때 지운다.
+ */
+export const rateEvents = sqliteTable(
+  "rate_events",
+  {
+    id: integer("id").primaryKey({ autoIncrement: true }),
+    bucket: text("bucket").notNull(),
+    key: text("key").notNull(),
+    createdAt: integer("created_at", { mode: "timestamp_ms" }).notNull().default(now),
+  },
+  (t) => [index("rate_events_key_idx").on(t.bucket, t.key, t.createdAt)],
 );
 
 export interface UsageTotals {

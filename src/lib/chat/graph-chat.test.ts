@@ -245,6 +245,16 @@ describe("그래프 채팅 서비스", () => {
     expect(out.message.data).toMatchObject({ error: expect.stringContaining("노드를 찾을 수 없습니다") });
   });
 
+  it("답변 마감은 요청 시작부터 센다: 그래프 조회가 멈춰도 마감에 실패 메시지를 남긴다", async () => {
+    const t = await gc.createGraphThread("u1", "마감");
+    await gc.startGraphChatMessage("u1", t.id, "Kotlin으로 정산 배치를 만들었어요", fakeDeps().deps);
+    const hung = fakeDeps({ getGraph: () => new Promise(() => {}) });
+    const startedAt = Date.now() - gc.REPLY_TIMEOUT_MS + 50;
+    const reply = await gc.runGraphChatReply("u1", t.id, "anthropic", null, hung.deps, { startedAt });
+    expect(reply!.status).toBe("failed");
+    expect(reply!.content).toMatch(/너무 오래 걸려 중단/);
+  });
+
   it("거절, LLM 실패는 실패 메시지로 남고 다시 시도할 수 있다", async () => {
     const t = await gc.createGraphThread("u1", "거절");
     const { deps } = fakeDeps();

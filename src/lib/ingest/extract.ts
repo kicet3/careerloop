@@ -10,12 +10,14 @@ import path from "node:path";
 import { IngestError } from "./errors";
 import { extractHwp } from "./hwp";
 import { decodeHtml, htmlText, hwpxSectionText } from "./markup";
+import { formatMb, SELF_HOSTED_UPLOAD_LIMITS, uploadLimitsFor } from "./upload-limits";
 import { readZipWithinLimits, ZipLimitError } from "./zip";
 import { isSpaceTabNbsp, trimLineEnds } from "@/lib/text/whitespace";
 
 export { IngestError } from "./errors";
 
-export const MAX_UPLOAD_BYTES = 10 * 1024 * 1024;
+/** 자체 호스팅의 파일당 상한. 실제 상한은 uploadLimitsFor()(Vercel은 4MB). */
+export const MAX_UPLOAD_BYTES = SELF_HOSTED_UPLOAD_LIMITS.perFileBytes;
 export const MIN_TEXT_LENGTH = 50;
 
 /** PDF 페이지 상한. 이력서·공고가 이보다 길 일은 없고, 수천 쪽 PDF로 이벤트 루프를 붙잡는 것을 막는다. */
@@ -90,11 +92,12 @@ export async function extractText(
     type: string;
     bytes: Uint8Array;
   },
-  opts: { maxChars?: number } = {},
+  opts: { maxChars?: number; maxBytes?: number } = {},
 ): Promise<{ text: string; warnings: string[] }> {
   const maxChars = opts.maxChars ?? DEFAULT_MAX_CHARS;
-  if (file.bytes.byteLength > MAX_UPLOAD_BYTES) {
-    throw new IngestError("파일이 너무 큽니다. 10MB 이하 파일만 올릴 수 있습니다.", 413);
+  const maxBytes = opts.maxBytes ?? uploadLimitsFor().perFileBytes;
+  if (file.bytes.byteLength > maxBytes) {
+    throw new IngestError(`파일이 너무 큽니다. ${formatMb(maxBytes)} 이하 파일만 올릴 수 있습니다.`, 413);
   }
   if (file.bytes.byteLength === 0) {
     throw new IngestError("빈 파일입니다. 다른 파일을 올리거나 텍스트를 붙여넣어 주세요.");

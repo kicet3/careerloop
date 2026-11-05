@@ -15,6 +15,8 @@ const BodySchema = z.object({ message: z.string(), provider: z.string().max(40).
 
 /** 사용자 메시지를 저장하고 202. 답변(변경안)은 백그라운드에서 만들어 스레드에 추가된다 — 클라이언트는 스레드를 폴링한다. */
 export async function POST(req: Request, { params }: { params: Promise<{ threadId: string }> }) {
+  // 답변 마감은 요청 시작부터 센다(Vercel maxDuration도 요청 시작부터 잰다).
+  const startedAt = Date.now();
   await ensureDatabase();
   const forbidden = assertSameOrigin(req);
   if (forbidden) return forbidden;
@@ -30,7 +32,7 @@ export async function POST(req: Request, { params }: { params: Promise<{ threadI
     }
     const provider = await resolveRequestedProvider(body.data.provider ?? null);
     const message = await startGraphChatMessage(user.id, threadId, text.data);
-    scheduleGraphChatReply(user.id, threadId, provider, user.name);
+    scheduleGraphChatReply(user.id, threadId, provider, user.name, startedAt);
     return Response.json({ message }, { status: 202 });
   } catch (err) {
     return featureErrorResponse(err, "POST /api/graph/chat/threads/[threadId]/messages");

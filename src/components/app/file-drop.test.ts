@@ -19,3 +19,12 @@ describe("업로드 허용 확장자", () => {
     expect(validateUpload(file("이력서.HWP"), UPLOAD_ACCEPT)).toBeNull();
   });
 });
+
+describe("업로드 용량", () => {
+  it("파일당 상한은 서버가 정한 값(Vercel 4MB)을 따른다", async () => {
+    const { VERCEL_UPLOAD_LIMITS } = await import("@/lib/ingest/upload-limits");
+    const big = new File([new Uint8Array(5 * 1024 * 1024)], "cv.pdf");
+    expect(validateUpload(big, UPLOAD_ACCEPT)).toBeNull(); // 자체 호스팅 10MB
+    expect(validateUpload(big, UPLOAD_ACCEPT, VERCEL_UPLOAD_LIMITS.perFileBytes)).toBe("파일은 4MB 이하만 올릴 수 있습니다.");
+  });
+});

@@ -6,7 +6,7 @@ import { redirect } from "next/navigation";
 import { cache } from "react";
 import { db, schema } from "@/lib/db/client";
 import { ensureDatabase } from "@/lib/db/migrate";
-import { httpsAppUrlHost, isProduction } from "@/lib/config/env";
+import { appUrl, isProduction, trustedOriginHosts } from "@/lib/config/env";
 import { safeNextPath } from "./validation";
 
 export const SESSION_COOKIE = "rp_session";
@@ -126,7 +126,8 @@ export async function requireApiUser(): Promise<SessionUser | Response> {
 /**
  * 상태 변경 요청의 same-origin 확인(CSRF 방어). 위반이면 403 Response, 통과면 null.
  * Origin이 없는 요청(브라우저가 아닌 클라이언트)은 Sec-Fetch-Site가 cross-site가 아니면 통과시킨다.
- * APP_ENV=PRODUCTION이면 Host·X-Forwarded-Host 헤더(클라이언트·프록시가 바꿀 수 있음)를 믿지 않고 APP_URL 호스트만 허용한다.
+ * APP_ENV=PRODUCTION이면 Host·X-Forwarded-Host 헤더(클라이언트·프록시가 바꿀 수 있음)를 믿지 않고 앱 주소(APP_URL, 없으면 Vercel 배포 주소)
+ * 호스트만 허용한다.
  */
 export function assertSameOrigin(req: Request, env: Record<string, string | undefined> = process.env): Response | null {
   const forbidden = () => Response.json({ error: "허용되지 않은 요청 출처입니다." }, { status: 403 });
@@ -142,9 +143,8 @@ export function assertSameOrigin(req: Request, env: Record<string, string | unde
   }
   const allowed = new Set<string>();
   if (isProduction(env)) {
-    // 시작 시 검사(validateProductionEnv)로 https APP_URL이 보장된다. 없으면 모두 거부.
-    const appHost = httpsAppUrlHost(env);
-    if (appHost) allowed.add(appHost);
+    // 시작 시 검사(validateProductionEnv)로 https 앱 주소가 보장된다(Vercel Preview는 그 배포 주소도). 없으면 모두 거부.
+    for (const h of trustedOriginHosts(env)) allowed.add(h);
     return allowed.has(originHost) ? null : forbidden();
   }
   const host = req.headers.get("host");
@@ -154,9 +154,10 @@ export function assertSameOrigin(req: Request, env: Record<string, string | unde
   try {
     allowed.add(new URL(req.url).host);
   } catch {}
-  if (env.APP_URL) {
+  const configured = appUrl(env);
+  if (configured) {
     try {
-      allowed.add(new URL(env.APP_URL).host);
+      allowed.add(new URL(configured).host);
     } catch {}
   }
   return allowed.has(originHost) ? null : forbidden();

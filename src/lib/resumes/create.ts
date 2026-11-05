@@ -2,7 +2,6 @@ import "server-only";
 /**
  * 새 이력서 만들기: 출처(그래프·진단 재작성본·빈 문서) 자료를 불러와 필요하면 AI 초안을 쓰고 v1로 저장한다.
  */
-import { createRateLimiter } from "@/lib/auth/rate-limit";
 import { emptyResumeDocument, performanceScaffold, type ResumeDocument } from "@/lib/domain/resumes";
 import { createLlmClient, type LlmClient } from "@/lib/llm";
 import { withLlmDeadline } from "@/lib/llm/deadline";
@@ -10,14 +9,6 @@ import { resolveRequestedProvider } from "@/lib/providers/options";
 import { generateResumeDraft, loadDraftMaterial } from "./draft";
 import { createResume } from "./service";
 import type { CreateResumeInput, CreateResumeResponse } from "./types";
-
-const globalForResumes = globalThis as unknown as { __resumeDraftLimiter?: ReturnType<typeof createRateLimiter> };
-
-/** AI 초안: 사용자당 하루 30회(엔진 비용·남용 방지). 프로세스 메모리 기준이라 느슨한 방어다. */
-export const resumeDraftLimiter = (globalForResumes.__resumeDraftLimiter ??= createRateLimiter({
-  limit: 30,
-  windowMs: 24 * 60 * 60_000,
-}));
 
 export interface CreateDeps {
   /** 테스트용: 엔진 선택 없이 이 클라이언트를 쓴다. */

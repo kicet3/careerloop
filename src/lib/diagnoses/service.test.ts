@@ -31,7 +31,7 @@ beforeAll(async () => {
   await ensureDatabase();
   ({ db, schema } = await import("@/lib/db/client"));
   svc = await import("./service");
-  for (const id of ["u1", "u2", "u3", "u4", "u5", "u-provider", "u-portfolio", "u-retired"]) {
+  for (const id of ["u1", "u2", "u3", "u4", "u5", "u-provider", "u-portfolio", "u-retired", "u-cont"]) {
     await db.insert(schema.users).values({ id, email: `${id}@x.com`, passwordHash: "x" });
   }
 });
@@ -190,6 +190,28 @@ describe("diagnoses service", () => {
     }
     await setStatus(id, "failed");
     await expect(svc.prepareRetry(id, "u4")).rejects.toMatchObject({ status: 429 });
+  });
+
+  it("시간 제한 멈춤의 자동 이어하기: 재시도 횟수와 따로 세고, 시간 제한 멈춤이 아니면 409", async () => {
+    const { eq } = await import("drizzle-orm");
+    const { DEADLINE_STOP_ERROR, MAX_DEADLINE_CONTINUATIONS } = await import("./summary");
+    const { id } = await svc.createDiagnosis("u-cont", input);
+    const stop = async (error: string | null) =>
+      db.update(schema.diagnoses).set({ status: "failed", error }).where(eq(schema.diagnoses.id, id));
+
+    await stop("심사위원 단계가 실패했습니다.");
+    await expect(svc.prepareRetry(id, "u-cont", { continuation: true })).rejects.toMatchObject({ status: 409 });
+
+    for (let i = 0; i < MAX_DEADLINE_CONTINUATIONS; i++) {
+      await stop(DEADLINE_STOP_ERROR);
+      await svc.prepareRetry(id, "u-cont", { continuation: true });
+      expect((await svc.getDiagnosisForUser(id, "u-cont"))?.diagnosis.status).toBe("queued");
+    }
+    await stop(DEADLINE_STOP_ERROR);
+    await expect(svc.prepareRetry(id, "u-cont", { continuation: true })).rejects.toMatchObject({ status: 429 });
+    // 사용자 재시도는 그대로 3회 남아 있다.
+    await svc.prepareRetry(id, "u-cont");
+    expect((await svc.getDiagnosisForUser(id, "u-cont"))?.diagnosis.status).toBe("queued");
   });
 
   it("재시도 중 다른 진단이 진행 중이면 409", async () => {

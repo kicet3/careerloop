@@ -1,7 +1,8 @@
 import { featureErrorResponse } from "@/lib/api/errors";
 import { assertSameOrigin, requireApiUser } from "@/lib/auth/session";
 import { ensureDatabase } from "@/lib/db/migrate";
-import { createResumeFromInput, resumeDraftLimiter } from "@/lib/resumes/create";
+import { hitDbLimit, RESUME_DRAFT_LIMIT } from "@/lib/auth/db-rate-limit";
+import { createResumeFromInput } from "@/lib/resumes/create";
 import { jsonError } from "@/lib/diagnoses/http";
 import { withResumePostingDefaults } from "@/lib/postings/defaults";
 import { getPosting, POSTING_NOT_FOUND } from "@/lib/postings/service";
@@ -45,7 +46,8 @@ export async function POST(req: Request) {
     }
     const input = parseJsonInput(CreateResumeInputSchema, raw);
     if (input.source.kind !== "blank") {
-      const limit = resumeDraftLimiter.hit(user.id);
+      // AI 초안: 사용자당 24시간 30회(엔진 비용·남용 방지). DB 원장이라 인스턴스 사이에 공유된다.
+      const limit = await hitDbLimit(RESUME_DRAFT_LIMIT, user.id);
       if (!limit.ok) {
         return Response.json(
           { error: "오늘 만들 수 있는 AI 초안 수를 넘었습니다. 빈 문서로 시작하거나 내일 다시 시도해 주세요." },

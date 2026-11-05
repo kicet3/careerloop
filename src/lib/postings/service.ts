@@ -7,7 +7,7 @@ import { and, count, desc, eq, ne, sql } from "drizzle-orm";
 import { nanoid } from "nanoid";
 import { FeatureError } from "@/lib/api/errors";
 import { db } from "@/lib/db/client";
-import { companyResumes, diagnoses, jobPostings, type JobPostingRow } from "@/lib/db/schema";
+import { applications, companyResumes, diagnoses, jobPostings, postingImports, type JobPostingRow } from "@/lib/db/schema";
 import {
   postingDeadlineError,
   type JobPosting,
@@ -238,12 +238,22 @@ export async function updatePosting(userId: string, id: string, patch: PostingUp
   }
 }
 
-/** 공고 삭제. 연결된 진단·이력서·지원의 postingId는 FK로 null이 된다(각자의 사본은 남는다). */
+/**
+ * 공고 삭제. 연결된 진단·이력서·지원·가져오기의 postingId는 null이 된다(각자의 사본은 남는다).
+ * FK의 ON DELETE SET NULL은 연결마다 PRAGMA foreign_keys에 달려 있어(원격 libsql/Turso는 요청마다 새 연결) 명시적으로
+ * 같은 배치(한 트랜잭션)에서 먼저 끊는다.
+ */
 export async function deletePosting(userId: string, id: string): Promise<boolean> {
-  const rows = await db
-    .delete(jobPostings)
-    .where(and(eq(jobPostings.id, id), eq(jobPostings.userId, userId)))
-    .returning({ id: jobPostings.id });
+  const [, , , , rows] = await db.batch([
+    db.update(diagnoses).set({ postingId: null }).where(and(eq(diagnoses.postingId, id), eq(diagnoses.userId, userId))),
+    db.update(companyResumes).set({ postingId: null }).where(and(eq(companyResumes.postingId, id), eq(companyResumes.userId, userId))),
+    db.update(applications).set({ postingId: null }).where(and(eq(applications.postingId, id), eq(applications.userId, userId))),
+    db.update(postingImports).set({ postingId: null }).where(and(eq(postingImports.postingId, id), eq(postingImports.userId, userId))),
+    db
+      .delete(jobPostings)
+      .where(and(eq(jobPostings.id, id), eq(jobPostings.userId, userId)))
+      .returning({ id: jobPostings.id }),
+  ]);
   return rows.length > 0;
 }
 

@@ -9,6 +9,7 @@ import { Card } from "@/components/ui/Card";
 import { NO_ENGINE_MESSAGE, PROVIDER_DATA_DESTINATION, type ProviderId, type ProviderOption } from "@/lib/domain/providers";
 import { SITUATION_LABELS } from "@/lib/domain/reviewers";
 import { SITUATIONS, type Situation } from "@/lib/domain/schemas";
+import { formatMb, SELF_HOSTED_UPLOAD_LIMITS, totalUploadError, uploadLimitMessage, type UploadLimits } from "@/lib/ingest/upload-limits";
 import { takeDiagnosisPrefill } from "@/lib/resumes/prefill";
 import { saveCreationWarnings } from "./creation-warnings";
 import { FileDrop, UPLOAD_ACCEPT, UPLOAD_FORMATS_LABEL } from "./FileDrop";
@@ -50,7 +51,6 @@ const STATUS_FALLBACK: Record<number, string> = {
   400: "입력 내용을 확인해 주세요.",
   401: "로그인이 필요합니다.",
   409: "이미 진행 중인 진단이 있습니다. 끝난 뒤 다시 시도해 주세요.",
-  413: "파일이 너무 큽니다. 10MB 이하로 올려 주세요.",
   429: "오늘 진단 가능 횟수를 모두 사용했습니다. 내일 다시 시도해 주세요.",
 };
 
@@ -59,10 +59,14 @@ type Mode = "file" | "text";
 export function NewDiagnosisForm({
   providers,
   defaultProvider,
+  uploadLimits = SELF_HOSTED_UPLOAD_LIMITS,
 }: {
   providers: ProviderOption[];
   defaultProvider: ProviderId | null;
+  /** 서버가 정한 업로드 상한(Vercel은 요청 본문 4.5MB 때문에 더 작다). */
+  uploadLimits?: UploadLimits;
 }) {
+  const perFile = formatMb(uploadLimits.perFileBytes);
   const router = useRouter();
   const [provider, setProvider] = useState<ProviderId | null>(defaultProvider);
   const selected = providers.find((p) => p.id === provider);
@@ -128,6 +132,15 @@ export function NewDiagnosisForm({
       return;
     }
 
+    const tooBig = totalUploadError(
+      [resumeMode === "file" ? resumeFile : null, jdMode === "file" ? jdFile : null, portfolioFile],
+      uploadLimits,
+    );
+    if (tooBig) {
+      setError(tooBig);
+      return;
+    }
+
     const fd = new FormData();
     const F = DIAGNOSIS_FORM_FIELDS;
     if (resumeMode === "file" && resumeFile) fd.set(F.resumeFile, resumeFile);
@@ -151,7 +164,11 @@ export function NewDiagnosisForm({
         return;
       }
       if (!res.ok || !data?.id) {
-        setError(data?.error ?? STATUS_FALLBACK[res.status] ?? "진단을 시작하지 못했습니다. 잠시 후 다시 시도해 주세요.");
+        setError(
+          data?.error ??
+            (res.status === 413 ? `파일이 너무 큽니다. ${uploadLimitMessage(uploadLimits)}` : STATUS_FALLBACK[res.status]) ??
+            "진단을 시작하지 못했습니다. 잠시 후 다시 시도해 주세요.",
+        );
         setSubmitting(false);
         return;
       }
@@ -189,10 +206,11 @@ export function NewDiagnosisForm({
           />
           {resumeMode === "file" ? (
             <FileDrop
+              maxBytes={uploadLimits.perFileBytes}
               file={resumeFile}
               accept={RESUME_ACCEPT}
               label="이력서 파일을 끌어다 놓거나 눌러서 선택"
-              hint={`${UPLOAD_FORMATS_LABEL}, 10MB 이하. 이미지로 된 PDF와 암호·배포용 HWP는 읽지 못하니 붙여넣기를 써 주세요.`}
+              hint={`${UPLOAD_FORMATS_LABEL}, ${perFile} 이하. 이미지로 된 PDF와 암호·배포용 HWP는 읽지 못하니 붙여넣기를 써 주세요.`}
               onChange={(f, err) => {
                 setResumeFile(f);
                 setFileError((p) => ({ ...p, resume: err ?? undefined }));
@@ -262,6 +280,7 @@ export function NewDiagnosisForm({
                 />
               ) : (
                 <FileDrop
+                  maxBytes={uploadLimits.perFileBytes}
                   file={jdFile}
                   accept={JD_ACCEPT}
                   label="공고 파일을 끌어다 놓거나 눌러서 선택"
@@ -339,10 +358,11 @@ export function NewDiagnosisForm({
             <span className="block text-sm font-medium text-slate-800">포트폴리오 파일</span>
             <div className="mt-1.5">
               <FileDrop
+                maxBytes={uploadLimits.perFileBytes}
                 file={portfolioFile}
                 accept={PORTFOLIO_ACCEPT}
                 label="포트폴리오 파일을 끌어다 놓거나 눌러서 선택"
-                hint={`${UPLOAD_FORMATS_LABEL}, 10MB 이하. 글자를 읽을 수 있는 파일만 반영되며, 긴 파일은 앞부분만 씁니다.`}
+                hint={`${UPLOAD_FORMATS_LABEL}, ${perFile} 이하. 글자를 읽을 수 있는 파일만 반영되며, 긴 파일은 앞부분만 씁니다.`}
                 onChange={(f, err) => {
                   setPortfolioFile(f);
                   setFileError((p) => ({ ...p, portfolio: err ?? undefined }));

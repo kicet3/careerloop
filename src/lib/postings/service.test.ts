@@ -101,6 +101,29 @@ describe("공고 저장소", () => {
   });
 });
 
+describe("FK 설정과 무관한 삭제", () => {
+  it("PRAGMA foreign_keys가 꺼진 연결(원격 Turso)에서도 공고를 지우면 연결이 끊긴다", async () => {
+    const { eq } = await import("drizzle-orm");
+    const p = await service.createPosting("ua", input({ company: "NoFK", roleTitle: "R" }));
+    await db.insert(schema.diagnoses).values({
+      id: "dg-nofk", userId: "ua", title: "t", targetRole: "R", situation: "general", resumeText: "r", model: "m", postingId: p.id,
+    });
+    await db.insert(schema.companyResumes).values({
+      id: "rs-nofk", userId: "ua", company: "NoFK", roleTitle: "R", templateId: "performance", title: "t", postingId: p.id,
+    });
+    await db.$client.execute("PRAGMA foreign_keys = OFF");
+    try {
+      expect(await service.deletePosting("ua", p.id)).toBe(true);
+    } finally {
+      await db.$client.execute("PRAGMA foreign_keys = ON");
+    }
+    const [d] = await db.select().from(schema.diagnoses).where(eq(schema.diagnoses.id, "dg-nofk"));
+    const [r] = await db.select().from(schema.companyResumes).where(eq(schema.companyResumes.id, "rs-nofk"));
+    expect(d?.postingId).toBeNull();
+    expect(r?.postingId).toBeNull();
+  });
+});
+
 describe("URL 가져오기 작업", () => {
   const fetchPage = vi.fn(async (url: string) => ({ url, html: PAGE_HTML }));
 

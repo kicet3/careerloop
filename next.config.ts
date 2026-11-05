@@ -1,4 +1,16 @@
 import type { NextConfig } from "next";
+import { PHASE_PRODUCTION_BUILD } from "next/constants";
+import { validateProductionEnv } from "./src/lib/config/env-rules";
+
+/**
+ * Vercel 빌드에서는 런타임과 같은 배포 모드 검사를 빌드 때 한다. PRODUCTION(Vercel Production 배포는 APP_ENV를 비워도
+ * PRODUCTION)인데 필수 설정이 빠졌으면 빌드를 실패시켜, 모든 요청이 500이 되는 배포가 Ready로 올라가지 않게 한다.
+ */
+function checkVercelBuildEnv(phase: string): void {
+  if (phase !== PHASE_PRODUCTION_BUILD || !process.env.VERCEL) return;
+  const { env, warnings } = validateProductionEnv(process.env);
+  console.log(`[env] Vercel 빌드: APP_ENV=${env}${warnings.length ? `\n- ${warnings.join("\n- ")}` : ""}`);
+}
 
 const nextConfig: NextConfig = {
   // 개발 서버를 Tailscale(MagicDNS *.ts.net·tailnet IP) 등 localhost 밖의 주소로 열 때 dev 자산·HMR 요청을 허용한다.
@@ -33,4 +45,7 @@ const nextConfig: NextConfig = {
   },
 };
 
-export default nextConfig;
+export default function config(phase: string): NextConfig {
+  checkVercelBuildEnv(phase);
+  return nextConfig;
+}

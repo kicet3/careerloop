@@ -14,7 +14,7 @@ import { db } from "@/lib/db/client";
 import { diagnoses, diagnosisStages, type UsageTotals } from "@/lib/db/schema";
 import { STAGE_LABELS } from "@/lib/domain/reviewers";
 import { STAGE_KEYS, STAGE_SCHEMAS, type StageKey, type StageOutputs } from "@/lib/domain/schemas";
-import { HEARTBEAT_MS } from "@/lib/diagnoses/summary";
+import { DEADLINE_STOP_ERROR, HEARTBEAT_MS } from "@/lib/diagnoses/summary";
 import { createLlmClient, legacyProvider } from "@/lib/llm";
 import { LlmPermanentError, usageOfError, type LlmClient, type LlmUsage } from "@/lib/llm/types";
 import { runPipeline } from "./pipeline";
@@ -215,7 +215,7 @@ export async function runDiagnosis(
     const error = ok
       ? null
       : deadlineHit
-        ? "서버 실행 시간 제한에 걸려 중단되었습니다. 다시 시도하면 완료된 단계는 건너뛰고 이어서 진행합니다."
+        ? DEADLINE_STOP_ERROR
         : failed.length > 0
           ? `${failed.map((s) => STAGE_LABELS[s]).join(", ")} 단계가 실패했습니다. 다시 시도하면 완료된 단계는 건너뛰고 이어서 진행합니다.`
           : "일부 단계를 완료하지 못했습니다. 다시 시도해 주세요.";

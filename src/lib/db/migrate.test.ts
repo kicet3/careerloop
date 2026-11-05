@@ -2,7 +2,8 @@ import { cpSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from "node:f
 import os from "node:os";
 import path from "node:path";
 import { afterAll, describe, expect, it } from "vitest";
-import { migrationsFolder, sqliteFilePath } from "./migrate";
+import { latestJournalMillis, migrateAtRuntime, migrationsFolder, sqliteFilePath } from "./migrate";
+import { resolveDatabase } from "./config";
 
 const dir = mkdtempSync(path.join(os.tmpdir(), "rp-migrate-"));
 afterAll(() => rmSync(dir, { recursive: true, force: true }));
@@ -13,6 +14,28 @@ describe("sqliteFilePath", () => {
     expect(sqliteFilePath("file:///tmp/x.db")).toBe("/tmp/x.db");
     expect(sqliteFilePath("libsql://db.turso.io")).toBeNull();
     expect(sqliteFilePath("file::memory:")).toBeNull();
+  });
+});
+
+describe("배포 마이그레이션 규칙", () => {
+  it("Vercel은 런타임에 적용하지 않고 확인만 한다(DB_MIGRATE_AT_RUNTIME=1이면 예외)", () => {
+    expect(migrateAtRuntime({})).toBe(true);
+    expect(migrateAtRuntime({ VERCEL: "1" })).toBe(false);
+    expect(migrateAtRuntime({ VERCEL: "1", DB_MIGRATE_AT_RUNTIME: "1" })).toBe(true);
+  });
+
+  it("저널의 최신 시각은 마지막 마이그레이션 항목", () => {
+    const journal = JSON.parse(readFileSync(path.join(migrationsFolder(), "meta", "_journal.json"), "utf8")) as { entries: { when: number }[] };
+    expect(latestJournalMillis()).toBe(journal.entries.at(-1)!.when);
+  });
+
+  it("DB 주소: DATABASE_* 우선, 없으면 TURSO_*, 없으면 로컬 파일", () => {
+    expect(resolveDatabase({})).toEqual({ url: "file:./data/app.db", authToken: undefined });
+    expect(resolveDatabase({ TURSO_DATABASE_URL: "libsql://a.turso.io", TURSO_AUTH_TOKEN: "t" })).toEqual({ url: "libsql://a.turso.io", authToken: "t" });
+    expect(resolveDatabase({ DATABASE_URL: "libsql://b.turso.io", DATABASE_AUTH_TOKEN: "d", TURSO_AUTH_TOKEN: "t" })).toEqual({
+      url: "libsql://b.turso.io",
+      authToken: "d",
+    });
   });
 });
 

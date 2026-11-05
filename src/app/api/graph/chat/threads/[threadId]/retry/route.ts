@@ -14,6 +14,8 @@ const BodySchema = z.object({ provider: z.string().max(40).nullish() });
 
 /** 답변 실패·무응답 뒤 마지막 메시지를 다시 보낸다. 202. */
 export async function POST(req: Request, { params }: { params: Promise<{ threadId: string }> }) {
+  // 답변 마감은 요청 시작부터 센다(Vercel maxDuration도 요청 시작부터 잰다).
+  const startedAt = Date.now();
   await ensureDatabase();
   const forbidden = assertSameOrigin(req);
   if (forbidden) return forbidden;
@@ -25,7 +27,7 @@ export async function POST(req: Request, { params }: { params: Promise<{ threadI
     if (!body.success) return jsonError("요청 형식이 올바르지 않습니다.", 400);
     const provider = await resolveRequestedProvider(body.data.provider ?? null);
     const message = await startGraphChatRetry(user.id, threadId);
-    scheduleGraphChatReply(user.id, threadId, provider, user.name);
+    scheduleGraphChatReply(user.id, threadId, provider, user.name, startedAt);
     return Response.json({ message }, { status: 202 });
   } catch (err) {
     return featureErrorResponse(err, "POST /api/graph/chat/threads/[threadId]/retry");

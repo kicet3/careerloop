@@ -12,7 +12,7 @@ import { and, count, desc, eq, inArray, max, sql } from "drizzle-orm";
 import { customAlphabet } from "nanoid";
 import { FeatureError } from "@/lib/api/errors";
 import { db } from "@/lib/db/client";
-import { companyResumes, resumeVersions, type CompanyResume, type ResumeVersion } from "@/lib/db/schema";
+import { applications, companyResumes, resumeVersions, type CompanyResume, type ResumeVersion } from "@/lib/db/schema";
 import { parseResumeDocument, ResumeDocumentSchema, type ResumeDocument, type ResumeTemplateId, type ResumeVersionSource } from "@/lib/domain/resumes";
 import { deleteObject, getJson, listByPrefix, putJson, userKey, userPrefix } from "@/lib/storage";
 import {
@@ -323,17 +323,23 @@ export async function restoreVersion(userId: string, resumeId: string, versionId
 }
 
 /**
- * 이력서 삭제: 메타(버전 행은 cascade)를 먼저 지우고 저장소 객체를 지운다.
+ * 이력서 삭제: 메타·버전 행을 먼저 지우고 저장소 객체를 지운다.
  * 객체 삭제가 실패해도 이력서는 이미 사라졌으므로 로그만 남긴다(고아 객체는 같은 접두사로 다시 지울 수 있다).
  */
 export async function deleteResume(userId: string, resumeId: string): Promise<boolean> {
   const row = await ownedRow(userId, resumeId);
   if (!row) return false;
   const keys = new Set((await versionRows(resumeId)).map((v) => v.storageKey));
-  const deleted = await db
-    .delete(companyResumes)
-    .where(and(eq(companyResumes.id, resumeId), eq(companyResumes.userId, userId)))
-    .returning({ id: companyResumes.id });
+  // 버전 행(cascade)과 지원 기록의 이력서 연결(set null)은 PRAGMA foreign_keys에 달려 있어(원격 libsql/Turso는 요청마다 새 연결)
+  // 같은 배치에서 명시적으로 정리한다.
+  const [, , deleted] = await db.batch([
+    db.update(applications).set({ resumeId: null }).where(and(eq(applications.resumeId, resumeId), eq(applications.userId, userId))),
+    db.delete(resumeVersions).where(eq(resumeVersions.resumeId, resumeId)),
+    db
+      .delete(companyResumes)
+      .where(and(eq(companyResumes.id, resumeId), eq(companyResumes.userId, userId)))
+      .returning({ id: companyResumes.id }),
+  ]);
   if (deleted.length === 0) return false;
   try {
     for (const k of await listByPrefix(userPrefix(userId, "resumes", resumeId))) keys.add(k);

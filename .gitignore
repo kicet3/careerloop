@@ -42,6 +42,7 @@ next-env.d.ts
 /data/*.db*
 .env*
 !.env.example
+!.env.production.example
 
 # CLI 엔진 로그인 정보(앱 전용 CLAUDE_CONFIG_DIR·CODEX_HOME)
 /data/providers/

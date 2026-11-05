@@ -2,6 +2,7 @@ import type { Metadata } from "next";
 import { ProviderConnections } from "@/components/app/ProviderConnections";
 import { Alert } from "@/components/ui/Alert";
 import { requireUser } from "@/lib/auth/session";
+import { onVercel } from "@/lib/config/env";
 import { cliProvidersEnabled } from "@/lib/providers/cli";
 import { listConnections } from "@/lib/providers/service";
 
@@ -26,6 +27,11 @@ export default async function ConnectionsPage() {
             혼자 쓸 때만 켜 두세요. 구독 계정을 다른 사람에게 서비스로 제공하는 것은 각 회사 약관에 어긋날 수 있습니다.
           </Alert>
         </>
+      ) : onVercel() ? (
+        <Alert tone="info" title="이 배포에서는 CLI 엔진을 쓸 수 없습니다">
+          Vercel 같은 서버리스 배포에는 Claude Code·Codex CLI 실행 파일이 없고 로그인 정보를 저장할 폴더도 남지 않아 계정 로그인
+          엔진을 켤 수 없습니다. 진단·채팅은 서버에 설정된 <code>ANTHROPIC_API_KEY</code>(Claude API)로 실행됩니다.
+        </Alert>
       ) : (
         <Alert tone="info" title="CLI 엔진이 꺼져 있습니다">
           서버의 <code>.env.local</code>에 <code>CLI_PROVIDERS=1</code>을 넣고 서버를 다시 시작하면 이 화면에서 로그인할 수

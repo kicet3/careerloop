@@ -2,15 +2,17 @@ import "server-only";
 import { and, count, desc, eq, gte, inArray, lt, notInArray } from "drizzle-orm";
 import { nanoid } from "nanoid";
 import { db } from "@/lib/db/client";
-import { diagnoses, diagnosisRuns, diagnosisStages, type Diagnosis, type DiagnosisStage } from "@/lib/db/schema";
+import { applications, chatMessages, chatThreads, diagnoses, diagnosisRuns, diagnosisStages, type Diagnosis, type DiagnosisStage } from "@/lib/db/schema";
 import { REVIEWER_IDS, STAGE_KEYS, type DiagnosisInput, type StageKey } from "@/lib/domain/schemas";
 import { isRetiredEngine, RETIRED_ENGINE_MESSAGE, type ProviderId } from "@/lib/domain/providers";
 import { defaultProvider, modelNameFor } from "@/lib/llm";
 import {
   dailyDiagnosisLimit,
+  DEADLINE_STOP_ERROR,
   diagnosisSubtitle,
   diagnosisTitle,
   matchScoreOf,
+  MAX_DEADLINE_CONTINUATIONS,
   MAX_RETRIES_PER_DIAGNOSIS,
   positiveCountOf,
   STALE_AFTER_MS,
@@ -249,8 +251,15 @@ export async function deleteDiagnosis(id: string, userId: string): Promise<boole
     if (!row) return false;
     throw new DiagnosisServiceError("진행 중인 진단은 삭제할 수 없습니다. 끝나거나 중단된 뒤에 삭제해 주세요.", 409);
   }
-  // FK cascade는 PRAGMA foreign_keys에 의존하므로 단계 행도 명시적으로 지운다.
-  await db.delete(diagnosisStages).where(eq(diagnosisStages.diagnosisId, id));
+  // FK cascade·set null은 연결마다 PRAGMA foreign_keys에 달려 있어(원격 libsql/Turso는 요청마다 새 연결) 자식 행도 명시적으로
+  // 정리한다: 단계 행, 이 진단의 심사위원 채팅(메시지·스레드), 지원 기록의 진단 연결.
+  const threads = db.select({ id: chatThreads.id }).from(chatThreads).where(eq(chatThreads.diagnosisId, id));
+  await db.batch([
+    db.delete(diagnosisStages).where(eq(diagnosisStages.diagnosisId, id)),
+    db.delete(chatMessages).where(inArray(chatMessages.threadId, threads)),
+    db.delete(chatThreads).where(eq(chatThreads.diagnosisId, id)),
+    db.update(applications).set({ diagnosisId: null }).where(and(eq(applications.diagnosisId, id), eq(applications.userId, userId))),
+  ]);
   return true;
 }
 
@@ -282,14 +291,18 @@ export async function clearShareToken(id: string, userId: string): Promise<void>
  * 한 트랜잭션 안에서 '다른 진행 중 진단 없음'을 확인하고 failed → queued로 조건부 전환한다(생성과 같은 잠금).
  * 진단 하나당 MAX_RETRIES_PER_DIAGNOSIS회까지(원장으로 센다). 호출자가 이후 after()로 runDiagnosis(id)를 예약한다.
  * 없앤 샘플(mock) 엔진으로 만든 예전 진단은 보기만 되고 재시도는 409로 막는다.
+ *
+ * continuation: 시간 예산에 걸려 멈춘 진단(DEADLINE_STOP_ERROR)의 자동 이어하기. 사용자 재시도 횟수를 쓰지 않고
+ * 원장의 kind='continue'로 따로 MAX_DEADLINE_CONTINUATIONS회까지 센다. 시간 제한 멈춤이 아니면 409.
  */
-export async function prepareRetry(id: string, userId: string): Promise<void> {
+export async function prepareRetry(id: string, userId: string, opts: { continuation?: boolean } = {}): Promise<void> {
+  const kind = opts.continuation ? "continue" : "retry";
   await markStaleRunsFailed(userId);
   const now = new Date();
 
   await db.transaction(async (tx) => {
     const [found] = await tx
-      .select({ status: diagnoses.status, provider: diagnoses.provider, model: diagnoses.model })
+      .select({ status: diagnoses.status, error: diagnoses.error, provider: diagnoses.provider, model: diagnoses.model })
       .from(diagnoses)
       .where(and(eq(diagnoses.id, id), eq(diagnoses.userId, userId)))
       .limit(1);
@@ -297,6 +310,9 @@ export async function prepareRetry(id: string, userId: string): Promise<void> {
     if (isRetiredEngine(found)) throw new DiagnosisServiceError(RETIRED_ENGINE_MESSAGE, 409);
     if (found.status === "done") throw new DiagnosisServiceError("이미 완료된 진단입니다.", 409);
     if (found.status !== "failed") throw new DiagnosisServiceError("진단이 아직 진행 중입니다.", 409);
+    if (opts.continuation && found.error !== DEADLINE_STOP_ERROR) {
+      throw new DiagnosisServiceError("시간 제한으로 멈춘 진단만 자동으로 이어서 실행할 수 있습니다.", 409);
+    }
 
     const [other] = await tx
       .select({ id: diagnoses.id })
@@ -307,13 +323,16 @@ export async function prepareRetry(id: string, userId: string): Promise<void> {
       throw new DiagnosisServiceError("다른 진단이 진행 중입니다. 끝난 뒤에 다시 시도해 주세요.", 409);
     }
 
-    const [retries] = await tx
+    const [runs] = await tx
       .select({ n: count() })
       .from(diagnosisRuns)
-      .where(and(eq(diagnosisRuns.diagnosisId, id), eq(diagnosisRuns.kind, "retry")));
-    if ((retries?.n ?? 0) >= MAX_RETRIES_PER_DIAGNOSIS) {
+      .where(and(eq(diagnosisRuns.diagnosisId, id), eq(diagnosisRuns.kind, kind)));
+    const cap = opts.continuation ? MAX_DEADLINE_CONTINUATIONS : MAX_RETRIES_PER_DIAGNOSIS;
+    if ((runs?.n ?? 0) >= cap) {
       throw new DiagnosisServiceError(
-        `이 진단은 이미 ${MAX_RETRIES_PER_DIAGNOSIS}번 재시도했습니다. 새 진단으로 다시 시작해 주세요.`,
+        opts.continuation
+          ? `시간 제한 뒤 자동 이어하기를 ${cap}번 모두 썼습니다. 재시도 버튼으로 다시 시도해 주세요.`
+          : `이 진단은 이미 ${cap}번 재시도했습니다. 새 진단으로 다시 시작해 주세요.`,
         429,
       );
     }
@@ -334,7 +353,7 @@ export async function prepareRetry(id: string, userId: string): Promise<void> {
       .insert(diagnosisStages)
       .values(STAGE_KEYS.map((stage) => ({ diagnosisId: id, stage })))
       .onConflictDoNothing();
-    await tx.insert(diagnosisRuns).values({ userId, diagnosisId: id, kind: "retry", createdAt: now });
+    await tx.insert(diagnosisRuns).values({ userId, diagnosisId: id, kind, createdAt: now });
   });
 }
 

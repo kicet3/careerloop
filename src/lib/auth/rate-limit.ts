@@ -1,6 +1,7 @@
 /**
  * 고정 창(fixed window) 방식의 가벼운 메모리 레이트 리밋.
  * 주의: 서버 인스턴스(프로세스)마다 따로 센다. 여러 인스턴스·서버리스 환경에서는 느슨한 방어일 뿐이다.
+ * 짧은 창의 남용 방지(로그인 등)에만 쓰고, 비용이 드는 기능의 긴 창 제한은 DB 원장(db-rate-limit.ts)으로 센다.
  */
 export function createRateLimiter(opts: { limit: number; windowMs: number; maxKeys?: number }) {
   const hits = new Map<string, { count: number; resetAt: number }>();
@@ -57,7 +58,6 @@ const globalForLimits = globalThis as unknown as {
   __loginIpLimiter?: ReturnType<typeof createRateLimiter>;
   __loginAccountLimiter?: ReturnType<typeof createRateLimiter>;
   __passwordChangeLimiter?: ReturnType<typeof createRateLimiter>;
-  __diagnosisIpLimiter?: ReturnType<typeof createRateLimiter>;
   __shareLimiter?: ReturnType<typeof createRateLimiter>;
   __googleAuthLimiter?: ReturnType<typeof createRateLimiter>;
 };
@@ -84,12 +84,6 @@ export const loginAccountLimiter = (globalForLimits.__loginAccountLimiter ??= cr
 export const passwordChangeLimiter = (globalForLimits.__passwordChangeLimiter ??= createRateLimiter({
   limit: 10,
   windowMs: 15 * 60_000,
-}));
-
-/** 진단 생성: IP당 하루 20건(계정을 여러 개 만들어 하루 제한을 우회하는 것을 늦춘다). */
-export const diagnosisIpLimiter = (globalForLimits.__diagnosisIpLimiter ??= createRateLimiter({
-  limit: 20,
-  windowMs: 24 * 60 * 60_000,
 }));
 
 /** 공개 공유 링크(페이지·PDF): IP당 1분에 30회. */

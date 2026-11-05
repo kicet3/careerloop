@@ -14,6 +14,18 @@ export const HEARTBEAT_MS = 30 * 1000;
 export const STALE_AFTER_MS = 2 * 60 * 1000;
 /** 진단 하나당 재시도 횟수 상한(같은 단계가 계속 실패할 때 비용이 끝없이 늘지 않도록). */
 export const MAX_RETRIES_PER_DIAGNOSIS = 3;
+/**
+ * 서버 실행 시간 예산(Vercel maxDuration - 30초)에 걸려 멈춘 진단의 error 값. 실패가 아니라 '이어서 할 수 있는 멈춤'이라
+ * 진행 화면이 이 값을 보면 남은 단계를 자동으로 이어서 실행한다(POST /api/diagnoses/[id]/retry?continue=1).
+ */
+export const DEADLINE_STOP_ERROR = "서버 실행 시간 제한으로 잠시 멈췄습니다. 완료된 단계는 건너뛰고 이어서 진행합니다.";
+/** 시간 제한 뒤 자동 이어하기 상한(진단당). 사용자 재시도 횟수(MAX_RETRIES_PER_DIAGNOSIS)와 따로 센다. */
+export const MAX_DEADLINE_CONTINUATIONS = 4;
+
+/** 시간 예산에 걸려 멈춘(이어서 실행할 수 있는) 진단인가. */
+export function isDeadlineStop(d: { status: string; error: string | null }): boolean {
+  return d.status === "failed" && d.error === DEADLINE_STOP_ERROR;
+}
 export const MAX_RESUME_CHARS = 40_000;
 export const MAX_JD_CHARS = 30_000;
 

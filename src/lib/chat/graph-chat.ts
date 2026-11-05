@@ -41,7 +41,7 @@ import {
   type GraphProposalData,
 } from "@/lib/domain/chat";
 import { FeatureError } from "@/lib/api/errors";
-import { createRateLimiter } from "@/lib/auth/rate-limit";
+import { GRAPH_CHAT_LIMIT, hitDbLimit } from "@/lib/auth/db-rate-limit";
 import { BodyTooLargeError, readBodyLimited } from "@/lib/diagnoses/body";
 import {
   addMessage,
@@ -62,7 +62,10 @@ import { STAGE_TASK_DELIMITER } from "@/lib/panel/prompts";
 import { stageErrorMessage } from "@/lib/panel/runner";
 import { kstToday } from "@/lib/time/kst";
 
-/** LLM 답변 제한 시간. 라우트 maxDuration(300초) 안에 끝나도록 잡는다. */
+/**
+ * 답변 제한 시간. 요청 시작부터 센다(Vercel은 maxDuration을 요청 시작부터 재므로) — 라우트 maxDuration(300초)에서
+ * 30초 여유를 둬, 플랫폼이 함수를 끊기 전에 실패 메시지를 저장한다.
+ */
 export const REPLY_TIMEOUT_MS = 270_000;
 /** 마지막 사용자 메시지가 이보다 오래됐는데 답이 없으면 '응답 없음'으로 보고 다시 시도를 허용한다. */
 export const STALE_AFTER_MS = 330_000;
@@ -71,9 +74,6 @@ export const DEFAULT_THREAD_TITLE = "새 대화";
 /** 프롬프트에 넣는 그래프 요약 상한(글자). */
 const GRAPH_TEXT_MAX_CHARS = 12_000;
 
-/** 사용자당 메시지 전송 상한(프로세스별 메모리 — 느슨한 비용 방어). */
-const g = globalThis as unknown as { __graphChatLimiter?: ReturnType<typeof createRateLimiter> };
-const sendLimiter = (g.__graphChatLimiter ??= createRateLimiter({ limit: 30, windowMs: 10 * 60_000 }));
 
 // ---------------------------------------------------------------------------
 // 프롬프트 (순수)
@@ -368,7 +368,8 @@ export async function startGraphChatMessage(
   if (replyState(recent, deps.now()).pending) {
     throw new FeatureError("이전 메시지의 답변을 만드는 중입니다. 잠시 후 다시 보내 주세요.", 409);
   }
-  const limit = sendLimiter.hit(userId);
+  // 사용자당 전송 상한(DB 원장 — 인스턴스 사이에 공유된다).
+  const limit = await hitDbLimit(GRAPH_CHAT_LIMIT, userId);
   if (!limit.ok) throw new FeatureError(`메시지를 너무 자주 보냈습니다. ${Math.ceil(limit.retryAfterSec / 60)}분 뒤 다시 시도해 주세요.`, 429);
   // 대기 검사와 삽입을 한 문장으로: 읽은 뒤 다른 요청(다른 탭·두 번 클릭)이 먼저 메시지를 넣었으면 409.
   const msg = await addMessage(userId, { threadId, role: "user", content: text }, { expectLastId: recent.at(-1)?.id ?? null }).catch(
@@ -394,7 +395,8 @@ export async function startGraphChatRetry(
   if (!state.canRetry) throw new FeatureError("다시 시도할 메시지가 없습니다.", 409);
   const lastUser = [...messages].reverse().find((m) => m.role === "user");
   if (!lastUser) throw new FeatureError("다시 시도할 메시지가 없습니다.", 409);
-  const limit = sendLimiter.hit(userId);
+  // 사용자당 전송 상한(DB 원장 — 인스턴스 사이에 공유된다).
+  const limit = await hitDbLimit(GRAPH_CHAT_LIMIT, userId);
   if (!limit.ok) throw new FeatureError(`메시지를 너무 자주 보냈습니다. ${Math.ceil(limit.retryAfterSec / 60)}분 뒤 다시 시도해 주세요.`, 429);
   let lastId = messages.at(-1)!.id;
   if (state.stale) {
@@ -446,13 +448,17 @@ export async function runGraphChatReply(
   provider: ProviderId,
   personName: string | null,
   deps: GraphChatDeps = defaultGraphChatDeps,
+  opts: { startedAt?: number } = {},
 ): Promise<ChatMessage | null> {
   const messages = await listMessages(userId, threadId, { limit: 40 });
   const latest = messages?.at(-1);
   if (!messages || !latest || latest.role !== "user") return null;
-  const deadline = AbortSignal.timeout(REPLY_TIMEOUT_MS);
+  // 요청 시작 시각(라우트 핸들러 진입)부터 REPLY_TIMEOUT_MS. 없으면 지금부터.
+  const deadlineAt = (opts.startedAt ?? Date.now()) + REPLY_TIMEOUT_MS;
+  const deadline = AbortSignal.timeout(Math.max(0, deadlineAt - Date.now()));
   try {
-    const graph = await deps.getGraph(userId, personName);
+    deadline.throwIfAborted();
+    const graph = await untilAborted(deps.getGraph(userId, personName), deadline);
     const prompt = buildGraphChatPrompt({ graph, messages, latestMessage: latest.content, today: new Date(deps.now()) });
     const { output, usage } = await deps.createClient(provider).generate({
       task: "graph-chat",
@@ -481,10 +487,38 @@ export async function runGraphChatReply(
   }
 }
 
-/** 응답을 보낸 뒤 답변을 만든다(라우트 핸들러 안에서만 부른다). 실행 시간은 라우트 maxDuration을 따른다. */
-export function scheduleGraphChatReply(userId: string, threadId: string, provider: ProviderId, personName: string | null): void {
+/** promise가 끝나거나 signal이 중단될 때까지 기다린다(중단되면 signal.reason으로 거부 — 원래 작업은 취소하지 못한다). */
+function untilAborted<T>(promise: Promise<T>, signal: AbortSignal): Promise<T> {
+  if (signal.aborted) return Promise.reject(signal.reason);
+  return new Promise<T>((resolve, reject) => {
+    const onAbort = () => reject(signal.reason);
+    signal.addEventListener("abort", onAbort, { once: true });
+    promise.then(
+      (v) => {
+        signal.removeEventListener("abort", onAbort);
+        resolve(v);
+      },
+      (e) => {
+        signal.removeEventListener("abort", onAbort);
+        reject(e);
+      },
+    );
+  });
+}
+
+/**
+ * 응답을 보낸 뒤 답변을 만든다(라우트 핸들러 안에서만 부른다). 실행 시간은 라우트 maxDuration을 따른다 —
+ * startedAt(핸들러 진입 시각)을 넘기면 답변 마감을 그때부터 센다.
+ */
+export function scheduleGraphChatReply(
+  userId: string,
+  threadId: string,
+  provider: ProviderId,
+  personName: string | null,
+  startedAt?: number,
+): void {
   after(async () => {
-    await runGraphChatReply(userId, threadId, provider, personName);
+    await runGraphChatReply(userId, threadId, provider, personName, defaultGraphChatDeps, { startedAt });
   });
 }
 

@@ -9,6 +9,7 @@ import { Button, buttonClass } from "@/components/ui/Button";
 import { Card } from "@/components/ui/Card";
 import { cn } from "@/components/ui/cn";
 import { Spinner } from "@/components/ui/Spinner";
+import { isDeadlineStop } from "@/lib/diagnoses/summary";
 import type { DiagnosisStatus, StageStatus } from "@/lib/domain/schemas";
 import {
   DIAGNOSIS_STATUS_VIEW,
@@ -48,6 +49,9 @@ export function DiagnosisView({ id, initial }: { id: string; initial: DiagnosisV
   const [pollError, setPollError] = useState<string | null>(null);
   const [retrying, setRetrying] = useState(false);
   const [retryError, setRetryError] = useState<string | null>(null);
+  /** 시간 제한 멈춤의 자동 이어하기가 막혔는가(상한·오류). 막히면 일반 실패처럼 재시도 버튼을 보여 준다. */
+  const [autoBlocked, setAutoBlocked] = useState(false);
+  const continuing = useRef(false);
   const [now, setNow] = useState<number | null>(null);
   const refreshed = useRef(false);
 
@@ -111,13 +115,30 @@ export function DiagnosisView({ id, initial }: { id: string; initial: DiagnosisV
     };
   }, [active]);
 
-  async function retry() {
+  // Vercel의 함수 실행 시간 제한으로 멈춘 진단은 남은 단계를 자동으로 이어서 실행한다(서버가 진단당 횟수를 따로 센다).
+  const deadlineStop = isDeadlineStop(state);
+  useEffect(() => {
+    if (!deadlineStop || autoBlocked) return;
+    const t = setTimeout(() => {
+      if (continuing.current) return;
+      continuing.current = true;
+      void retry({ continuation: true }).finally(() => {
+        continuing.current = false;
+      });
+    }, 0);
+    return () => clearTimeout(t);
+    // retry는 매 렌더 새로 만들어지지만 id 외의 값에 의존하지 않는다.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [deadlineStop, autoBlocked]);
+
+  async function retry(opts: { continuation?: boolean } = {}) {
     setRetrying(true);
     setRetryError(null);
     try {
-      const res = await fetch(`/api/diagnoses/${id}/retry`, { method: "POST" });
+      const res = await fetch(`/api/diagnoses/${id}/retry${opts.continuation ? "?continue=1" : ""}`, { method: "POST" });
       const data = (await res.json().catch(() => null)) as { error?: string } | null;
       if (!res.ok) {
+        if (opts.continuation) setAutoBlocked(true);
         setRetryError(
           data?.error ??
             (res.status === 409
@@ -136,6 +157,7 @@ export function DiagnosisView({ id, initial }: { id: string; initial: DiagnosisV
         stages: prev.stages.map((s) => (s.status === "done" ? s : { ...s, status: "pending", error: null })),
       }));
     } catch {
+      if (opts.continuation) setAutoBlocked(true);
       setRetryError("서버에 연결하지 못했습니다.");
     } finally {
       setRetrying(false);
@@ -144,8 +166,10 @@ export function DiagnosisView({ id, initial }: { id: string; initial: DiagnosisV
 
   const { done, total } = progressCounts(state.stages);
   const pct = total ? Math.round((done / total) * 100) : 0;
-  const statusView = DIAGNOSIS_STATUS_VIEW[state.status];
-  const failed = state.status === "failed";
+  /** 자동 이어하기를 기다리는 멈춤은 실패로 보이지 않는다. */
+  const resuming = deadlineStop && !autoBlocked;
+  const failed = state.status === "failed" && !resuming;
+  const statusView = DIAGNOSIS_STATUS_VIEW[resuming ? "running" : state.status];
 
   return (
     <div className="space-y-5">
@@ -153,7 +177,13 @@ export function DiagnosisView({ id, initial }: { id: string; initial: DiagnosisV
         <div className="flex flex-wrap items-center justify-between gap-3">
           <div className="flex items-center gap-2">
             <h2 className="text-lg font-semibold text-slate-900">
-              {state.status === "done" ? "보고서를 불러오는 중" : failed ? "진단이 중단되었습니다" : "심사 중입니다"}
+              {state.status === "done"
+                ? "보고서를 불러오는 중"
+                : failed
+                  ? "진단이 중단되었습니다"
+                  : resuming
+                    ? "이어서 진행하는 중입니다"
+                    : "심사 중입니다"}
             </h2>
             <Badge tone={statusView.tone}>{statusView.label}</Badge>
           </div>
@@ -196,6 +226,11 @@ export function DiagnosisView({ id, initial }: { id: string; initial: DiagnosisV
             <Spinner size="sm" /> 보고서를 만드는 중입니다…
           </p>
         )}
+        {resuming && (
+          <p className="mt-4 flex items-center gap-2 text-sm text-slate-500" role="status">
+            <Spinner size="sm" /> 서버 실행 시간 제한으로 잠시 멈춰, 끝난 단계는 두고 남은 단계를 이어서 실행합니다…
+          </p>
+        )}
         {pollError && <p className="mt-3 text-sm text-amber-700" role="status">{pollError}</p>}
       </Card>
 
@@ -206,7 +241,7 @@ export function DiagnosisView({ id, initial }: { id: string; initial: DiagnosisV
             재시도하면 이미 끝난 단계는 그대로 두고 실패한 단계부터 이어서 진행합니다.
           </p>
           <div className="mt-3 flex flex-wrap items-center gap-2">
-            <Button onClick={retry} loading={retrying}>
+            <Button onClick={() => void retry()} loading={retrying}>
               재시도
             </Button>
             <Link href="/app" className={buttonClass("secondary")}>

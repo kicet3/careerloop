@@ -408,7 +408,9 @@ export async function changeStage(userId: string, id: string, input: Application
 export async function deleteApplication(userId: string, id: string): Promise<boolean> {
   const row = await ownedRow(userId, id);
   if (!row) return false;
-  const [deleted] = await db.batch([
+  const [, deleted] = await db.batch([
+    // 이벤트 cascade는 PRAGMA foreign_keys에 달려 있어(원격 libsql/Turso는 요청마다 새 연결) 명시적으로 지운다.
+    db.delete(applicationEvents).where(eq(applicationEvents.applicationId, id)),
     db
       .delete(applications)
       .where(and(eq(applications.id, id), eq(applications.userId, userId)))

@@ -2,13 +2,25 @@ import { describe, expect, it, vi } from "vitest";
 
 vi.mock("server-only", () => ({}));
 
-const { AppEnvError, appEnv, googleLoginConfigured, isProduction, missingProductionEnv, validateProductionEnv } =
-  await import("./env");
+const {
+  AppEnvError,
+  appEnv,
+  appUrl,
+  cliProvidersAllowed,
+  databaseEnv,
+  googleLoginConfigured,
+  httpsAppUrlHost,
+  isProduction,
+  missingProductionEnv,
+  trustedOriginHosts,
+  validateProductionEnv,
+} = await import("./env");
 
 const FULL = {
   APP_ENV: "PRODUCTION",
   APP_URL: "https://resume.example.com",
   DATABASE_URL: "libsql://db.example.turso.io",
+  DATABASE_AUTH_TOKEN: "token",
   NEO4J_URI: "neo4j+s://x.databases.neo4j.io",
   NEO4J_USER: "neo4j",
   NEO4J_PASSWORD: "pw",
@@ -113,5 +125,80 @@ describe("Google 로그인 설정", () => {
     const w = validateProductionEnv({ ...FULL, APP_ENV: "DEV", GOOGLE_CLIENT_ID: "" }).warnings.join("\n");
     expect(w).toMatch(/Google 로그인·회원가입이 꺼집니다/);
     expect(validateProductionEnv({ ...FULL, APP_ENV: "DEV" }).warnings.join("\n")).not.toMatch(/GOOGLE_CLIENT_ID/);
+  });
+});
+
+describe("DB 설정", () => {
+  it("Turso 주소에는 토큰이 필요하다", () => {
+    expect(missingProductionEnv({ ...FULL, DATABASE_AUTH_TOKEN: "" })).toEqual(["DATABASE_AUTH_TOKEN(Turso DB 토큰)"]);
+    expect(missingProductionEnv({ ...FULL, DATABASE_URL: "libsql://127.0.0.1:8080", DATABASE_AUTH_TOKEN: "" })).toEqual([]);
+  });
+
+  it("Vercel에서는 file: DB를 거부하고, 자체 호스팅은 허용한다", () => {
+    const fileDb = { ...FULL, DATABASE_URL: "file:/tmp/app.db", DATABASE_AUTH_TOKEN: "" };
+    expect(missingProductionEnv(fileDb)).toEqual([]);
+    expect(missingProductionEnv({ ...fileDb, VERCEL: "1" })[0]).toMatch(/^DATABASE_URL\(Vercel에서는 file:/);
+  });
+
+  it("DATABASE_*가 없으면 Vercel Turso 연동의 TURSO_*를 쓴다", () => {
+    expect(databaseEnv({ TURSO_DATABASE_URL: "libsql://t.turso.io", TURSO_AUTH_TOKEN: "tt" })).toEqual({
+      url: "libsql://t.turso.io",
+      authToken: "tt",
+    });
+    expect(databaseEnv({ DATABASE_URL: "libsql://d.turso.io", TURSO_DATABASE_URL: "libsql://t.turso.io" }).url).toBe("libsql://d.turso.io");
+    const rest = { ...FULL, DATABASE_URL: undefined, DATABASE_AUTH_TOKEN: undefined };
+    expect(missingProductionEnv({ ...rest, TURSO_DATABASE_URL: "libsql://t.turso.io", TURSO_AUTH_TOKEN: "tt" })).toEqual([]);
+  });
+
+  it("DEV로 뜬 Vercel에서 DB가 file:이면 안내한다", () => {
+    const w = validateProductionEnv({ APP_ENV: "DEV", VERCEL: "1", VERCEL_ENV: "preview" }).warnings.join("\n");
+    expect(w).toMatch(/DB 설정이 Vercel에서 동작하지 않습니다/);
+  });
+});
+
+describe("Vercel", () => {
+  const PROD = { VERCEL: "1", VERCEL_ENV: "production", VERCEL_PROJECT_PRODUCTION_URL: "careerloop.vercel.app" };
+  const PREVIEW = {
+    VERCEL: "1",
+    VERCEL_ENV: "preview",
+    VERCEL_URL: "careerloop-abc123-team.vercel.app",
+    VERCEL_BRANCH_URL: "careerloop-git-feat-team.vercel.app",
+  };
+
+  it("APP_ENV를 비운 Production 배포는 PRODUCTION, Preview·로컬은 DEV", () => {
+    expect(appEnv(PROD)).toBe("PRODUCTION");
+    expect(appEnv(PREVIEW)).toBe("DEV");
+    expect(appEnv({ VERCEL_ENV: "production" })).toBe("DEV"); // Vercel 밖
+    expect(appEnv({ ...PROD, APP_ENV: "DEV" })).toBe("DEV"); // 명시하면 그 값
+    expect(() => validateProductionEnv(PROD)).toThrow(AppEnvError);
+  });
+
+  it("APP_URL이 없으면 Production은 VERCEL_PROJECT_PRODUCTION_URL, Preview는 브랜치 주소", () => {
+    expect(appUrl(PROD)).toBe("https://careerloop.vercel.app");
+    expect(appUrl(PREVIEW)).toBe("https://careerloop-git-feat-team.vercel.app");
+    expect(appUrl({ ...PREVIEW, VERCEL_BRANCH_URL: "" })).toBe("https://careerloop-abc123-team.vercel.app");
+    expect(appUrl({ ...PROD, APP_URL: "https://careerloop.kr" })).toBe("https://careerloop.kr");
+    expect(appUrl({ VERCEL_PROJECT_PRODUCTION_URL: "x.vercel.app", VERCEL_ENV: "production" })).toBeNull(); // Vercel 밖
+    expect(httpsAppUrlHost(PROD)).toBe("careerloop.vercel.app");
+    const noUrl = { ...FULL, APP_URL: undefined };
+    expect(missingProductionEnv({ ...noUrl, ...PROD })).toEqual([]);
+  });
+
+  it("same-origin: Production은 앱 주소만, Preview는 그 배포 주소도 믿는다", () => {
+    expect(trustedOriginHosts({ ...PROD, APP_URL: "https://careerloop.kr" })).toEqual(["careerloop.kr"]);
+    expect(trustedOriginHosts({ ...PREVIEW, APP_URL: "https://careerloop.kr" }).sort()).toEqual(
+      ["careerloop.kr", "careerloop-abc123-team.vercel.app", "careerloop-git-feat-team.vercel.app"].sort(),
+    );
+  });
+
+  it("CLI 엔진은 Vercel에서 항상 꺼지고 AI 엔진으로 인정하지 않는다", () => {
+    const cli = { CLI_PROVIDERS: "1", CLI_PROVIDERS_IN_PRODUCTION: "1" };
+    expect(cliProvidersAllowed(cli)).toBe(true);
+    expect(cliProvidersAllowed({ ...cli, VERCEL: "1" })).toBe(false);
+    expect(cliProvidersAllowed({ ...cli, APP_ENV: "PRODUCTION", CLI_PROVIDERS_IN_PRODUCTION: "" })).toBe(false);
+    const noKey = { ...FULL, ...cli, ANTHROPIC_API_KEY: "" };
+    expect(missingProductionEnv(noKey)).toEqual([]);
+    expect(missingProductionEnv({ ...noKey, VERCEL: "1" })).toEqual(["AI 엔진(ANTHROPIC_API_KEY — Vercel에서는 CLI 엔진을 쓸 수 없음)"]);
+    expect(validateProductionEnv({ ...FULL, ...cli, VERCEL: "1" }).warnings.join("\n")).toMatch(/CLI_PROVIDERS=1을 무시합니다/);
   });
 });

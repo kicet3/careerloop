@@ -1,5 +1,6 @@
 import { after } from "next/server";
-import { clientIp, diagnosisIpLimiter } from "@/lib/auth/rate-limit";
+import { DIAGNOSIS_IP_LIMIT, hitDbLimit, ipKey } from "@/lib/auth/db-rate-limit";
+import { clientIp } from "@/lib/auth/rate-limit";
 import { assertSameOrigin, requireApiUser } from "@/lib/auth/session";
 import { ensureDatabase } from "@/lib/db/migrate";
 import { BodyTooLargeError, readFormDataLimited } from "@/lib/diagnoses/body";
@@ -9,16 +10,16 @@ import { errorResponse, jsonError } from "@/lib/diagnoses/http";
 import { createDiagnosis, listDiagnoses } from "@/lib/diagnoses/service";
 import type { CreateDiagnosisResponse } from "@/lib/diagnoses/types";
 import { runDiagnosis } from "@/lib/panel/runner";
+import { uploadLimitMessage, uploadLimitsFor } from "@/lib/ingest/upload-limits";
 import { getPosting, POSTING_NOT_FOUND } from "@/lib/postings/service";
 import { resolveRequestedProvider } from "@/lib/providers/options";
 
 export const runtime = "nodejs";
-// after()로 이어지는 진단 실행(LLM 13회, 직렬 경로 5회)이 이 시간 안에 끝나야 한다. Vercel Pro/Enterprise(fluid
-// compute)의 최대값이다. Hobby 플랜은 300 이하로 낮춰야 배포된다(README '배포' 참고). 리터럴이어야 한다.
-export const maxDuration = 800;
+// after()로 이어지는 진단 실행(LLM 13회, 직렬 경로 5회)의 시간 상한. 300초는 모든 Vercel 플랜에서 배포된다.
+// Vercel에서는 runner가 maxDuration - 30초에 스스로 멈추고, 진행 화면이 남은 단계를 자동으로 이어서 실행한다(재시도 횟수와 별개).
+// Pro/Enterprise(fluid compute)라면 800까지 올릴 수 있다(README '배포' 참고). Next가 정적으로 읽으므로 리터럴이어야 한다.
+export const maxDuration = 300;
 
-/** 파일 3개(이력서·JD·포트폴리오, 각 10MB) + 텍스트 여유분. */
-const MAX_BODY_BYTES = 32 * 1024 * 1024;
 
 export async function GET() {
   await ensureDatabase();
@@ -40,7 +41,7 @@ export async function POST(req: Request) {
   const user = await requireApiUser();
   if (user instanceof Response) return user;
 
-  const ipLimit = diagnosisIpLimiter.hit(clientIp(req));
+  const ipLimit = await hitDbLimit(DIAGNOSIS_IP_LIMIT, ipKey(clientIp(req)));
   if (!ipLimit.ok) {
     return Response.json(
       { error: "이 네트워크에서 오늘 만들 수 있는 진단 수를 넘었습니다. 내일 다시 시도해 주세요." },
@@ -49,12 +50,14 @@ export async function POST(req: Request) {
   }
 
   // Content-Length가 없는(chunked) 요청도 바이트를 세며 읽다가 한도를 넘으면 끊는다.
+  // 상한: 자체 호스팅은 파일 3개(각 10MB) + 텍스트 여유분, Vercel은 플랫폼의 요청 본문 상한 4.5MB(src/lib/ingest/upload-limits.ts).
+  const limits = uploadLimitsFor();
   let form: FormData;
   try {
-    form = await readFormDataLimited(req, MAX_BODY_BYTES);
+    form = await readFormDataLimited(req, limits.maxBodyBytes);
   } catch (err) {
     if (err instanceof BodyTooLargeError) {
-      return jsonError("업로드 용량이 너무 큽니다. 파일은 각각 10MB 이하로 올려 주세요.", 413);
+      return jsonError(`업로드 용량이 너무 큽니다. ${uploadLimitMessage(limits)}`, 413);
     }
     return jsonError("요청 형식이 올바르지 않습니다. multipart/form-data로 보내 주세요.", 400);
   }
