@@ -1,6 +1,5 @@
 import { after } from "next/server";
 import { assertSameOrigin, requireApiUser } from "@/lib/auth/session";
-import { ensureDatabase } from "@/lib/db/migrate";
 import { PostingImportInputSchema } from "@/lib/domain/postings";
 import { postingErrorResponse, postingImportBurstLimiter, tooManyRequests } from "@/lib/postings/http";
 import { createImport, listRecentImports, runImport } from "@/lib/postings/imports";
@@ -13,7 +12,6 @@ export const maxDuration = 300;
 
 /** 최근 24시간의 가져오기 작업(목록 화면이 진행 상황을 이어 보여 준다). */
 export async function GET() {
-  await ensureDatabase();
   const user = await requireApiUser();
   if (user instanceof Response) return user;
   try {
@@ -25,7 +23,6 @@ export async function GET() {
 
 /** 공고 URL 가져오기 시작 → 202 { jobId, job }. 이미 보관한 URL이면 409 { existingId }. */
 export async function POST(req: Request) {
-  await ensureDatabase();
   const forbidden = assertSameOrigin(req);
   if (forbidden) return forbidden;
   const user = await requireApiUser();

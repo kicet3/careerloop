@@ -1,7 +1,5 @@
 import "server-only";
-import { eq } from "drizzle-orm";
-import { db, schema } from "@/lib/db/client";
-import { ensureDatabase } from "@/lib/db/migrate";
+import { prisma } from "@/lib/db/client";
 import { hashPassword, verifyPassword } from "./password";
 
 export type AccountInfo = {
@@ -14,17 +12,10 @@ export type AccountInfo = {
 export async function getAccountInfo(
   userId: string,
 ): Promise<AccountInfo | null> {
-  await ensureDatabase();
-  const [row] = await db
-    .select({
-      email: schema.users.email,
-      name: schema.users.name,
-      passwordHash: schema.users.passwordHash,
-      googleSub: schema.users.googleSub,
-    })
-    .from(schema.users)
-    .where(eq(schema.users.id, userId))
-    .limit(1);
+  const row = await prisma.user.findUnique({
+    where: { id: userId },
+    select: { email: true, name: true, passwordHash: true, googleSub: true },
+  });
   if (!row) return null;
   return {
     email: row.email,
@@ -46,12 +37,10 @@ export async function setAccountPassword(
   userId: string,
   input: { currentPassword?: string; newPassword: string },
 ): Promise<SetPasswordResult> {
-  await ensureDatabase();
-  const [row] = await db
-    .select({ passwordHash: schema.users.passwordHash })
-    .from(schema.users)
-    .where(eq(schema.users.id, userId))
-    .limit(1);
+  const row = await prisma.user.findUnique({
+    where: { id: userId },
+    select: { passwordHash: true },
+  });
   if (!row) return { ok: false, reason: "not_found" };
   if (row.passwordHash) {
     if (!input.currentPassword)
@@ -59,9 +48,9 @@ export async function setAccountPassword(
     if (!(await verifyPassword(input.currentPassword, row.passwordHash)))
       return { ok: false, reason: "current_invalid" };
   }
-  await db
-    .update(schema.users)
-    .set({ passwordHash: await hashPassword(input.newPassword) })
-    .where(eq(schema.users.id, userId));
+  await prisma.user.updateMany({
+    where: { id: userId },
+    data: { passwordHash: await hashPassword(input.newPassword) },
+  });
   return { ok: true, created: !row.passwordHash };
 }

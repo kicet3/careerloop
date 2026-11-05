@@ -1,20 +1,15 @@
-import { mkdtempSync, rmSync } from "node:fs";
-import { tmpdir } from "node:os";
-import path from "node:path";
 import { afterAll, beforeAll, describe, expect, it, vi } from "vitest";
+import type { Diagnosis } from "@/lib/db/types";
 import type { DiagnosisInput, StageKey } from "@/lib/domain/schemas";
+import { createTestDb, type TestDb } from "@/test/db";
 import { FakeLlmClient } from "@/test/fake-llm";
 import { LlmPermanentError, type GenerateRequest, type GenerateResult, type LlmClient } from "@/lib/llm/types";
 
 vi.mock("server-only", () => ({}));
 
-const dir = mkdtempSync(path.join(tmpdir(), "rp-runner-"));
-process.env.DATABASE_URL = `file:${path.join(dir, "test.db")}`;
 process.env.DAILY_DIAGNOSIS_LIMIT = "50";
 
-type Client = typeof import("@/lib/db/client");
-let db: Client["db"];
-let schema: Client["schema"];
+let tdb: TestDb;
 let runDiagnosis: typeof import("./runner").runDiagnosis;
 let createDiagnosis: typeof import("@/lib/diagnoses/service").createDiagnosis;
 
@@ -41,25 +36,19 @@ class ScriptedLlm implements LlmClient {
 }
 
 async function load(id: string) {
-  const { eq } = await import("drizzle-orm");
-  const [d] = await db.select().from(schema.diagnoses).where(eq(schema.diagnoses.id, id));
-  const stages = await db.select().from(schema.diagnosisStages).where(eq(schema.diagnosisStages.diagnosisId, id));
+  const d = (await tdb.prisma.diagnosis.findUnique({ where: { id } })) as Diagnosis | null;
+  const stages = await tdb.prisma.diagnosisStage.findMany({ where: { diagnosisId: id } });
   return { d: d!, stage: (k: StageKey) => stages.find((s) => s.stage === k)! };
 }
 
 beforeAll(async () => {
-  const { ensureDatabase } = await import("@/lib/db/migrate");
-  await ensureDatabase();
-  ({ db, schema } = await import("@/lib/db/client"));
+  tdb = await createTestDb();
   ({ runDiagnosis } = await import("./runner"));
   ({ createDiagnosis } = await import("@/lib/diagnoses/service"));
-  for (const id of ["r1", "r2", "r3", "r4"]) await db.insert(schema.users).values({ id, email: `${id}@x.com`, passwordHash: "x" });
+  for (const id of ["r1", "r2", "r3", "r4"]) await tdb.prisma.user.create({ data: { id, email: `${id}@x.com`, passwordHash: "x" } });
 });
 
-afterAll(() => {
-  db.$client.close();
-  rmSync(dir, { recursive: true, force: true });
-});
+afterAll(() => tdb.close());
 
 describe("runDiagnosis", () => {
   it("끝까지 실행하면 done, fit 점수는 매트릭스와 일치", async () => {
@@ -90,7 +79,6 @@ describe("runDiagnosis", () => {
   });
 
   it("멈춤 판정 뒤 다른 실행이 차지하면, 예전 실행은 LLM 호출을 멈추고 아무 행도 덮어쓰지 않는다", async () => {
-    const { eq } = await import("drizzle-orm");
     const { id } = await createDiagnosis("r3", input);
     let release!: () => void;
     let reached!: () => void;
@@ -105,7 +93,7 @@ describe("runDiagnosis", () => {
     const run = runDiagnosis(id, { llm, heartbeatMs: 10 });
     await atSynthesis;
     // markStaleRunsFailed → prepareRetry → 새 실행이 차지한 상황을 흉내 낸다.
-    await db.update(schema.diagnoses).set({ status: "running", runId: "newer-run" }).where(eq(schema.diagnoses.id, id));
+    await tdb.prisma.diagnosis.update({ where: { id }, data: { status: "running", runId: "newer-run" } });
     await new Promise((r) => setTimeout(r, 40)); // 하트비트가 소유권 상실을 알아차릴 시간
     release();
     await run;

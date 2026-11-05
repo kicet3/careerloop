@@ -1,7 +1,5 @@
-import { mkdtempSync, rmSync } from "node:fs";
-import { tmpdir } from "node:os";
-import path from "node:path";
 import { afterAll, afterEach, beforeAll, describe, expect, it, vi } from "vitest";
+import { createTestDb, type TestDb } from "@/test/db";
 
 vi.mock("server-only", () => ({}));
 const jar = new Map<string, string>();
@@ -14,32 +12,25 @@ vi.mock("next/headers", () => ({
 }));
 vi.mock("next/navigation", () => ({ redirect: () => {} }));
 
-const dir = mkdtempSync(path.join(tmpdir(), "rp-login-"));
-process.env.DATABASE_URL = `file:${path.join(dir, "test.db")}`;
-
 let POST: typeof import("./route").POST;
-let close: () => void;
+let tdb: TestDb;
 
 beforeAll(async () => {
-  const { ensureDatabase } = await import("@/lib/db/migrate");
-  await ensureDatabase();
-  const { db, schema } = await import("@/lib/db/client");
-  close = () => db.$client.close();
+  tdb = await createTestDb();
   const { hashPassword } = await import("@/lib/auth/password");
-  await db.insert(schema.users).values([
-    { id: "pw", email: "pw@x.com", passwordHash: await hashPassword("password123", 4) },
-    { id: "g", email: "g@x.com", passwordHash: null, googleSub: "sub-g" },
-  ]);
+  await tdb.prisma.user.createMany({
+    data: [
+      { id: "pw", email: "pw@x.com", passwordHash: await hashPassword("password123", 4) },
+      { id: "g", email: "g@x.com", passwordHash: null, googleSub: "sub-g" },
+    ],
+  });
   ({ POST } = await import("./route"));
 });
 afterEach(() => {
   vi.unstubAllEnvs();
   jar.clear();
 });
-afterAll(() => {
-  close();
-  rmSync(dir, { recursive: true, force: true });
-});
+afterAll(() => tdb.close());
 
 const login = (body: unknown) =>
   POST(

@@ -1,6 +1,5 @@
 import { after } from "next/server";
 import { requireApiUser } from "@/lib/auth/session";
-import { ensureDatabase } from "@/lib/db/migrate";
 import { postingErrorResponse } from "@/lib/postings/http";
 import { getImport, isImportStale, runImport } from "@/lib/postings/imports";
 import { jsonError } from "@/lib/diagnoses/http";
@@ -13,7 +12,6 @@ type Ctx = { params: Promise<{ jobId: string }> };
 
 /** 가져오기 작업 상태. 5분 넘게 멈춘 작업은 다시 실행을 예약한다(runImport의 조건부 차지로 한 번만 실행). */
 export async function GET(_req: Request, { params }: Ctx) {
-  await ensureDatabase();
   const user = await requireApiUser();
   if (user instanceof Response) return user;
   const { jobId } = await params;

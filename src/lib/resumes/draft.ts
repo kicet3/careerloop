@@ -4,10 +4,9 @@ import "server-only";
  * 자료(그래프·이력서·JD)는 모두 데이터 태그로 감싼다 — 태그 안 지시문은 따르지 않는다(INJECTION_RULE).
  * 사실을 지어내지 않고, 모르는 값은 [ADD: ...] 자리표시와 missingInfo 질문으로 남긴다.
  */
-import { and, desc, eq } from "drizzle-orm";
 import { FeatureError } from "@/lib/api/errors";
-import { db } from "@/lib/db/client";
-import { diagnoses, diagnosisStages, type UsageTotals } from "@/lib/db/schema";
+import { prisma } from "@/lib/db/client";
+import type { UsageTotals } from "@/lib/db/types";
 import { CHAT_TAGS } from "@/lib/domain/chat";
 import { RESUME_SECTION_LABELS, RESUME_TEMPLATES, ResumeDraftOutputSchema, type ResumeDraftOutput, type ResumeTemplateId } from "@/lib/domain/resumes";
 import { RewriteResultSchema } from "@/lib/domain/schemas";
@@ -134,17 +133,12 @@ export async function loadDraftMaterial(
       return { kind: "graph", text: graphToText(graph, { maxChars: GRAPH_TEXT_MAX }) };
     }
     case "diagnosis": {
-      const [d] = await db
-        .select({ id: diagnoses.id, title: diagnoses.title })
-        .from(diagnoses)
-        .where(and(eq(diagnoses.id, source.diagnosisId), eq(diagnoses.userId, user.id)))
-        .limit(1);
+      const d = await prisma.diagnosis.findFirst({ select: { id: true, title: true }, where: { id: source.diagnosisId, userId: user.id } });
       if (!d) throw new FeatureError("진단을 찾을 수 없습니다.", 404);
-      const [stage] = await db
-        .select({ output: diagnosisStages.output })
-        .from(diagnosisStages)
-        .where(and(eq(diagnosisStages.diagnosisId, d.id), eq(diagnosisStages.stage, "rewrite"), eq(diagnosisStages.status, "done")))
-        .limit(1);
+      const stage = await prisma.diagnosisStage.findFirst({
+        select: { output: true },
+        where: { diagnosisId: d.id, stage: "rewrite", status: "done" },
+      });
       const rw = RewriteResultSchema.safeParse(stage?.output);
       if (!rw.success || !rw.data.resumeMarkdown.trim()) {
         throw new FeatureError("이 진단에는 아직 다시 쓴 이력서가 없습니다. 진단이 끝난 뒤 다시 시도해 주세요.", 409);
@@ -163,12 +157,11 @@ export interface RewriteCandidate {
 
 /** 재작성본이 있는 내 진단(최근 순, 최대 50개) — 새 이력서 화면의 출처 선택지. */
 export async function listRewriteCandidates(userId: string): Promise<RewriteCandidate[]> {
-  const rows = await db
-    .select({ id: diagnoses.id, title: diagnoses.title, targetRole: diagnoses.targetRole, createdAt: diagnoses.createdAt })
-    .from(diagnoses)
-    .innerJoin(diagnosisStages, and(eq(diagnosisStages.diagnosisId, diagnoses.id), eq(diagnosisStages.stage, "rewrite")))
-    .where(and(eq(diagnoses.userId, userId), eq(diagnosisStages.status, "done")))
-    .orderBy(desc(diagnoses.createdAt))
-    .limit(50);
+  const rows = await prisma.diagnosis.findMany({
+    select: { id: true, title: true, targetRole: true, createdAt: true },
+    where: { userId, stages: { some: { stage: "rewrite", status: "done" } } },
+    orderBy: [{ createdAt: "desc" }, { id: "desc" }],
+    take: 50,
+  });
   return rows.map((r) => ({ ...r, createdAt: r.createdAt.getTime() }));
 }

@@ -2,12 +2,12 @@ import "server-only";
 /**
  * DB(rate_events)에 기록하는 레이트 리밋. 메모리 리밋(rate-limit.ts)은 인스턴스마다 따로 세고 서버리스에서는 인스턴스가
  * 자주 바뀌어 긴 창(24시간)이 사실상 지켜지지 않으므로, 비용이 드는 기능(AI 초안·그래프 채팅·IP당 진단)은 여기서 센다.
- * 확인과 기록을 INSERT … SELECT … WHERE count < limit 한 문장으로 해서 동시 요청도 한도를 넘지 못한다.
+ * 확인과 기록을 한 트랜잭션에서 하고, 같은 (bucket, key)는 트랜잭션 단위 advisory lock으로 줄 세운다 — Postgres의
+ * READ COMMITTED에서는 "개수 세고 INSERT"를 한 문장으로 써도 동시 트랜잭션이 함께 통과할 수 있기 때문이다.
+ * (pg_advisory_xact_lock은 트랜잭션이 끝나면 풀리므로 Supabase Transaction pooler에서도 안전하다.)
  */
 import { createHash } from "node:crypto";
-import { and, eq, gt, min, sql } from "drizzle-orm";
-import { db } from "@/lib/db/client";
-import { rateEvents } from "@/lib/db/schema";
+import { prisma } from "@/lib/db/client";
 
 export type DbRateLimit = { bucket: string; limit: number; windowMs: number };
 
@@ -29,21 +29,23 @@ export async function hitDbLimit(
   key: string,
   now: number = Date.now(),
 ): Promise<{ ok: boolean; retryAfterSec: number }> {
-  const since = now - rule.windowMs;
-  const [, inserted] = await db.batch([
+  const since = new Date(now - rule.windowMs);
+  const where = { bucket: rule.bucket, key };
+  const oldest = await prisma.$transaction(async (tx) => {
+    await tx.$executeRaw`SELECT pg_advisory_xact_lock(hashtextextended(${`rate:${rule.bucket}:${key}`}, 0))`;
     // 창이 지난 기록은 지운다(같은 키만 — 인덱스로 좁힌다).
-    db.delete(rateEvents).where(and(eq(rateEvents.bucket, rule.bucket), eq(rateEvents.key, key), sql`${rateEvents.createdAt} <= ${since}`)),
-    db.all<{ id: number }>(sql`
-      INSERT INTO rate_events (bucket, key, created_at)
-      SELECT ${rule.bucket}, ${key}, ${now}
-      WHERE (SELECT count(*) FROM rate_events WHERE bucket = ${rule.bucket} AND key = ${key} AND created_at > ${since}) < ${rule.limit}
-      RETURNING id`),
-  ]);
-  if (inserted.length > 0) return { ok: true, retryAfterSec: 0 };
-  const [row] = await db
-    .select({ oldest: min(rateEvents.createdAt) })
-    .from(rateEvents)
-    .where(and(eq(rateEvents.bucket, rule.bucket), eq(rateEvents.key, key), gt(rateEvents.createdAt, new Date(since))));
-  const oldest = row?.oldest instanceof Date ? row.oldest.getTime() : now;
-  return { ok: false, retryAfterSec: Math.max(1, Math.ceil((oldest + rule.windowMs - now) / 1000)) };
+    await tx.rateEvent.deleteMany({ where: { ...where, createdAt: { lte: since } } });
+    const agg = await tx.rateEvent.aggregate({
+      where: { ...where, createdAt: { gt: since } },
+      _count: { _all: true },
+      _min: { createdAt: true },
+    });
+    if (agg._count._all < rule.limit) {
+      await tx.rateEvent.create({ data: { ...where, createdAt: new Date(now) } });
+      return null;
+    }
+    return agg._min.createdAt ?? new Date(now);
+  });
+  if (!oldest) return { ok: true, retryAfterSec: 0 };
+  return { ok: false, retryAfterSec: Math.max(1, Math.ceil((oldest.getTime() + rule.windowMs - now) / 1000)) };
 }

@@ -3,7 +3,6 @@ import { featureErrorResponse } from "@/lib/api/errors";
 import { assertSameOrigin, requireApiUser } from "@/lib/auth/session";
 import { getGraphThreadView, readSmallJson, renameGraphThread } from "@/lib/chat/graph-chat";
 import { deleteThread, getThread } from "@/lib/chat/store";
-import { ensureDatabase } from "@/lib/db/migrate";
 import { jsonError } from "@/lib/diagnoses/http";
 
 export const runtime = "nodejs";
@@ -12,7 +11,6 @@ type Ctx = { params: Promise<{ threadId: string }> };
 
 /** 스레드와 메시지 전체, 답변 대기 상태(pending·stale·canRetry). 답변을 기다리는 동안 클라이언트가 폴링한다. */
 export async function GET(_req: Request, { params }: Ctx) {
-  await ensureDatabase();
   const user = await requireApiUser();
   if (user instanceof Response) return user;
   const { threadId } = await params;
@@ -27,7 +25,6 @@ export async function GET(_req: Request, { params }: Ctx) {
 const RenameSchema = z.object({ title: z.string().min(1).max(200) });
 
 export async function PATCH(req: Request, { params }: Ctx) {
-  await ensureDatabase();
   const forbidden = assertSameOrigin(req);
   if (forbidden) return forbidden;
   const user = await requireApiUser();
@@ -45,7 +42,6 @@ export async function PATCH(req: Request, { params }: Ctx) {
 
 /** 대화만 지운다. 이미 적용한 그래프 변경은 그대로 남는다. */
 export async function DELETE(req: Request, { params }: Ctx) {
-  await ensureDatabase();
   const forbidden = assertSameOrigin(req);
   if (forbidden) return forbidden;
   const user = await requireApiUser();

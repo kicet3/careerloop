@@ -63,14 +63,14 @@ export function cliWorkDir(): string {
 // 자식 CLI에 넘기지 않을 환경 변수. API 키가 있으면 CLI가 구독 로그인 대신 키로 과금하고,
 // 이 서버가 Claude Code 안에서 실행됐다면 중첩 세션 표식이 자식 동작을 바꾼다.
 const STRIP_PREFIXES = ["ANTHROPIC_", "CLAUDE_CODE_", "CLAUDECODE", "OPENAI_", "CODEX_", "CLAUDE_CONFIG_DIR"];
-const APP_SECRETS = ["DATABASE_URL", "DATABASE_AUTH_TOKEN"];
+const APP_SECRETS = ["DATABASE_URL", "DIRECT_URL", "PGPASSWORD", "POSTGRES_PASSWORD"];
 
 /** 자식 CLI 환경: 서버 환경에서 키·중첩 표식을 빼고 전용 홈을 지정한다. */
 export function cliEnv(provider: CliProviderId, extra: Record<string, string> = {}): Record<string, string> {
   const env: Record<string, string> = {};
   for (const [k, v] of Object.entries(process.env)) {
     if (v == null) continue;
-    if (STRIP_PREFIXES.some((p) => k.startsWith(p)) || APP_SECRETS.includes(k)) continue;
+    if (STRIP_PREFIXES.some((p) => k.startsWith(p)) || APP_SECRETS.includes(k) || k.startsWith("POSTGRES_URL") || k === "POSTGRES_PRISMA_URL") continue;
     env[k] = v;
   }
   const home = cliHome(provider);

@@ -1,5 +1,4 @@
 import { assertSameOrigin, requireApiUser } from "@/lib/auth/session";
-import { ensureDatabase } from "@/lib/db/migrate";
 import { errorResponse } from "@/lib/diagnoses/http";
 import { clearShareToken, setShareToken } from "@/lib/diagnoses/service";
 
@@ -9,7 +8,6 @@ type Ctx = { params: Promise<{ id: string }> };
 
 /** 공유 링크 생성(이미 있으면 그대로). 응답: { shareToken, path } */
 export async function POST(req: Request, { params }: Ctx) {
-  await ensureDatabase();
   const forbidden = assertSameOrigin(req);
   if (forbidden) return forbidden;
   const user = await requireApiUser();
@@ -25,7 +23,6 @@ export async function POST(req: Request, { params }: Ctx) {
 }
 
 export async function DELETE(req: Request, { params }: Ctx) {
-  await ensureDatabase();
   const forbidden = assertSameOrigin(req);
   if (forbidden) return forbidden;
   const user = await requireApiUser();

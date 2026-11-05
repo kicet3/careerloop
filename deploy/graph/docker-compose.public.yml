@@ -1,0 +1,7 @@
+# 외부 공개 오버레이: Bolt(TLS 필수)를 0.0.0.0:7697로 연다. 공유기에서 TCP 7697 → 맥미니 포워딩이 필요하다.
+#   docker compose -p careerloop-graph -f docker-compose.yml -f docker-compose.tls.yml -f docker-compose.public.yml up -d
+services:
+  neo4j:
+    ports: !override
+      - "0.0.0.0:7697:7687"
+      - "127.0.0.1:7484:7474"

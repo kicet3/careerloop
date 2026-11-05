@@ -18,6 +18,10 @@ const eslintConfig = defineConfig([
               group: ["@/test", "@/test/*", "**/test/fake-llm"],
               message: "테스트 전용 모듈입니다. 앱 코드에서는 실제 엔진(createLlmClient)을 쓰세요.",
             },
+            {
+              group: ["@electric-sql/pglite", "@electric-sql/pglite/*", "pglite-prisma-adapter"],
+              message: "PGlite는 테스트 DB 전용입니다. 앱 코드는 @/lib/db/client의 prisma를 쓰세요.",
+            },
           ],
         },
       ],
@@ -32,6 +36,8 @@ const eslintConfig = defineConfig([
     "next-env.d.ts",
     // 런타임 데이터(gitignore 대상: 업로드·DB·엔진 공급자 파일). 소스가 아니다.
     "data/**",
+    // Prisma 생성 클라이언트(prisma generate). 소스가 아니다.
+    "src/generated/**",
   ]),
 ]);
 

@@ -2,7 +2,7 @@
  * 채팅 계약(클라이언트·서버 공용): 스레드·메시지 타입과 LLM 출력 스키마.
  * - 그래프 채팅(kind='graph'): 사용자가 경험을 이야기하면 LLM이 그래프 변경안(ops)을 내고, 사용자가 확인하면 적용한다.
  * - 심사위원 채팅(kind='reviewer'): 완료된 진단의 심사위원 한 명과, 받은 피드백을 어떻게 고칠지 대화한다.
- * 저장은 src/lib/chat/store.ts(SQLite chat_threads·chat_messages).
+ * 저장은 src/lib/chat/store.ts(PostgreSQL chat_threads·chat_messages).
  */
 import { z } from "zod";
 import { type GraphOp, LlmGraphOpSchema, MAX_OPS_PER_BATCH } from "./graph";

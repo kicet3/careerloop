@@ -1,8 +1,6 @@
-import { mkdtempSync, rmSync } from "node:fs";
-import { tmpdir } from "node:os";
-import path from "node:path";
 import Anthropic from "@anthropic-ai/sdk";
 import { afterAll, beforeAll, describe, expect, it, vi } from "vitest";
+import { createTestDb, type TestDb } from "@/test/db";
 import { CHAT_TAGS, type ChatMessage, type GraphChatOutput } from "@/lib/domain/chat";
 import { type CareerGraph, type GraphOp, type LlmGraphOp } from "@/lib/domain/graph";
 import { GraphOpError } from "@/lib/graph/errors";
@@ -13,27 +11,19 @@ import { LlmPermanentError, type LlmClient } from "@/lib/llm/types";
 vi.mock("server-only", () => ({}));
 vi.mock("next/server", () => ({ after: () => {} }));
 
-const dir = mkdtempSync(path.join(tmpdir(), "rp-graph-chat-"));
-process.env.DATABASE_URL = `file:${path.join(dir, "test.db")}`;
 process.env.NEO4J_URI ??= "bolt://unused"; // graphEnabled() — 이 파일은 그래프 저장소를 가짜(deps)로 바꾼다
 
 let gc: typeof import("./graph-chat");
 let store: typeof import("./store");
-let close: () => void;
+let tdb: TestDb;
 
 beforeAll(async () => {
-  const { ensureDatabase } = await import("@/lib/db/migrate");
-  await ensureDatabase();
-  const { db, schema } = await import("@/lib/db/client");
-  close = () => db.$client.close();
-  for (const id of ["u1", "u2"]) await db.insert(schema.users).values({ id, email: `${id}@x.com`, passwordHash: "x" });
+  tdb = await createTestDb();
+  for (const id of ["u1", "u2"]) await tdb.prisma.user.create({ data: { id, email: `${id}@x.com`, passwordHash: "x" } });
   gc = await import("./graph-chat");
   store = await import("./store");
 });
-afterAll(() => {
-  close();
-  rmSync(dir, { recursive: true, force: true });
-});
+afterAll(() => tdb.close());
 
 const blank: Omit<LlmGraphOp, "op"> = { ref: "", id: "", label: "", props: [], type: "", from: "", to: "" };
 
@@ -181,7 +171,7 @@ describe("변경안 정리", () => {
 });
 
 // ---------------------------------------------------------------------------
-// 서비스(실제 SQLite + 가짜 그래프 저장소·LLM)
+// 서비스(실제 DB(PGlite) + 가짜 그래프 저장소·LLM)
 // ---------------------------------------------------------------------------
 
 function fakeDeps(overrides: Partial<import("./graph-chat").GraphChatDeps> = {}) {

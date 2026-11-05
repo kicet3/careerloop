@@ -2,7 +2,6 @@ import { z } from "zod";
 import { featureErrorResponse } from "@/lib/api/errors";
 import { assertSameOrigin, requireApiUser } from "@/lib/auth/session";
 import { createGraphThread, listGraphThreads, readSmallJson } from "@/lib/chat/graph-chat";
-import { ensureDatabase } from "@/lib/db/migrate";
 import { graphEnabled } from "@/lib/graph/service";
 import { jsonError } from "@/lib/diagnoses/http";
 
@@ -10,7 +9,6 @@ export const runtime = "nodejs";
 
 /** 그래프 채팅 스레드 목록(최근 순). */
 export async function GET() {
-  await ensureDatabase();
   const user = await requireApiUser();
   if (user instanceof Response) return user;
   try {
@@ -25,7 +23,6 @@ const CreateSchema = z.object({ title: z.string().max(200).nullish() });
 
 /** 새 스레드. 제목을 비우면 첫 메시지로 정해진다. */
 export async function POST(req: Request) {
-  await ensureDatabase();
   const forbidden = assertSameOrigin(req);
   if (forbidden) return forbidden;
   const user = await requireApiUser();

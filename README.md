@@ -36,18 +36,27 @@ PDF에 쓰는 나눔고딕 폰트는 SIL Open Font License 1.1을 따릅니다(`
 
 ## 로컬 실행
 
-Node.js 20 이상이 필요합니다.
+Node.js 20 이상과 Docker(로컬 PostgreSQL)가 필요합니다.
 
 ```bash
-cp .env.example .env.local
-npm i
+cp .env.example .env.local     # DATABASE_URL 기본값이 아래 docker postgres를 가리킨다
+npm i                          # postinstall이 prisma generate로 src/generated/prisma를 만든다
+npm run db:up                  # docker compose -p resume-career up -d postgres (127.0.0.1:54329)
+npm run db:migrate             # prisma migrate deploy — prisma/migrations 적용
 npm run dev
 ```
 
 http://localhost:3000 에서 가입하면 바로 쓸 수 있습니다.
 
-- **마이그레이션은 자동입니다.** 서버가 뜰 때(`src/instrumentation.ts`) `./drizzle`의 마이그레이션을 적용하고,
-  기본값으로 `./data/app.db` SQLite 파일을 만듭니다. 따로 `db:migrate`를 돌릴 필요가 없습니다.
+- **DB는 PostgreSQL + Prisma ORM(7)입니다.** 스키마는 `prisma/schema.prisma`, 마이그레이션은 `prisma/migrations`, 앱 클라이언트는
+  `src/lib/db/client.ts`(`@prisma/adapter-pg` 드라이버 어댑터)입니다. 서버는 **마이그레이션을 적용하지 않으므로**, 새 마이그레이션을
+  받으면 `npm run db:migrate`를 다시 돌리세요.
+- 포트 54329가 이미 쓰이면 `.env.local`에 `POSTGRES_PORT=<다른 포트>`를 넣고 `DATABASE_URL`의 포트도 같이 바꿉니다.
+  `npm run db:up`은 `.env.local`이 있으면 `--env-file .env.local`로 읽습니다(`POSTGRES_PASSWORD`·`POSTGRES_PORT`). postgres만 띄울 때는 `NEO4J_PASSWORD`가
+  비어 있어도 됩니다. neo4j는 `NEO4J_PASSWORD`가 비어 있으면 컨테이너 시작 단계에서 멈춥니다.
+- 스키마를 바꿀 때: `prisma/schema.prisma` 수정 → `npm run db:dev -- --name <이름>`(prisma migrate dev, 새 마이그레이션 생성·적용) →
+  커밋. 새 테이블을 만들면 마이그레이션 SQL에 `ALTER TABLE "<table>" ENABLE ROW LEVEL SECURITY;`도 넣으세요(아래 'RLS').
+- 테스트(`npm test`)는 Docker 없이 프로세스 안의 PGlite(`@electric-sql/pglite`)에 같은 마이그레이션을 적용해 돌립니다(`src/test/db.ts`).
 - **API 키 없이 로컬에서 확인하려면** Claude/ChatGPT 계정 로그인 엔진을 쓰세요(아래 '계정 로그인으로 쓰기', `CLI_PROVIDERS=1`).
   가짜 심사위원(mock) 엔진은 없앴습니다. 테스트는 실제 LLM 대신 가짜 클라이언트(`src/test/fake-llm.ts`)를 주입합니다.
 - 실제 진단은 `ANTHROPIC_API_KEY`를 넣으면 됩니다. 기본 모델은 `claude-opus-5-5`(`ANTHROPIC_MODEL`로 변경), 진단 1회에 LLM 호출 13회입니다.
@@ -86,7 +95,7 @@ docker compose --env-file .env.local -p resume-career up -d neo4j
 
 제약 조건·인덱스는 첫 연결 때 자동으로 만듭니다. 모든 노드에 `userId`가 들어가고 모든 쿼리가 그 조건으로 묶입니다.
 
-회사별 이력서 본문은 버전마다 JSON 객체(`users/<userId>/resumes/<resumeId>/v<n>.json`)로 저장합니다(메타는 SQLite).
+회사별 이력서 본문은 버전마다 JSON 객체(`users/<userId>/resumes/<resumeId>/v<n>.json`)로 저장합니다(메타는 PostgreSQL).
 `R2_ACCOUNT_ID`·`R2_ACCESS_KEY_ID`·`R2_SECRET_ACCESS_KEY`·`R2_BUCKET` 네 값이 모두 있으면 Cloudflare R2를,
 하나라도 비면 로컬 폴더(`STORAGE_DIR`, 기본 `./data/storage`)를 씁니다.
 
@@ -145,8 +154,8 @@ redirect URI의 origin 결정:
 | same-origin 검사 | Host·X-Forwarded-Host·앱 주소 호스트 허용 | 앱 주소 호스트만 허용(Host 헤더를 믿지 않음). Vercel Preview는 그 배포 주소도 |
 | 화면 | 사이드바에 노란 `DEV` 배지 | 표시 없음 |
 
-PRODUCTION 필수 설정: `APP_URL`(https — Vercel에서는 비우면 배포 주소), `DATABASE_URL`(Turso `*.turso.io`면 `DATABASE_AUTH_TOKEN`도,
-Vercel에서는 `file:` 불가), `NEO4J_URI`·`NEO4J_USER`·`NEO4J_PASSWORD`, `R2_ACCOUNT_ID`·`R2_ACCESS_KEY_ID`·`R2_SECRET_ACCESS_KEY`·`R2_BUCKET`,
+PRODUCTION 필수 설정: `APP_URL`(https — Vercel에서는 비우면 배포 주소), `DATABASE_URL`(postgres:// 또는 postgresql:// —
+Vercel에서는 localhost 불가, Supabase 연동의 `POSTGRES_PRISMA_URL`·`POSTGRES_URL`로 대신할 수 있음), `NEO4J_URI`·`NEO4J_USER`·`NEO4J_PASSWORD`, `R2_ACCOUNT_ID`·`R2_ACCESS_KEY_ID`·`R2_SECRET_ACCESS_KEY`·`R2_BUCKET`,
 `GOOGLE_CLIENT_ID`·`GOOGLE_CLIENT_SECRET`, AI 엔진 하나 이상(`ANTHROPIC_API_KEY` 또는 `CLI_PROVIDERS=1` + `CLI_PROVIDERS_IN_PRODUCTION=1` —
 Vercel에서는 `ANTHROPIC_API_KEY`만).
 
@@ -168,10 +177,10 @@ npm run build && npm run start:prod   # APP_ENV=PRODUCTION next start
 | `CLI_MAX_CONCURRENCY` | 동시에 띄우는 CLI 프로세스 수(기본 4) |
 | `CLI_CALL_TIMEOUT_MS` | CLI 호출 하나의 제한 시간(기본 15분) |
 | `CLAUDE_CLI_PATH` / `CODEX_CLI_PATH` | CLI 실행 파일 경로(기본 PATH의 `claude` / `codex`) |
-| `DATABASE_URL` | 로컬 `file:./data/app.db`, 배포 `libsql://…`. 비우면 Vercel Turso 연동의 `TURSO_DATABASE_URL` |
-| `DATABASE_AUTH_TOKEN` | Turso 토큰. 비우면 `TURSO_AUTH_TOKEN` |
+| `DATABASE_URL` | 앱 런타임 PostgreSQL 주소. 로컬 `postgresql://postgres:careerloop-dev@127.0.0.1:54329/careerloop`, 배포는 Supabase Transaction pooler(6543). 비우면 `POSTGRES_PRISMA_URL` → `POSTGRES_URL`(Supabase Vercel 연동) |
+| `DIRECT_URL` | (선택) 마이그레이션 주소. Supabase Session pooler(5432). 비우면 `POSTGRES_URL_NON_POOLING` → `DATABASE_URL` |
+| `POSTGRES_PASSWORD` / `POSTGRES_PORT` | (로컬 docker postgres) 비밀번호(기본 `careerloop-dev`)·호스트 포트(기본 54329) |
 | `MIGRATE_ON_BUILD` | (Vercel Preview 전용) `1`이면 Preview 빌드에서도 마이그레이션을 적용(Preview 전용 DB일 때만) |
-| `DB_MIGRATE_AT_RUNTIME` | (Vercel, 비상용) `1`이면 빌드 대신 런타임 첫 요청에 마이그레이션 적용(예전 방식) |
 | `DAILY_DIAGNOSIS_LIMIT` | 사용자당 하루 진단 수(기본 5). 삭제한 진단도 센다 |
 | `APP_URL` | 공개 URL. DEV는 (선택) 리버스 프록시 뒤 Origin 검사에 함께 허용, PRODUCTION은 필수(https)이고 이 호스트만 허용. Vercel에서 비우면 Production은 `https://$VERCEL_PROJECT_PRODUCTION_URL`, Preview는 `https://$VERCEL_BRANCH_URL` |
 | `GOOGLE_CLIENT_ID` / `GOOGLE_CLIENT_SECRET` | Google 로그인 OAuth 클라이언트. PRODUCTION 필수(가입은 Google로만) |
@@ -193,15 +202,19 @@ npm test          # vitest
 LIVE_CLI=claude-cli CLI_PROVIDERS=1 CLAUDE_CLI_CONFIG_DIR=system npx vitest run src/lib/llm/cli.live.test.ts
 npm run lint
 npm run typecheck
+npm run db:up                     # 로컬 postgres(docker)
+npm run db:migrate                # prisma migrate deploy(마이그레이션 적용)
+npm run db:dev -- --name <이름>   # prisma migrate dev(스키마 변경 → 새 마이그레이션)
+npm run db:studio                 # prisma studio
 npm run build && npm start        # APP_ENV 그대로(기본 DEV)
 npm run build && npm run start:prod   # APP_ENV=PRODUCTION
 ```
 
-## 배포 (Vercel + Turso)
+## 배포 (Vercel + Supabase)
 
-저장소에 `vercel.json`이 있습니다: 함수 리전 `icn1`(서울 — Turso·Neo4j·사용자와 가깝게. DB 호출이 요청마다 여러 번 직렬로
+저장소에 `vercel.json`이 있습니다: 함수 리전 `icn1`(서울 — Supabase(ap-northeast-2)·Neo4j·사용자와 가깝게. DB 호출이 요청마다 여러 번 직렬로
 일어나 기본 리전 `iad1`(미국 동부)이면 호출마다 150ms 이상 늘어납니다)과 빌드 명령 `npm run vercel-build`(`next build` 뒤
-`scripts/migrate.mjs`로 DB 마이그레이션을 **배포당 한 번** 적용). Node는 `package.json` `engines`로 22.x에 고정합니다.
+`scripts/migrate.mjs`가 `prisma migrate deploy`로 DB 마이그레이션을 **배포당 한 번** 적용. `prisma generate`가 먼저 돈다). Node는 `package.json` `engines`로 22.x에 고정합니다.
 
 ### 라이브 환경 변수 파일
 
@@ -211,11 +224,20 @@ Vercel → Settings → Environment Variables → **Import .env**로 붙여넣�
 
 ### 준비 (외부 서비스)
 
-1. **Turso DB** — `turso db create careerloop --location <서울에서 가까운 위치(예: aws-ap-northeast-1)>`,
-   `turso db show careerloop --url`(→ `DATABASE_URL=libsql://…turso.io`), `turso db tokens create careerloop`(→ `DATABASE_AUTH_TOKEN`).
-   Vercel Marketplace의 Turso 연동을 쓰면 `TURSO_DATABASE_URL`·`TURSO_AUTH_TOKEN`이 들어오는데, 앱은 `DATABASE_*`가 없으면 이 값을 씁니다.
-2. **Neo4j Aura** — 아시아 리전 인스턴스를 만들고 `NEO4J_URI=neo4j+s://…databases.neo4j.io`, `NEO4J_USER`, `NEO4J_PASSWORD`
-   (필요하면 `NEO4J_DATABASE`).
+1. **Supabase PostgreSQL** — 새 프로젝트를 **Northeast Asia (Seoul) `ap-northeast-2`** 리전에 만들고 Database password를 정합니다.
+   상단 **Connect**에서 두 주소를 받습니다(비밀번호의 특수문자는 URL 인코딩).
+   - **Transaction pooler**(`…pooler.supabase.com:6543/postgres`) → `DATABASE_URL`. 서버리스 함수의 런타임 연결용입니다.
+     앱은 pg 드라이버 어댑터(`@prisma/adapter-pg`)로 붙고 prepared statement를 캐시하지 않아 이 풀러에서 그대로 동작합니다.
+   - **Session pooler**(`…pooler.supabase.com:5432/postgres`) → `DIRECT_URL`. 빌드 끝의 `prisma migrate deploy`용입니다
+     (Transaction pooler에서는 마이그레이션 잠금이 동작하지 않음). 직접 연결(`db.<ref>.supabase.co`)은 IPv6 전용이라 Vercel 빌드에서 닿지 않습니다.
+   - Vercel Marketplace의 **Supabase 연동**을 쓰면 `POSTGRES_PRISMA_URL`·`POSTGRES_URL`(런타임)과 `POSTGRES_URL_NON_POOLING`(마이그레이션)이
+     들어오는데, 앱은 `DATABASE_URL`·`DIRECT_URL`이 없으면 이 값을 씁니다.
+   - **RLS**: 모든 테이블은 마이그레이션에서 Row Level Security를 켜고 정책을 두지 않습니다. Supabase Data API(anon·authenticated 키)로는
+     어떤 행도 읽고 쓸 수 없고, 앱이 쓰는 `postgres` 역할은 RLS를 우회합니다. 새 테이블에도 같은 `ENABLE ROW LEVEL SECURITY`를 넣으세요.
+     Data API를 쓰지 않으면 Supabase 설정에서 꺼 둬도 됩니다.
+   - TLS: localhost가 아닌 주소는 TLS로 붙습니다(`sslmode=verify-full`이면 인증서 체인까지 검증, 그 밖에는 암호화만).
+2. **Neo4j(자체 호스팅)** — 직접 운영하는 `graph.example.com`(TLS)에 붙습니다. `NEO4J_URI=neo4j+s://graph.example.com:<Bolt 포트>`,
+   `NEO4J_USER`, `NEO4J_PASSWORD`(필요하면 `NEO4J_DATABASE`). 서버 한 대 구성에서 라우팅 테이블이 내부 주소를 알려 주면 `bolt+s://`를 쓰세요.
 3. **Cloudflare R2** — 버킷을 만들고 그 버킷으로 제한한 '객체 읽기·쓰기' API 토큰 발급 → `R2_ACCOUNT_ID`·`R2_ACCESS_KEY_ID`·
    `R2_SECRET_ACCESS_KEY`·`R2_BUCKET`. Vercel 배포 폴더는 읽기 전용이라 R2 없이는 이력서 기능이 503입니다.
 4. **Anthropic** — `ANTHROPIC_API_KEY`(필요하면 `ANTHROPIC_MODEL`). Vercel에는 claude·codex CLI가 없어 계정 로그인 엔진(CLI)은
@@ -233,8 +255,8 @@ Vercel 프로젝트 → Settings → Environment Variables. 값마다 적용 환
 |---|---|---|
 | `APP_ENV` | `PRODUCTION`(비워도 Production 배포는 PRODUCTION) | 비움(DEV, 화면에 DEV 배지) 또는 `PRODUCTION` |
 | `APP_URL` | `https://<운영 도메인>`(비우면 `https://$VERCEL_PROJECT_PRODUCTION_URL`) | 비움(→ `https://$VERCEL_BRANCH_URL`) 또는 고정 스테이징 도메인 |
-| `DATABASE_URL` / `DATABASE_AUTH_TOKEN` | 운영 Turso DB | **별도** Turso DB(또는 Turso 브랜치) + `MIGRATE_ON_BUILD=1` |
-| `NEO4J_URI` / `NEO4J_USER` / `NEO4J_PASSWORD` | 운영 Aura | 별도 인스턴스(비우면 그래프 기능만 꺼짐) |
+| `DATABASE_URL` / `DIRECT_URL` | 운영 Supabase(6543 / 5432) | **별도** Supabase 프로젝트(또는 브랜치) + `MIGRATE_ON_BUILD=1` |
+| `NEO4J_URI` / `NEO4J_USER` / `NEO4J_PASSWORD` | 운영 Neo4j(graph.example.com) | 별도 인스턴스·DB(비우면 그래프 기능만 꺼짐) |
 | `R2_ACCOUNT_ID` / `R2_ACCESS_KEY_ID` / `R2_SECRET_ACCESS_KEY` / `R2_BUCKET` | 운영 버킷 | 별도 버킷 |
 | `ANTHROPIC_API_KEY` | 필수 | 필요하면(비용 주의) |
 | `GOOGLE_CLIENT_ID` / `GOOGLE_CLIENT_SECRET` | 필수 | 아래 'Preview 배포' 참고 |
@@ -249,10 +271,9 @@ Preview를 쓰지 않으려면 Settings → Git에서 Preview 배포를 끄는 �
 3. 배포합니다. Vercel 빌드는 `next.config.ts`에서 런타임과 같은 필수 설정 검사를 하므로, PRODUCTION인데 빠진 값이 있으면
    **빌드가 누락 목록과 함께 실패**합니다(빌드 로그에서 확인). 런타임 시작 검사(`src/instrumentation.ts`)도 그대로 있어, 빌드 뒤에
    값을 지웠다면 함수가 시작하지 못하고 Runtime Logs에 누락 목록이 남습니다.
-4. 빌드가 끝나면 `scripts/migrate.mjs`가 Production DB에 마이그레이션을 적용합니다(Preview는 `MIGRATE_ON_BUILD=1`일 때만).
-   런타임은 Vercel에서 마이그레이션을 적용하지 않고 DB가 최신인지 확인만 합니다 — 새 인스턴스 여러 개가 동시에 같은 마이그레이션을
-   적용하는 경쟁과, Preview 배포가 운영 DB 스키마를 먼저 바꾸는 일을 막기 위해서입니다. 빌드에서 DB에 닿지 못하는 환경이면
-   `npm run db:migrate:deploy`(같은 환경 변수로)를 직접 실행하거나 `DB_MIGRATE_AT_RUNTIME=1`로 예전 방식(첫 요청 때 적용)을 씁니다.
+4. 빌드가 끝나면 `scripts/migrate.mjs`가 `prisma migrate deploy`로 Production DB에 마이그레이션을 적용합니다(Preview는
+   `MIGRATE_ON_BUILD=1`일 때만). 런타임은 마이그레이션을 적용하지 않습니다 — 새 인스턴스 여러 개가 동시에 적용하는 경쟁과, Preview 배포가
+   운영 DB 스키마를 먼저 바꾸는 일을 막기 위해서입니다. 빌드에서 DB에 닿지 못하면 같은 환경 변수로 `npm run db:migrate`를 직접 실행하세요.
 5. 운영 도메인으로 접속해 Google 로그인 → 새 진단 → 보고서까지 확인합니다.
 
 ### Preview 배포
@@ -262,8 +283,8 @@ Preview를 쓰지 않으려면 Settings → Git에서 Preview 배포를 끄는 �
 - Google은 와일드카드 리디렉션 URI를 받지 않습니다. Preview에서 Google 로그인이 필요하면 스테이징 도메인을 한 브랜치에 고정해
   Google 콘솔에 `https://<스테이징 도메인>/api/auth/google/callback`을 등록하고 Preview 범위 `APP_URL`로 넣으세요. 아니면 Preview에서는
   비밀번호를 설정한 계정의 이메일 로그인만 씁니다.
-- Preview의 DB·R2·Neo4j는 운영과 분리하세요(위 표). Preview가 운영 DB를 공유하면 마이그레이션이 빌드에서 건너뛰어지고, 새 마이그레이션이
-  있는 브랜치는 런타임 확인에서 'DB 스키마가 이 배포보다 오래됐습니다' 오류로 멈춥니다(운영 DB를 바꾸지 않음).
+- Preview의 DB·R2·Neo4j는 운영과 분리하세요(위 표). Preview가 운영 DB를 공유하면 마이그레이션이 빌드에서 건너뛰어지므로, 새 마이그레이션이
+  있는 브랜치는 없는 테이블·컬럼 때문에 오류가 납니다(운영 DB는 바꾸지 않음).
 
 ### 플랜과 실행 시간(maxDuration)
 
@@ -294,8 +315,9 @@ Preview를 쓰지 않으려면 Settings → Git에서 Preview 배포를 끄는 �
   Vercel에서는 클라이언트 IP로 플랫폼이 넣는 `x-real-ip`를 씁니다. 자체 호스팅이면 리버스 프록시 뒤에 두고 `TRUSTED_PROXY_HOPS`를
   설정하세요(설정하지 않으면 X-Forwarded-For의 맨 오른쪽 값을 씁니다). 이메일 인증은 없으므로 계정 여러 개로 하루 제한을 늘리는 것은
   IP당 제한으로만 늦춥니다.
-- 삭제(공고·진단·이력서·지원)는 FK cascade에 기대지 않고 자식 행을 같은 배치에서 직접 정리합니다(원격 libsql은 요청마다 새 연결이라
-  `PRAGMA foreign_keys`가 보장되지 않음).
+- 삭제(공고·진단·이력서·지원)는 PostgreSQL FK(`ON DELETE CASCADE`/`SET NULL`)가 자식 행을 정리합니다.
+- 동시 요청 직렬화(하루 제한·이력서 버전 번호·레이트 리밋)는 트랜잭션 안의 `pg_advisory_xact_lock`으로 합니다. 트랜잭션이 끝나면 풀리므로
+  Transaction pooler에서도 안전합니다.
 - 공고 링크 가져오기: 사설·루프백·CGNAT·링크로컬·IPv6 ULA 주소는 거절하고(DNS 결과 전부 검사, 검사한 주소로만 접속),
   리다이렉트 3회마다 다시 검사, 본문 2MB·20초 상한. 사용자당 하루 20회·동시 3건·분당 6회.
-- 로컬 SQLite 파일은 서버리스 환경에서 유지되지 않으므로 배포에서는 반드시 Turso(libsql)를 쓰세요(Vercel에서 `file:` 주소면 빌드·시작 검사가 막습니다).
+- DB 주소는 PostgreSQL(`postgres://`·`postgresql://`)만 받습니다. Vercel에서 localhost 주소면 빌드·시작 검사가 막습니다.

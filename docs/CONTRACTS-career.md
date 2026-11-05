@@ -2,7 +2,7 @@
 
 기반(Foundation) 작업이 만든 공유 타입·모듈과 파일 소유권. 기능 에이전트는 이 문서를 먼저 읽는다.
 기존 규칙(docs/ARCHITECTURE.md)은 그대로다: 서버 전용 모듈은 `import "server-only"`, 인증은 `requireUser`/`requireApiUser`,
-상태 변경 API는 `assertSameOrigin`, 라우트 시작에 `await ensureDatabase()`, Next 16 `params`는 Promise.
+상태 변경 API는 `assertSameOrigin`, Next 16 `params`는 Promise. DB는 `@/lib/db/client`의 `prisma`(Prisma ORM, PostgreSQL).
 
 ## 0. 파일 소유권
 
@@ -16,23 +16,23 @@
 | portfolio | `src/lib/ingest/**` 확장, `src/lib/diagnoses/form.ts`·`service.ts`·http 입력 경로, `src/app/api/diagnoses/route.ts`, `src/components/app/NewDiagnosisForm.tsx`, `src/lib/panel/prompts.ts`·`pipeline.ts`의 포트폴리오 반영, 보고서에 포트폴리오 표시(선택) |
 | resumes | `src/app/app/resumes/**`, `src/app/api/resumes/**`, `src/lib/resumes/**`, `src/components/resumes/**`, 이력서 PDF 렌더(`src/lib/report`의 기존 PDF 폰트 재사용 가능, 새 파일은 `src/lib/resumes/pdf.tsx`) |
 
-**공용 파일**(`src/lib/db/schema.ts`, `drizzle/**`, `src/lib/domain/{graph,chat,resumes}.ts`, `src/lib/llm/*`, `src/lib/graph/*`,
+**공용 파일**(`prisma/schema.prisma`, `prisma/migrations/**`, `src/lib/domain/{graph,chat,resumes}.ts`, `src/lib/llm/*`, `src/lib/graph/*`,
 `src/lib/storage/*`, `src/lib/chat/store.ts`, `src/lib/chat/prompt.ts`, `src/lib/api/errors.ts`, `src/components/app/AppSidebar.tsx`)은
 기능 에이전트가 고치지 않는다 — 필요하면 최종 보고에 적는다.
 
-## 1. DB (SQLite, `drizzle/0003_career_chat_resumes.sql`)
+## 1. DB (PostgreSQL, `prisma/schema.prisma` — 예전 drizzle 0003)
 
-마이그레이션은 기존처럼 `ensureDatabase()`(instrumentation + 라우트)가 자동 적용한다.
+마이그레이션은 `prisma migrate deploy`(로컬 `npm run db:migrate`, Vercel Production 빌드)로 적용한다. 런타임은 적용하지 않는다.
 
 | 테이블 | 컬럼 |
 |---|---|
-| `chat_threads` (`chatThreads`) | `id, userId(FK users cascade), kind: 'graph'\|'reviewer', diagnosisId?(FK diagnoses cascade), reviewer?: ReviewerId, title, createdAt, updatedAt` |
-| `chat_messages` (`chatMessages`) | `id, threadId(FK cascade), role: 'user'\|'assistant', content, data?: ChatMessageData(json), status?: ChatMessageStatus, usage?: UsageTotals(json), createdAt` |
+| `chat_threads` (`ChatThread`) | `id, userId(FK users cascade), kind: 'graph'\|'reviewer', diagnosisId?(FK diagnoses cascade), reviewer?: ReviewerId, title, createdAt, updatedAt` |
+| `chat_messages` (`ChatMessage`) | `id, threadId(FK cascade), role: 'user'\|'assistant', content, data?: ChatMessageData(json), status?: ChatMessageStatus, usage?: UsageTotals(json), createdAt` |
 | `diagnoses` +2 | `portfolioText?: string`, `portfolioFileName?: string` |
-| `company_resumes` (`companyResumes`) | `id, userId(FK cascade), company, roleTitle, jdText?, templateId: ResumeTemplateId, title, currentVersionId?(FK 없음), createdAt, updatedAt` |
-| `resume_versions` (`resumeVersions`) | `id, resumeId(FK cascade), versionNo(resumeId별 유일), storageKey, note?, source: 'ai'\|'manual', createdAt` |
+| `company_resumes` (`CompanyResume`) | `id, userId(FK cascade), company, roleTitle, jdText?, templateId: ResumeTemplateId, title, currentVersionId?(FK 없음), createdAt, updatedAt` |
+| `resume_versions` (`ResumeVersion`) | `id, resumeId(FK cascade), versionNo(resumeId별 유일), storageKey, note?, source: 'ai'\|'manual', createdAt` |
 
-타입: `ChatThreadRow`, `ChatMessageRow`, `CompanyResume`, `ResumeVersion` (schema.ts). 이력서 본문은 DB가 아니라 저장소(§5)에 버전별 JSON.
+타입: `ChatThreadRow`, `ChatMessageRow`, `CompanyResume`, `ResumeVersion` (`src/lib/db/types.ts`). 이력서 본문은 DB가 아니라 저장소(§5)에 버전별 JSON.
 
 ## 2. `src/lib/domain/graph.ts` (클라이언트·서버 공용)
 
@@ -208,7 +208,7 @@ class FeatureError(message, status)            // 기능 모듈이 404·409 등�
   가짜 심사위원(mock) 엔진·`LLM_MOCK`은 없앴다. 로컬 확인은 Claude/ChatGPT 계정 로그인 엔진으로 한다. Neo4j 통합 테스트는
   `describe.skipIf(!process.env.NEO4J_URI)`, 고유 userId로 만들고 `deleteUserGraph`로 정리(예: `src/lib/graph/service.integration.test.ts`).
   실행: `set -a; . ./.env.local; set +a; npx vitest run src/lib/graph`.
-  server-only 모듈 테스트는 `vi.mock("server-only", () => ({}))`, DB는 `DATABASE_URL=file:<tmp>` + `ensureDatabase()`(chat/store.test.ts 참고),
+  server-only 모듈 테스트는 `vi.mock("server-only", () => ({}))`, DB는 `createTestDb()`(`src/test/db.ts`, PGlite — chat/store.test.ts 참고),
   저장소는 `STORAGE_DIR=<tmp>` + R2 변수 삭제(storage/index.test.ts 참고).
 - dev 서버는 3000 금지(메인 저장소 사용 중). 필요하면 `PORT=3100+`로 띄우고 끝나면 종료.
 
@@ -230,7 +230,7 @@ class FeatureError(message, status)            // 기능 모듈이 404·409 등�
 | match | `src/lib/skills/**`, `src/lib/graph/match*.ts`, `src/app/api/postings/[id]/match/**`, `src/app/api/insights/skills/**`, `src/components/match/**`, `GraphChatPanel`의 `initialMessage` prop(`src/components/graph/GraphChatPanel.tsx`), 그래프 페이지(`src/app/app/graph/page.tsx`)의 스킬 갭 패널 |
 | hwp | `src/lib/ingest/**`, 업로드 UI의 허용 확장자·안내 문구(`src/components/app/FileDrop.tsx` 등), `THIRD_PARTY_NOTICES.md`(CareerLoop 출처 항목 포함 — 다른 담당은 이식한 파일만 최종 보고에 적는다) |
 
-**공용(기반) 파일 — 기능 담당은 고치지 않는다, 필요하면 최종 보고에 적는다:** `src/lib/db/schema.ts`, `drizzle/**`,
+**공용(기반) 파일 — 기능 담당은 고치지 않는다, 필요하면 최종 보고에 적는다:** `prisma/schema.prisma`, `prisma/migrations/**`,
 `src/lib/domain/{postings,applications,chat,graph,resumes}.ts`, `src/lib/time/kst.ts`, `src/lib/llm/*`, `src/test/fake-llm.ts`,
 `src/lib/chat/prompt.ts`, `src/lib/api/errors.ts`, `src/components/app/AppSidebar.tsx`, `package.json`.
 
@@ -240,23 +240,22 @@ class FeatureError(message, status)            // 기능 모듈이 404·409 등�
 - 공고 상세의 '지원 기록 추가'는 `/app/applications?new=1&postingId=<id>`로 이동한다(applications가 쿼리를 읽어 폼을 연다).
   공고 상세의 '관련 지원' 목록은 `GET /api/applications?postingId=<id>`를 쓴다(applications가 이 필터를 지원한다).
 - 공고 상태: 지원 생성(postingId 있음) → 공고 `applied`, 지원 삭제 후 그 공고의 다른 지원이 없으면 → 공고 `planned`.
-  applications 서비스가 `jobPostings` 표를 직접 갱신한다(같은 트랜잭션, `userId` 조건). postings 모듈을 import하지 않아도 된다.
+  applications 서비스가 `job_postings` 표(Prisma `jobPosting`)를 직접 갱신한다(같은 트랜잭션, `userId` 조건). postings 모듈을 import하지 않아도 된다.
 - 마감 계산(`deadlineInfo` 등)은 postings의 `src/lib/postings/deadline.ts`(순수, server-only 아님)에 둔다 — applications의 `buildSuggestions`가 import한다.
   postings는 아래 시그니처를 지킨다.
 
-### 7-1. DB (`drizzle/0004_career_postings_applications.sql`)
+### 7-1. DB (`prisma/schema.prisma` — 예전 drizzle 0004)
 
-`ensureDatabase()`가 자동 적용. drizzle-kit이 `ALTER TABLE ... ADD ... REFERENCES`에서 `ON DELETE`를 빠뜨려 SQL을 손으로 보정했다
-(`ON DELETE set null`; 스냅숏은 원래 맞다). `migrate.test.ts`가 set null·cascade·url_key 유일성을 확인한다.
+FK `ON DELETE set null`·cascade와 url_key 유일성은 `src/lib/db/db.test.ts`(PGlite)가 확인한다.
 
 | 테이블 | 컬럼 |
 |---|---|
-| `job_postings` (`jobPostings`, `JobPostingRow`) | `id, userId(FK cascade), company, roleTitle, url?, urlKey?(normalizeUrl), platform?, status: PostingStatus='saved', jdText?(≤30000), deadline?('YYYY-MM-DD' KST), deadlineTime?('HH:mm' KST), deadlineKind: DeadlineKind='unspecified', employmentType='unknown', workType='unknown', location?, careerLevel='unknown', note?, extractedBy='manual', createdAt, updatedAt`. index(userId, updatedAt), **unique(userId, urlKey)**(null은 여러 개 가능) |
-| `posting_imports` (`postingImports`, `PostingImportRow`) | `id, userId(FK cascade), url, status: PostingImportStatus='queued', error?(사용자용 문구), postingId?(FK set null), attempts=0, createdAt, updatedAt`. index(userId, createdAt) |
+| `job_postings` (`JobPosting`, `JobPostingRow`) | `id, userId(FK cascade), company, roleTitle, url?, urlKey?(normalizeUrl), platform?, status: PostingStatus='saved', jdText?(≤30000), deadline?('YYYY-MM-DD' KST), deadlineTime?('HH:mm' KST), deadlineKind: DeadlineKind='unspecified', employmentType='unknown', workType='unknown', location?, careerLevel='unknown', note?, extractedBy='manual', createdAt, updatedAt`. index(userId, updatedAt), **unique(userId, urlKey)**(null은 여러 개 가능) |
+| `posting_imports` (`PostingImport`, `PostingImportRow`) | `id, userId(FK cascade), url, status: PostingImportStatus='queued', error?(사용자용 문구), postingId?(FK set null), attempts=0, createdAt, updatedAt`. index(userId, createdAt) |
 | `diagnoses` +1 | `postingId?`(FK set null) |
 | `company_resumes` +1 | `postingId?`(FK set null) |
-| `applications` (`applications`, `ApplicationRow`) | `id, userId(FK cascade), postingId?(FK set null), company, roleTitle, stage: ApplicationStage='applied', appliedAt?('YYYY-MM-DD'), nextStep?, nextDate?('YYYY-MM-DD'), note?, favorite(boolean)=false, resumeId?(FK company_resumes set null), resumeVersionId?(FK 없음), resumeLabel?(지원 시점 이름 스냅숏), submittedKey?(저장소 키), diagnosisId?(FK set null), createdAt, updatedAt` |
-| `application_events` (`applicationEvents`, `ApplicationEventRow`) | `id(autoincrement), applicationId(FK cascade), fromStage?(생성 시 null), toStage, note?, at` |
+| `applications` (`Application`, `ApplicationRow`) | `id, userId(FK cascade), postingId?(FK set null), company, roleTitle, stage: ApplicationStage='applied', appliedAt?('YYYY-MM-DD'), nextStep?, nextDate?('YYYY-MM-DD'), note?, favorite(boolean)=false, resumeId?(FK company_resumes set null), resumeVersionId?(FK 없음), resumeLabel?(지원 시점 이름 스냅숏), submittedKey?(저장소 키), diagnosisId?(FK set null), createdAt, updatedAt` |
+| `application_events` (`ApplicationEvent`, `ApplicationEventRow`) | `id(autoincrement), applicationId(FK cascade), fromStage?(생성 시 null), toStage, note?, at` |
 
 DB의 빈 텍스트는 null, API 응답(`JobPosting` 등)은 ""로 바꿔 내보낸다(아래 타입 주석 참고).
 

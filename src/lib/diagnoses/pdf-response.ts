@@ -1,6 +1,6 @@
 import "server-only";
 import { createHash } from "node:crypto";
-import type { Diagnosis, DiagnosisStage } from "@/lib/db/schema";
+import type { Diagnosis, DiagnosisStage } from "@/lib/db/types";
 import { buildReportModel, reportAvailability } from "@/lib/report/model";
 import { renderReportPdf } from "@/lib/report/pdf";
 import { contentDisposition, errorResponse, jsonError, reportFileBase } from "./http";

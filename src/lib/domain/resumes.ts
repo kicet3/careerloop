@@ -1,6 +1,6 @@
 /**
  * 회사(지원처)별 이력서 계약(클라이언트·서버 공용): 양식(템플릿) 정의와 편집 가능한 이력서 문서 구조.
- * 메타데이터는 SQLite(company_resumes·resume_versions), 버전별 본문(ResumeDocument JSON)은 저장소(src/lib/storage).
+ * 메타데이터는 PostgreSQL(company_resumes·resume_versions), 버전별 본문(ResumeDocument JSON)은 저장소(src/lib/storage).
  *
  * ResumeDocument는 LLM 구조화 출력에도 그대로 쓰므로 선택 필드·유니온 없이 모든 필드를 필수로 둔다(값이 없으면 "" 또는 []).
  * 나중에 더한 필드(성과 중심 양식용: 총 경력·포트폴리오·핵심 성과·부서·담당 범위·문제/행동/결과 등)가 없는

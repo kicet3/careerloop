@@ -1,28 +1,17 @@
-import { mkdtempSync, rmSync } from "node:fs";
-import { tmpdir } from "node:os";
-import path from "node:path";
 import { afterAll, beforeAll, describe, expect, it, vi } from "vitest";
+import { createTestDb, type TestDb } from "@/test/db";
 
 vi.mock("server-only", () => ({}));
 
-const dir = mkdtempSync(path.join(tmpdir(), "rp-chat-"));
-process.env.DATABASE_URL = `file:${path.join(dir, "test.db")}`;
-
 let store: typeof import("./store");
-let close: () => void;
+let tdb: TestDb;
 
 beforeAll(async () => {
-  const { ensureDatabase } = await import("@/lib/db/migrate");
-  await ensureDatabase();
-  const { db, schema } = await import("@/lib/db/client");
-  close = () => db.$client.close();
-  for (const id of ["a", "b"]) await db.insert(schema.users).values({ id, email: `${id}@x.com`, passwordHash: "x" });
+  tdb = await createTestDb();
+  for (const id of ["a", "b"]) await tdb.prisma.user.create({ data: { id, email: `${id}@x.com`, passwordHash: "x" } });
   store = await import("./store");
 });
-afterAll(() => {
-  close();
-  rmSync(dir, { recursive: true, force: true });
-});
+afterAll(() => tdb.close());
 
 describe("chat store", () => {
   it("스레드·메시지 CRUD와 소유권", async () => {
@@ -53,6 +42,26 @@ describe("chat store", () => {
     expect(await store.deleteThread("b", t.id)).toBe(false);
     expect(await store.deleteThread("a", t.id)).toBe(true);
     expect(await store.getMessage("a", m!.id)).toBeNull();
+  });
+
+  it("expectLastId: 마지막 메시지가 기대와 같을 때만 넣고, 동시 요청은 하나만 성공한다", async () => {
+    const t = await store.createThread({ userId: "a", kind: "graph", title: "동시성" });
+    const first = await store.addMessage("a", { threadId: t.id, role: "user", content: "1" }, { expectLastId: null });
+    await expect(store.addMessage("a", { threadId: t.id, role: "user", content: "x" }, { expectLastId: null })).rejects.toBeInstanceOf(
+      store.ConcurrentMessageError,
+    );
+    const results = await Promise.allSettled(
+      ["a1", "a2", "a3"].map((content) => store.addMessage("a", { threadId: t.id, role: "assistant", content }, { expectLastId: first!.id })),
+    );
+    expect(results.filter((r) => r.status === "fulfilled")).toHaveLength(1);
+    for (const r of results) if (r.status === "rejected") expect(r.reason).toBeInstanceOf(store.ConcurrentMessageError);
+    const msgs = (await store.listMessages("a", t.id))!;
+    expect(msgs).toHaveLength(2);
+    expect(msgs[1]!.createdAt).toBeGreaterThan(msgs[0]!.createdAt);
+    expect((await store.getThread("a", t.id))!.updatedAt).toBe(msgs[1]!.createdAt);
+    // NUL은 저장 전에 지운다(Postgres text·jsonb는 NUL을 받지 않는다).
+    const nul = await store.addMessage("a", { threadId: t.id, role: "user", content: "a\u0000b" });
+    expect(nul!.content).toBe("ab");
   });
 
   it("심사위원 스레드는 진단·심사위원이 필요하다", async () => {

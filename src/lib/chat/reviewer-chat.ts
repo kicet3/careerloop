@@ -6,7 +6,6 @@ import "server-only";
  * - 사용자 메시지·이력서·대화는 모두 데이터다(INJECTION_RULE). 지어내지 않기·아첨 금지는 진단과 같다.
  * - LLM 호출이 성공한 뒤에만 사용자 메시지와 답변을 함께 저장한다(실패하면 아무것도 남기지 않아 다시 보내면 된다).
  */
-import { and, count, eq, gte } from "drizzle-orm";
 import { FeatureError } from "@/lib/api/errors";
 import {
   addMessage,
@@ -28,8 +27,8 @@ import {
   type StageOutputs,
   type SynthesisResult,
 } from "@/lib/domain/schemas";
-import { db } from "@/lib/db/client";
-import { chatMessages, chatThreads, type Diagnosis, type DiagnosisStage } from "@/lib/db/schema";
+import { prisma } from "@/lib/db/client";
+import type { Diagnosis, DiagnosisStage } from "@/lib/db/types";
 import { getDiagnosisForUser } from "@/lib/diagnoses/service";
 import { createLlmClient, legacyProvider, type LlmClient } from "@/lib/llm";
 import { withLlmDeadline } from "@/lib/llm/deadline";
@@ -308,19 +307,9 @@ export async function deleteReviewerThread(userId: string, diagnosisId: string, 
 }
 
 async function userMessagesSince(userId: string, since: Date): Promise<number> {
-  const [row] = await db
-    .select({ n: count() })
-    .from(chatMessages)
-    .innerJoin(chatThreads, eq(chatThreads.id, chatMessages.threadId))
-    .where(
-      and(
-        eq(chatThreads.userId, userId),
-        eq(chatThreads.kind, "reviewer"),
-        eq(chatMessages.role, "user"),
-        gte(chatMessages.createdAt, since),
-      ),
-    );
-  return row?.n ?? 0;
+  return prisma.chatMessage.count({
+    where: { role: "user", createdAt: { gte: since }, thread: { userId, kind: "reviewer" } },
+  });
 }
 
 /** 같은 사용자의 동시 전송을 막는다(한 프로세스 안). 답변을 기다리는 중 중복 클릭·연타로 LLM 비용이 새지 않게. */

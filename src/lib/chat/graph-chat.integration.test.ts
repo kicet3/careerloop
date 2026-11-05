@@ -1,12 +1,10 @@
 /**
  * 그래프 채팅 → 실제 Neo4j 적용 통합 테스트. NEO4J_URI가 있을 때만 돈다(set -a; . ./.env.local; set +a; npx vitest run src/lib/chat).
- * LLM은 가짜(FakeLlmClient), DB는 임시 SQLite. 테스트 사용자 그래프는 끝에 지운다.
+ * LLM은 가짜(FakeLlmClient), DB는 프로세스 안 PGlite. 테스트 사용자 그래프는 끝에 지운다.
  */
-import { mkdtempSync, rmSync } from "node:fs";
-import { tmpdir } from "node:os";
-import path from "node:path";
 import { nanoid } from "nanoid";
 import { afterAll, describe, expect, it, vi } from "vitest";
+import { createTestDb, type TestDb } from "@/test/db";
 import { FakeLlmClient } from "@/test/fake-llm";
 
 vi.mock("server-only", () => ({}));
@@ -16,25 +14,19 @@ const enabled = Boolean(process.env.NEO4J_URI);
 const userId = `test_${nanoid(8)}`;
 
 describe.skipIf(!enabled)("graph chat + Neo4j", () => {
-  const dir = mkdtempSync(path.join(tmpdir(), "rp-graph-chat-int-"));
-  process.env.DATABASE_URL = `file:${path.join(dir, "test.db")}`;
-  let close = () => {};
+  let tdb: TestDb | undefined;
 
   afterAll(async () => {
     const { deleteUserGraph } = await import("@/lib/graph/service");
     const { closeDriver } = await import("@/lib/graph/client");
     await deleteUserGraph(userId);
     await closeDriver();
-    close();
-    rmSync(dir, { recursive: true, force: true });
+    await tdb?.close();
   });
 
   it("대화 변경안을 적용하면 그래프에 반영되고, 같은 내용을 다시 말해도 노드가 중복되지 않는다", async () => {
-    const { ensureDatabase } = await import("@/lib/db/migrate");
-    await ensureDatabase();
-    const { db, schema } = await import("@/lib/db/client");
-    close = () => db.$client.close();
-    await db.insert(schema.users).values({ id: userId, email: `${userId}@x.com`, passwordHash: "x" });
+    tdb = await createTestDb();
+    await tdb.prisma.user.create({ data: { id: userId, email: `${userId}@x.com`, passwordHash: "x" } });
     const gc = await import("./graph-chat");
     const { getCareerGraph } = await import("@/lib/graph/service");
     const deps = { ...gc.defaultGraphChatDeps, createClient: () => new FakeLlmClient({ delayMs: 0 }) };

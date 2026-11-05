@@ -8,7 +8,6 @@ import { z } from "zod";
 import { featureErrorResponse } from "@/lib/api/errors";
 import { assertSameOrigin, requireApiUser } from "@/lib/auth/session";
 import { listReviewerThreads, sendReviewerMessage } from "@/lib/chat/reviewer-chat";
-import { ensureDatabase } from "@/lib/db/migrate";
 import { BodyTooLargeError, readBodyLimited } from "@/lib/diagnoses/body";
 import { jsonError } from "@/lib/diagnoses/http";
 import { ChatUserMessageSchema, MAX_CHAT_MESSAGE_CHARS } from "@/lib/domain/chat";
@@ -29,7 +28,6 @@ const PostSchema = z.object({
 });
 
 export async function GET(req: Request, { params }: Ctx) {
-  await ensureDatabase();
   const user = await requireApiUser();
   if (user instanceof Response) return user;
   const { id } = await params;
@@ -46,7 +44,6 @@ export async function GET(req: Request, { params }: Ctx) {
 }
 
 export async function POST(req: Request, { params }: Ctx) {
-  await ensureDatabase();
   const forbidden = assertSameOrigin(req);
   if (forbidden) return forbidden;
   const user = await requireApiUser();

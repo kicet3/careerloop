@@ -1,5 +1,4 @@
 import { requireApiUser } from "@/lib/auth/session";
-import { ensureDatabase } from "@/lib/db/migrate";
 import { contentDisposition, errorResponse, jsonError, notFound } from "@/lib/diagnoses/http";
 import { getDiagnosisForUser } from "@/lib/diagnoses/service";
 import { renderPanelMarkdown, renderResumeMarkdown } from "@/lib/report/markdown";
@@ -9,7 +8,6 @@ export const runtime = "nodejs";
 
 /** 원본 스킬 호환 내보내기: ?file=panel → PANEL.md, ?file=resume → RESUME-IMPROVED.md */
 export async function GET(req: Request, { params }: { params: Promise<{ id: string }> }) {
-  await ensureDatabase();
   const user = await requireApiUser();
   if (user instanceof Response) return user;
   const { id } = await params;

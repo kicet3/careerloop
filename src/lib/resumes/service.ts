@@ -1,18 +1,18 @@
 import "server-only";
 /**
- * 회사별 이력서 저장소. 메타·버전 목록은 SQLite(company_resumes·resume_versions), 버전 본문(ResumeDocument JSON)은
+ * 회사별 이력서 저장소. 메타·버전 목록은 PostgreSQL(company_resumes·resume_versions, Prisma), 버전 본문(ResumeDocument JSON)은
  * 오브젝트 저장소 users/<userId>/resumes/<resumeId>/v<n>.json(R2 또는 로컬 폴백).
  *
  * - 모든 함수는 userId 소유권을 확인한다. 남의 이력서는 null/false(라우트에서 404).
- * - 저장할 때마다 새 버전(n+1)을 만든다. 버전 번호를 한 문장으로 먼저 예약(행 insert)하고, 본문을 쓴 뒤 현재 버전을 옮긴다.
+ * - 저장할 때마다 새 버전(n+1)을 만든다. 버전 번호를 이력서별 잠금을 건 트랜잭션에서 먼저 예약(행 insert)하고, 본문을 쓴 뒤 현재 버전을 옮긴다.
  *   본문을 못 쓰면 예약한 행을 지운다.
  * - 복원은 고른 버전의 본문을 새 버전으로 복사한다(이력이 한 줄로 이어진다).
  */
-import { and, count, desc, eq, inArray, max, sql } from "drizzle-orm";
 import { customAlphabet } from "nanoid";
 import { FeatureError } from "@/lib/api/errors";
-import { db } from "@/lib/db/client";
-import { applications, companyResumes, resumeVersions, type CompanyResume, type ResumeVersion } from "@/lib/db/schema";
+import { prisma, type Prisma, type Tx } from "@/lib/db/client";
+import { isUniqueViolation, stripNul } from "@/lib/db/errors";
+import type { CompanyResume, ResumeVersion } from "@/lib/db/types";
 import { parseResumeDocument, ResumeDocumentSchema, type ResumeDocument, type ResumeTemplateId, type ResumeVersionSource } from "@/lib/domain/resumes";
 import { deleteObject, getJson, listByPrefix, putJson, userKey, userPrefix } from "@/lib/storage";
 import {
@@ -53,12 +53,8 @@ export function versionStorageKey(userId: string, resumeId: string, versionNo: n
 }
 
 async function ownedRow(userId: string, resumeId: string): Promise<CompanyResume | null> {
-  const [row] = await db
-    .select()
-    .from(companyResumes)
-    .where(and(eq(companyResumes.id, resumeId), eq(companyResumes.userId, userId)))
-    .limit(1);
-  return row ?? null;
+  const row = await prisma.companyResume.findFirst({ where: { id: resumeId, userId } });
+  return (row as CompanyResume | null) ?? null;
 }
 
 export function defaultResumeTitle(company: string, roleTitle: string): string {
@@ -70,35 +66,26 @@ export function defaultResumeTitle(company: string, roleTitle: string): string {
 // ---------------------------------------------------------------------------
 
 export async function listResumes(userId: string): Promise<ResumeListItem[]> {
-  const rows = await db
-    .select()
-    .from(companyResumes)
-    .where(eq(companyResumes.userId, userId))
-    .orderBy(desc(companyResumes.updatedAt))
-    .limit(MAX_RESUMES_PER_USER);
+  const rows = (await prisma.companyResume.findMany({
+    where: { userId },
+    orderBy: [{ updatedAt: "desc" }, { id: "desc" }],
+    take: MAX_RESUMES_PER_USER,
+  })) as CompanyResume[];
   if (rows.length === 0) return [];
-  const stats = await db
-    .select({ resumeId: resumeVersions.resumeId, n: count(), latest: max(resumeVersions.versionNo) })
-    .from(resumeVersions)
-    .where(
-      inArray(
-        resumeVersions.resumeId,
-        rows.map((r) => r.id),
-      ),
-    )
-    .groupBy(resumeVersions.resumeId);
+  const stats = await prisma.resumeVersion.groupBy({
+    by: ["resumeId"],
+    where: { resumeId: { in: rows.map((r) => r.id) } },
+    _count: { _all: true },
+  });
   const currentIds = rows.map((r) => r.currentVersionId).filter((x): x is string => !!x);
   const currentNos = currentIds.length
-    ? await db
-        .select({ id: resumeVersions.id, versionNo: resumeVersions.versionNo })
-        .from(resumeVersions)
-        .where(inArray(resumeVersions.id, currentIds))
+    ? await prisma.resumeVersion.findMany({ select: { id: true, versionNo: true }, where: { id: { in: currentIds } } })
     : [];
-  const statBy = new Map(stats.map((s) => [s.resumeId, s]));
+  const countBy = new Map(stats.map((s) => [s.resumeId, s._count._all]));
   const noBy = new Map(currentNos.map((v) => [v.id, v.versionNo]));
   return rows.map((r) => ({
     ...toResumeMeta(r),
-    versionCount: statBy.get(r.id)?.n ?? 0,
+    versionCount: countBy.get(r.id) ?? 0,
     currentVersionNo: r.currentVersionId ? (noBy.get(r.currentVersionId) ?? null) : null,
   }));
 }
@@ -109,7 +96,7 @@ export async function getResumeMeta(userId: string, resumeId: string): Promise<R
 }
 
 async function versionRows(resumeId: string): Promise<ResumeVersion[]> {
-  return db.select().from(resumeVersions).where(eq(resumeVersions.resumeId, resumeId)).orderBy(desc(resumeVersions.versionNo));
+  return (await prisma.resumeVersion.findMany({ where: { resumeId }, orderBy: { versionNo: "desc" } })) as ResumeVersion[];
 }
 
 export async function listVersions(userId: string, resumeId: string): Promise<ResumeVersionMeta[] | null> {
@@ -151,11 +138,7 @@ export async function getVersionDocument(
   const wanted = versionId || row.currentVersionId;
   let version: ResumeVersion | undefined;
   if (wanted) {
-    [version] = await db
-      .select()
-      .from(resumeVersions)
-      .where(and(eq(resumeVersions.id, wanted), eq(resumeVersions.resumeId, resumeId)))
-      .limit(1);
+    version = ((await prisma.resumeVersion.findFirst({ where: { id: wanted, resumeId } })) as ResumeVersion | null) ?? undefined;
   } else {
     [version] = await versionRows(resumeId);
   }
@@ -167,9 +150,9 @@ export async function getVersionDocument(
 // 변경
 // ---------------------------------------------------------------------------
 
-function isUniqueViolation(err: unknown): boolean {
-  const e = err as { message?: unknown; cause?: { message?: unknown } } | null;
-  return /UNIQUE constraint failed/i.test(`${String(e?.message ?? "")} ${String(e?.cause?.message ?? "")}`);
+/** 같은 이력서의 버전 쓰기를 트랜잭션 끝까지 직렬화한다(READ COMMITTED에서 번호·개수 확인과 삽입 사이에 끼어들지 않게). */
+async function lockResume(tx: Tx, resumeId: string): Promise<void> {
+  await tx.$executeRaw`SELECT pg_advisory_xact_lock(hashtext(${`resume:${resumeId}`}))`;
 }
 
 export interface SaveVersionOptions {
@@ -180,33 +163,36 @@ export interface SaveVersionOptions {
 }
 
 /**
- * 버전 번호 예약: 소유권·기준 버전·버전 수 한도를 조건으로 한 INSERT … SELECT 한 문장.
- * SQLite에서 한 문장은 원자적이라 동시 저장도 서로 다른 번호를 받는다(대화형 트랜잭션의 잠금 경합이 없다).
- * 조건에 걸려 아무것도 넣지 못했으면 null.
+ * 버전 번호 예약: 이력서별 잠금을 건 트랜잭션에서 소유권·기준 버전·버전 수 한도를 확인하고 다음 번호의 행을 넣는다.
+ * 동시 저장도 차례로 서로 다른 번호를 받는다. 조건에 걸려 아무것도 넣지 못했으면 null.
  */
 async function reserveVersion(userId: string, resumeId: string, opts: SaveVersionOptions): Promise<ResumeVersion | null> {
-  // 키 형식 검사를 먼저 통과시킨 뒤, 번호만 SQL에서 붙인다.
-  const keyPrefix = versionStorageKey(userId, resumeId, 1).slice(0, -"1.json".length);
-  const id = newId();
-  const baseCond =
-    opts.baseVersionId === undefined
-      ? sql``
-      : opts.baseVersionId === null
-        ? sql` AND r.current_version_id IS NULL`
-        : // 기준 버전이 현재 포인터이고, 그보다 새 번호가 아직 예약되지 않았을 때만(본문 쓰기 중인 다른 저장도 막는다).
-          sql` AND r.current_version_id = ${opts.baseVersionId} AND NOT EXISTS (
-            SELECT 1 FROM resume_versions nv WHERE nv.resume_id = r.id
-              AND nv.version_no > (SELECT bv.version_no FROM resume_versions bv WHERE bv.id = ${opts.baseVersionId}))`;
-  const rows = await db.all<{ id: string }>(sql`
-    INSERT INTO resume_versions (id, resume_id, version_no, storage_key, note, source)
-    SELECT ${id}, r.id, n.next_no, ${keyPrefix} || n.next_no || '.json', ${opts.note?.trim() || null}, ${opts.source}
-    FROM company_resumes r,
-      (SELECT COALESCE(MAX(version_no), 0) + 1 AS next_no, COUNT(*) AS total FROM resume_versions WHERE resume_id = ${resumeId}) n
-    WHERE r.id = ${resumeId} AND r.user_id = ${userId} AND n.total < ${MAX_VERSIONS_PER_RESUME}${baseCond}
-    RETURNING id`);
-  if (rows.length === 0) return null;
-  const [row] = await db.select().from(resumeVersions).where(eq(resumeVersions.id, id)).limit(1);
-  return row ?? null;
+  return prisma.$transaction(async (tx) => {
+    await lockResume(tx, resumeId);
+    const r = await tx.companyResume.findFirst({ select: { id: true, currentVersionId: true }, where: { id: resumeId, userId } });
+    if (!r) return null;
+    if (opts.baseVersionId === null && r.currentVersionId !== null) return null;
+    if (typeof opts.baseVersionId === "string") {
+      // 기준 버전이 현재 포인터이고, 그보다 새 번호가 아직 예약되지 않았을 때만(본문 쓰기 중인 다른 저장도 막는다).
+      if (r.currentVersionId !== opts.baseVersionId) return null;
+      const base = await tx.resumeVersion.findUnique({ select: { versionNo: true }, where: { id: opts.baseVersionId } });
+      if (base && (await tx.resumeVersion.count({ where: { resumeId, versionNo: { gt: base.versionNo } } })) > 0) return null;
+    }
+    const agg = await tx.resumeVersion.aggregate({ where: { resumeId }, _count: { _all: true }, _max: { versionNo: true } });
+    if (agg._count._all >= MAX_VERSIONS_PER_RESUME) return null;
+    const versionNo = (agg._max.versionNo ?? 0) + 1;
+    const row = await tx.resumeVersion.create({
+      data: {
+        id: newId(),
+        resumeId,
+        versionNo,
+        storageKey: versionStorageKey(userId, resumeId, versionNo),
+        note: stripNul(opts.note?.trim() || null),
+        source: opts.source,
+      },
+    });
+    return row as ResumeVersion;
+  });
 }
 
 /** 새 버전을 저장하고 현재 버전으로 삼는다. 남의 이력서면 null. */
@@ -228,8 +214,8 @@ export async function saveVersion(
     // 왜 못 넣었는지 가려서 알려 준다.
     const row = await ownedRow(userId, resumeId);
     if (!row) return null;
-    const [stat] = await db.select({ n: count() }).from(resumeVersions).where(eq(resumeVersions.resumeId, resumeId));
-    if (opts.baseVersionId !== undefined && (stat?.n ?? 0) < MAX_VERSIONS_PER_RESUME) {
+    const n = await prisma.resumeVersion.count({ where: { resumeId } });
+    if (opts.baseVersionId !== undefined && n < MAX_VERSIONS_PER_RESUME) {
       // 기준 버전이 현재가 아니거나, 다른 저장이 그보다 새 번호를 먼저 예약했다.
       throw new FeatureError("다른 곳에서 이 이력서를 먼저 저장했습니다. 새로고침한 뒤 다시 저장해 주세요.", 409);
     }
@@ -240,19 +226,27 @@ export async function saveVersion(
     await putJson(reserved.storageKey, doc);
   } catch (err) {
     // 본문을 못 쓴 버전 행은 지운다(목록에 깨진 버전이 남지 않게).
-    await db.delete(resumeVersions).where(eq(resumeVersions.id, reserved.id));
+    await prisma.resumeVersion.deleteMany({ where: { id: reserved.id } });
     throw err;
   }
   // 포인터는 앞으로만 옮긴다: 더 새 번호가 이미 현재 버전이면(본문 쓰기가 늦게 끝난 경우) 되돌리지 않는다.
-  const moved = await db.all<{ id: string }>(sql`
-    UPDATE company_resumes SET current_version_id = ${reserved.id}, updated_at = ${Date.now()}
-    WHERE id = ${resumeId} AND user_id = ${userId} AND (
-      current_version_id IS NULL OR NOT EXISTS (
-        SELECT 1 FROM resume_versions cv WHERE cv.id = company_resumes.current_version_id AND cv.version_no >= ${reserved.versionNo}))
-    RETURNING id`);
-  if (moved.length === 0 && opts.baseVersionId !== undefined) {
+  const moved = await prisma.$transaction(async (tx) => {
+    await lockResume(tx, resumeId);
+    const r = await tx.companyResume.findFirst({ select: { currentVersionId: true }, where: { id: resumeId, userId } });
+    if (!r) return false;
+    if (r.currentVersionId) {
+      const cur = await tx.resumeVersion.findUnique({ select: { versionNo: true }, where: { id: r.currentVersionId } });
+      if (cur && cur.versionNo >= reserved.versionNo) return false;
+    }
+    const { count } = await tx.companyResume.updateMany({
+      where: { id: resumeId, userId },
+      data: { currentVersionId: reserved.id, updatedAt: new Date() },
+    });
+    return count > 0;
+  });
+  if (!moved && opts.baseVersionId !== undefined) {
     // 기준 버전을 정해 저장했는데 그 사이 더 새 버전(기준 없이 저장한 복원·AI 초안 등)이 현재가 됐다: 이 저장은 취소한다.
-    await db.delete(resumeVersions).where(eq(resumeVersions.id, reserved.id));
+    await prisma.resumeVersion.deleteMany({ where: { id: reserved.id } });
     await deleteObject(reserved.storageKey).catch(() => undefined);
     throw new FeatureError("다른 곳에서 이 이력서를 먼저 저장했습니다. 새로고침한 뒤 다시 저장해 주세요.", 409);
   }
@@ -274,45 +268,45 @@ export interface CreateResumeParams {
 
 /** 메타 + 첫 버전(v1). 본문 저장이 실패하면 메타도 지운다. */
 export async function createResume(userId: string, p: CreateResumeParams): Promise<{ resume: ResumeMeta; version: ResumeVersionMeta }> {
-  const [stat] = await db.select({ n: count() }).from(companyResumes).where(eq(companyResumes.userId, userId));
-  if ((stat?.n ?? 0) >= MAX_RESUMES_PER_USER) {
+  const n = await prisma.companyResume.count({ where: { userId } });
+  if (n >= MAX_RESUMES_PER_USER) {
     throw new FeatureError(`이력서는 ${MAX_RESUMES_PER_USER}개까지 만들 수 있습니다. 쓰지 않는 이력서를 지워 주세요.`, 409);
   }
   const id = newId();
-  await db.insert(companyResumes).values({
-    id,
-    userId,
-    company: p.company.trim(),
-    roleTitle: p.roleTitle.trim(),
-    jdText: p.jdText?.trim() || null,
-    templateId: p.templateId,
-    title: p.title?.trim() || defaultResumeTitle(p.company.trim(), p.roleTitle.trim()),
-    postingId: p.postingId ?? null,
+  const company = stripNul(p.company.trim());
+  const roleTitle = stripNul(p.roleTitle.trim());
+  await prisma.companyResume.create({
+    data: {
+      id,
+      userId,
+      company,
+      roleTitle,
+      jdText: stripNul(p.jdText?.trim() || null),
+      templateId: p.templateId,
+      title: stripNul(p.title?.trim() || null) || defaultResumeTitle(company, roleTitle),
+      postingId: p.postingId ?? null,
+    },
   });
   try {
     const version = await saveVersion(userId, id, p.document, { source: p.source, note: p.note });
     const row = await ownedRow(userId, id);
     return { resume: toResumeMeta(row!), version: version! };
   } catch (err) {
-    await db.delete(companyResumes).where(eq(companyResumes.id, id));
+    await prisma.companyResume.deleteMany({ where: { id } });
     throw err;
   }
 }
 
 /** 메타 수정(양식 전환 포함). 남의 이력서면 null. */
 export async function updateResumeMeta(userId: string, resumeId: string, patch: UpdateResumeMeta): Promise<ResumeMeta | null> {
-  const set: Partial<typeof companyResumes.$inferInsert> = { updatedAt: new Date() };
-  if (patch.company !== undefined) set.company = patch.company;
-  if (patch.roleTitle !== undefined) set.roleTitle = patch.roleTitle;
-  if (patch.jdText !== undefined) set.jdText = patch.jdText?.trim() || null;
+  const set: Prisma.CompanyResumeUpdateManyMutationInput = { updatedAt: new Date() };
+  if (patch.company !== undefined) set.company = stripNul(patch.company);
+  if (patch.roleTitle !== undefined) set.roleTitle = stripNul(patch.roleTitle);
+  if (patch.jdText !== undefined) set.jdText = stripNul(patch.jdText?.trim() || null);
   if (patch.templateId !== undefined) set.templateId = patch.templateId;
-  if (patch.title !== undefined) set.title = patch.title;
-  const [row] = await db
-    .update(companyResumes)
-    .set(set)
-    .where(and(eq(companyResumes.id, resumeId), eq(companyResumes.userId, userId)))
-    .returning();
-  return row ? toResumeMeta(row) : null;
+  if (patch.title !== undefined) set.title = stripNul(patch.title);
+  const [row] = await prisma.companyResume.updateManyAndReturn({ where: { id: resumeId, userId }, data: set });
+  return row ? toResumeMeta(row as CompanyResume) : null;
 }
 
 /** 고른 버전 본문을 새 버전으로 복사한다. 이력서·버전이 없으면 null. */
@@ -330,17 +324,9 @@ export async function deleteResume(userId: string, resumeId: string): Promise<bo
   const row = await ownedRow(userId, resumeId);
   if (!row) return false;
   const keys = new Set((await versionRows(resumeId)).map((v) => v.storageKey));
-  // 버전 행(cascade)과 지원 기록의 이력서 연결(set null)은 PRAGMA foreign_keys에 달려 있어(원격 libsql/Turso는 요청마다 새 연결)
-  // 같은 배치에서 명시적으로 정리한다.
-  const [, , deleted] = await db.batch([
-    db.update(applications).set({ resumeId: null }).where(and(eq(applications.resumeId, resumeId), eq(applications.userId, userId))),
-    db.delete(resumeVersions).where(eq(resumeVersions.resumeId, resumeId)),
-    db
-      .delete(companyResumes)
-      .where(and(eq(companyResumes.id, resumeId), eq(companyResumes.userId, userId)))
-      .returning({ id: companyResumes.id }),
-  ]);
-  if (deleted.length === 0) return false;
+  // 버전 행은 FK(ON DELETE CASCADE)로 지워지고, 지원 기록의 이력서 연결은 FK(ON DELETE SET NULL)로 끊긴다.
+  const { count } = await prisma.companyResume.deleteMany({ where: { id: resumeId, userId } });
+  if (count === 0) return false;
   try {
     for (const k of await listByPrefix(userPrefix(userId, "resumes", resumeId))) keys.add(k);
     for (const k of keys) await deleteObject(k);

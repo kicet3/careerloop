@@ -1,5 +1,4 @@
 import { clientIp, shareLimiter } from "@/lib/auth/rate-limit";
-import { ensureDatabase } from "@/lib/db/migrate";
 import { errorResponse, jsonError } from "@/lib/diagnoses/http";
 import { reportPdfResponse } from "@/lib/diagnoses/pdf-response";
 import { getDiagnosisByShareToken } from "@/lib/diagnoses/service";
@@ -16,7 +15,6 @@ export async function GET(req: Request, { params }: { params: Promise<{ token: s
       { status: 429, headers: { "Retry-After": String(limit.retryAfterSec) } },
     );
   }
-  await ensureDatabase();
   const { token } = await params;
 
   try {

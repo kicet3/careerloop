@@ -1,10 +1,8 @@
 /**
  * 그래프 채팅 API 라우트 테스트: 인증·after()·그래프 저장소를 가짜로 바꾸고, LLM은 FakeLlmClient를 주입한다.
  */
-import { mkdtempSync, rmSync } from "node:fs";
-import { tmpdir } from "node:os";
-import path from "node:path";
 import { afterAll, beforeAll, beforeEach, describe, expect, it, vi } from "vitest";
+import { createTestDb, type TestDb } from "@/test/db";
 import type { ApplyGraphOpsResult, CareerGraph, GraphOp, NodeLabel } from "@/lib/domain/graph";
 
 vi.mock("server-only", () => ({}));
@@ -61,10 +59,7 @@ vi.mock("@/lib/llm", async (importOriginal) => {
   return { ...(await importOriginal<typeof import("@/lib/llm")>()), createLlmClient: () => new FakeLlmClient() };
 });
 
-const dir = mkdtempSync(path.join(tmpdir(), "rp-graph-chat-api-"));
-process.env.DATABASE_URL = `file:${path.join(dir, "test.db")}`;
-
-let close: () => void;
+let tdb: TestDb;
 let threadsRoute: typeof import("@/app/api/graph/chat/threads/route");
 let threadRoute: typeof import("@/app/api/graph/chat/threads/[threadId]/route");
 let messagesRoute: typeof import("@/app/api/graph/chat/threads/[threadId]/messages/route");
@@ -73,11 +68,8 @@ let applyRoute: typeof import("@/app/api/graph/chat/messages/[messageId]/apply/r
 let dismissRoute: typeof import("@/app/api/graph/chat/messages/[messageId]/dismiss/route");
 
 beforeAll(async () => {
-  const { ensureDatabase } = await import("@/lib/db/migrate");
-  await ensureDatabase();
-  const { db, schema } = await import("@/lib/db/client");
-  close = () => db.$client.close();
-  for (const id of ["a", "b"]) await db.insert(schema.users).values({ id, email: `${id}@x.com`, passwordHash: "x", name: id === "a" ? "에이" : null });
+  tdb = await createTestDb();
+  for (const id of ["a", "b"]) await tdb.prisma.user.create({ data: { id, email: `${id}@x.com`, passwordHash: "x", name: id === "a" ? "에이" : null } });
   threadsRoute = await import("@/app/api/graph/chat/threads/route");
   threadRoute = await import("@/app/api/graph/chat/threads/[threadId]/route");
   messagesRoute = await import("@/app/api/graph/chat/threads/[threadId]/messages/route");
@@ -85,10 +77,7 @@ beforeAll(async () => {
   applyRoute = await import("@/app/api/graph/chat/messages/[messageId]/apply/route");
   dismissRoute = await import("@/app/api/graph/chat/messages/[messageId]/dismiss/route");
 });
-afterAll(() => {
-  close();
-  rmSync(dir, { recursive: true, force: true });
-});
+afterAll(() => tdb.close());
 beforeEach(() => {
   currentUser = { id: "a", email: "a@x.com", name: "에이" };
   afterQueue.length = 0;

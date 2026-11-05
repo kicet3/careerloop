@@ -1,5 +1,4 @@
 import { assertSameOrigin, requireApiUser } from "@/lib/auth/session";
-import { ensureDatabase } from "@/lib/db/migrate";
 import { errorResponse, notFound } from "@/lib/diagnoses/http";
 import { deleteDiagnosis, getDiagnosisForUser, markStaleRunsFailed } from "@/lib/diagnoses/service";
 import type { DiagnosisStatusResponse } from "@/lib/diagnoses/types";
@@ -10,7 +9,6 @@ export const runtime = "nodejs";
 type Ctx = { params: Promise<{ id: string }> };
 
 export async function GET(_req: Request, { params }: Ctx) {
-  await ensureDatabase();
   const user = await requireApiUser();
   if (user instanceof Response) return user;
   const { id } = await params;
@@ -40,7 +38,6 @@ export async function GET(_req: Request, { params }: Ctx) {
 }
 
 export async function DELETE(req: Request, { params }: Ctx) {
-  await ensureDatabase();
   const forbidden = assertSameOrigin(req);
   if (forbidden) return forbidden;
   const user = await requireApiUser();

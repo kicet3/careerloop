@@ -22,12 +22,14 @@ const nextConfig: NextConfig = {
       .map((h) => h.trim())
       .filter(Boolean),
   ],
-  // PDF 생성(@react-pdf)과 libsql 네이티브 바인딩은 번들링하지 않고 Node 런타임에서 그대로 불러온다.
-  // neo4j-driver(경력 그래프)도 Node 런타임에서 그대로 불러온다. @aws-sdk/client-s3는 Next 기본 외부 패키지 목록에 있다.
-  serverExternalPackages: ["@react-pdf/renderer", "@libsql/client", "unpdf", "mammoth", "neo4j-driver"],
-  // 런타임에 process.cwd() 기준으로 읽는 파일(마이그레이션 SQL, PDF 한글 폰트, pdf.js CMap)을 서버 번들 추적에 포함한다.
+  // PDF 생성(@react-pdf)·neo4j-driver(경력 그래프)는 번들링하지 않고 Node 런타임에서 그대로 불러온다.
+  // DB: Prisma 7 생성 클라이언트(src/generated/prisma, 순수 TS — 번들에 포함)와 어댑터(@prisma/adapter-pg·pg)는
+  // Node 런타임에서 그대로 불러온다(쿼리 컴파일러 WASM은 @prisma/client/runtime에 있다). @aws-sdk/client-s3는 Next 기본 외부 패키지 목록에 있다.
+  // 테스트 전용 @electric-sql/pglite·pglite-prisma-adapter는 앱 코드에서 불러오지 않는다(ESLint로 src/test/** 사용을 막는다).
+  serverExternalPackages: ["@react-pdf/renderer", "unpdf", "mammoth", "neo4j-driver", "@prisma/client", "@prisma/adapter-pg", "pg"],
+  // 런타임에 process.cwd() 기준으로 읽는 파일(PDF 한글 폰트, pdf.js CMap)을 서버 번들 추적에 포함한다.
+  // 마이그레이션 SQL(prisma/migrations)은 런타임에 읽지 않는다(배포 빌드의 scripts/migrate.mjs가 적용).
   outputFileTracingIncludes: {
-    "/*": ["./drizzle/**/*"],
     // 한국어 CID 글꼴 PDF의 텍스트 추출에 필요한 CMap (src/lib/ingest/extract.ts)
     "/api/diagnoses": ["./node_modules/pdfjs-dist/cmaps/**/*"],
     "/api/diagnoses/*/pdf": ["./src/lib/report/fonts/**/*"],

@@ -1,16 +1,16 @@
 /**
- * 공고 API·진단/이력서 생성의 postingId(실제 SQLite, 세션·엔진·after()는 가짜): 인증·출처, 409 existingId,
+ * 공고 API·진단/이력서 생성의 postingId(PGlite 테스트 DB, 세션·엔진·after()는 가짜): 인증·출처, 409 existingId,
  * 남의 공고 거절, 가져오기 202, 진단이 공고 JD로 만들어지는지.
  */
 import { mkdtempSync } from "node:fs";
 import { tmpdir } from "node:os";
 import path from "node:path";
-import { beforeAll, beforeEach, describe, expect, it, vi } from "vitest";
+import { afterAll, beforeAll, beforeEach, describe, expect, it, vi } from "vitest";
+import { createTestDb, type TestDb } from "@/test/db";
 
 vi.mock("server-only", () => ({}));
 
 const dir = mkdtempSync(path.join(tmpdir(), "rp-postings-api-"));
-process.env.DATABASE_URL = `file:${path.join(dir, "test.db")}`;
 process.env.STORAGE_DIR = path.join(dir, "storage");
 
 const state = vi.hoisted(() => ({
@@ -28,8 +28,7 @@ vi.mock("@/lib/providers/options", () => ({ resolveRequestedProvider: async () =
 // 진단 실행은 이 테스트의 관심 밖이다(LLM을 부르지 않게).
 vi.mock("@/lib/panel/runner", () => ({ runDiagnosis: vi.fn(async () => {}), stageErrorMessage: () => "" }));
 
-let db: typeof import("@/lib/db/client").db;
-let schema: typeof import("@/lib/db/client").schema;
+let tdb: TestDb;
 let postings: typeof import("./route");
 let item: typeof import("./[id]/route");
 let importRoute: typeof import("./import/route");
@@ -37,16 +36,16 @@ let importJob: typeof import("./import/[jobId]/route");
 let diagnosesRoute: typeof import("@/app/api/diagnoses/route");
 
 beforeAll(async () => {
-  const { ensureDatabase } = await import("@/lib/db/migrate");
-  await ensureDatabase();
-  ({ db, schema } = await import("@/lib/db/client"));
-  for (const id of ["ua", "ub"]) await db.insert(schema.users).values({ id, email: `${id}@x.com`, passwordHash: "x" });
+  tdb = await createTestDb();
+  for (const id of ["ua", "ub"]) await tdb.prisma.user.create({ data: { id, email: `${id}@x.com`, passwordHash: "x" } });
   postings = await import("./route");
   item = await import("./[id]/route");
   importRoute = await import("./import/route");
   importJob = await import("./import/[jobId]/route");
   diagnosesRoute = await import("@/app/api/diagnoses/route");
 });
+
+afterAll(() => tdb.close());
 
 beforeEach(() => {
   state.user = { id: "ua", email: "ua@x.com", name: "가" };
@@ -121,10 +120,9 @@ describe("POST /api/diagnoses의 postingId", () => {
     const created = await diagnosesRoute.POST(form({ resumeText: resume, postingId: posting.id }));
     expect(created.status).toBe(201);
     const { id } = (await created.json()) as { id: string };
-    const { eq } = await import("drizzle-orm");
-    const [row] = await db.select().from(schema.diagnoses).where(eq(schema.diagnoses.id, id));
+    const row = await tdb.prisma.diagnosis.findUnique({ where: { id } });
     expect(row).toMatchObject({ postingId: posting.id, targetRole: "백엔드 개발자", jdText: "자격 요건\nPython 3년 이상, SQL 능숙" });
-    await db.delete(schema.diagnoses).where(eq(schema.diagnoses.id, id)); // 진행 중 1건 제한을 다음 테스트에서 피한다
+    await tdb.prisma.diagnosis.delete({ where: { id } }); // 진행 중 1건 제한을 다음 테스트에서 피한다
   });
 
   it("남의 공고 id면 404이고 진단을 만들지 않는다", async () => {
@@ -146,8 +144,7 @@ describe("POST /api/resumes의 postingId", () => {
     const created = await resumes.POST(json("/api/resumes", "POST", { company: "", roleTitle: "", templateId: "classic", source: { kind: "blank" }, postingId: posting.id }));
     expect(created.status).toBe(201);
     const { id } = (await created.json()) as { id: string };
-    const { eq } = await import("drizzle-orm");
-    const [row] = await db.select().from(schema.companyResumes).where(eq(schema.companyResumes.id, id));
+    const row = await tdb.prisma.companyResume.findUnique({ where: { id } });
     expect(row).toMatchObject({ company: "카카오", roleTitle: "서버 개발자", jdText: "JD 원문", postingId: posting.id });
 
     state.user = { id: "ub", email: "ub@x.com", name: null };

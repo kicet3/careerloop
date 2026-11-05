@@ -1,6 +1,3 @@
-import { mkdtempSync, rmSync } from "node:fs";
-import { tmpdir } from "node:os";
-import path from "node:path";
 import {
   afterAll,
   beforeAll,
@@ -10,6 +7,7 @@ import {
   it,
   vi,
 } from "vitest";
+import { createTestDb, type TestDb } from "@/test/db";
 
 vi.mock("server-only", () => ({}));
 const jar = new Map<string, string>();
@@ -22,38 +20,28 @@ vi.mock("next/headers", () => ({
 }));
 vi.mock("next/navigation", () => ({ redirect: () => {} }));
 
-const dir = mkdtempSync(path.join(tmpdir(), "rp-account-"));
-process.env.DATABASE_URL = `file:${path.join(dir, "test.db")}`;
-
 type Mod = typeof import("./route");
 let SET: Mod["POST"];
 let LOGIN: typeof import("../../auth/login/route").POST;
 let session: typeof import("@/lib/auth/session");
-let dbm: typeof import("@/lib/db/client");
-let close: () => void;
+let tdb: TestDb;
 
 beforeAll(async () => {
-  const { ensureDatabase } = await import("@/lib/db/migrate");
-  await ensureDatabase();
-  dbm = await import("@/lib/db/client");
-  close = () => dbm.db.$client.close();
-  await dbm.db
-    .insert(dbm.schema.users)
-    .values({
+  tdb = await createTestDb();
+  await tdb.prisma.user.create({
+    data: {
       id: "g",
       email: "g@x.com",
       passwordHash: null,
       googleSub: "sub-g",
-    });
+    },
+  });
   session = await import("@/lib/auth/session");
   ({ POST: SET } = await import("./route"));
   ({ POST: LOGIN } = await import("../../auth/login/route"));
 });
 beforeEach(() => jar.clear());
-afterAll(() => {
-  close();
-  rmSync(dir, { recursive: true, force: true });
-});
+afterAll(() => tdb.close());
 
 const req = (url: string, body: unknown) =>
   new Request(`http://localhost:3000${url}`, {
@@ -113,7 +101,7 @@ describe("POST /api/account/password", () => {
       }),
     );
     expect(ok.status).toBe(200);
-    const rows = await dbm.db.select().from(dbm.schema.sessions);
+    const rows = await tdb.prisma.session.findMany();
     expect(rows.filter((r) => r.userId === "g")).toHaveLength(1);
     expect(await session.getCurrentUser()).toBeTruthy();
   });

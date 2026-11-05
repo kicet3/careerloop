@@ -1,6 +1,5 @@
 import { featureErrorResponse } from "@/lib/api/errors";
 import { assertSameOrigin, requireApiUser } from "@/lib/auth/session";
-import { ensureDatabase } from "@/lib/db/migrate";
 import { resumeNotFound } from "@/lib/resumes/http";
 import { restoreVersion } from "@/lib/resumes/service";
 
@@ -8,7 +7,6 @@ export const runtime = "nodejs";
 
 /** 고른 버전 본문을 새 버전으로 복사해 현재 버전으로 삼는다. */
 export async function POST(req: Request, { params }: { params: Promise<{ id: string; versionId: string }> }) {
-  await ensureDatabase();
   const forbidden = assertSameOrigin(req);
   if (forbidden) return forbidden;
   const user = await requireApiUser();

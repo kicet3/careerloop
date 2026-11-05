@@ -6,7 +6,6 @@ import { Logo } from "@/components/app/Logo";
 import { Report } from "@/components/report/Report";
 import { buttonClass } from "@/components/ui/Button";
 import { clientIp, shareLimiter } from "@/lib/auth/rate-limit";
-import { ensureDatabase } from "@/lib/db/migrate";
 import { getDiagnosisByShareToken } from "@/lib/diagnoses/service";
 import { buildReportModel } from "@/lib/report/model";
 
@@ -28,7 +27,6 @@ export default async function SharedReportPage({ params }: Props) {
       </main>
     );
   }
-  await ensureDatabase();
   const found = await getDiagnosisByShareToken(token);
   if (!found || found.diagnosis.status !== "done") notFound();
   const report = buildReportModel(found.diagnosis, found.stages);

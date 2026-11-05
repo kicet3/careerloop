@@ -3,16 +3,16 @@ import { tmpdir } from "node:os";
 import path from "node:path";
 import { afterAll, beforeAll, describe, expect, it, vi } from "vitest";
 import { emptyResumeDocument, type ResumeDocument } from "@/lib/domain/resumes";
+import { createTestDb, type TestDb } from "@/test/db";
 
 vi.mock("server-only", () => ({}));
 
 const dir = mkdtempSync(path.join(tmpdir(), "rp-resumes-"));
-process.env.DATABASE_URL = `file:${path.join(dir, "test.db")}`;
 
 let service: typeof import("./service");
 let create: typeof import("./create");
 let FeatureError: typeof import("@/lib/api/errors").FeatureError;
-let close: () => void;
+let tdb: TestDb;
 const storageDir = path.join(dir, "storage");
 
 function doc(name: string, extra: Partial<ResumeDocument> = {}): ResumeDocument {
@@ -24,13 +24,11 @@ function doc(name: string, extra: Partial<ResumeDocument> = {}): ResumeDocument 
 beforeAll(async () => {
   for (const k of ["R2_ACCOUNT_ID", "R2_ACCESS_KEY_ID", "R2_SECRET_ACCESS_KEY", "R2_BUCKET"]) delete process.env[k];
   process.env.STORAGE_DIR = storageDir;
-  const { ensureDatabase } = await import("@/lib/db/migrate");
-  await ensureDatabase();
-  const { db, schema } = await import("@/lib/db/client");
-  close = () => db.$client.close();
-  for (const id of ["ua", "ub"]) await db.insert(schema.users).values({ id, email: `${id}@x.com`, passwordHash: "x" });
+  tdb = await createTestDb();
+  const db = tdb.prisma;
+  for (const id of ["ua", "ub"]) await db.user.create({ data: { id, email: `${id}@x.com`, passwordHash: "x" } });
   // 재작성본이 있는 진단(ua 소유)
-  await db.insert(schema.diagnoses).values({
+  await db.diagnosis.create({ data: {
     id: "d1",
     userId: "ua",
     title: "백엔드 진단",
@@ -39,14 +37,14 @@ beforeAll(async () => {
     resumeText: "원본",
     model: "test-model",
     status: "done",
-  });
-  await db.insert(schema.diagnosisStages).values({
+  } });
+  await db.diagnosisStage.create({ data: {
     diagnosisId: "d1",
     stage: "rewrite",
     status: "done",
     output: { resumeMarkdown: "홍길동\n결제 API 응답 시간 40% 단축\n정산 배치 재작성", changes: [], addQuestions: [], assumptions: [] },
-  });
-  await db.insert(schema.diagnoses).values({
+  } });
+  await db.diagnosis.create({ data: {
     id: "d2",
     userId: "ua",
     title: "진행 중",
@@ -55,13 +53,13 @@ beforeAll(async () => {
     resumeText: "원본",
     model: "test-model",
     status: "running",
-  });
+  } });
   service = await import("./service");
   create = await import("./create");
   ({ FeatureError } = await import("@/lib/api/errors"));
 });
-afterAll(() => {
-  close();
+afterAll(async () => {
+  await tdb.close();
   rmSync(dir, { recursive: true, force: true });
 });
 

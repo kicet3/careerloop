@@ -3,7 +3,7 @@
  * report 단위 테스트, PDF 렌더러(워크스트림 E), 통합 화면 확인에 함께 쓴다.
  * 인용은 SAMPLE_RESUME 원문 그대로이며, rival의 worstLine만 일부러 원문에 없는 문장(검증 실패 표시 확인용)이다.
  */
-import type { Diagnosis, DiagnosisStage } from "@/lib/db/schema";
+import type { Diagnosis, DiagnosisStage } from "@/lib/db/types";
 import { STAGE_KEYS, type StageKey, type StageOutputs } from "@/lib/domain/schemas";
 import { buildReportModel } from "../model";
 import type { ReportModel } from "../types";

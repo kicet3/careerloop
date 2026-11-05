@@ -9,7 +9,6 @@ import type { CareerGraph } from "@/lib/domain/graph";
 vi.mock("server-only", () => ({}));
 
 const current = vi.hoisted(() => ({ id: "" }));
-vi.mock("@/lib/db/migrate", () => ({ ensureDatabase: async () => {} }));
 vi.mock("@/lib/auth/session", () => ({
   requireApiUser: async () => ({ id: current.id, email: `${current.id}@example.com`, name: null }),
   assertSameOrigin: () => null,

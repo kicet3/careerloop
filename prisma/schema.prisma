@@ -1,0 +1,344 @@
+// CareerLoop DB 스키마(PostgreSQL — 운영은 Supabase, 로컬은 docker compose postgres, 테스트는 PGlite).
+// 테이블·컬럼 이름은 예전 SQLite(Drizzle) 스키마의 snake_case를 그대로 쓴다(@@map/@map).
+// 접속 주소는 prisma.config.ts(마이그레이션)와 src/lib/db/client.ts(런타임, PrismaPg 어댑터)가 정한다.
+// 상태·종류 문자열은 DB enum 대신 text로 두고, 허용 값은 src/lib/domain/*의 zod·TS 유니온이 정한다.
+
+generator client {
+  provider = "prisma-client"
+  output   = "../src/generated/prisma"
+}
+
+datasource db {
+  provider = "postgresql"
+}
+
+model User {
+  id           String   @id
+  email        String   @unique(map: "users_email_unique")
+  name         String?
+  /// 예전 이메일·비밀번호 가입 계정의 해시. Google 계정은 null.
+  passwordHash String?  @map("password_hash")
+  /// Google 계정 고유 ID(id_token의 sub). Google 로그인을 연결하지 않았으면 null.
+  googleSub    String?  @unique(map: "users_google_sub_unique") @map("google_sub")
+  createdAt    DateTime @default(now()) @map("created_at") @db.Timestamptz(3)
+
+  sessions       Session[]
+  jobPostings    JobPosting[]
+  postingImports PostingImport[]
+  diagnoses      Diagnosis[]
+  diagnosisRuns  DiagnosisRun[]
+  chatThreads    ChatThread[]
+  companyResumes CompanyResume[]
+  applications   Application[]
+
+  @@map("users")
+}
+
+/// 세션 토큰 원문은 쿠키에만 있고, DB에는 SHA-256 해시를 id로 저장한다.
+model Session {
+  id        String   @id
+  userId    String   @map("user_id")
+  expiresAt DateTime @map("expires_at") @db.Timestamptz(3)
+  createdAt DateTime @default(now()) @map("created_at") @db.Timestamptz(3)
+
+  user User @relation(fields: [userId], references: [id], onDelete: Cascade, map: "sessions_user_id_fkey")
+
+  @@index([userId], map: "sessions_user_idx")
+  @@map("sessions")
+}
+
+/// 채용 공고 보관함. 같은 사용자 안에서 정규화 URL(url_key)은 유일하다(URL 없는 공고는 url_key null이라 여러 개 가능).
+/// 마감은 KST 날짜·시각 문자열(domain/postings.ts).
+model JobPosting {
+  id             String   @id
+  userId         String   @map("user_id")
+  company        String
+  roleTitle      String   @map("role_title")
+  url            String?
+  /// normalizeUrl(url). 중복 판별용.
+  urlKey         String?  @map("url_key")
+  platform       String?
+  /// PostingStatus
+  status         String   @default("saved")
+  /// JD 원문(≤30000자).
+  jdText         String?  @map("jd_text")
+  /// 'YYYY-MM-DD'(KST).
+  deadline       String?
+  /// 'HH:mm'(KST). 날짜만 있으면 null.
+  deadlineTime   String?  @map("deadline_time")
+  /// DeadlineKind
+  deadlineKind   String   @default("unspecified") @map("deadline_kind")
+  /// EmploymentType
+  employmentType String   @default("unknown") @map("employment_type")
+  /// WorkType
+  workType       String   @default("unknown") @map("work_type")
+  location       String?
+  /// CareerLevel
+  careerLevel    String   @default("unknown") @map("career_level")
+  note           String?
+  /// 'manual' 또는 AI 추출 엔진(ProviderId).
+  extractedBy    String   @default("manual") @map("extracted_by")
+  createdAt      DateTime @default(now()) @map("created_at") @db.Timestamptz(3)
+  updatedAt      DateTime @default(now()) @map("updated_at") @db.Timestamptz(3)
+
+  user           User            @relation(fields: [userId], references: [id], onDelete: Cascade, map: "job_postings_user_id_fkey")
+  postingImports PostingImport[]
+  diagnoses      Diagnosis[]
+  companyResumes CompanyResume[]
+  applications   Application[]
+
+  @@unique([userId, urlKey], map: "job_postings_url_uq")
+  @@index([userId, updatedAt], map: "job_postings_user_idx")
+  @@map("job_postings")
+}
+
+/// 공고 URL 가져오기 작업. 하루 가져오기 제한은 이 표의 최근 24시간 행 수로 센다.
+model PostingImport {
+  id        String   @id
+  userId    String   @map("user_id")
+  url       String
+  /// PostingImportStatus
+  status    String   @default("queued")
+  /// 사용자에게 보여도 되는 한국어 오류 문구.
+  error     String?
+  postingId String?  @map("posting_id")
+  attempts  Int      @default(0)
+  createdAt DateTime @default(now()) @map("created_at") @db.Timestamptz(3)
+  updatedAt DateTime @default(now()) @map("updated_at") @db.Timestamptz(3)
+
+  user    User        @relation(fields: [userId], references: [id], onDelete: Cascade, map: "posting_imports_user_id_fkey")
+  posting JobPosting? @relation(fields: [postingId], references: [id], onDelete: SetNull, map: "posting_imports_posting_id_fkey")
+
+  @@index([userId, createdAt], map: "posting_imports_user_idx")
+  @@map("posting_imports")
+}
+
+model Diagnosis {
+  id                String    @id
+  userId            String    @map("user_id")
+  title             String
+  targetRole        String    @map("target_role")
+  /// Situation
+  situation         String
+  notes             String?
+  jdText            String?   @map("jd_text")
+  resumeText        String    @map("resume_text")
+  resumeFileName    String?   @map("resume_file_name")
+  /// 포트폴리오 본문(파일에서 뽑은 텍스트 + 텍스트/URL 메모).
+  portfolioText     String?   @map("portfolio_text")
+  portfolioFileName String?   @map("portfolio_file_name")
+  /// 이 진단에 쓴 보관 공고. 공고를 지우면 null(진단의 JD 사본은 jdText에 남는다).
+  postingId         String?   @map("posting_id")
+  /// DiagnosisStatus
+  status            String    @default("queued")
+  error             String?
+  /// 공개 공유 링크 토큰. null이면 비공개.
+  shareToken        String?   @unique(map: "diagnoses_share_token_unique") @map("share_token")
+  model             String
+  /// ProviderId. 예전 행은 null(model로 추정).
+  provider          String?
+  /// 현재 실행(run)의 식별자. 실행 중 모든 쓰기를 이 값으로 조건 건다.
+  runId             String?   @map("run_id")
+  /// 누적 토큰 사용량 UsageTotals { inputTokens, outputTokens, cacheReadTokens, cacheWriteTokens }
+  usage             Json?
+  createdAt         DateTime  @default(now()) @map("created_at") @db.Timestamptz(3)
+  updatedAt         DateTime  @default(now()) @map("updated_at") @db.Timestamptz(3)
+  completedAt       DateTime? @map("completed_at") @db.Timestamptz(3)
+
+  user         User             @relation(fields: [userId], references: [id], onDelete: Cascade, map: "diagnoses_user_id_fkey")
+  posting      JobPosting?      @relation(fields: [postingId], references: [id], onDelete: SetNull, map: "diagnoses_posting_id_fkey")
+  stages       DiagnosisStage[]
+  chatThreads  ChatThread[]
+  applications Application[]
+
+  @@index([userId, createdAt], map: "diagnoses_user_idx")
+  @@index([postingId], map: "diagnoses_posting_idx")
+  @@map("diagnoses")
+}
+
+model DiagnosisStage {
+  id          Int       @id @default(autoincrement())
+  diagnosisId String    @map("diagnosis_id")
+  /// StageKey
+  stage       String
+  /// StageStatus
+  status      String    @default("pending")
+  /// STAGE_SCHEMAS[stage]를 통과한 JSON.
+  output      Json?
+  error       String?
+  startedAt   DateTime? @map("started_at") @db.Timestamptz(3)
+  finishedAt  DateTime? @map("finished_at") @db.Timestamptz(3)
+
+  diagnosis Diagnosis @relation(fields: [diagnosisId], references: [id], onDelete: Cascade, map: "diagnosis_stages_diagnosis_id_fkey")
+
+  @@unique([diagnosisId, stage], map: "diagnosis_stage_uq")
+  @@map("diagnosis_stages")
+}
+
+/// 진단 실행 원장(append-only). 하루 제한·재시도 횟수는 이 표로 센다 — 진단을 삭제해도 줄어들지 않는다(diagnosisId에 FK 없음).
+model DiagnosisRun {
+  id          Int      @id @default(autoincrement())
+  userId      String   @map("user_id")
+  diagnosisId String   @map("diagnosis_id")
+  /// 'create' | 'retry' | 'continue'
+  kind        String
+  createdAt   DateTime @default(now()) @map("created_at") @db.Timestamptz(3)
+
+  user User @relation(fields: [userId], references: [id], onDelete: Cascade, map: "diagnosis_runs_user_id_fkey")
+
+  @@index([userId, createdAt], map: "diagnosis_runs_user_idx")
+  @@index([diagnosisId], map: "diagnosis_runs_diag_idx")
+  @@map("diagnosis_runs")
+}
+
+/// 채팅 스레드. kind='graph'는 경력 그래프 채팅, kind='reviewer'는 완료된 진단의 심사위원 한 명과의 대화(diagnosisId·reviewer 필수).
+model ChatThread {
+  id          String   @id
+  userId      String   @map("user_id")
+  /// ChatThreadKind
+  kind        String
+  diagnosisId String?  @map("diagnosis_id")
+  /// ReviewerId
+  reviewer    String?
+  title       String
+  createdAt   DateTime @default(now()) @map("created_at") @db.Timestamptz(3)
+  updatedAt   DateTime @default(now()) @map("updated_at") @db.Timestamptz(3)
+
+  user      User          @relation(fields: [userId], references: [id], onDelete: Cascade, map: "chat_threads_user_id_fkey")
+  diagnosis Diagnosis?    @relation(fields: [diagnosisId], references: [id], onDelete: Cascade, map: "chat_threads_diagnosis_id_fkey")
+  messages  ChatMessage[]
+
+  @@index([userId, kind, updatedAt], map: "chat_threads_user_idx")
+  @@index([diagnosisId, reviewer], map: "chat_threads_diag_idx")
+  @@map("chat_threads")
+}
+
+model ChatMessage {
+  id        String   @id
+  threadId  String   @map("thread_id")
+  /// ChatRole
+  role      String
+  content   String
+  /// 구조화 부가 정보 — domain/chat.ts ChatMessageDataSchema.
+  data      Json?
+  /// ChatMessageStatus(proposed/applied/dismissed/failed). 일반 메시지는 null.
+  status    String?
+  /// UsageTotals
+  usage     Json?
+  createdAt DateTime @default(now()) @map("created_at") @db.Timestamptz(3)
+
+  thread ChatThread @relation(fields: [threadId], references: [id], onDelete: Cascade, map: "chat_messages_thread_id_fkey")
+
+  @@index([threadId, createdAt], map: "chat_messages_thread_idx")
+  @@map("chat_messages")
+}
+
+/// 회사(지원처)별 이력서. 본문은 버전별로 오브젝트 저장소에 JSON으로 두고 여기에는 메타데이터만 둔다.
+model CompanyResume {
+  id               String   @id
+  userId           String   @map("user_id")
+  company          String
+  roleTitle        String   @map("role_title")
+  jdText           String?  @map("jd_text")
+  /// 이 이력서를 만든 보관 공고. 공고를 지우면 null.
+  postingId        String?  @map("posting_id")
+  /// ResumeTemplateId
+  templateId       String   @map("template_id")
+  title            String
+  /// 현재 버전(resume_versions.id). FK는 순환을 피하려고 걸지 않는다.
+  currentVersionId String?  @map("current_version_id")
+  createdAt        DateTime @default(now()) @map("created_at") @db.Timestamptz(3)
+  updatedAt        DateTime @default(now()) @map("updated_at") @db.Timestamptz(3)
+
+  user         User            @relation(fields: [userId], references: [id], onDelete: Cascade, map: "company_resumes_user_id_fkey")
+  posting      JobPosting?     @relation(fields: [postingId], references: [id], onDelete: SetNull, map: "company_resumes_posting_id_fkey")
+  versions     ResumeVersion[]
+  applications Application[]
+
+  @@index([userId, updatedAt], map: "company_resumes_user_idx")
+  @@index([postingId], map: "company_resumes_posting_idx")
+  @@map("company_resumes")
+}
+
+model ResumeVersion {
+  id         String   @id
+  resumeId   String   @map("resume_id")
+  versionNo  Int      @map("version_no")
+  /// 저장소 키(users/<userId>/resumes/<resumeId>/...). 본문은 ResumeDocument JSON.
+  storageKey String   @map("storage_key")
+  note       String?
+  /// ResumeVersionSource
+  source     String
+  createdAt  DateTime @default(now()) @map("created_at") @db.Timestamptz(3)
+
+  resume CompanyResume @relation(fields: [resumeId], references: [id], onDelete: Cascade, map: "resume_versions_resume_id_fkey")
+
+  @@unique([resumeId, versionNo], map: "resume_versions_no_uq")
+  @@map("resume_versions")
+}
+
+/// 지원 기록. 공고·이력서·진단과 느슨하게 연결한다(원본을 지우면 FK는 null, 기록은 남는다).
+/// resumeVersionId에는 FK를 걸지 않는다: 이력서를 지워도 버전별 성과 집계가 유지되게.
+model Application {
+  id              String   @id
+  userId          String   @map("user_id")
+  postingId       String?  @map("posting_id")
+  company         String
+  roleTitle       String   @map("role_title")
+  /// ApplicationStage
+  stage           String   @default("applied")
+  /// 'YYYY-MM-DD'(KST).
+  appliedAt       String?  @map("applied_at")
+  nextStep        String?  @map("next_step")
+  /// 'YYYY-MM-DD'(KST).
+  nextDate        String?  @map("next_date")
+  note            String?
+  favorite        Boolean  @default(false)
+  resumeId        String?  @map("resume_id")
+  resumeVersionId String?  @map("resume_version_id")
+  /// 지원 시점의 이력서 표시 이름(예: "토스 백엔드 · v3").
+  resumeLabel     String?  @map("resume_label")
+  /// 제출 사본 저장소 키(users/<u>/applications/<id>/submitted.json).
+  submittedKey    String?  @map("submitted_key")
+  diagnosisId     String?  @map("diagnosis_id")
+  createdAt       DateTime @default(now()) @map("created_at") @db.Timestamptz(3)
+  updatedAt       DateTime @default(now()) @map("updated_at") @db.Timestamptz(3)
+
+  user      User               @relation(fields: [userId], references: [id], onDelete: Cascade, map: "applications_user_id_fkey")
+  posting   JobPosting?        @relation(fields: [postingId], references: [id], onDelete: SetNull, map: "applications_posting_id_fkey")
+  resume    CompanyResume?     @relation(fields: [resumeId], references: [id], onDelete: SetNull, map: "applications_resume_id_fkey")
+  diagnosis Diagnosis?         @relation(fields: [diagnosisId], references: [id], onDelete: SetNull, map: "applications_diagnosis_id_fkey")
+  events    ApplicationEvent[]
+
+  @@index([userId, updatedAt], map: "applications_user_idx")
+  @@index([postingId], map: "applications_posting_idx")
+  @@map("applications")
+}
+
+/// 지원 단계 변경 이력(append-only). 단계를 바꾸는 같은 트랜잭션에서 쓴다.
+model ApplicationEvent {
+  id            Int      @id @default(autoincrement())
+  applicationId String   @map("application_id")
+  /// ApplicationStage. 처음 만들 때는 null.
+  fromStage     String?  @map("from_stage")
+  /// ApplicationStage
+  toStage       String   @map("to_stage")
+  note          String?
+  at            DateTime @default(now()) @db.Timestamptz(3)
+
+  application Application @relation(fields: [applicationId], references: [id], onDelete: Cascade, map: "application_events_application_id_fkey")
+
+  @@index([applicationId, at], map: "application_events_app_idx")
+  @@map("application_events")
+}
+
+/// 비용이 드는 기능의 요청 제한 원장(인스턴스 사이에 공유되는 레이트 리밋). src/lib/auth/db-rate-limit.ts.
+model RateEvent {
+  id        Int      @id @default(autoincrement())
+  bucket    String
+  key       String
+  createdAt DateTime @default(now()) @map("created_at") @db.Timestamptz(3)
+
+  @@index([bucket, key, createdAt], map: "rate_events_key_idx")
+  @@map("rate_events")
+}

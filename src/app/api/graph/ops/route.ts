@@ -2,7 +2,6 @@ import { z } from "zod";
 import type { ApplyOpsResponse } from "@/components/graph/api";
 import { featureErrorResponse } from "@/lib/api/errors";
 import { assertSameOrigin, requireApiUser } from "@/lib/auth/session";
-import { ensureDatabase } from "@/lib/db/migrate";
 import { BodyTooLargeError, readBodyLimited } from "@/lib/diagnoses/body";
 import { jsonError } from "@/lib/diagnoses/http";
 import { GraphOpSchema, MAX_OPS_PER_BATCH } from "@/lib/domain/graph";
@@ -34,7 +33,6 @@ function describeIssues(err: z.ZodError): string {
  * 형식은 엄격한 GraphOpSchema로, 존재·소유권·관계 방향은 applyGraphOps가 검사한다(하나라도 틀리면 400, 아무것도 안 씀).
  */
 export async function POST(req: Request) {
-  await ensureDatabase();
   const forbidden = assertSameOrigin(req);
   if (forbidden) return forbidden;
   const user = await requireApiUser();

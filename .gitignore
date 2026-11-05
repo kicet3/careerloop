@@ -49,3 +49,6 @@ next-env.d.ts
 
 # 로컬 오브젝트 저장소(R2 미설정 시 폴백)
 /data/storage/
+
+# Prisma 생성 클라이언트(npm install의 postinstall·build에서 prisma generate로 만든다)
+/src/generated/

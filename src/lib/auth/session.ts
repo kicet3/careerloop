@@ -1,11 +1,9 @@
 import "server-only";
 import { createHash, randomBytes } from "node:crypto";
-import { and, eq, ne } from "drizzle-orm";
 import { cookies } from "next/headers";
 import { redirect } from "next/navigation";
 import { cache } from "react";
-import { db, schema } from "@/lib/db/client";
-import { ensureDatabase } from "@/lib/db/migrate";
+import { prisma } from "@/lib/db/client";
 import { appUrl, isProduction, trustedOriginHosts } from "@/lib/config/env";
 import { safeNextPath } from "./validation";
 
@@ -37,10 +35,9 @@ function cookieOptions(expires: Date) {
 
 /** 세션을 만들고 쿠키를 심는다. Route Handler / Server Function에서만 호출. */
 export async function createSession(userId: string): Promise<void> {
-  await ensureDatabase();
   const token = randomBytes(32).toString("base64url");
   const expiresAt = new Date(Date.now() + SESSION_TTL_MS);
-  await db.insert(schema.sessions).values({ id: hashToken(token), userId, expiresAt });
+  await prisma.session.create({ data: { id: hashToken(token), userId, expiresAt } });
   (await cookies()).set(SESSION_COOKIE, token, cookieOptions(expiresAt));
 }
 
@@ -49,8 +46,7 @@ export async function destroySession(): Promise<void> {
   const store = await cookies();
   const token = store.get(SESSION_COOKIE)?.value;
   if (token) {
-    await ensureDatabase();
-    await db.delete(schema.sessions).where(eq(schema.sessions.id, hashToken(token)));
+    await prisma.session.deleteMany({ where: { id: hashToken(token) } });
   }
   store.delete(SESSION_COOKIE);
 }
@@ -58,11 +54,9 @@ export async function destroySession(): Promise<void> {
 /** 현재 세션만 남기고 이 사용자의 다른 세션을 모두 지운다(비밀번호 변경 후 다른 기기 로그아웃). */
 export async function revokeOtherSessions(userId: string): Promise<void> {
   const token = (await cookies()).get(SESSION_COOKIE)?.value;
-  await ensureDatabase();
-  const where = token
-    ? and(eq(schema.sessions.userId, userId), ne(schema.sessions.id, hashToken(token)))
-    : eq(schema.sessions.userId, userId);
-  await db.delete(schema.sessions).where(where);
+  await prisma.session.deleteMany({
+    where: token ? { userId, id: { not: hashToken(token) } } : { userId },
+  });
 }
 
 /** 로그인 사용자(요청당 1회 조회). 서버 컴포넌트·라우트 핸들러 양쪽에서 사용 가능. */
@@ -71,24 +65,16 @@ export const getCurrentUser = cache(async (): Promise<SessionUser | null> => {
   const token = store.get(SESSION_COOKIE)?.value;
   if (!token || token.length > 128) return null;
 
-  await ensureDatabase();
   const sessionId = hashToken(token);
-  const [row] = await db
-    .select({
-      id: schema.users.id,
-      email: schema.users.email,
-      name: schema.users.name,
-      expiresAt: schema.sessions.expiresAt,
-    })
-    .from(schema.sessions)
-    .innerJoin(schema.users, eq(schema.sessions.userId, schema.users.id))
-    .where(eq(schema.sessions.id, sessionId))
-    .limit(1);
+  const row = await prisma.session.findUnique({
+    where: { id: sessionId },
+    select: { expiresAt: true, user: { select: { id: true, email: true, name: true } } },
+  });
   if (!row) return null;
 
   const now = Date.now();
   if (row.expiresAt.getTime() <= now) {
-    await db.delete(schema.sessions).where(eq(schema.sessions.id, sessionId));
+    await prisma.session.deleteMany({ where: { id: sessionId } });
     return null;
   }
 
@@ -97,13 +83,13 @@ export const getCurrentUser = cache(async (): Promise<SessionUser | null> => {
     // 서버 컴포넌트 렌더링 중에는 쿠키를 쓸 수 없다(throw). 쿠키를 갱신할 수 있을 때만 DB도 연장한다.
     try {
       store.set(SESSION_COOKIE, token, cookieOptions(expiresAt));
-      await db.update(schema.sessions).set({ expiresAt }).where(eq(schema.sessions.id, sessionId));
+      await prisma.session.updateMany({ where: { id: sessionId }, data: { expiresAt } });
     } catch {
       // 다음 라우트 핸들러 요청에서 연장된다.
     }
   }
 
-  return { id: row.id, email: row.email, name: row.name };
+  return { id: row.user.id, email: row.user.email, name: row.user.name };
 });
 
 /** 페이지용: 로그인하지 않았으면 `/login?next=`로 보낸다. */

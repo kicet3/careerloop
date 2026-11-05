@@ -2,7 +2,7 @@ import "server-only";
 import { validateProductionEnv } from "./env";
 
 /**
- * 서버 시작 시 배포 모드 검사(instrumentation register()에서 마이그레이션 전에 호출, Node 런타임 전용).
+ * 서버 시작 시 배포 모드 검사(instrumentation register()에서 호출, Node 런타임 전용).
  * APP_ENV가 잘못됐거나 PRODUCTION 필수 설정이 빠졌으면 누락 목록을 출력하고 프로세스를 끝낸다 —
  * register()가 던지기만 하면 Next는 포트를 연 채 모든 요청에 500을 돌려주므로, 반쯤 뜬 서버가 남지 않게 직접 종료한다.
  * DEV면 안내(로컬 저장소 사용 등)를 console.warn 한 번 출력한다.

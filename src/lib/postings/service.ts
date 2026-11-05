@@ -1,13 +1,13 @@
 import "server-only";
 /**
- * 공고 보관함 저장소(SQLite job_postings). 모든 조회·수정은 userId 조건을 건다(남의 공고는 없는 것과 같다).
+ * 공고 보관함 저장소(PostgreSQL job_postings, Prisma). 모든 조회·수정은 userId 조건을 건다(남의 공고는 없는 것과 같다).
  * 같은 사용자 안에서 정규화 URL(url_key)이 같으면 중복 — DuplicatePostingError(409)에 기존 공고 id를 싣는다.
  */
-import { and, count, desc, eq, ne, sql } from "drizzle-orm";
 import { nanoid } from "nanoid";
 import { FeatureError } from "@/lib/api/errors";
-import { db } from "@/lib/db/client";
-import { applications, companyResumes, diagnoses, jobPostings, postingImports, type JobPostingRow } from "@/lib/db/schema";
+import { prisma, type Prisma } from "@/lib/db/client";
+import { isUniqueViolation, stripNul } from "@/lib/db/errors";
+import type { JobPostingRow } from "@/lib/db/types";
 import {
   postingDeadlineError,
   type JobPosting,
@@ -30,7 +30,8 @@ export class DuplicatePostingError extends FeatureError {
   }
 }
 
-const orNull = (v: string | undefined | null) => (v && v.trim() ? v : null);
+/** 빈 값은 null. Postgres text는 NUL을 받지 않으므로 지운다. */
+const orNull = (v: string | undefined | null) => (v && v.trim() ? stripNul(v) : null);
 
 export function toJobPosting(row: JobPostingRow): JobPosting {
   return {
@@ -72,11 +73,10 @@ function urlFields(raw: string): { url: string | null; urlKey: string | null; pl
 }
 
 async function findByUrlKey(userId: string, urlKey: string, exceptId?: string): Promise<string | null> {
-  const [row] = await db
-    .select({ id: jobPostings.id })
-    .from(jobPostings)
-    .where(and(eq(jobPostings.userId, userId), eq(jobPostings.urlKey, urlKey), exceptId ? ne(jobPostings.id, exceptId) : undefined))
-    .limit(1);
+  const row = await prisma.jobPosting.findFirst({
+    select: { id: true },
+    where: { userId, urlKey, ...(exceptId ? { id: { not: exceptId } } : {}) },
+  });
   return row?.id ?? null;
 }
 
@@ -86,50 +86,49 @@ export async function findPostingIdByUrl(userId: string, rawUrl: string): Promis
   return findByUrlKey(userId, normalizeUrl(withScheme(rawUrl)));
 }
 
-const isUniqueViolation = (err: unknown) => /UNIQUE constraint failed/i.test(String((err as { message?: unknown })?.message ?? err)) ||
-  /UNIQUE constraint failed/i.test(String((err as { cause?: { message?: unknown } })?.cause?.message ?? ""));
-
-const summaryColumns = {
-  id: jobPostings.id,
-  userId: jobPostings.userId,
-  company: jobPostings.company,
-  roleTitle: jobPostings.roleTitle,
-  url: jobPostings.url,
-  urlKey: jobPostings.urlKey,
-  platform: jobPostings.platform,
-  status: jobPostings.status,
-  deadline: jobPostings.deadline,
-  deadlineTime: jobPostings.deadlineTime,
-  deadlineKind: jobPostings.deadlineKind,
-  employmentType: jobPostings.employmentType,
-  workType: jobPostings.workType,
-  location: jobPostings.location,
-  careerLevel: jobPostings.careerLevel,
-  note: jobPostings.note,
-  extractedBy: jobPostings.extractedBy,
-  createdAt: jobPostings.createdAt,
-  updatedAt: jobPostings.updatedAt,
-  hasJd: sql<number>`length(coalesce(${jobPostings.jdText}, '')) > 0`,
-};
+/** 목록용 컬럼(JD 원문 제외). */
+const summarySelect = {
+  id: true,
+  userId: true,
+  company: true,
+  roleTitle: true,
+  url: true,
+  urlKey: true,
+  platform: true,
+  status: true,
+  deadline: true,
+  deadlineTime: true,
+  deadlineKind: true,
+  employmentType: true,
+  workType: true,
+  location: true,
+  careerLevel: true,
+  note: true,
+  extractedBy: true,
+  createdAt: true,
+  updatedAt: true,
+} satisfies Prisma.JobPostingSelect;
 
 /** 목록(최근 수정 순, JD 원문 제외). status를 주면 그 상태만. */
 export async function listPostings(userId: string, opts: { status?: PostingStatus } = {}): Promise<JobPostingSummary[]> {
-  const rows = await db
-    .select(summaryColumns)
-    .from(jobPostings)
-    .where(and(eq(jobPostings.userId, userId), opts.status ? eq(jobPostings.status, opts.status) : undefined))
-    .orderBy(desc(jobPostings.updatedAt))
-    .limit(MAX_POSTINGS_PER_USER);
-  return rows.map(({ hasJd, ...row }) => toSummary(toJobPosting({ ...row, jdText: null }), Boolean(hasJd)));
+  const where: Prisma.JobPostingWhereInput = { userId, ...(opts.status ? { status: opts.status } : {}) };
+  const [rows, withJd] = await Promise.all([
+    prisma.jobPosting.findMany({
+      select: summarySelect,
+      where,
+      orderBy: [{ updatedAt: "desc" }, { id: "desc" }],
+      take: MAX_POSTINGS_PER_USER,
+    }),
+    // JD 원문을 읽지 않고 '본문 있음'만 안다(빈 문자열은 저장하지 않으므로 not null이면 있음).
+    prisma.jobPosting.findMany({ select: { id: true }, where: { ...where, jdText: { not: null }, NOT: { jdText: "" } } }),
+  ]);
+  const hasJd = new Set(withJd.map((r) => r.id));
+  return rows.map((row) => toSummary(toJobPosting({ ...(row as Omit<JobPostingRow, "jdText">), jdText: null }), hasJd.has(row.id)));
 }
 
 export async function getPosting(userId: string, id: string): Promise<JobPosting | null> {
-  const [row] = await db
-    .select()
-    .from(jobPostings)
-    .where(and(eq(jobPostings.id, id), eq(jobPostings.userId, userId)))
-    .limit(1);
-  return row ? toJobPosting(row) : null;
+  const row = await prisma.jobPosting.findFirst({ where: { id, userId } });
+  return row ? toJobPosting(row as JobPostingRow) : null;
 }
 
 /** 새 공고. 중복 URL → DuplicatePostingError(409), 상한 초과 → 409. */
@@ -145,19 +144,18 @@ export async function createPosting(
     const existing = await findByUrlKey(userId, urls.urlKey);
     if (existing) throw new DuplicatePostingError(existing);
   }
-  const [stat] = await db.select({ n: count() }).from(jobPostings).where(eq(jobPostings.userId, userId));
-  if ((stat?.n ?? 0) >= MAX_POSTINGS_PER_USER) {
+  const n = await prisma.jobPosting.count({ where: { userId } });
+  if (n >= MAX_POSTINGS_PER_USER) {
     throw new FeatureError(`공고는 ${MAX_POSTINGS_PER_USER}개까지 보관할 수 있습니다. 마감된 공고를 정리해 주세요.`, 409);
   }
   const now = new Date();
   try {
-    const [row] = await db
-      .insert(jobPostings)
-      .values({
+    const row = await prisma.jobPosting.create({
+      data: {
         id: nanoid(),
         userId,
-        company: input.company,
-        roleTitle: input.roleTitle,
+        company: stripNul(input.company),
+        roleTitle: stripNul(input.roleTitle),
         ...urls,
         status: input.status,
         jdText: orNull(input.jdText),
@@ -169,12 +167,12 @@ export async function createPosting(
         location: orNull(input.location),
         careerLevel: input.careerLevel,
         note: orNull(input.note),
-        extractedBy: opts.extractedBy?.slice(0, 40) || "manual",
+        extractedBy: stripNul(opts.extractedBy?.slice(0, 40)) || "manual",
         createdAt: now,
         updatedAt: now,
-      })
-      .returning();
-    return toJobPosting(row!);
+      },
+    });
+    return toJobPosting(row as JobPostingRow);
   } catch (err) {
     // 동시에 같은 URL을 저장한 경우(unique(user_id, url_key)).
     if (urls.urlKey && isUniqueViolation(err)) {
@@ -203,9 +201,9 @@ export async function updatePosting(userId: string, id: string, patch: PostingUp
   const deadlineErr = postingDeadlineError({ deadline, deadlineTime, deadlineKind });
   if (deadlineErr) throw new FeatureError(deadlineErr, 400);
 
-  const set: Partial<typeof jobPostings.$inferInsert> = { updatedAt: new Date(), deadline: orNull(deadline), deadlineTime: orNull(deadlineTime), deadlineKind };
-  if (patch.company !== undefined) set.company = patch.company;
-  if (patch.roleTitle !== undefined) set.roleTitle = patch.roleTitle;
+  const set: Prisma.JobPostingUpdateManyMutationInput & { urlKey?: string | null } = { updatedAt: new Date(), deadline: orNull(deadline), deadlineTime: orNull(deadlineTime), deadlineKind };
+  if (patch.company !== undefined) set.company = stripNul(patch.company);
+  if (patch.roleTitle !== undefined) set.roleTitle = stripNul(patch.roleTitle);
   if (patch.status !== undefined) set.status = patch.status;
   if (patch.jdText !== undefined) set.jdText = orNull(patch.jdText);
   if (patch.employmentType !== undefined) set.employmentType = patch.employmentType;
@@ -223,12 +221,8 @@ export async function updatePosting(userId: string, id: string, patch: PostingUp
   }
 
   try {
-    const [row] = await db
-      .update(jobPostings)
-      .set(set)
-      .where(and(eq(jobPostings.id, id), eq(jobPostings.userId, userId)))
-      .returning();
-    return row ? toJobPosting(row) : null;
+    const [row] = await prisma.jobPosting.updateManyAndReturn({ where: { id, userId }, data: set });
+    return row ? toJobPosting(row as JobPostingRow) : null;
   } catch (err) {
     if (set.urlKey && isUniqueViolation(err)) {
       const existing = await findByUrlKey(userId, set.urlKey, id);
@@ -239,22 +233,11 @@ export async function updatePosting(userId: string, id: string, patch: PostingUp
 }
 
 /**
- * 공고 삭제. 연결된 진단·이력서·지원·가져오기의 postingId는 null이 된다(각자의 사본은 남는다).
- * FK의 ON DELETE SET NULL은 연결마다 PRAGMA foreign_keys에 달려 있어(원격 libsql/Turso는 요청마다 새 연결) 명시적으로
- * 같은 배치(한 트랜잭션)에서 먼저 끊는다.
+ * 공고 삭제. 연결된 진단·이력서·지원·가져오기의 postingId는 FK의 ON DELETE SET NULL로 null이 된다(각자의 사본은 남는다).
  */
 export async function deletePosting(userId: string, id: string): Promise<boolean> {
-  const [, , , , rows] = await db.batch([
-    db.update(diagnoses).set({ postingId: null }).where(and(eq(diagnoses.postingId, id), eq(diagnoses.userId, userId))),
-    db.update(companyResumes).set({ postingId: null }).where(and(eq(companyResumes.postingId, id), eq(companyResumes.userId, userId))),
-    db.update(applications).set({ postingId: null }).where(and(eq(applications.postingId, id), eq(applications.userId, userId))),
-    db.update(postingImports).set({ postingId: null }).where(and(eq(postingImports.postingId, id), eq(postingImports.userId, userId))),
-    db
-      .delete(jobPostings)
-      .where(and(eq(jobPostings.id, id), eq(jobPostings.userId, userId)))
-      .returning({ id: jobPostings.id }),
-  ]);
-  return rows.length > 0;
+  const { count } = await prisma.jobPosting.deleteMany({ where: { id, userId } });
+  return count > 0;
 }
 
 export interface PostingLinks {
@@ -265,24 +248,18 @@ export interface PostingLinks {
 /** 이 공고로 만든 진단·이력서(공고 상세의 관련 목록). 지원 기록은 GET /api/applications?postingId=. */
 export async function listPostingLinks(userId: string, postingId: string): Promise<PostingLinks> {
   const [ds, rs] = await Promise.all([
-    db
-      .select({ id: diagnoses.id, title: diagnoses.title, status: diagnoses.status, createdAt: diagnoses.createdAt })
-      .from(diagnoses)
-      .where(and(eq(diagnoses.userId, userId), eq(diagnoses.postingId, postingId)))
-      .orderBy(desc(diagnoses.createdAt))
-      .limit(20),
-    db
-      .select({
-        id: companyResumes.id,
-        title: companyResumes.title,
-        company: companyResumes.company,
-        roleTitle: companyResumes.roleTitle,
-        updatedAt: companyResumes.updatedAt,
-      })
-      .from(companyResumes)
-      .where(and(eq(companyResumes.userId, userId), eq(companyResumes.postingId, postingId)))
-      .orderBy(desc(companyResumes.updatedAt))
-      .limit(20),
+    prisma.diagnosis.findMany({
+      select: { id: true, title: true, status: true, createdAt: true },
+      where: { userId, postingId },
+      orderBy: [{ createdAt: "desc" }, { id: "desc" }],
+      take: 20,
+    }),
+    prisma.companyResume.findMany({
+      select: { id: true, title: true, company: true, roleTitle: true, updatedAt: true },
+      where: { userId, postingId },
+      orderBy: [{ updatedAt: "desc" }, { id: "desc" }],
+      take: 20,
+    }),
   ]);
   return {
     diagnoses: ds.map((d) => ({ ...d, createdAt: d.createdAt.getTime() })),

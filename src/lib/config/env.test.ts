@@ -19,8 +19,7 @@ const {
 const FULL = {
   APP_ENV: "PRODUCTION",
   APP_URL: "https://resume.example.com",
-  DATABASE_URL: "libsql://db.example.turso.io",
-  DATABASE_AUTH_TOKEN: "token",
+  DATABASE_URL: "postgresql://postgres.ref:pw@aws-0-ap-northeast-2.pooler.supabase.com:6543/postgres",
   NEO4J_URI: "neo4j+s://x.databases.neo4j.io",
   NEO4J_USER: "neo4j",
   NEO4J_PASSWORD: "pw",
@@ -129,30 +128,46 @@ describe("Google 로그인 설정", () => {
 });
 
 describe("DB 설정", () => {
-  it("Turso 주소에는 토큰이 필요하다", () => {
-    expect(missingProductionEnv({ ...FULL, DATABASE_AUTH_TOKEN: "" })).toEqual(["DATABASE_AUTH_TOKEN(Turso DB 토큰)"]);
-    expect(missingProductionEnv({ ...FULL, DATABASE_URL: "libsql://127.0.0.1:8080", DATABASE_AUTH_TOKEN: "" })).toEqual([]);
+  it("PostgreSQL 주소만 받는다(file:·libsql:은 모든 모드에서 거부)", () => {
+    expect(missingProductionEnv(FULL)).toEqual([]);
+    expect(missingProductionEnv({ ...FULL, DATABASE_URL: "postgres://u:p@127.0.0.1:54329/careerloop" })).toEqual([]);
+    for (const url of ["file:/tmp/app.db", "libsql://db.example.turso.io"]) {
+      expect(missingProductionEnv({ ...FULL, DATABASE_URL: url })[0]).toMatch(/^DATABASE_URL\(postgres:\/\/ 또는 postgresql:\/\//);
+    }
+    expect(missingProductionEnv({ ...FULL, DIRECT_URL: "file:x.db" })[0]).toMatch(/^DIRECT_URL\(/);
   });
 
-  it("Vercel에서는 file: DB를 거부하고, 자체 호스팅은 허용한다", () => {
-    const fileDb = { ...FULL, DATABASE_URL: "file:/tmp/app.db", DATABASE_AUTH_TOKEN: "" };
-    expect(missingProductionEnv(fileDb)).toEqual([]);
-    expect(missingProductionEnv({ ...fileDb, VERCEL: "1" })[0]).toMatch(/^DATABASE_URL\(Vercel에서는 file:/);
+  it("Vercel에서는 localhost DB를 거부한다", () => {
+    const local = { ...FULL, DATABASE_URL: "postgres://u:p@localhost:5432/db" };
+    expect(missingProductionEnv(local)).toEqual([]);
+    expect(missingProductionEnv({ ...local, VERCEL: "1" })[0]).toMatch(/^DATABASE_URL\(Vercel에서는 localhost/);
   });
 
-  it("DATABASE_*가 없으면 Vercel Turso 연동의 TURSO_*를 쓴다", () => {
-    expect(databaseEnv({ TURSO_DATABASE_URL: "libsql://t.turso.io", TURSO_AUTH_TOKEN: "tt" })).toEqual({
-      url: "libsql://t.turso.io",
-      authToken: "tt",
-    });
-    expect(databaseEnv({ DATABASE_URL: "libsql://d.turso.io", TURSO_DATABASE_URL: "libsql://t.turso.io" }).url).toBe("libsql://d.turso.io");
-    const rest = { ...FULL, DATABASE_URL: undefined, DATABASE_AUTH_TOKEN: undefined };
-    expect(missingProductionEnv({ ...rest, TURSO_DATABASE_URL: "libsql://t.turso.io", TURSO_AUTH_TOKEN: "tt" })).toEqual([]);
+  it("DATABASE_URL이 없으면 Supabase Vercel 연동의 POSTGRES_PRISMA_URL·POSTGRES_URL, 직접 주소는 DIRECT_URL → POSTGRES_URL_NON_POOLING", () => {
+    expect(databaseEnv({})).toEqual({ url: null, directUrl: null });
+    expect(databaseEnv({ POSTGRES_URL: "postgres://b", POSTGRES_PRISMA_URL: "postgres://a" }).url).toBe("postgres://a");
+    expect(databaseEnv({ POSTGRES_URL: "postgres://b" }).url).toBe("postgres://b");
+    expect(databaseEnv({ DATABASE_URL: "postgres://d", POSTGRES_URL: "postgres://b" }).url).toBe("postgres://d");
+    expect(databaseEnv({ POSTGRES_URL_NON_POOLING: "postgres://n" }).directUrl).toBe("postgres://n");
+    expect(databaseEnv({ DIRECT_URL: "postgres://x", POSTGRES_URL_NON_POOLING: "postgres://n" }).directUrl).toBe("postgres://x");
+    const rest = { ...FULL, DATABASE_URL: undefined };
+    expect(missingProductionEnv(rest)).toContain("DATABASE_URL");
+    expect(missingProductionEnv({ ...rest, POSTGRES_URL: "postgres://u:p@db.example.com:6543/postgres" })).toEqual([]);
   });
 
-  it("DEV로 뜬 Vercel에서 DB가 file:이면 안내한다", () => {
+  it("DEV로 뜬 Vercel에서 DB 주소가 없으면 안내한다", () => {
     const w = validateProductionEnv({ APP_ENV: "DEV", VERCEL: "1", VERCEL_ENV: "preview" }).warnings.join("\n");
     expect(w).toMatch(/DB 설정이 Vercel에서 동작하지 않습니다/);
+  });
+
+  it("Vercel에서 Supabase Session pooler(5432)를 런타임 주소로 쓰면 안내한다", () => {
+    const w = validateProductionEnv({
+      ...FULL,
+      VERCEL: "1",
+      VERCEL_ENV: "production",
+      DATABASE_URL: "postgresql://postgres.ref:pw@aws-0-ap-northeast-2.pooler.supabase.com:5432/postgres",
+    }).warnings.join("\n");
+    expect(w).toMatch(/Transaction pooler\(6543\)/);
   });
 });
 

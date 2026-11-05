@@ -1,21 +1,15 @@
-import { mkdtempSync, rmSync } from "node:fs";
-import { tmpdir } from "node:os";
-import path from "node:path";
 import { afterAll, beforeAll, describe, expect, it, vi } from "vitest";
 import type { DiagnosisInput } from "@/lib/domain/schemas";
+import { createTestDb, type TestDb } from "@/test/db";
 
 vi.mock("server-only", () => ({}));
 vi.mock("@/lib/llm", () => ({ defaultProvider: () => "anthropic", modelNameFor: () => "test-model" }));
 
-const dir = mkdtempSync(path.join(tmpdir(), "rp-diag-"));
-process.env.DATABASE_URL = `file:${path.join(dir, "test.db")}`;
 process.env.DAILY_DIAGNOSIS_LIMIT = "3";
 
 type Svc = typeof import("./service");
-type Client = typeof import("@/lib/db/client");
 let svc: Svc;
-let db: Client["db"];
-let schema: Client["schema"];
+let tdb: TestDb;
 
 const input: DiagnosisInput = {
   resumeText: "홍길동\n백엔드 개발자 3년. Kotlin, Spring Boot로 결제 시스템 운영.",
@@ -27,23 +21,21 @@ const input: DiagnosisInput = {
 };
 
 beforeAll(async () => {
-  const { ensureDatabase } = await import("@/lib/db/migrate");
-  await ensureDatabase();
-  ({ db, schema } = await import("@/lib/db/client"));
+  tdb = await createTestDb();
   svc = await import("./service");
-  for (const id of ["u1", "u2", "u3", "u4", "u5", "u-provider", "u-portfolio", "u-retired", "u-cont"]) {
-    await db.insert(schema.users).values({ id, email: `${id}@x.com`, passwordHash: "x" });
+  for (const id of ["u1", "u2", "u3", "u4", "u5", "u-provider", "u-portfolio", "u-retired", "u-cont", "u-race"]) {
+    await tdb.prisma.user.create({ data: { id, email: `${id}@x.com`, passwordHash: "x" } });
   }
 });
 
-afterAll(() => {
-  db.$client.close();
-  rmSync(dir, { recursive: true, force: true });
-});
+afterAll(() => tdb.close());
 
 async function setStatus(id: string, status: "done" | "failed" | "running", updatedAt = new Date()) {
-  const { eq } = await import("drizzle-orm");
-  await db.update(schema.diagnoses).set({ status, updatedAt }).where(eq(schema.diagnoses.id, id));
+  await tdb.prisma.diagnosis.update({ where: { id }, data: { status, updatedAt } });
+}
+
+async function setStage(diagnosisId: string, stage: string, data: { status: string; output?: object }) {
+  await tdb.prisma.diagnosisStage.updateMany({ where: { diagnosisId, stage }, data });
 }
 
 describe("diagnoses service", () => {
@@ -56,6 +48,12 @@ describe("diagnoses service", () => {
     expect(await svc.getDiagnosisForUser(id, "u2")).toBeNull();
     await expect(svc.createDiagnosis("u1", input)).rejects.toMatchObject({ status: 409 });
     await setStatus(id, "done");
+  });
+
+  it("같은 사용자의 동시 생성은 하나만 성공한다(사용자 잠금)", async () => {
+    const results = await Promise.allSettled([svc.createDiagnosis("u-race", input), svc.createDiagnosis("u-race", input)]);
+    expect(results.filter((r) => r.status === "fulfilled")).toHaveLength(1);
+    expect(results.find((r) => r.status === "rejected")).toMatchObject({ reason: { status: 409 } });
   });
 
   it("고른 엔진을 진단에 저장한다(재시도도 같은 엔진)", async () => {
@@ -94,7 +92,6 @@ describe("diagnoses service", () => {
   });
 
   it("목록: 리뷰어 7명 완료 시 positiveCount, fit 점수", async () => {
-    const { eq, and } = await import("drizzle-orm");
     const { id } = await svc.createDiagnosis("u2", input);
     const verdicts: Record<string, string> = {
       ats: "PASS", // 긍정
@@ -106,33 +103,20 @@ describe("diagnoses service", () => {
       teammate: "PASS",
     };
     for (const [stage, verdict] of Object.entries(verdicts)) {
-      await db
-        .update(schema.diagnosisStages)
-        .set({ status: "done", output: { verdict } })
-        .where(and(eq(schema.diagnosisStages.diagnosisId, id), eq(schema.diagnosisStages.stage, stage as "ats")));
+      await setStage(id, stage, { status: "done", output: { verdict } });
     }
-    await db
-      .update(schema.diagnosisStages)
-      .set({ status: "done", output: { matchScore: 72 } })
-      .where(and(eq(schema.diagnosisStages.diagnosisId, id), eq(schema.diagnosisStages.stage, "fit")));
+    await setStage(id, "fit", { status: "done", output: { matchScore: 72 } });
     const [item] = await svc.listDiagnoses("u2");
     expect(item).toMatchObject({ id, positiveCount: 3, matchScore: 72, hasJd: true, subtitle: "JD 기준 심사" });
     // JD 분석이 끝나면 회사·공고 포지션명으로 진단을 구별한다.
-    await db
-      .update(schema.diagnosisStages)
-      .set({ status: "done", output: { source: "jd", company: "머니브릿지", roleTitle: "결제 플랫폼 백엔드" } })
-      .where(and(eq(schema.diagnosisStages.diagnosisId, id), eq(schema.diagnosisStages.stage, "jd")));
+    await setStage(id, "jd", { status: "done", output: { source: "jd", company: "머니브릿지", roleTitle: "결제 플랫폼 백엔드" } });
     expect((await svc.listDiagnoses("u2"))[0].subtitle).toBe("머니브릿지 · 결제 플랫폼 백엔드");
   });
 
   it("오래 멈춘 실행은 failed로, 재시도하면 실패 단계만 pending", async () => {
-    const { eq, and } = await import("drizzle-orm");
     const [{ id }] = await svc.listDiagnoses("u2");
     await setStatus(id, "running", new Date(Date.now() - 11 * 60 * 1000));
-    await db
-      .update(schema.diagnosisStages)
-      .set({ status: "running" })
-      .where(and(eq(schema.diagnosisStages.diagnosisId, id), eq(schema.diagnosisStages.stage, "synthesis")));
+    await setStage(id, "synthesis", { status: "running" });
     expect(await svc.markStaleRunsFailed("u2")).toBe(1);
     let found = await svc.getDiagnosisForUser(id, "u2");
     expect(found?.diagnosis.status).toBe("failed");
@@ -193,11 +177,10 @@ describe("diagnoses service", () => {
   });
 
   it("시간 제한 멈춤의 자동 이어하기: 재시도 횟수와 따로 세고, 시간 제한 멈춤이 아니면 409", async () => {
-    const { eq } = await import("drizzle-orm");
     const { DEADLINE_STOP_ERROR, MAX_DEADLINE_CONTINUATIONS } = await import("./summary");
     const { id } = await svc.createDiagnosis("u-cont", input);
     const stop = async (error: string | null) =>
-      db.update(schema.diagnoses).set({ status: "failed", error }).where(eq(schema.diagnoses.id, id));
+      tdb.prisma.diagnosis.update({ where: { id }, data: { status: "failed", error } });
 
     await stop("심사위원 단계가 실패했습니다.");
     await expect(svc.prepareRetry(id, "u-cont", { continuation: true })).rejects.toMatchObject({ status: 409 });
@@ -234,14 +217,10 @@ describe("diagnoses service", () => {
   });
 
   it("없앤 샘플(mock) 엔진의 예전 진단: 보기는 되고 재시도는 409", async () => {
-    const { eq } = await import("drizzle-orm");
     // provider 컬럼에 'mock'이 남은 행, provider가 비고 model만 'mock'인 더 예전 행
     for (const [i, values] of [{ provider: "mock", model: "mock" }, { provider: null, model: "mock" }].entries()) {
       const { id } = await svc.createDiagnosis("u-retired", input);
-      await db
-        .update(schema.diagnoses)
-        .set({ ...(values as unknown as { provider: null; model: string }), status: "failed" })
-        .where(eq(schema.diagnoses.id, id));
+      await tdb.prisma.diagnosis.update({ where: { id }, data: { ...values, status: "failed" } });
       const found = await svc.getDiagnosisForUser(id, "u-retired");
       expect(found?.diagnosis.model).toBe("mock");
       expect(found?.stages).toHaveLength(13);

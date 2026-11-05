@@ -11,7 +11,6 @@ const state = vi.hoisted(() => ({
   enabled: true,
 }));
 
-vi.mock("@/lib/db/migrate", () => ({ ensureDatabase: async () => {} }));
 vi.mock("@/lib/auth/session", () => ({
   requireApiUser: async () => state.user ?? Response.json({ error: "로그인이 필요합니다." }, { status: 401 }),
   assertSameOrigin: () => (state.crossSite ? Response.json({ error: "허용되지 않은 요청 출처입니다." }, { status: 403 }) : null),

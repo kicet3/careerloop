@@ -2,7 +2,6 @@ import { after } from "next/server";
 import { DIAGNOSIS_IP_LIMIT, hitDbLimit, ipKey } from "@/lib/auth/db-rate-limit";
 import { clientIp } from "@/lib/auth/rate-limit";
 import { assertSameOrigin, requireApiUser } from "@/lib/auth/session";
-import { ensureDatabase } from "@/lib/db/migrate";
 import { BodyTooLargeError, readFormDataLimited } from "@/lib/diagnoses/body";
 import { runDeadline } from "@/lib/diagnoses/deadline";
 import { parseDiagnosisForm, requestedPostingId, requestedProvider } from "@/lib/diagnoses/form";
@@ -22,7 +21,6 @@ export const maxDuration = 300;
 
 
 export async function GET() {
-  await ensureDatabase();
   const user = await requireApiUser();
   if (user instanceof Response) return user;
   try {
@@ -35,7 +33,6 @@ export async function GET() {
 
 export async function POST(req: Request) {
   const startedAt = Date.now();
-  await ensureDatabase();
   const forbidden = assertSameOrigin(req);
   if (forbidden) return forbidden;
   const user = await requireApiUser();

@@ -1,46 +1,42 @@
-import { mkdtempSync, rmSync } from "node:fs";
-import { tmpdir } from "node:os";
-import path from "node:path";
 import { afterAll, beforeAll, describe, expect, it, vi } from "vitest";
+import { createTestDb, type TestDb } from "@/test/db";
+import { Prisma } from "@/lib/db/client";
+import type { Diagnosis, DiagnosisStage } from "@/lib/db/types";
 import type { LlmClient, LlmRequest } from "@/lib/llm/types";
 import { makeSampleDiagnosis, makeSampleStages, SAMPLE_RESUME } from "@/lib/report/__fixtures__/sample";
 
 vi.mock("server-only", () => ({}));
 
-const dir = mkdtempSync(path.join(tmpdir(), "rp-reviewer-chat-"));
-process.env.DATABASE_URL = `file:${path.join(dir, "test.db")}`;
-
 let rc: typeof import("./reviewer-chat");
 let FeatureError: typeof import("@/lib/api/errors").FeatureError;
 let FakeLlmClient: typeof import("@/test/fake-llm").FakeLlmClient;
-let close: () => void;
+let tdb: TestDb;
 
 const DIAG = "dg_chat01";
 const DIAG_PARTIAL = "dg_chat02";
 
 beforeAll(async () => {
-  const { ensureDatabase } = await import("@/lib/db/migrate");
-  await ensureDatabase();
-  const { db, schema } = await import("@/lib/db/client");
-  close = () => db.$client.close();
-  for (const id of ["a", "b"]) await db.insert(schema.users).values({ id, email: `${id}@x.com`, passwordHash: "x" });
-  await db.insert(schema.diagnoses).values(makeSampleDiagnosis({ id: DIAG, userId: "a", provider: "anthropic" }));
-  await db
-    .insert(schema.diagnosisStages)
-    .values(makeSampleStages().map((s) => ({ ...s, id: undefined, diagnosisId: DIAG })));
+  tdb = await createTestDb();
+  for (const id of ["a", "b"]) await tdb.prisma.user.create({ data: { id, email: `${id}@x.com`, passwordHash: "x" } });
+  await seedDiagnosis(makeSampleDiagnosis({ id: DIAG, userId: "a", provider: "anthropic" }), makeSampleStages());
   // 실행 중인 진단: teammate 단계가 아직 안 끝났다
-  await db.insert(schema.diagnoses).values(makeSampleDiagnosis({ id: DIAG_PARTIAL, userId: "a", status: "running" }));
-  await db
-    .insert(schema.diagnosisStages)
-    .values(makeSampleStages({ omit: ["teammate", "synthesis", "rewrite", "plan", "rescreen"] }).map((s) => ({ ...s, id: undefined, diagnosisId: DIAG_PARTIAL })));
+  await seedDiagnosis(
+    makeSampleDiagnosis({ id: DIAG_PARTIAL, userId: "a", status: "running" }),
+    makeSampleStages({ omit: ["teammate", "synthesis", "rewrite", "plan", "rescreen"] }),
+  );
   rc = await import("./reviewer-chat");
   ({ FeatureError } = await import("@/lib/api/errors"));
   ({ FakeLlmClient } = await import("@/test/fake-llm"));
 });
-afterAll(() => {
-  close();
-  rmSync(dir, { recursive: true, force: true });
-});
+afterAll(() => tdb.close());
+
+async function seedDiagnosis(d: Diagnosis, stages: DiagnosisStage[]) {
+  await tdb.prisma.diagnosis.create({ data: { ...d, usage: d.usage ? { ...d.usage } : Prisma.DbNull } });
+  await tdb.prisma.diagnosisStage.createMany({
+    // id는 자동 증가에 맡긴다(명시하면 시퀀스가 뒤처진다).
+    data: stages.map((s) => ({ ...s, id: undefined, diagnosisId: d.id, output: (s.output ?? Prisma.DbNull) as Prisma.InputJsonValue })),
+  });
+}
 
 /** 요청을 기록하는 가짜 클라이언트(FakeLlmClient 출력을 그대로 돌려준다). */
 function recordingLlm(opts: { delayMs?: number; fail?: boolean } = {}) {

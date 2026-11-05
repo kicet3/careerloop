@@ -2,8 +2,7 @@ import { describe, expect, it, vi } from "vitest";
 
 vi.mock("server-only", () => ({}));
 // session.ts가 끌어오는 DB·Next 요청 API는 이 테스트에서 쓰지 않는다.
-vi.mock("@/lib/db/client", () => ({ db: {}, schema: {} }));
-vi.mock("@/lib/db/migrate", () => ({ ensureDatabase: async () => {} }));
+vi.mock("@/lib/db/client", () => ({ prisma: {} }));
 vi.mock("next/headers", () => ({ cookies: async () => ({}) }));
 vi.mock("next/navigation", () => ({ redirect: () => {} }));
 

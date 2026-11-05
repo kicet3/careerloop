@@ -2,7 +2,6 @@ import { z } from "zod";
 import { featureErrorResponse } from "@/lib/api/errors";
 import { assertSameOrigin, requireApiUser } from "@/lib/auth/session";
 import { readSmallJson, scheduleGraphChatReply, startGraphChatRetry } from "@/lib/chat/graph-chat";
-import { ensureDatabase } from "@/lib/db/migrate";
 import { jsonError } from "@/lib/diagnoses/http";
 import { resolveRequestedProvider } from "@/lib/providers/options";
 
@@ -16,7 +15,6 @@ const BodySchema = z.object({ provider: z.string().max(40).nullish() });
 export async function POST(req: Request, { params }: { params: Promise<{ threadId: string }> }) {
   // 답변 마감은 요청 시작부터 센다(Vercel maxDuration도 요청 시작부터 잰다).
   const startedAt = Date.now();
-  await ensureDatabase();
   const forbidden = assertSameOrigin(req);
   if (forbidden) return forbidden;
   const user = await requireApiUser();

@@ -1,7 +1,6 @@
 import { featureErrorResponse } from "@/lib/api/errors";
 import { getApplication, getSubmittedCopy } from "@/lib/applications/service";
 import { requireApiUser } from "@/lib/auth/session";
-import { ensureDatabase } from "@/lib/db/migrate";
 import { jsonError } from "@/lib/diagnoses/http";
 import { ResumeTemplateIdSchema } from "@/lib/domain/resumes";
 import { pdfResponse, resumePdfFileName } from "@/lib/resumes/http";
@@ -12,7 +11,6 @@ export const maxDuration = 60;
 
 /** 제출 사본 PDF. ?template=<양식 id>(기본은 사본을 만들 때의 양식). */
 export async function GET(req: Request, { params }: { params: Promise<{ id: string }> }) {
-  await ensureDatabase();
   const user = await requireApiUser();
   if (user instanceof Response) return user;
   const { id } = await params;

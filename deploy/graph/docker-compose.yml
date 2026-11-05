@@ -1,0 +1,39 @@
+# CareerLoop 운영 그래프 저장소(Neo4j) — 맥미니에서 띄우는 자체 호스팅 서버.
+# 도메인: graph.example.com (README.md 참고)
+#
+#   기본(이 파일만): 127.0.0.1에만 열린다. TLS 없음. 인증서 발급 전 준비·점검용.
+#     docker compose -p careerloop-graph up -d
+#   운영(TLS + 외부 공개): 인증서를 certs/bolt에 넣은 뒤
+#     docker compose -p careerloop-graph -f docker-compose.yml -f docker-compose.tls.yml up -d
+#
+# 비밀번호는 같은 폴더의 .env(NEO4J_PASSWORD, git 제외)에서 읽는다.
+services:
+  neo4j:
+    image: neo4j:5-community
+    container_name: careerloop-graph
+    restart: unless-stopped
+    environment:
+      NEO4J_AUTH: neo4j/${NEO4J_PASSWORD:?NEO4J_PASSWORD를 deploy/graph/.env에 넣어 주세요}
+      # 맥미니 메모리에 맞춘 보수적인 값. 데이터가 커지면 늘린다.
+      NEO4J_server_memory_heap_initial__size: 512m
+      NEO4J_server_memory_heap_max__size: 1g
+      NEO4J_server_memory_pagecache_size: 512m
+      NEO4J_dbms_usage__report_enabled: "false"
+      NEO4J_server_default__listen__address: 0.0.0.0
+    ports:
+      # Bolt(앱 드라이버). 운영 오버레이에서 0.0.0.0으로 연다.
+      - "127.0.0.1:7697:7687"
+      # HTTP(Neo4j Browser). nginx가 https://graph.example.com 으로 프록시한다.
+      - "127.0.0.1:7484:7474"
+    volumes:
+      - careerloop-graph-data:/data
+      - careerloop-graph-logs:/logs
+    healthcheck:
+      test: ["CMD-SHELL", "wget -qO- http://127.0.0.1:7474 >/dev/null || exit 1"]
+      interval: 15s
+      timeout: 5s
+      retries: 10
+
+volumes:
+  careerloop-graph-data:
+  careerloop-graph-logs:

@@ -3,10 +3,9 @@ import "server-only";
  * GET /api/insights와 내 진단 화면의 인사이트 카드가 쓰는 집계 진입점. DB에서 지원·이벤트·보관 공고·진단 점수를 읽어
  * 순수 함수(insights.ts)에 넘긴다. 공고는 postings 모듈을 거치지 않고 표에서 제안에 필요한 열만 읽는다.
  */
-import { and, desc, eq, ne } from "drizzle-orm";
-import { db } from "@/lib/db/client";
-import { jobPostings } from "@/lib/db/schema";
+import { prisma } from "@/lib/db/client";
 import type { InsightsResponse } from "@/lib/domain/applications";
+import type { DeadlineKind, PostingStatus } from "@/lib/domain/postings";
 import { buildSuggestions, companyRollup, resumePerformance, responseRate, stageFunnel, type InsightPosting } from "./insights";
 import { listApplications, listEvents, matchScoresFor } from "./service";
 
@@ -14,21 +13,19 @@ import { listApplications, listEvents, matchScoresFor } from "./service";
 const MAX_POSTINGS_FOR_SUGGESTIONS = 500;
 
 async function openPostings(userId: string): Promise<InsightPosting[]> {
-  const rows = await db
-    .select({
-      id: jobPostings.id,
-      company: jobPostings.company,
-      roleTitle: jobPostings.roleTitle,
-      status: jobPostings.status,
-      deadline: jobPostings.deadline,
-      deadlineTime: jobPostings.deadlineTime,
-      deadlineKind: jobPostings.deadlineKind,
-    })
-    .from(jobPostings)
-    .where(and(eq(jobPostings.userId, userId), ne(jobPostings.status, "closed")))
-    .orderBy(desc(jobPostings.updatedAt))
-    .limit(MAX_POSTINGS_FOR_SUGGESTIONS);
-  return rows.map((r) => ({ ...r, deadline: r.deadline ?? "", deadlineTime: r.deadlineTime ?? "" }));
+  const rows = await prisma.jobPosting.findMany({
+    select: { id: true, company: true, roleTitle: true, status: true, deadline: true, deadlineTime: true, deadlineKind: true },
+    where: { userId, status: { not: "closed" } },
+    orderBy: [{ updatedAt: "desc" }, { id: "desc" }],
+    take: MAX_POSTINGS_FOR_SUGGESTIONS,
+  });
+  return rows.map((r) => ({
+    ...r,
+    status: r.status as PostingStatus,
+    deadlineKind: r.deadlineKind as DeadlineKind,
+    deadline: r.deadline ?? "",
+    deadlineTime: r.deadlineTime ?? "",
+  }));
 }
 
 export async function getInsights(userId: string, now: number = Date.now()): Promise<InsightsResponse> {

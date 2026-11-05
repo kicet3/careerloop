@@ -1,6 +1,6 @@
 /**
  * 지원 추적 계약(클라이언트·서버 공용): 지원 단계·라벨, 입력 zod 스키마, API 응답 형태, 인사이트 출력 형태.
- * 저장은 SQLite applications·application_events(src/lib/db/schema.ts). 제출한 이력서 사본은 저장소
+ * 저장은 PostgreSQL applications·application_events(prisma/schema.prisma). 제출한 이력서 사본은 저장소
  * users/<userId>/applications/<applicationId>/submitted.json(ResumeDocument)에 고정한다 — 원본 이력서를 지워도 남는다.
  * 날짜(appliedAt·nextDate)는 KST 'YYYY-MM-DD'(src/lib/time/kst.ts).
  */

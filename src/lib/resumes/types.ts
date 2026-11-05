@@ -1,6 +1,6 @@
 /**
  * 회사별 이력서 API의 입력 검증 스키마와 응답 타입(클라이언트·서버 공용).
- * 문서 구조·양식은 src/lib/domain/resumes.ts, 저장은 service.ts(메타 SQLite + 본문 저장소).
+ * 문서 구조·양식은 src/lib/domain/resumes.ts, 저장은 service.ts(메타 PostgreSQL + 본문 저장소).
  */
 import { z } from "zod";
 import {

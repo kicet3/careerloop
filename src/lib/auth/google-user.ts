@@ -1,8 +1,7 @@
 import "server-only";
-import { and, eq, isNull } from "drizzle-orm";
 import { nanoid } from "nanoid";
-import { db, schema } from "@/lib/db/client";
-import { ensureDatabase } from "@/lib/db/migrate";
+import { prisma } from "@/lib/db/client";
+import { stripNul } from "@/lib/db/errors";
 import type { GoogleClaims } from "./google";
 
 export type GoogleUpsertResult =
@@ -26,28 +25,24 @@ export function googleOwnsEmail(claims: Pick<GoogleClaims, "email" | "hd">): boo
  * 3) 없으면 비밀번호 없는 사용자를 만든다.
  */
 export async function upsertGoogleUser(claims: GoogleClaims): Promise<GoogleUpsertResult> {
-  await ensureDatabase();
   const bySub = await findBySub(claims.sub);
   if (bySub) return { ok: true, userId: bySub, created: false, linked: false };
 
   const email = claims.email.trim().toLowerCase();
-  const [byEmail] = await db
-    .select({ id: schema.users.id, googleSub: schema.users.googleSub })
-    .from(schema.users)
-    .where(eq(schema.users.email, email))
-    .limit(1);
+  // 이메일은 저장할 때 소문자로 맞추므로 정확히 일치로 찾는다.
+  const byEmail = await prisma.user.findUnique({ where: { email }, select: { id: true, googleSub: true } });
   if (byEmail) {
     if (byEmail.googleSub && byEmail.googleSub !== claims.sub) return { ok: false, reason: "conflict" };
     if (!googleOwnsEmail(claims)) return { ok: false, reason: "unverified_email" };
-    const linked = await db
-      .transaction(async (tx) => {
-        const updated = await tx
-          .update(schema.users)
-          .set({ googleSub: claims.sub, passwordHash: null })
-          .where(and(eq(schema.users.id, byEmail.id), isNull(schema.users.googleSub)))
-          .returning({ id: schema.users.id });
-        if (updated.length === 0) return false;
-        await tx.delete(schema.sessions).where(eq(schema.sessions.userId, byEmail.id));
+    const linked = await prisma
+      .$transaction(async (tx) => {
+        // 조건부 갱신(google_sub가 아직 null일 때만) — 동시 요청 중 하나만 연결한다.
+        const updated = await tx.user.updateMany({
+          where: { id: byEmail.id, googleSub: null },
+          data: { googleSub: claims.sub, passwordHash: null },
+        });
+        if (updated.count === 0) return false;
+        await tx.session.deleteMany({ where: { userId: byEmail.id } });
         return true;
       })
       .catch(() => false);
@@ -59,7 +54,9 @@ export async function upsertGoogleUser(claims: GoogleClaims): Promise<GoogleUpse
 
   const id = nanoid();
   try {
-    await db.insert(schema.users).values({ id, email, name: claims.name, passwordHash: null, googleSub: claims.sub });
+    await prisma.user.create({
+      data: { id, email: stripNul(email), name: stripNul(claims.name ?? null), passwordHash: null, googleSub: claims.sub },
+    });
     return { ok: true, userId: id, created: true, linked: false };
   } catch {
     // 동시 가입(같은 sub 또는 같은 이메일)으로 unique 제약에 걸린 경우
@@ -69,6 +66,6 @@ export async function upsertGoogleUser(claims: GoogleClaims): Promise<GoogleUpse
 }
 
 async function findBySub(sub: string): Promise<string | null> {
-  const [row] = await db.select({ id: schema.users.id }).from(schema.users).where(eq(schema.users.googleSub, sub)).limit(1);
+  const row = await prisma.user.findUnique({ where: { googleSub: sub }, select: { id: true } });
   return row?.id ?? null;
 }

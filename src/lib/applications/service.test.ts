@@ -4,21 +4,18 @@ import path from "node:path";
 import { afterAll, beforeAll, describe, expect, it, vi } from "vitest";
 import { ApplicationCreateInputSchema, type ApplicationCreateInput } from "@/lib/domain/applications";
 import { emptyResumeDocument, type ResumeDocument } from "@/lib/domain/resumes";
+import { createTestDb, type TestDb } from "@/test/db";
 
 vi.mock("server-only", () => ({}));
 
 const dir = mkdtempSync(path.join(tmpdir(), "rp-applications-"));
-process.env.DATABASE_URL = `file:${path.join(dir, "test.db")}`;
 const storageDir = path.join(dir, "storage");
 
 let service: typeof import("./service");
 let insights: typeof import("./insights-service");
 let resumes: typeof import("@/lib/resumes/service");
 let FeatureError: typeof import("@/lib/api/errors").FeatureError;
-let db: typeof import("@/lib/db/client").db;
-let schema: typeof import("@/lib/db/client").schema;
-let eq: typeof import("drizzle-orm").eq;
-let close: () => void;
+let tdb: TestDb;
 
 function doc(name: string): ResumeDocument {
   const d = emptyResumeDocument();
@@ -28,27 +25,24 @@ function doc(name: string): ResumeDocument {
 const input = (v: Partial<Record<keyof ApplicationCreateInput, unknown>>): ApplicationCreateInput => ApplicationCreateInputSchema.parse(v);
 
 async function postingStatus(id: string) {
-  const [p] = await db.select({ status: schema.jobPostings.status }).from(schema.jobPostings).where(eq(schema.jobPostings.id, id));
+  const p = await tdb.prisma.jobPosting.findUnique({ select: { status: true }, where: { id } });
   return p?.status;
 }
 
 beforeAll(async () => {
   for (const k of ["R2_ACCOUNT_ID", "R2_ACCESS_KEY_ID", "R2_SECRET_ACCESS_KEY", "R2_BUCKET"]) delete process.env[k];
   process.env.STORAGE_DIR = storageDir;
-  const { ensureDatabase } = await import("@/lib/db/migrate");
-  await ensureDatabase();
-  ({ db, schema } = await import("@/lib/db/client"));
-  ({ eq } = await import("drizzle-orm"));
-  close = () => db.$client.close();
-  for (const id of ["ua", "ub"]) await db.insert(schema.users).values({ id, email: `${id}@x.com`, passwordHash: "x" });
-  await db.insert(schema.jobPostings).values([
+  tdb = await createTestDb();
+  const db = tdb.prisma;
+  for (const id of ["ua", "ub"]) await db.user.create({ data: { id, email: `${id}@x.com`, passwordHash: "x" } });
+  await db.jobPosting.createMany({ data: [
     { id: "p1", userId: "ua", company: "페이랩", roleTitle: "백엔드 엔지니어", status: "planned" },
     { id: "p2", userId: "ua", company: "누아", roleTitle: "프론트엔드", status: "saved" },
     { id: "p3", userId: "ua", company: "제논", roleTitle: "데이터", status: "reviewing" },
     { id: "pb", userId: "ub", company: "남의 회사", roleTitle: "남의 직무" },
-  ]);
+  ] });
   // p1로 받은 완료 진단(적합도 81).
-  await db.insert(schema.diagnoses).values({
+  await db.diagnosis.create({ data: {
     id: "d1",
     userId: "ua",
     title: "페이랩 진단",
@@ -58,9 +52,9 @@ beforeAll(async () => {
     model: "test-model",
     status: "done",
     postingId: "p1",
-  });
-  await db.insert(schema.diagnosisStages).values({ diagnosisId: "d1", stage: "fit", status: "done", output: { matchScore: 81 } });
-  await db.insert(schema.diagnoses).values({
+  } });
+  await db.diagnosisStage.create({ data: { diagnosisId: "d1", stage: "fit", status: "done", output: { matchScore: 81 } } });
+  await db.diagnosis.create({ data: {
     id: "db1",
     userId: "ub",
     title: "남의 진단",
@@ -69,14 +63,14 @@ beforeAll(async () => {
     resumeText: "x",
     model: "test-model",
     status: "done",
-  });
+  } });
   service = await import("./service");
   insights = await import("./insights-service");
   resumes = await import("@/lib/resumes/service");
   ({ FeatureError } = await import("@/lib/api/errors"));
 });
-afterAll(() => {
-  close();
+afterAll(async () => {
+  await tdb.close();
   rmSync(dir, { recursive: true, force: true });
 });
 
@@ -180,7 +174,7 @@ describe("applications service", () => {
   });
 
   it("지원을 지우면 그 공고에 다른 지원이 없을 때만 공고를 '지원 예정'으로 되돌린다(R-14)", async () => {
-    await db.insert(schema.jobPostings).values({ id: "p4", userId: "ua", company: "라인", roleTitle: "iOS" });
+    await tdb.prisma.jobPosting.create({ data: { id: "p4", userId: "ua", company: "라인", roleTitle: "iOS" } });
     const a1 = await service.createApplication("ua", input({ postingId: "p4" }));
     const a2 = await service.createApplication("ua", input({ postingId: "p4", roleTitle: "iOS 시니어" }));
     expect(await postingStatus("p4")).toBe("applied");
@@ -189,23 +183,25 @@ describe("applications service", () => {
     expect(await service.deleteApplication("ua", a2.id)).toBe(true);
     expect(await postingStatus("p4")).toBe("planned");
     expect(await service.getApplication("ua", a2.id)).toBeNull();
-    const events = await db.select().from(schema.applicationEvents).where(eq(schema.applicationEvents.applicationId, a2.id));
+    const events = await tdb.prisma.applicationEvent.findMany({ where: { applicationId: a2.id } });
     expect(events).toEqual([]);
   });
 
   it("사용자가 공고를 '마감'으로 정리했으면 지원을 지워도 되돌리지 않는다", async () => {
-    await db.insert(schema.jobPostings).values({ id: "p5", userId: "ua", company: "쿠팡", roleTitle: "SRE" });
+    await tdb.prisma.jobPosting.create({ data: { id: "p5", userId: "ua", company: "쿠팡", roleTitle: "SRE" } });
     const a = await service.createApplication("ua", input({ postingId: "p5" }));
-    await db.update(schema.jobPostings).set({ status: "closed" }).where(eq(schema.jobPostings.id, "p5"));
+    await tdb.prisma.jobPosting.update({ where: { id: "p5" }, data: { status: "closed" } });
     await service.deleteApplication("ua", a.id);
     expect(await postingStatus("p5")).toBe("closed");
   });
 
   it("공고 연결을 옮기면 예전 공고를 되돌리고 새 공고를 '지원함'으로", async () => {
-    await db.insert(schema.jobPostings).values([
-      { id: "p6", userId: "ua", company: "당근", roleTitle: "BE" },
-      { id: "p7", userId: "ua", company: "당근", roleTitle: "BE2" },
-    ]);
+    await tdb.prisma.jobPosting.createMany({
+      data: [
+        { id: "p6", userId: "ua", company: "당근", roleTitle: "BE" },
+        { id: "p7", userId: "ua", company: "당근", roleTitle: "BE2" },
+      ],
+    });
     const a = await service.createApplication("ua", input({ postingId: "p6" }));
     await service.updateApplication("ua", a.id, { postingId: "p7" });
     expect(await postingStatus("p6")).toBe("planned");

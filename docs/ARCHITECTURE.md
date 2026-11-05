@@ -9,7 +9,21 @@
 - Next.js 16 App Router + TypeScript + Tailwind v4 (Node 런타임). **Next 16은 학습 데이터와 다르다** — 라우트 핸들러, `after()`,
   `cookies()`, `params`(Promise) 등은 `node_modules/next/dist/docs/`의 해당 문서를 먼저 읽고 쓴다. `middleware`는 `proxy`로 이름이 바뀌었다.
 - Claude API: `@anthropic-ai/sdk` 1.x, 모델 기본 `claude-opus-5-5`(env `ANTHROPIC_MODEL`).
-- DB: Drizzle ORM + libsql(로컬 SQLite 파일, 배포 Turso). 스키마 `src/lib/db/schema.ts`.
+- DB: PostgreSQL(로컬 docker `postgres:17-alpine`, 배포 Supabase ap-northeast-2) + Prisma ORM 7.
+  - 스키마 `prisma/schema.prisma`(테이블·컬럼은 `@@map`/`@map`으로 snake_case). 마이그레이션 `prisma/migrations`(baseline
+    `20261106000000_init`, 모든 테이블 RLS 켬·정책 없음 — Supabase Data API 차단, 앱의 `postgres` 역할은 우회).
+  - 클라이언트 `src/lib/db/client.ts`: `prisma`(지연 생성 싱글턴, globalThis 캐시) — `generator "prisma-client"` 출력
+    `src/generated/prisma`(git 제외, postinstall·build에서 생성) + 드라이버 어댑터 `PrismaPg`(풀 Vercel 3 / 그 밖 10).
+    Supabase Transaction pooler(6543)에서 동작한다. TLS·주소 규칙은 `src/lib/db/config.ts`, 오류 판별(P2002·P2003·P2025)과
+    NUL 문자 제거는 `src/lib/db/errors.ts`, 도메인 행 타입은 `src/lib/db/types.ts`.
+  - 주소: 런타임 `DATABASE_URL` → `POSTGRES_PRISMA_URL` → `POSTGRES_URL`, 마이그레이션 `DIRECT_URL` → `POSTGRES_URL_NON_POOLING` → 런타임 주소
+    (`prisma.config.ts`).
+  - 마이그레이션은 런타임에 적용하지 않는다. 로컬 `npm run db:migrate`(prisma migrate deploy), Vercel은 Production 빌드 끝에
+    `scripts/migrate.mjs`가 한 번(Preview는 `MIGRATE_ON_BUILD=1`일 때만).
+  - 동시성: Postgres는 쓰기를 한 줄로 세우지 않으므로(READ COMMITTED), 확인 후 삽입(하루 제한·버전 번호·레이트 리밋)은 트랜잭션 안
+    `pg_advisory_xact_lock`으로, 낙관적 갱신은 조건부 `updateMany`의 count로, 채팅 마지막 메시지 확인은 `SELECT … FOR UPDATE`로 한다.
+  - 삭제는 FK `ON DELETE CASCADE`/`SET NULL`이 자식 행을 정리한다. 텍스트·JSON은 저장 전에 NUL 문자를 지운다(Postgres는 `\0`을 못 담는다).
+  - 테스트는 Docker 없이 `src/test/db.ts`(PGlite + `pglite-prisma-adapter`에 같은 마이그레이션 적용, `setPrismaForTests`)를 쓴다.
 - 검증: zod 4. 테스트: vitest (`npm test`).
 - PDF: `@react-pdf/renderer`(서버에서 생성), 한글 폰트 내장.
 
@@ -19,7 +33,7 @@
 |---|---|
 | `src/lib/domain/schemas.ts` | 단계 키, 의존 관계, 각 단계 출력 zod 스키마, 입력 스키마 |
 | `src/lib/domain/reviewers.ts` | 심사위원 한국어 이름·역할·판정 라벨, `isPositiveVerdict(reviewer, verdict)` |
-| `src/lib/db/schema.ts`, `src/lib/db/client.ts` | 테이블·DB 클라이언트(`diagnoses.run_id`, 실행 원장 `diagnosis_runs` 포함) |
+| `prisma/schema.prisma`, `src/lib/db/client.ts`, `src/lib/db/types.ts` | 테이블·DB 클라이언트·행 타입(`diagnoses.run_id`, 실행 원장 `diagnosis_runs` 포함) |
 | `src/lib/llm/types.ts` | `LlmClient` 인터페이스 |
 | `src/lib/report/types.ts` | `ReportModel` — 웹/PDF/MD 렌더러의 유일한 입력 |
 
@@ -194,7 +208,7 @@ JD 키워드 칩은 웹·PDF 모두 찾음(초록)/못 찾음(빨강)으로 표�
 | 영역 | 파일 |
 |---|---|
 | A. 엔진 | `src/lib/llm/anthropic.ts`, `src/lib/llm/index.ts`, `src/test/fake-llm.ts`(테스트 전용), `src/lib/panel/**` (prompts, pipeline, quotes, runner, 테스트) |
-| B. 인증·데이터 접근 | `src/lib/auth/**`, `src/lib/db/migrate.ts`, `drizzle/**`, `src/app/(auth)/**`, `src/app/api/auth/**`, `src/proxy.ts`(필요 시) |
+| B. 인증·데이터 접근 | `src/lib/auth/**`, `prisma/**`, `src/lib/db/**`, `src/app/(auth)/**`, `src/app/api/auth/**`, `src/proxy.ts`(필요 시) |
 | C. 진단 API·수집 | `src/lib/ingest/**`, `src/lib/diagnoses/**`(조회·생성·제한·공유 서비스), `src/app/api/diagnoses/**`, `src/app/api/share/**` |
 | D. 보고서 모델·웹 렌더링 | `src/lib/report/model.ts`, `src/lib/report/markdown.ts`, `src/components/report/**` |
 | E. PDF | `src/lib/report/pdf.tsx`, `src/lib/report/fonts/**` |
@@ -225,7 +239,7 @@ export async function getCurrentUser(): Promise<{ id: string; email: string; nam
 export async function requireUser(nextPath?: string): Promise<{ id: string; email: string; name: string | null }>; // 없으면 redirect
 export async function requireApiUser(): Promise<{ id: string; email: string; name: string | null } | Response>;    // 없으면 401 Response
 export function assertSameOrigin(req: Request): Response | null;                                                   // 위반 시 403 Response
-// B. src/lib/db/migrate.ts — 앱 기동 시 1회 테이블 보장(drizzle migrator, 폴더 ./drizzle). instrumentation.ts의 register()에서 호출.
+// B. prisma/migrations — prisma migrate deploy로 적용(로컬 npm run db:migrate, Vercel Production 빌드 끝). 런타임은 적용하지 않는다.
 
 // C. src/lib/diagnoses/service.ts (server-only)
 export async function getDiagnosisForUser(id: string, userId: string): Promise<{ diagnosis: Diagnosis; stages: DiagnosisStage[] } | null>;
@@ -265,12 +279,12 @@ export async function renderReportPdf(r: ReportModel): Promise<Uint8Array>;
 | 자료 | 저장소 | 비고 |
 |---|---|---|
 | 경력 그래프(노드·관계) | Neo4j (`src/lib/graph/*`) | 노드마다 `userId`, 모든 쿼리 userId 조건 + 파라미터. 라벨·관계 이름은 화이트리스트만 Cypher에 들어간다. 본인 노드는 `Person`(API에서 id `"me"`) |
-| 채팅 스레드·메시지 | SQLite `chat_threads`·`chat_messages` | `kind: graph \| reviewer`. 그래프 변경안은 메시지 `data`(`graph-proposal`)와 `status`(proposed→applied/dismissed/failed) |
-| 포트폴리오 | SQLite `diagnoses.portfolio_text`·`portfolio_file_name` | 원본 파일은 보관하지 않고 추출 텍스트만 |
-| 회사별 이력서 메타·버전 | SQLite `company_resumes`·`resume_versions` | 버전 번호는 이력서별 유일(조건부 `INSERT … SELECT`로 예약) |
+| 채팅 스레드·메시지 | PostgreSQL `chat_threads`·`chat_messages` | `kind: graph \| reviewer`. 그래프 변경안은 메시지 `data`(`graph-proposal`)와 `status`(proposed→applied/dismissed/failed) |
+| 포트폴리오 | PostgreSQL `diagnoses.portfolio_text`·`portfolio_file_name` | 원본 파일은 보관하지 않고 추출 텍스트만 |
+| 회사별 이력서 메타·버전 | PostgreSQL `company_resumes`·`resume_versions` | 버전 번호는 이력서별 유일(이력서별 `pg_advisory_xact_lock` 트랜잭션에서 예약) |
 | 이력서 본문(버전별 JSON) | R2 또는 로컬 폴더 (`src/lib/storage`) | 키 `users/<userId>/resumes/<resumeId>/v<n>.json`. R2 변수 네 개가 모두 있으면 R2, 아니면 `STORAGE_DIR` |
 
-마이그레이션은 `drizzle/0003_career_chat_resumes.sql`(기존처럼 `ensureDatabase()`가 자동 적용). Neo4j 제약·인덱스는 첫 쿼리 때 `ensureGraphSchema()`가 만든다.
+테이블은 `prisma/migrations`의 baseline에 있다(예전 drizzle 0003에 해당). Neo4j 제약·인덱스는 첫 쿼리 때 `ensureGraphSchema()`가 만든다.
 
 개발용 Neo4j 실행(루프백 7474·7687에만 연다):
 
@@ -307,8 +321,8 @@ docker compose --env-file .env.local -p resume-career up -d neo4j
 
 ### 11-4. 공고 보관함·지원 현황·경력 대조 (2차)
 
-시그니처·소유권은 CONTRACTS-career.md §7. 마이그레이션 `drizzle/0004_career_postings_applications.sql`(`job_postings`, `posting_imports`,
-`applications`, `application_events`, `diagnoses.posting_id`, `company_resumes.posting_id`). 날짜·마감은 KST 순수 함수(`src/lib/time/kst.ts`,
+시그니처·소유권은 CONTRACTS-career.md §7. 테이블(baseline 마이그레이션, 예전 drizzle 0004에 해당): `job_postings`, `posting_imports`,
+`applications`, `application_events`, `diagnoses.posting_id`, `company_resumes.posting_id`. 날짜·마감은 KST 순수 함수(`src/lib/time/kst.ts`,
 `src/lib/postings/deadline.ts`)로만 계산한다 — 서버(UTC)와 브라우저가 같은 답을 낸다.
 
 - **공고 보관함** — `/app/postings`, `/app/postings/[id]`, `GET/POST /api/postings`, `GET/PATCH/DELETE /api/postings/[id]`.

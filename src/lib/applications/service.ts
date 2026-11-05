@@ -1,21 +1,22 @@
 import "server-only";
 /**
- * 지원 기록 저장소. 메타는 SQLite(applications·application_events), 제출 사본은 오브젝트 저장소
+ * 지원 기록 저장소. 메타는 PostgreSQL(applications·application_events, Prisma), 제출 사본은 오브젝트 저장소
  * users/<userId>/applications/<id>/submitted.json(ResumeDocument) + submitted-meta.json(양식·이름·버전 번호).
  *
  * - 모든 함수는 userId 소유권을 확인한다. 남의 지원은 null/false(라우트에서 404). 연결하는 공고·이력서·진단도 같은 사용자 것만 받는다.
- * - 단계 변경과 이벤트 기록, 연결된 공고 상태 갱신은 한 batch(트랜잭션)로 쓴다. 단계 변경은 '지금 단계가 읽은 값일 때만'
- *   바꾸고(조건부 UPDATE), 이벤트는 그 UPDATE가 실제로 한 행을 바꿨을 때만(changes() = 1) 넣는다 — 동시에 눌러도 이벤트는 한 번.
+ * - 단계 변경과 이벤트 기록, 연결된 공고 상태 갱신은 한 트랜잭션으로 쓴다. 단계 변경은 '지금 단계가 읽은 값일 때만'
+ *   바꾸고(조건부 UPDATE), 이벤트는 그 UPDATE가 실제로 한 행을 바꿨을 때만 넣는다 — 동시에 눌러도 이벤트는 한 번
+ *   (READ COMMITTED에서 늦은 UPDATE는 앞선 커밋 뒤 조건을 다시 확인해 0행이 된다).
  * - 제출 사본 고정: 이력서 버전을 지정하거나 지원서를 낸 단계(SUBMITTED_STAGES)로 들어갈 때 그 버전 본문을 복사한다
  *   (버전을 안 골랐으면 그때의 현재 버전). 원본 이력서를 지워도 사본은 남는다.
  * - 공고 상태: 지원서를 낸 지원이 생기면 공고를 '지원함'으로, 지원을 지워 그 공고의 지원이 하나도 안 남으면 '지원 예정'으로
  *   되돌린다(CareerLoop R-14 수정 — 다만 사용자가 이미 다른 상태로 바꿨다면 건드리지 않는다).
  */
-import { and, asc, count, desc, eq, inArray, ne, sql } from "drizzle-orm";
 import { customAlphabet } from "nanoid";
 import { FeatureError } from "@/lib/api/errors";
-import { db } from "@/lib/db/client";
-import { applicationEvents, applications, diagnoses, diagnosisStages, jobPostings, type ApplicationEventRow, type ApplicationRow } from "@/lib/db/schema";
+import { prisma, type Db, type Prisma } from "@/lib/db/client";
+import { stripNul } from "@/lib/db/errors";
+import type { ApplicationEventRow, ApplicationRow } from "@/lib/db/types";
 import {
   SUBMITTED_STAGES,
   type ApplicationCreateInput,
@@ -81,12 +82,8 @@ function submittedMetaKey(userId: string, applicationId: string): string {
 }
 
 async function ownedRow(userId: string, id: string): Promise<ApplicationRow | null> {
-  const [row] = await db
-    .select()
-    .from(applications)
-    .where(and(eq(applications.id, id), eq(applications.userId, userId)))
-    .limit(1);
-  return row ?? null;
+  const row = await prisma.application.findFirst({ where: { id, userId } });
+  return (row as ApplicationRow | null) ?? null;
 }
 
 // ---------------------------------------------------------------------------
@@ -94,29 +91,28 @@ async function ownedRow(userId: string, id: string): Promise<ApplicationRow | nu
 // ---------------------------------------------------------------------------
 
 export async function listApplications(userId: string, opts: { postingId?: string | null } = {}): Promise<JobApplication[]> {
-  const rows = await db
-    .select()
-    .from(applications)
-    .where(and(eq(applications.userId, userId), opts.postingId ? eq(applications.postingId, opts.postingId) : undefined))
-    .orderBy(desc(applications.updatedAt))
-    .limit(MAX_APPLICATIONS_PER_USER);
-  return rows.map(toApplication);
+  const rows = await prisma.application.findMany({
+    where: { userId, ...(opts.postingId ? { postingId: opts.postingId } : {}) },
+    orderBy: [{ updatedAt: "desc" }, { id: "desc" }],
+    take: MAX_APPLICATIONS_PER_USER,
+  });
+  return (rows as ApplicationRow[]).map(toApplication);
 }
 
 /** 지원들의 단계 이벤트(시간순). 지원 id 목록이 비면 빈 배열. */
 export async function listEvents(applicationIds: string[]): Promise<ApplicationEvent[]> {
   if (applicationIds.length === 0) return [];
-  const rows = [];
-  // SQLite 바인딩 변수 수 제한을 넘지 않게 나눠 읽는다.
+  const rows: ApplicationEventRow[] = [];
+  // 바인딩 변수가 너무 많아지지 않게 나눠 읽는다(조각마다 시간순이라 여러 조각이면 합친 뒤 다시 정렬한다).
   for (let i = 0; i < applicationIds.length; i += 500) {
     rows.push(
-      ...(await db
-        .select()
-        .from(applicationEvents)
-        .where(inArray(applicationEvents.applicationId, applicationIds.slice(i, i + 500)))
-        .orderBy(asc(applicationEvents.at), asc(applicationEvents.id))),
+      ...((await prisma.applicationEvent.findMany({
+        where: { applicationId: { in: applicationIds.slice(i, i + 500) } },
+        orderBy: [{ at: "asc" }, { id: "asc" }],
+      })) as ApplicationEventRow[]),
     );
   }
+  if (applicationIds.length > 500) rows.sort((a, b) => a.at.getTime() - b.at.getTime() || a.id - b.id);
   return rows.map(toEvent);
 }
 
@@ -159,21 +155,13 @@ export async function getSubmittedCopy(userId: string, id: string): Promise<Subm
 // ---------------------------------------------------------------------------
 
 async function ownedPosting(userId: string, postingId: string) {
-  const [p] = await db
-    .select({ id: jobPostings.id, company: jobPostings.company, roleTitle: jobPostings.roleTitle })
-    .from(jobPostings)
-    .where(and(eq(jobPostings.id, postingId), eq(jobPostings.userId, userId)))
-    .limit(1);
+  const p = await prisma.jobPosting.findFirst({ select: { id: true, company: true, roleTitle: true }, where: { id: postingId, userId } });
   if (!p) throw new FeatureError("연결할 공고를 찾을 수 없습니다.", 404);
   return p;
 }
 
 async function assertOwnedDiagnosis(userId: string, diagnosisId: string): Promise<void> {
-  const [d] = await db
-    .select({ id: diagnoses.id })
-    .from(diagnoses)
-    .where(and(eq(diagnoses.id, diagnosisId), eq(diagnoses.userId, userId)))
-    .limit(1);
+  const d = await prisma.diagnosis.findFirst({ select: { id: true }, where: { id: diagnosisId, userId } });
   if (!d) throw new FeatureError("연결할 진단을 찾을 수 없습니다.", 404);
 }
 
@@ -215,20 +203,20 @@ async function removeSubmitted(userId: string, applicationId: string): Promise<v
   }
 }
 
-/** 공고 상태 갱신 쿼리: 지원서를 낸 지원이 생기면 '지원함'(마감으로 정리한 공고는 그대로). */
-function markPostingApplied(userId: string, postingId: string) {
-  return db
-    .update(jobPostings)
-    .set({ status: "applied", updatedAt: new Date() })
-    .where(and(eq(jobPostings.id, postingId), eq(jobPostings.userId, userId), ne(jobPostings.status, "closed"), ne(jobPostings.status, "applied")));
+/** 공고 상태 갱신: 지원서를 낸 지원이 생기면 '지원함'(마감으로 정리한 공고는 그대로). */
+function markPostingApplied(tx: Db, userId: string, postingId: string) {
+  return tx.jobPosting.updateMany({
+    where: { id: postingId, userId, status: { notIn: ["closed", "applied"] } },
+    data: { status: "applied", updatedAt: new Date() },
+  });
 }
 
-/** 공고 상태 복원 쿼리: 이 공고에 남은 지원이 없고 지금 '지원함'이면 '지원 예정'으로(R-14). exceptId는 곧 떠날 지원. */
-function restorePostingIfOrphan(userId: string, postingId: string, exceptId: string) {
-  return db.run(sql`
-    UPDATE job_postings SET status = 'planned', updated_at = ${Date.now()}
-    WHERE id = ${postingId} AND user_id = ${userId} AND status = 'applied'
-      AND NOT EXISTS (SELECT 1 FROM applications WHERE posting_id = ${postingId} AND user_id = ${userId} AND id <> ${exceptId})`);
+/** 공고 상태 복원: 이 공고에 남은 지원이 없고 지금 '지원함'이면 '지원 예정'으로(R-14). exceptId는 곧 떠날 지원. */
+function restorePostingIfOrphan(tx: Db, userId: string, postingId: string, exceptId: string) {
+  return tx.jobPosting.updateMany({
+    where: { id: postingId, userId, status: "applied", applications: { none: { userId, id: { not: exceptId } } } },
+    data: { status: "planned", updatedAt: new Date() },
+  });
 }
 
 // ---------------------------------------------------------------------------
@@ -236,8 +224,8 @@ function restorePostingIfOrphan(userId: string, postingId: string, exceptId: str
 // ---------------------------------------------------------------------------
 
 export async function createApplication(userId: string, input: ApplicationCreateInput): Promise<ApplicationDetail> {
-  const [stat] = await db.select({ n: count() }).from(applications).where(eq(applications.userId, userId));
-  if ((stat?.n ?? 0) >= MAX_APPLICATIONS_PER_USER) {
+  const n = await prisma.application.count({ where: { userId } });
+  if (n >= MAX_APPLICATIONS_PER_USER) {
     throw new FeatureError(`지원 기록은 ${MAX_APPLICATIONS_PER_USER}건까지 남길 수 있습니다. 오래된 기록을 지워 주세요.`, 409);
   }
   const posting = input.postingId ? await ownedPosting(userId, input.postingId) : null;
@@ -255,30 +243,32 @@ export async function createApplication(userId: string, input: ApplicationCreate
   if (input.resumeId && !snap && !titleOnly) throw new FeatureError("고른 이력서를 찾을 수 없습니다.", 404);
   const now = new Date();
   try {
-    await db.batch([
-      db.insert(applications).values({
-        id,
-        userId,
-        postingId: posting?.id ?? null,
-        company: company.slice(0, 150),
-        roleTitle: roleTitle.slice(0, 250),
-        stage: input.stage,
-        appliedAt: input.appliedAt ?? (submitted ? kstToday(now) : null),
-        nextStep: input.nextStep || null,
-        nextDate: input.nextDate,
-        note: input.note.trim() || null,
-        favorite: input.favorite,
-        resumeId: input.resumeId,
-        resumeVersionId: snap?.resumeVersionId ?? null,
-        resumeLabel: snap?.resumeLabel ?? titleOnly,
-        submittedKey: snap?.submittedKey ?? null,
-        diagnosisId: input.diagnosisId,
-        createdAt: now,
-        updatedAt: now,
-      }),
-      db.insert(applicationEvents).values({ applicationId: id, fromStage: null, toStage: input.stage, at: now }),
-      ...(posting && submitted ? [markPostingApplied(userId, posting.id)] : []),
-    ]);
+    await prisma.$transaction(async (tx) => {
+      await tx.application.create({
+        data: {
+          id,
+          userId,
+          postingId: posting?.id ?? null,
+          company: stripNul(company.slice(0, 150)),
+          roleTitle: stripNul(roleTitle.slice(0, 250)),
+          stage: input.stage,
+          appliedAt: input.appliedAt ?? (submitted ? kstToday(now) : null),
+          nextStep: stripNul(input.nextStep || null),
+          nextDate: input.nextDate,
+          note: stripNul(input.note.trim() || null),
+          favorite: input.favorite,
+          resumeId: input.resumeId,
+          resumeVersionId: snap?.resumeVersionId ?? null,
+          resumeLabel: snap?.resumeLabel ?? titleOnly,
+          submittedKey: snap?.submittedKey ?? null,
+          diagnosisId: input.diagnosisId,
+          createdAt: now,
+          updatedAt: now,
+        },
+      });
+      await tx.applicationEvent.create({ data: { applicationId: id, fromStage: null, toStage: input.stage, at: now } });
+      if (posting && submitted) await markPostingApplied(tx, userId, posting.id);
+    });
   } catch (err) {
     if (snap) await removeSubmitted(userId, id);
     throw err;
@@ -296,7 +286,7 @@ async function resumeTitleLabel(userId: string, resumeId: string): Promise<strin
 export async function updateApplication(userId: string, id: string, patch: ApplicationUpdateInput): Promise<ApplicationDetail | null> {
   const row = await ownedRow(userId, id);
   if (!row) return null;
-  const set: Partial<typeof applications.$inferInsert> = { updatedAt: new Date() };
+  const set: Prisma.ApplicationUncheckedUpdateManyInput = { updatedAt: new Date() };
 
   // 공고 연결
   const postingChanged = patch.postingId !== undefined && patch.postingId !== row.postingId;
@@ -307,13 +297,13 @@ export async function updateApplication(userId: string, id: string, patch: Appli
   const company = patch.company !== undefined ? patch.company || posting?.company || "" : row.company;
   const roleTitle = patch.roleTitle !== undefined ? patch.roleTitle || posting?.roleTitle || "" : row.roleTitle;
   if (!company || !roleTitle) throw new FeatureError("회사와 직무를 입력하세요.", 400);
-  if (patch.company !== undefined) set.company = company.slice(0, 150);
-  if (patch.roleTitle !== undefined) set.roleTitle = roleTitle.slice(0, 250);
+  if (patch.company !== undefined) set.company = stripNul(company.slice(0, 150));
+  if (patch.roleTitle !== undefined) set.roleTitle = stripNul(roleTitle.slice(0, 250));
 
   if (patch.appliedAt !== undefined) set.appliedAt = patch.appliedAt;
-  if (patch.nextStep !== undefined) set.nextStep = patch.nextStep || null;
+  if (patch.nextStep !== undefined) set.nextStep = stripNul(patch.nextStep || null);
   if (patch.nextDate !== undefined) set.nextDate = patch.nextDate;
-  if (patch.note !== undefined) set.note = patch.note.trim() || null;
+  if (patch.note !== undefined) set.note = stripNul(patch.note.trim() || null);
   if (patch.favorite !== undefined) set.favorite = patch.favorite;
   if (patch.diagnosisId !== undefined) {
     if (patch.diagnosisId) await assertOwnedDiagnosis(userId, patch.diagnosisId);
@@ -348,20 +338,17 @@ export async function updateApplication(userId: string, id: string, patch: Appli
     }
   }
 
-  await db.batch([
-    db
-      .update(applications)
-      .set(set)
-      .where(and(eq(applications.id, id), eq(applications.userId, userId))),
-    ...(postingChanged && row.postingId ? [restorePostingIfOrphan(userId, row.postingId, id)] : []),
-    ...(posting && isSubmitted(row.stage) ? [markPostingApplied(userId, posting.id)] : []),
-  ]);
+  await prisma.$transaction(async (tx) => {
+    await tx.application.updateMany({ where: { id, userId }, data: set });
+    if (postingChanged && row.postingId) await restorePostingIfOrphan(tx, userId, row.postingId, id);
+    if (posting && isSubmitted(row.stage)) await markPostingApplied(tx, userId, posting.id);
+  });
   if (dropCopy) await removeSubmitted(userId, id);
   return getApplication(userId, id);
 }
 
 /**
- * 단계 변경 + 이벤트(한 batch). 같은 단계면 아무것도 쓰지 않는다. 읽은 뒤 다른 요청이 먼저 단계를 바꿨으면 409.
+ * 단계 변경 + 이벤트(한 트랜잭션). 같은 단계면 아무것도 쓰지 않는다. 읽은 뒤 다른 요청이 먼저 단계를 바꿨으면 409.
  * 지원서를 낸 단계로 처음 들어가면 지원일(비어 있으면 오늘)과 제출 사본(이력서가 연결돼 있고 아직 없으면)을 채운다.
  */
 export async function changeStage(userId: string, id: string, input: ApplicationStageInput): Promise<ApplicationDetail | null> {
@@ -370,7 +357,7 @@ export async function changeStage(userId: string, id: string, input: Application
   if (row.stage === input.stage) return getApplication(userId, id);
 
   const entering = isSubmitted(input.stage);
-  const set: Partial<typeof applications.$inferInsert> = { stage: input.stage, updatedAt: new Date() };
+  const set: Prisma.ApplicationUncheckedUpdateManyInput = { stage: input.stage, updatedAt: new Date() };
   if (entering && !row.appliedAt) set.appliedAt = kstToday();
   if (entering && !row.submittedKey && row.resumeId) {
     try {
@@ -380,27 +367,23 @@ export async function changeStage(userId: string, id: string, input: Application
       console.warn("[changeStage] 제출 사본을 고정하지 못했습니다", id, err instanceof Error ? err.message : err);
     }
   }
-  const now = Date.now();
-  const [updated] = await db.batch([
-    db
-      .update(applications)
-      .set(set)
-      .where(and(eq(applications.id, id), eq(applications.userId, userId), eq(applications.stage, row.stage)))
-      .returning({ id: applications.id }),
-    // 바로 앞 UPDATE가 실제로 한 행을 바꿨을 때만 이벤트를 남긴다(동시 요청이면 한 번만).
-    db.run(sql`
-      INSERT INTO application_events (application_id, from_stage, to_stage, note, at)
-      SELECT ${id}, ${row.stage}, ${input.stage}, ${input.note || null}, ${now} WHERE changes() = 1`),
-    ...(entering && row.postingId
-      ? [
-          db.run(sql`
-            UPDATE job_postings SET status = 'applied', updated_at = ${now}
-            WHERE id = ${row.postingId} AND user_id = ${userId} AND status NOT IN ('applied', 'closed')
-              AND EXISTS (SELECT 1 FROM applications WHERE id = ${id} AND stage = ${input.stage})`),
-        ]
-      : []),
-  ]);
-  if (updated.length === 0) throw new FeatureError("다른 곳에서 이 지원의 단계를 먼저 바꿨습니다. 새로고침한 뒤 다시 시도해 주세요.", 409);
+  const now = new Date();
+  const changed = await prisma.$transaction(async (tx) => {
+    const { count } = await tx.application.updateMany({ where: { id, userId, stage: row.stage }, data: set });
+    // 다른 요청이 먼저 단계를 바꿨다: 이벤트·공고는 건드리지 않는다.
+    if (count === 0) return false;
+    await tx.applicationEvent.create({
+      data: { applicationId: id, fromStage: row.stage, toStage: input.stage, note: stripNul(input.note || null), at: now },
+    });
+    if (entering && row.postingId) {
+      await tx.jobPosting.updateMany({
+        where: { id: row.postingId, userId, status: { notIn: ["applied", "closed"] } },
+        data: { status: "applied", updatedAt: now },
+      });
+    }
+    return true;
+  });
+  if (!changed) throw new FeatureError("다른 곳에서 이 지원의 단계를 먼저 바꿨습니다. 새로고침한 뒤 다시 시도해 주세요.", 409);
   return getApplication(userId, id);
 }
 
@@ -408,16 +391,13 @@ export async function changeStage(userId: string, id: string, input: Application
 export async function deleteApplication(userId: string, id: string): Promise<boolean> {
   const row = await ownedRow(userId, id);
   if (!row) return false;
-  const [, deleted] = await db.batch([
-    // 이벤트 cascade는 PRAGMA foreign_keys에 달려 있어(원격 libsql/Turso는 요청마다 새 연결) 명시적으로 지운다.
-    db.delete(applicationEvents).where(eq(applicationEvents.applicationId, id)),
-    db
-      .delete(applications)
-      .where(and(eq(applications.id, id), eq(applications.userId, userId)))
-      .returning({ id: applications.id }),
-    ...(row.postingId ? [restorePostingIfOrphan(userId, row.postingId, id)] : []),
-  ]);
-  if (deleted.length === 0) return false;
+  const deleted = await prisma.$transaction(async (tx) => {
+    // 이벤트는 FK(ON DELETE CASCADE)로 함께 지워진다.
+    const { count } = await tx.application.deleteMany({ where: { id, userId } });
+    if (count > 0 && row.postingId) await restorePostingIfOrphan(tx, userId, row.postingId, id);
+    return count > 0;
+  });
+  if (!deleted) return false;
   await removeSubmitted(userId, id);
   return true;
 }
@@ -434,32 +414,24 @@ export async function matchScoresFor(userId: string, apps: readonly JobApplicati
   const postingIds = [...new Set(apps.map((a) => a.postingId).filter((x): x is string => !!x))];
   const directIds = [...new Set(apps.map((a) => a.diagnosisId).filter((x): x is string => !!x))];
   if (postingIds.length === 0 && directIds.length === 0) return new Map();
-  const diagRows = await db
-    .select({ id: diagnoses.id, postingId: diagnoses.postingId, createdAt: diagnoses.createdAt })
-    .from(diagnoses)
-    .where(
-      and(
-        eq(diagnoses.userId, userId),
-        eq(diagnoses.status, "done"),
-        sql`(${directIds.length ? inArray(diagnoses.id, directIds) : sql`0`} OR ${postingIds.length ? inArray(diagnoses.postingId, postingIds) : sql`0`})`,
-      ),
-    )
-    .orderBy(desc(diagnoses.createdAt))
-    .limit(2000);
+  const diagRows = await prisma.diagnosis.findMany({
+    select: { id: true, postingId: true, createdAt: true },
+    where: {
+      userId,
+      status: "done",
+      OR: [
+        ...(directIds.length ? [{ id: { in: directIds } }] : []),
+        ...(postingIds.length ? [{ postingId: { in: postingIds } }] : []),
+      ],
+    },
+    orderBy: [{ createdAt: "desc" }, { id: "desc" }],
+    take: 2000,
+  });
   if (diagRows.length === 0) return new Map();
-  const fits = await db
-    .select({ diagnosisId: diagnosisStages.diagnosisId, output: diagnosisStages.output })
-    .from(diagnosisStages)
-    .where(
-      and(
-        inArray(
-          diagnosisStages.diagnosisId,
-          diagRows.map((d) => d.id),
-        ),
-        eq(diagnosisStages.stage, "fit"),
-        eq(diagnosisStages.status, "done"),
-      ),
-    );
+  const fits = await prisma.diagnosisStage.findMany({
+    select: { diagnosisId: true, output: true },
+    where: { diagnosisId: { in: diagRows.map((d) => d.id) }, stage: "fit", status: "done" },
+  });
   const scoreByDiag = new Map<string, number>();
   for (const f of fits) {
     const s = (f.output as { matchScore?: unknown } | null)?.matchScore;

@@ -1,6 +1,5 @@
 import { featureErrorResponse } from "@/lib/api/errors";
 import { assertSameOrigin, requireApiUser } from "@/lib/auth/session";
-import { ensureDatabase } from "@/lib/db/migrate";
 import { hitDbLimit, RESUME_DRAFT_LIMIT } from "@/lib/auth/db-rate-limit";
 import { createResumeFromInput } from "@/lib/resumes/create";
 import { jsonError } from "@/lib/diagnoses/http";
@@ -15,7 +14,6 @@ export const runtime = "nodejs";
 export const maxDuration = 300;
 
 export async function GET() {
-  await ensureDatabase();
   const user = await requireApiUser();
   if (user instanceof Response) return user;
   try {
@@ -30,7 +28,6 @@ export async function GET() {
  * postingId(보관 공고)를 주면 내 공고인지 확인하고, 비운 회사·직무·JD를 공고 값으로 채운 뒤 이력서를 공고에 연결한다.
  */
 export async function POST(req: Request) {
-  await ensureDatabase();
   const forbidden = assertSameOrigin(req);
   if (forbidden) return forbidden;
   const user = await requireApiUser();

@@ -1,5 +1,5 @@
 /**
- * 공고 저장소·가져오기 작업(실제 SQLite 임시 파일, 페이지 가져오기·LLM은 가짜): 소유권, 중복 URL 409,
+ * 공고 저장소·가져오기 작업(PGlite 테스트 DB, 페이지 가져오기·LLM은 가짜): 소유권, 중복 URL 409,
  * 마감 합치기, 가져오기 동시 실행 1회·안전한 오류·멈춘 작업 재실행, 진단·이력서의 공고 연결.
  */
 import { mkdtempSync } from "node:fs";
@@ -7,33 +7,29 @@ import { tmpdir } from "node:os";
 import path from "node:path";
 import { afterAll, beforeAll, describe, expect, it, vi } from "vitest";
 import { PostingCreateInputSchema } from "@/lib/domain/postings";
+import { createTestDb, type TestDb } from "@/test/db";
 import { FakeLlmClient } from "@/test/fake-llm";
 
 vi.mock("server-only", () => ({}));
 
 const dir = mkdtempSync(path.join(tmpdir(), "rp-postings-"));
-process.env.DATABASE_URL = `file:${path.join(dir, "test.db")}`;
-
+let tdb: TestDb;
 let service: typeof import("./service");
 let imports: typeof import("./imports");
-let db: typeof import("@/lib/db/client").db;
-let schema: typeof import("@/lib/db/client").schema;
 let FeatureError: typeof import("@/lib/api/errors").FeatureError;
 
 const input = (v: Record<string, unknown>) => PostingCreateInputSchema.parse(v);
 const PAGE_HTML = `<div>회사: 페이랩</div><div>모집 직무: 백엔드 개발자</div><div>근무지: 서울</div><div>접수 마감: 2026.11.20 18:00</div><p>${"정규직 백엔드 개발자를 채용합니다. Python과 SQL 경험이 필요합니다. ".repeat(5)}</p>`;
 
 beforeAll(async () => {
-  const { ensureDatabase } = await import("@/lib/db/migrate");
-  await ensureDatabase();
-  ({ db, schema } = await import("@/lib/db/client"));
-  for (const id of ["ua", "ub"]) await db.insert(schema.users).values({ id, email: `${id}@x.com`, passwordHash: "x" });
+  tdb = await createTestDb();
+  for (const id of ["ua", "ub"]) await tdb.prisma.user.create({ data: { id, email: `${id}@x.com`, passwordHash: "x" } });
   service = await import("./service");
   imports = await import("./imports");
   ({ FeatureError } = await import("@/lib/api/errors"));
 });
 
-afterAll(() => db.$client.close());
+afterAll(() => tdb.close());
 
 describe("공고 저장소", () => {
   it("만들고 읽고, 남의 공고는 없는 것과 같다", async () => {
@@ -83,44 +79,38 @@ describe("공고 저장소", () => {
 
   it("삭제하면 연결된 진단·이력서는 남고 postingId만 null", async () => {
     const p = await service.createPosting("ua", input({ company: "Del", roleTitle: "R" }));
-    await db.insert(schema.diagnoses).values({
-      id: "dg-del",
-      userId: "ua",
-      title: "t",
-      targetRole: "R",
-      situation: "general",
-      resumeText: "r",
-      model: "m",
-      postingId: p.id,
+    await tdb.prisma.diagnosis.create({
+      data: { id: "dg-del", userId: "ua", title: "t", targetRole: "R", situation: "general", resumeText: "r", model: "m", postingId: p.id },
     });
     expect((await service.listPostingLinks("ua", p.id)).diagnoses.map((d) => d.id)).toEqual(["dg-del"]);
     expect((await service.listPostingLinks("ub", p.id)).diagnoses).toEqual([]);
     expect(await service.deletePosting("ua", p.id)).toBe(true);
-    const [row] = await db.select().from(schema.diagnoses).where((await import("drizzle-orm")).eq(schema.diagnoses.id, "dg-del"));
+    const row = await tdb.prisma.diagnosis.findUnique({ where: { id: "dg-del" } });
     expect(row?.postingId).toBeNull();
   });
 });
 
-describe("FK 설정과 무관한 삭제", () => {
-  it("PRAGMA foreign_keys가 꺼진 연결(원격 Turso)에서도 공고를 지우면 연결이 끊긴다", async () => {
-    const { eq } = await import("drizzle-orm");
-    const p = await service.createPosting("ua", input({ company: "NoFK", roleTitle: "R" }));
-    await db.insert(schema.diagnoses).values({
-      id: "dg-nofk", userId: "ua", title: "t", targetRole: "R", situation: "general", resumeText: "r", model: "m", postingId: p.id,
+describe("공고 삭제와 FK", () => {
+  it("공고를 지우면 연결된 진단·이력서·지원·가져오기는 남고 postingId만 null(ON DELETE SET NULL)", async () => {
+    const p = await service.createPosting("ua", input({ company: "FK", roleTitle: "R" }));
+    await tdb.prisma.diagnosis.create({
+      data: { id: "dg-fk", userId: "ua", title: "t", targetRole: "R", situation: "general", resumeText: "r", model: "m", postingId: p.id },
     });
-    await db.insert(schema.companyResumes).values({
-      id: "rs-nofk", userId: "ua", company: "NoFK", roleTitle: "R", templateId: "performance", title: "t", postingId: p.id,
+    await tdb.prisma.companyResume.create({
+      data: { id: "rs-fk", userId: "ua", company: "FK", roleTitle: "R", templateId: "performance", title: "t", postingId: p.id },
     });
-    await db.$client.execute("PRAGMA foreign_keys = OFF");
-    try {
-      expect(await service.deletePosting("ua", p.id)).toBe(true);
-    } finally {
-      await db.$client.execute("PRAGMA foreign_keys = ON");
-    }
-    const [d] = await db.select().from(schema.diagnoses).where(eq(schema.diagnoses.id, "dg-nofk"));
-    const [r] = await db.select().from(schema.companyResumes).where(eq(schema.companyResumes.id, "rs-nofk"));
-    expect(d?.postingId).toBeNull();
-    expect(r?.postingId).toBeNull();
+    await tdb.prisma.application.create({ data: { id: "ap-fk", userId: "ua", company: "FK", roleTitle: "R", postingId: p.id } });
+    await tdb.prisma.postingImport.create({ data: { id: "im-fk", userId: "ua", url: "https://x.example/1", status: "completed", postingId: p.id } });
+    expect(await service.deletePosting("ua", p.id)).toBe(true);
+    expect((await tdb.prisma.diagnosis.findUnique({ where: { id: "dg-fk" } }))?.postingId).toBeNull();
+    expect((await tdb.prisma.companyResume.findUnique({ where: { id: "rs-fk" } }))?.postingId).toBeNull();
+    expect((await tdb.prisma.application.findUnique({ where: { id: "ap-fk" } }))?.postingId).toBeNull();
+    expect((await tdb.prisma.postingImport.findUnique({ where: { id: "im-fk" } }))?.postingId).toBeNull();
+  });
+
+  it("NUL 문자가 섞인 입력도 저장한다(Postgres text는 NUL을 받지 않으므로 지운다)", async () => {
+    const p = await service.createPosting("ua", input({ company: "N\u0000UL", roleTitle: "R", jdText: "a\u0000b" }));
+    expect(p).toMatchObject({ company: "NUL", jdText: "ab" });
   });
 });
 
@@ -198,15 +188,14 @@ describe("URL 가져오기 작업", () => {
   });
 
   it("5분 넘게 멈춘 작업은 다시 실행하고, 시도를 다 쓰면 실패로 닫는다", async () => {
-    const { eq } = await import("drizzle-orm");
     const { job } = await imports.createImport("ub", "https://jobs.example/stuck");
     const old = new Date(Date.now() - 6 * 60_000);
-    await db.update(schema.postingImports).set({ status: "analyzing", attempts: 1, updatedAt: old }).where(eq(schema.postingImports.id, job.id));
+    await tdb.prisma.postingImport.update({ where: { id: job.id }, data: { status: "analyzing", attempts: 1, updatedAt: old } });
     const stuck = await imports.getImport("ub", job.id);
     expect(imports.isImportStale(stuck!)).toBe(true);
     // 아직 멈추지 않은(최근 갱신) 진행 중 작업은 차지하지 않는다.
     const { job: fresh } = await imports.createImport("ub", "https://jobs.example/fresh");
-    await db.update(schema.postingImports).set({ status: "reading", attempts: 1 }).where(eq(schema.postingImports.id, fresh.id));
+    await tdb.prisma.postingImport.update({ where: { id: fresh.id }, data: { status: "reading", attempts: 1 } });
     const llm = new FakeLlmClient();
     const spy = vi.spyOn(llm, "generate");
     await imports.runImport(fresh.id, { llm, fetchPage });
@@ -216,17 +205,17 @@ describe("URL 가져오기 작업", () => {
     expect(await imports.getImport("ub", job.id)).toMatchObject({ status: "completed" });
 
     const { job: dead } = await imports.createImport("ub", "https://jobs.example/dead");
-    await db.update(schema.postingImports).set({ status: "reading", attempts: imports.MAX_IMPORT_ATTEMPTS, updatedAt: old }).where(eq(schema.postingImports.id, dead.id));
+    await tdb.prisma.postingImport.update({ where: { id: dead.id }, data: { status: "reading", attempts: imports.MAX_IMPORT_ATTEMPTS, updatedAt: old } });
     await imports.runImport(dead.id, { llm, fetchPage });
     expect(await imports.getImport("ub", dead.id)).toMatchObject({ status: "failed", error: expect.stringContaining("끊겼습니다") });
   });
 
   it("최근 24시간 20건을 넘으면 429(지운 공고와 무관하게 작업 행으로 센다)", async () => {
-    await db.insert(schema.users).values({ id: "uc", email: "uc@x.com", passwordHash: "x" });
+    await tdb.prisma.user.create({ data: { id: "uc", email: "uc@x.com", passwordHash: "x" } });
     const now = new Date();
-    await db.insert(schema.postingImports).values(
-      Array.from({ length: 20 }, (_, i) => ({ id: `lim-${i}`, userId: "uc", url: `https://jobs.example/l${i}`, status: "failed" as const, createdAt: now, updatedAt: now })),
-    );
+    await tdb.prisma.postingImport.createMany({
+      data: Array.from({ length: 20 }, (_, i) => ({ id: `lim-${i}`, userId: "uc", url: `https://jobs.example/l${i}`, status: "failed", createdAt: now, updatedAt: now })),
+    });
     await expect(imports.createImport("uc", "https://jobs.example/over")).rejects.toMatchObject({ status: 429 });
     expect((await imports.listRecentImports("uc")).length).toBe(10);
   });

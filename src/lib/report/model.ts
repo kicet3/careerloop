@@ -3,7 +3,7 @@
  * 완료(done)되고 스키마를 통과한 단계만 쓰므로, 일부 단계가 없어도 부분 보고서를 만든다.
  * 렌더러(웹·PDF·Markdown)가 공유하는 표시용 라벨·포맷 헬퍼도 여기서 내보낸다.
  */
-import type { Diagnosis, DiagnosisStage } from "@/lib/db/schema";
+import type { Diagnosis, DiagnosisStage } from "@/lib/db/types";
 import {
   REVIEWER_IDS,
   STAGE_KEYS,

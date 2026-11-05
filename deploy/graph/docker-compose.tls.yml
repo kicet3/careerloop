@@ -1,0 +1,25 @@
+# 오버레이: Bolt TLS 필수(포트는 그대로 127.0.0.1). 외부 공개는 docker-compose.public.yml을 함께 쓴다.
+# certs/bolt/public.crt, certs/bolt/private.key 가 있어야 한다(./sync-certs.sh 가 Let's Encrypt 인증서를 복사).
+# Vercel 앱은 NEO4J_URI=bolt+s://graph.example.com:7697 로 접속한다(라우팅 없는 직접 연결).
+services:
+  neo4j:
+    environment:
+      NEO4J_server_bolt_tls__level: REQUIRED
+      NEO4J_dbms_ssl_policy_bolt_enabled: "true"
+      NEO4J_dbms_ssl_policy_bolt_base__directory: /ssl/bolt
+      NEO4J_dbms_ssl_policy_bolt_private__key: private.key
+      NEO4J_dbms_ssl_policy_bolt_public__certificate: public.crt
+      NEO4J_dbms_ssl_policy_bolt_client__auth: NONE
+      # Neo4j Browser(https://graph.example.com)가 443 웹소켓으로 Bolt에 붙도록 알린다.
+      NEO4J_server_bolt_advertised__address: graph.example.com:443
+    volumes:
+      - ./certs/bolt:/ssl/bolt:ro
+    networks:
+      - default
+      - edge
+
+# cbt-nginx(https://graph.example.com)가 컨테이너 이름으로 붙는 네트워크
+networks:
+  edge:
+    name: cbt_bank_default
+    external: true

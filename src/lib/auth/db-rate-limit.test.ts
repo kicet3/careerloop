@@ -1,27 +1,18 @@
-import { mkdtempSync, rmSync } from "node:fs";
-import { tmpdir } from "node:os";
-import path from "node:path";
 import { afterAll, beforeAll, describe, expect, it, vi } from "vitest";
+import { createTestDb, type TestDb } from "@/test/db";
 
 vi.mock("server-only", () => ({}));
 
-const dir = mkdtempSync(path.join(tmpdir(), "rp-ratelimit-"));
-process.env.DATABASE_URL = `file:${path.join(dir, "test.db")}`;
-
 type Mod = typeof import("./db-rate-limit");
 let m: Mod;
+let tdb: TestDb;
 
 beforeAll(async () => {
-  const { ensureDatabase } = await import("@/lib/db/migrate");
-  await ensureDatabase();
+  tdb = await createTestDb();
   m = await import("./db-rate-limit");
 });
 
-afterAll(async () => {
-  const { db } = await import("@/lib/db/client");
-  db.$client.close();
-  rmSync(dir, { recursive: true, force: true });
-});
+afterAll(() => tdb.close());
 
 describe("hitDbLimit", () => {
   const rule = { bucket: "test", limit: 3, windowMs: 60_000 };
@@ -41,6 +32,7 @@ describe("hitDbLimit", () => {
   it("동시 요청도 한도를 넘지 못한다", async () => {
     const results = await Promise.all(Array.from({ length: 8 }, () => m.hitDbLimit(rule, "burst", 5_000_000)));
     expect(results.filter((r) => r.ok)).toHaveLength(3);
+    expect(await tdb.prisma.rateEvent.count({ where: { bucket: "test", key: "burst" } })).toBe(3);
   });
 
   it("IP는 해시로 저장한다", () => {

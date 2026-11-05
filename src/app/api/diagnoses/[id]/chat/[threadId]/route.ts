@@ -6,14 +6,12 @@
 import { featureErrorResponse } from "@/lib/api/errors";
 import { assertSameOrigin, requireApiUser } from "@/lib/auth/session";
 import { deleteReviewerThread, getReviewerThread } from "@/lib/chat/reviewer-chat";
-import { ensureDatabase } from "@/lib/db/migrate";
 
 export const runtime = "nodejs";
 
 type Ctx = { params: Promise<{ id: string; threadId: string }> };
 
 export async function GET(_req: Request, { params }: Ctx) {
-  await ensureDatabase();
   const user = await requireApiUser();
   if (user instanceof Response) return user;
   const { id, threadId } = await params;
@@ -27,7 +25,6 @@ export async function GET(_req: Request, { params }: Ctx) {
 }
 
 export async function DELETE(req: Request, { params }: Ctx) {
-  await ensureDatabase();
   const forbidden = assertSameOrigin(req);
   if (forbidden) return forbidden;
   const user = await requireApiUser();

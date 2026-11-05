@@ -1,7 +1,7 @@
 /**
  * 채용 공고 보관함 계약(클라이언트·서버 공용): 공고 상태·라벨, 입력 zod 스키마, API 응답 형태,
  * URL 가져오기 작업 상태, 공고 페이지 LLM 추출 출력(PostingFactsSchema).
- * 저장은 SQLite job_postings·posting_imports(src/lib/db/schema.ts). 마감 날짜는 KST 'YYYY-MM-DD'(src/lib/time/kst.ts).
+ * 저장은 PostgreSQL job_postings·posting_imports(prisma/schema.prisma). 마감 날짜는 KST 'YYYY-MM-DD'(src/lib/time/kst.ts).
  */
 import { z } from "zod";
 import { isValidKstDate, isValidKstTime } from "@/lib/time/kst";

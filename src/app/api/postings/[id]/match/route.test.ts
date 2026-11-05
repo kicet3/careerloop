@@ -6,7 +6,6 @@ import { GraphUnavailableError } from "@/lib/graph/errors";
 vi.mock("server-only", () => ({}));
 
 const state = vi.hoisted(() => ({ user: { id: "u1", email: "a@example.com", name: null } as { id: string } | null }));
-vi.mock("@/lib/db/migrate", () => ({ ensureDatabase: async () => {} }));
 vi.mock("@/lib/auth/session", () => ({
   requireApiUser: async () => state.user ?? Response.json({ error: "로그인이 필요합니다." }, { status: 401 }),
 }));

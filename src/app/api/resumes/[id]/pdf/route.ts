@@ -1,6 +1,5 @@
 import { featureErrorResponse } from "@/lib/api/errors";
 import { requireApiUser } from "@/lib/auth/session";
-import { ensureDatabase } from "@/lib/db/migrate";
 import { ResumeTemplateIdSchema } from "@/lib/domain/resumes";
 import { pdfResponse, resumeNotFound, resumePdfFileName } from "@/lib/resumes/http";
 import { renderResumePdf } from "@/lib/resumes/pdf";
@@ -11,7 +10,6 @@ export const maxDuration = 60;
 
 /** 이력서 PDF. ?version=<버전 id>(기본 현재 버전), ?template=<양식 id>(기본 이력서의 양식). */
 export async function GET(req: Request, { params }: { params: Promise<{ id: string }> }) {
-  await ensureDatabase();
   const user = await requireApiUser();
   if (user instanceof Response) return user;
   const { id } = await params;

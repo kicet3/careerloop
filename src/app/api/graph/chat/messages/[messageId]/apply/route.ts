@@ -1,7 +1,6 @@
 import { featureErrorResponse } from "@/lib/api/errors";
 import { assertSameOrigin, requireApiUser } from "@/lib/auth/session";
 import { applyGraphProposal } from "@/lib/chat/graph-chat";
-import { ensureDatabase } from "@/lib/db/migrate";
 
 export const runtime = "nodejs";
 
@@ -10,7 +9,6 @@ export const runtime = "nodejs";
  * (200 — 메시지 상태로 알린다). 이미 처리된 변경안은 409.
  */
 export async function POST(req: Request, { params }: { params: Promise<{ messageId: string }> }) {
-  await ensureDatabase();
   const forbidden = assertSameOrigin(req);
   if (forbidden) return forbidden;
   const user = await requireApiUser();

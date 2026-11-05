@@ -1,26 +1,23 @@
 /** 공고 대조 Neo4j 통합 테스트. NEO4J_URI가 있을 때만 돈다 — 다른 사용자의 그래프가 대조에 섞이지 않는지 본다. */
-import { mkdtempSync, rmSync } from "node:fs";
-import { tmpdir } from "node:os";
-import path from "node:path";
 import { nanoid } from "nanoid";
 import { afterAll, beforeAll, describe, expect, it, vi } from "vitest";
+import { createTestDb, type TestDb } from "@/test/db";
 
 vi.mock("server-only", () => ({}));
 
 const enabled = Boolean(process.env.NEO4J_URI);
 const userA = `test_${nanoid(8)}`;
 const userB = `test_${nanoid(8)}`;
-const dir = mkdtempSync(path.join(tmpdir(), "rp-match-int-"));
-process.env.DATABASE_URL = `file:${path.join(dir, "test.db")}`;
 
 describe.skipIf(!enabled)("match service (Neo4j)", () => {
+  let tdb: TestDb;
   beforeAll(async () => {
-    const { ensureDatabase } = await import("@/lib/db/migrate");
-    await ensureDatabase();
-    const { db, schema } = await import("@/lib/db/client");
+    tdb = await createTestDb();
     for (const id of [userA, userB]) {
-      await db.insert(schema.users).values({ id, email: `${id}@x.com`, passwordHash: "x" });
-      await db.insert(schema.jobPostings).values({ id: `p-${id}`, userId: id, company: "페이랩", roleTitle: "백엔드", jdText: "Kotlin, Kafka, Kubernetes" });
+      await tdb.prisma.user.create({ data: { id, email: `${id}@x.com`, passwordHash: "x" } });
+      await tdb.prisma.jobPosting.create({
+        data: { id: `p-${id}`, userId: id, company: "페이랩", roleTitle: "백엔드", jdText: "Kotlin, Kafka, Kubernetes" },
+      });
     }
     const { applyGraphOps } = await import("./service");
     // B만 Kafka·Kubernetes를 가졌다. A의 대조에 B의 기술이 보이면 안 된다.
@@ -46,9 +43,7 @@ describe.skipIf(!enabled)("match service (Neo4j)", () => {
     await deleteUserGraph(userA);
     await deleteUserGraph(userB);
     await closeDriver();
-    const { db } = await import("@/lib/db/client");
-    db.$client.close();
-    rmSync(dir, { recursive: true, force: true });
+    await tdb?.close();
   });
 
   it("내 그래프로만 대조하고, 증명한 경력의 성과를 붙인다", async () => {

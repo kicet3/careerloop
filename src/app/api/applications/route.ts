@@ -2,7 +2,6 @@ import { featureErrorResponse } from "@/lib/api/errors";
 import { limitWrite, MAX_APPLICATION_BODY_BYTES } from "@/lib/applications/http";
 import { createApplication, listApplications } from "@/lib/applications/service";
 import { assertSameOrigin, requireApiUser } from "@/lib/auth/session";
-import { ensureDatabase } from "@/lib/db/migrate";
 import { ApplicationCreateInputSchema } from "@/lib/domain/applications";
 import { readJsonInput } from "@/lib/resumes/http";
 
@@ -10,7 +9,6 @@ export const runtime = "nodejs";
 
 /** 지원 목록(최근 수정순). ?postingId=<공고 id>면 그 공고의 지원만. */
 export async function GET(req: Request) {
-  await ensureDatabase();
   const user = await requireApiUser();
   if (user instanceof Response) return user;
   const postingId = new URL(req.url).searchParams.get("postingId")?.trim() || null;
@@ -24,7 +22,6 @@ export async function GET(req: Request) {
 
 /** 지원 기록 추가. 공고를 고르면 회사·직무를 채우고 공고를 '지원함'으로 바꾼다. */
 export async function POST(req: Request) {
-  await ensureDatabase();
   const forbidden = assertSameOrigin(req);
   if (forbidden) return forbidden;
   const user = await requireApiUser();

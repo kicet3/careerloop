@@ -1,6 +1,5 @@
 import { readJson } from "@/lib/auth/http";
 import { assertSameOrigin, requireApiUser } from "@/lib/auth/session";
-import { ensureDatabase } from "@/lib/db/migrate";
 import { isCliProviderId } from "@/lib/domain/providers";
 import { errorResponse, jsonError } from "@/lib/diagnoses/http";
 import { cancelLogin, getConnection, logout, startLogin, submitLoginCode } from "@/lib/providers/service";
@@ -11,7 +10,6 @@ type Params = { params: Promise<{ id: string }> };
 
 /** CLI 엔진 하나의 연결 상태(로그인 진행 상태 포함). ?fresh=1이면 로그인 상태를 새로 확인한다. */
 export async function GET(req: Request, { params }: Params) {
-  await ensureDatabase();
   const user = await requireApiUser();
   if (user instanceof Response) return user;
   const { id } = await params;
@@ -29,7 +27,6 @@ export async function GET(req: Request, { params }: Params) {
  * 응답은 조작 뒤의 연결 상태.
  */
 export async function POST(req: Request, { params }: Params) {
-  await ensureDatabase();
   const forbidden = assertSameOrigin(req);
   if (forbidden) return forbidden;
   const user = await requireApiUser();

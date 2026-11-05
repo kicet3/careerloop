@@ -3,15 +3,16 @@
  * - 동시 실행 방지: 진단 상태를 queued/failed → running으로 조건부 갱신하며 새 runId를 정한다. 바뀐 행이 없으면 끝낸다.
  * - 실행 식별: 이후 모든 쓰기(진단·단계 행)는 "status=running AND run_id=내 runId"일 때만 반영된다. 멈춘 실행으로
  *   판정(markStaleRunsFailed)되고 재시도가 새 실행을 시작하면, 예전 실행의 늦은 쓰기는 아무 행에도 닿지 않는다.
+ *   (Postgres READ COMMITTED에서 조건부 UPDATE는 잠금 뒤 조건을 다시 보므로, 경쟁하는 두 실행 중 하나만 차지한다.)
  * - 하트비트: HEARTBEAT_MS마다 updatedAt을 갱신한다. 갱신이 0행이면(중단 판정·삭제·다른 실행이 차지) 파이프라인을
  *   중단(AbortSignal)해 더 이상 LLM을 부르지 않는다.
  * - 시간 예산: opts.deadlineAt이 있으면 그 시각에 중단하고 실패로 기록한다(함수 시간 제한에 강제 종료되기 전에).
  */
 import "server-only";
-import { and, eq, inArray, ne, sql } from "drizzle-orm";
 import { nanoid } from "nanoid";
-import { db } from "@/lib/db/client";
-import { diagnoses, diagnosisStages, type UsageTotals } from "@/lib/db/schema";
+import { Prisma, prisma } from "@/lib/db/client";
+import { stripNulDeep } from "@/lib/db/errors";
+import type { Diagnosis, UsageTotals } from "@/lib/db/types";
 import { STAGE_LABELS } from "@/lib/domain/reviewers";
 import { STAGE_KEYS, STAGE_SCHEMAS, type StageKey, type StageOutputs } from "@/lib/domain/schemas";
 import { DEADLINE_STOP_ERROR, HEARTBEAT_MS } from "@/lib/diagnoses/summary";
@@ -110,35 +111,34 @@ export async function runDiagnosis(
   const controller = new AbortController();
   let heartbeat: ReturnType<typeof setInterval> | undefined;
   let deadlineTimer: ReturnType<typeof setTimeout> | undefined;
-  const mine = and(eq(diagnoses.id, diagnosisId), eq(diagnoses.runId, runId), eq(diagnoses.status, "running"));
+  const mine = { id: diagnosisId, runId, status: "running" } satisfies Prisma.DiagnosisWhereInput;
   const loseOwnership = () => {
     if (!controller.signal.aborted) controller.abort(new RunAbortedError("lost_ownership"));
   };
 
   try {
-    const claimed = await db
-      .update(diagnoses)
-      .set({ status: "running", runId, error: null, completedAt: null, updatedAt: new Date() })
-      .where(and(eq(diagnoses.id, diagnosisId), inArray(diagnoses.status, ["queued", "failed"])))
-      .returning({ id: diagnoses.id });
-    if (claimed.length === 0) return; // 없거나 이미 실행 중/완료
+    const claimed = await prisma.diagnosis.updateMany({
+      where: { id: diagnosisId, status: { in: ["queued", "failed"] } },
+      data: { status: "running", runId, error: null, completedAt: null, updatedAt: new Date() },
+    });
+    if (claimed.count === 0) return; // 없거나 이미 실행 중/완료
 
-    const diagnosis = await db.query.diagnoses.findFirst({ where: eq(diagnoses.id, diagnosisId) });
+    const diagnosis = (await prisma.diagnosis.findUnique({ where: { id: diagnosisId } })) as Diagnosis | null;
     if (!diagnosis) return;
 
     // 단계 행이 빠져 있으면 만들고, 끝나지 않은 단계는 pending으로 되돌린다(멈춘 running 정리).
-    await db
-      .insert(diagnosisStages)
-      .values(STAGE_KEYS.map((stage) => ({ diagnosisId, stage })))
-      .onConflictDoNothing();
-    const rows = await db.select().from(diagnosisStages).where(eq(diagnosisStages.diagnosisId, diagnosisId));
-    const existing = existingOutputs(rows);
+    await prisma.diagnosisStage.createMany({
+      data: STAGE_KEYS.map((stage) => ({ diagnosisId, stage })),
+      skipDuplicates: true,
+    });
+    const rows = await prisma.diagnosisStage.findMany({ where: { diagnosisId } });
+    const existing = existingOutputs(rows as { stage: StageKey; status: string; output: unknown }[]);
     const rerun = STAGE_KEYS.filter((s) => existing[s] == null);
     if (rerun.length > 0) {
-      await db
-        .update(diagnosisStages)
-        .set({ status: "pending", error: null, output: null, startedAt: null, finishedAt: null })
-        .where(and(eq(diagnosisStages.diagnosisId, diagnosisId), inArray(diagnosisStages.stage, rerun)));
+      await prisma.diagnosisStage.updateMany({
+        where: { diagnosisId, stage: { in: rerun } },
+        data: { status: "pending", error: null, output: Prisma.DbNull, startedAt: null, finishedAt: null },
+      });
     }
 
     const input: PanelInput = {
@@ -154,21 +154,23 @@ export async function runDiagnosis(
     let usage: UsageTotals = { ...ZERO_USAGE, ...(diagnosis.usage ?? {}) };
     const failed: StageKey[] = [];
     // 단계 행 쓰기도 이 실행이 아직 진단을 소유할 때만 반영한다.
-    const ownsRun = sql`exists (select 1 from ${diagnoses} where ${diagnoses.id} = ${diagnosisId} and ${diagnoses.runId} = ${runId} and ${diagnoses.status} = 'running')`;
-    const stageWhere = (stage: StageKey) =>
-      and(eq(diagnosisStages.diagnosisId, diagnosisId), eq(diagnosisStages.stage, stage), ownsRun);
-    const writeStage = async (stage: StageKey, values: Partial<typeof diagnosisStages.$inferInsert>) => {
-      const rows = await db.update(diagnosisStages).set(values).where(stageWhere(stage)).returning({ id: diagnosisStages.id });
-      if (rows.length === 0) loseOwnership();
+    // (관계 필터 → EXISTS 서브쿼리)
+    const stageWhere = (stage: StageKey): Prisma.DiagnosisStageWhereInput => ({
+      diagnosisId,
+      stage,
+      diagnosis: { is: { runId, status: "running" } },
+    });
+    const writeStage = async (stage: StageKey, values: Prisma.DiagnosisStageUpdateManyMutationInput) => {
+      const rows = await prisma.diagnosisStage.updateMany({ where: stageWhere(stage), data: values });
+      if (rows.count === 0) loseOwnership();
     };
-    const touch = (extra: Partial<typeof diagnoses.$inferInsert> = {}) =>
+    const touch = (extra: { usage?: UsageTotals } = {}) =>
       serial(async () => {
-        const rows = await db
-          .update(diagnoses)
-          .set({ updatedAt: new Date(), ...extra })
-          .where(mine)
-          .returning({ id: diagnoses.id });
-        if (rows.length === 0) loseOwnership();
+        const rows = await prisma.diagnosis.updateMany({
+          where: mine,
+          data: { updatedAt: new Date(), ...(extra.usage ? { usage: { ...extra.usage } } : {}) },
+        });
+        if (rows.count === 0) loseOwnership();
       });
 
     heartbeat = setInterval(() => void touch().catch(() => undefined), opts?.heartbeatMs ?? HEARTBEAT_MS);
@@ -189,7 +191,9 @@ export async function runDiagnosis(
         await touch();
       },
       async onStageDone(stage, output, stageUsage) {
-        await writeStage(stage, { status: "done", output, error: null, finishedAt: new Date() });
+        // jsonb는 NUL(\u0000)을 받지 않는다 — LLM 출력의 문자열에서 지운다.
+        const json = stripNulDeep(output) as Prisma.InputJsonValue;
+        await writeStage(stage, { status: "done", output: json, error: null, finishedAt: new Date() });
         usage = addUsage(usage, stageUsage);
         const snapshot = usage;
         await touch({ usage: snapshot });
@@ -220,19 +224,19 @@ export async function runDiagnosis(
           ? `${failed.map((s) => STAGE_LABELS[s]).join(", ")} 단계가 실패했습니다. 다시 시도하면 완료된 단계는 건너뛰고 이어서 진행합니다.`
           : "일부 단계를 완료하지 못했습니다. 다시 시도해 주세요.";
     // 이 실행이 아직 소유한 경우에만 최종 상태를 쓴다(멈춤 판정 뒤 다른 실행이 시작됐으면 건드리지 않는다).
-    await db
-      .update(diagnoses)
-      .set({ status: ok ? "done" : "failed", error, completedAt: ok ? now : null, updatedAt: now, usage })
-      .where(mine);
+    await prisma.diagnosis.updateMany({
+      where: mine,
+      data: { status: ok ? "done" : "failed", error, completedAt: ok ? now : null, updatedAt: now, usage: { ...usage } },
+    });
   } catch (e) {
     console.error(`[runDiagnosis] ${diagnosisId} 실행 오류:`, e);
     try {
       clearInterval(heartbeat);
       await chain;
-      await db
-        .update(diagnoses)
-        .set({ status: "failed", error: "진단을 실행하는 중 오류가 발생했습니다. 다시 시도해 주세요.", updatedAt: new Date() })
-        .where(and(eq(diagnoses.id, diagnosisId), eq(diagnoses.runId, runId), ne(diagnoses.status, "done")));
+      await prisma.diagnosis.updateMany({
+        where: { id: diagnosisId, runId, status: { not: "done" } },
+        data: { status: "failed", error: "진단을 실행하는 중 오류가 발생했습니다. 다시 시도해 주세요.", updatedAt: new Date() },
+      });
     } catch (e2) {
       console.error(`[runDiagnosis] ${diagnosisId} 실패 상태 기록 실패:`, e2);
     }

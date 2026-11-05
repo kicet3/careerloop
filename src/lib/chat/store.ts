@@ -1,14 +1,23 @@
 import "server-only";
 /**
- * 채팅 스레드·메시지 저장(SQLite). 모든 조회·수정은 userId 소유권을 확인한다 — 남의 스레드는 '없음'(null/false)으로 본다.
- * 라우트 핸들러는 호출 전에 ensureDatabase()를 부른다(다른 라우트와 같은 관례).
+ * 채팅 스레드·메시지 저장(PostgreSQL). 모든 조회·수정은 userId 소유권을 확인한다 — 남의 스레드는 '없음'(null/false)으로 본다.
  */
-import { and, asc, desc, eq, isNull, sql, type SQL } from "drizzle-orm";
 import { nanoid } from "nanoid";
-import { db } from "@/lib/db/client";
-import { chatMessages, chatThreads, type ChatMessageRow, type ChatThreadRow, type UsageTotals } from "@/lib/db/schema";
+import { Prisma, prisma, type Db } from "@/lib/db/client";
+import { stripNul, stripNulDeep } from "@/lib/db/errors";
+import type { ChatMessageRow, ChatThreadRow, UsageTotals } from "@/lib/db/types";
 import type { ChatMessage, ChatMessageData, ChatMessageStatus, ChatRole, ChatThread, ChatThreadKind } from "@/lib/domain/chat";
 import type { ReviewerId } from "@/lib/domain/schemas";
+
+type ThreadModel = Prisma.ChatThreadGetPayload<object>;
+type MessageModel = Prisma.ChatMessageGetPayload<object>;
+const asThread = (row: ThreadModel) => row as ChatThreadRow;
+const asMessage = (row: MessageModel) => row as unknown as ChatMessageRow;
+
+/** JSON 컬럼에 쓸 값. null·undefined는 SQL NULL(Prisma.DbNull), 문자열의 NUL은 지운다. */
+function jsonValue(v: unknown): Prisma.InputJsonValue | typeof Prisma.DbNull {
+  return v === undefined || v === null ? Prisma.DbNull : (stripNulDeep(v) as Prisma.InputJsonValue);
+}
 
 export function toChatThread(row: ChatThreadRow): ChatThread {
   return {
@@ -49,29 +58,25 @@ export async function createThread(input: {
     throw new Error("심사위원 채팅에는 diagnosisId와 reviewer가 필요합니다");
   }
   const now = new Date();
-  const [row] = await db
-    .insert(chatThreads)
-    .values({
+  const row = await prisma.chatThread.create({
+    data: {
       id: nanoid(),
       userId: input.userId,
       kind: input.kind,
-      title: input.title.slice(0, 200),
+      title: stripNul(input.title).slice(0, 200),
       diagnosisId: input.diagnosisId ?? null,
       reviewer: input.reviewer ?? null,
       createdAt: now,
       updatedAt: now,
-    })
-    .returning();
-  return toChatThread(row!);
+    },
+  });
+  return toChatThread(asThread(row));
 }
 
 /** 소유자가 아니면 null. */
 export async function getThread(userId: string, threadId: string): Promise<ChatThread | null> {
-  const [row] = await db
-    .select()
-    .from(chatThreads)
-    .where(and(eq(chatThreads.id, threadId), eq(chatThreads.userId, userId)));
-  return row ? toChatThread(row) : null;
+  const row = await prisma.chatThread.findFirst({ where: { id: threadId, userId } });
+  return row ? toChatThread(asThread(row)) : null;
 }
 
 /** 최근 갱신 순. diagnosisId·reviewer를 주면 그 진단·심사위원의 스레드만. */
@@ -79,39 +84,30 @@ export async function listThreads(
   userId: string,
   filter: { kind?: ChatThreadKind; diagnosisId?: string | null; reviewer?: ReviewerId | null; limit?: number } = {},
 ): Promise<ChatThread[]> {
-  const conds: SQL[] = [eq(chatThreads.userId, userId)];
-  if (filter.kind) conds.push(eq(chatThreads.kind, filter.kind));
-  if (filter.diagnosisId !== undefined) {
-    conds.push(filter.diagnosisId === null ? isNull(chatThreads.diagnosisId) : eq(chatThreads.diagnosisId, filter.diagnosisId));
-  }
-  if (filter.reviewer !== undefined) {
-    conds.push(filter.reviewer === null ? isNull(chatThreads.reviewer) : eq(chatThreads.reviewer, filter.reviewer));
-  }
-  const rows = await db
-    .select()
-    .from(chatThreads)
-    .where(and(...conds))
-    .orderBy(desc(chatThreads.updatedAt))
-    .limit(Math.min(filter.limit ?? 50, 200));
-  return rows.map(toChatThread);
+  const where: Prisma.ChatThreadWhereInput = { userId };
+  if (filter.kind) where.kind = filter.kind;
+  if (filter.diagnosisId !== undefined) where.diagnosisId = filter.diagnosisId;
+  if (filter.reviewer !== undefined) where.reviewer = filter.reviewer;
+  const rows = await prisma.chatThread.findMany({
+    where,
+    orderBy: [{ updatedAt: "desc" }, { id: "desc" }],
+    take: Math.min(filter.limit ?? 50, 200),
+  });
+  return rows.map((r) => toChatThread(asThread(r)));
 }
 
 export async function renameThread(userId: string, threadId: string, title: string): Promise<boolean> {
-  const res = await db
-    .update(chatThreads)
-    .set({ title: title.slice(0, 200), updatedAt: new Date() })
-    .where(and(eq(chatThreads.id, threadId), eq(chatThreads.userId, userId)))
-    .returning({ id: chatThreads.id });
-  return res.length > 0;
+  const res = await prisma.chatThread.updateMany({
+    where: { id: threadId, userId },
+    data: { title: stripNul(title).slice(0, 200), updatedAt: new Date() },
+  });
+  return res.count > 0;
 }
 
-/** 메시지도 함께 지운다(FK cascade + 명시 삭제). */
+/** 메시지도 함께 지운다(FK ON DELETE CASCADE). 소유자가 아니거나 없으면 false. */
 export async function deleteThread(userId: string, threadId: string): Promise<boolean> {
-  const thread = await getThread(userId, threadId);
-  if (!thread) return false;
-  await db.delete(chatMessages).where(eq(chatMessages.threadId, threadId));
-  await db.delete(chatThreads).where(and(eq(chatThreads.id, threadId), eq(chatThreads.userId, userId)));
-  return true;
+  const res = await prisma.chatThread.deleteMany({ where: { id: threadId, userId } });
+  return res.count > 0;
 }
 
 // ---------------------------------------------------------------------------
@@ -134,7 +130,7 @@ export async function addMessage(
   },
   opts: {
     /**
-     * 지정하면 스레드의 마지막 메시지 id가 이것일 때만(null이면 메시지가 하나도 없을 때만) 넣는다 — 검사와 삽입이 한 문장이라
+     * 지정하면 스레드의 마지막 메시지 id가 이것일 때만(null이면 메시지가 하나도 없을 때만) 넣는다 — 스레드 행 잠금(FOR UPDATE) 트랜잭션 안에서 검사하고 넣으므로
      * 동시 요청 중 하나만 성공한다. 조건이 맞지 않으면 ConcurrentMessageError.
      */
     expectLastId?: string | null;
@@ -142,29 +138,37 @@ export async function addMessage(
 ): Promise<ChatMessage | null> {
   const thread = await getThread(userId, input.threadId);
   if (!thread) return null;
-  if (opts.expectLastId !== undefined) return addMessageIfLast(input, opts.expectLastId);
-  const [last] = await db
-    .select({ createdAt: chatMessages.createdAt })
-    .from(chatMessages)
-    .where(eq(chatMessages.threadId, input.threadId))
-    .orderBy(desc(chatMessages.createdAt))
-    .limit(1);
-  const now = new Date(Math.max(Date.now(), (last?.createdAt.getTime() ?? 0) + 1));
-  const [row] = await db
-    .insert(chatMessages)
-    .values({
+  return prisma.$transaction(async (tx) => {
+    // 스레드 행을 잠가 같은 스레드에 동시에 쓰는 요청을 줄 세운다(READ COMMITTED에서 '마지막 메시지' 검사와 createdAt 계산이
+    // 겹치지 않게). 그 사이 스레드가 지워졌으면 null.
+    const locked = await tx.$queryRaw<{ id: string }[]>`SELECT id FROM chat_threads WHERE id = ${input.threadId} FOR UPDATE`;
+    if (locked.length === 0) return null;
+    const last = await tx.chatMessage.findFirst({
+      where: { threadId: input.threadId },
+      orderBy: [{ createdAt: "desc" }, { id: "desc" }],
+      select: { id: true, createdAt: true },
+    });
+    if (opts.expectLastId !== undefined && (last?.id ?? null) !== opts.expectLastId) throw new ConcurrentMessageError();
+    const now = new Date(Math.max(Date.now(), (last?.createdAt.getTime() ?? 0) + 1));
+    const row = await insertMessage(tx, input, now);
+    await tx.chatThread.update({ where: { id: input.threadId }, data: { updatedAt: now } });
+    return toChatMessage(asMessage(row));
+  });
+}
+
+function insertMessage(db: Db, input: Parameters<typeof addMessage>[1], createdAt: Date): Promise<MessageModel> {
+  return db.chatMessage.create({
+    data: {
       id: nanoid(),
       threadId: input.threadId,
       role: input.role,
-      content: input.content,
-      data: input.data ?? null,
+      content: stripNul(input.content),
+      data: jsonValue(input.data),
       status: input.status ?? null,
-      usage: input.usage ?? null,
-      createdAt: now,
-    })
-    .returning();
-  await db.update(chatThreads).set({ updatedAt: now }).where(eq(chatThreads.id, input.threadId));
-  return toChatMessage(row!);
+      usage: jsonValue(input.usage),
+      createdAt,
+    },
+  });
 }
 
 /** addMessage(expectLastId)의 조건(마지막 메시지)이 맞지 않았다 — 다른 요청이 먼저 메시지를 넣었다. */
@@ -175,55 +179,26 @@ export class ConcurrentMessageError extends Error {
   }
 }
 
-async function addMessageIfLast(
-  input: Parameters<typeof addMessage>[1],
-  expectLastId: string | null,
-): Promise<ChatMessage> {
-  const id = nanoid();
-  const tid = input.threadId;
-  const cond =
-    expectLastId === null
-      ? sql`NOT EXISTS (SELECT 1 FROM chat_messages WHERE thread_id = ${tid})`
-      : sql`(SELECT id FROM chat_messages WHERE thread_id = ${tid} ORDER BY created_at DESC LIMIT 1) = ${expectLastId}`;
-  const json = (v: unknown) => (v === undefined || v === null ? null : JSON.stringify(v));
-  const rows = await db.all<{ id: string; created_at: number }>(sql`
-    INSERT INTO chat_messages (id, thread_id, role, content, data, status, usage, created_at)
-    SELECT ${id}, ${tid}, ${input.role}, ${input.content}, ${json(input.data)}, ${input.status ?? null}, ${json(input.usage)},
-      MAX(${Date.now()}, COALESCE((SELECT MAX(created_at) FROM chat_messages WHERE thread_id = ${tid}), 0) + 1)
-    WHERE ${cond}
-    RETURNING id, created_at`);
-  const inserted = rows[0];
-  if (!inserted) throw new ConcurrentMessageError();
-  await db.update(chatThreads).set({ updatedAt: new Date(Number(inserted.created_at)) }).where(eq(chatThreads.id, tid));
-  const [row] = await db.select().from(chatMessages).where(eq(chatMessages.id, id)).limit(1);
-  return toChatMessage(row!);
-}
-
 /** 오래된 순. limit을 주면 가장 최근 limit개(오래된 순으로 정렬해 반환). 소유자가 아니면 null. */
 export async function listMessages(userId: string, threadId: string, opts: { limit?: number } = {}): Promise<ChatMessage[] | null> {
   const thread = await getThread(userId, threadId);
   if (!thread) return null;
   if (opts.limit !== undefined) {
-    const rows = await db
-      .select()
-      .from(chatMessages)
-      .where(eq(chatMessages.threadId, threadId))
-      .orderBy(desc(chatMessages.createdAt))
-      .limit(opts.limit);
-    return rows.reverse().map(toChatMessage);
+    const rows = await prisma.chatMessage.findMany({
+      where: { threadId },
+      orderBy: [{ createdAt: "desc" }, { id: "desc" }],
+      take: opts.limit,
+    });
+    return rows.reverse().map((r) => toChatMessage(asMessage(r)));
   }
-  const rows = await db.select().from(chatMessages).where(eq(chatMessages.threadId, threadId)).orderBy(asc(chatMessages.createdAt));
-  return rows.map(toChatMessage);
+  const rows = await prisma.chatMessage.findMany({ where: { threadId }, orderBy: [{ createdAt: "asc" }, { id: "asc" }] });
+  return rows.map((r) => toChatMessage(asMessage(r)));
 }
 
 /** 소유자가 아니거나 없으면 null. */
 export async function getMessage(userId: string, messageId: string): Promise<ChatMessage | null> {
-  const [row] = await db
-    .select({ m: chatMessages })
-    .from(chatMessages)
-    .innerJoin(chatThreads, eq(chatThreads.id, chatMessages.threadId))
-    .where(and(eq(chatMessages.id, messageId), eq(chatThreads.userId, userId)));
-  return row ? toChatMessage(row.m) : null;
+  const row = await prisma.chatMessage.findFirst({ where: { id: messageId, thread: { userId } } });
+  return row ? toChatMessage(asMessage(row)) : null;
 }
 
 /**
@@ -238,15 +213,15 @@ export async function updateMessage(
 ): Promise<ChatMessage | null> {
   const current = await getMessage(userId, messageId);
   if (!current) return null;
-  const conds: SQL[] = [eq(chatMessages.id, messageId)];
-  if (opts.expectStatus !== undefined) {
-    conds.push(opts.expectStatus === null ? isNull(chatMessages.status) : eq(chatMessages.status, opts.expectStatus));
-  }
-  const set: Partial<typeof chatMessages.$inferInsert> = {};
-  if (patch.status !== undefined) set.status = patch.status;
-  if (patch.data !== undefined) set.data = patch.data;
-  if (patch.content !== undefined) set.content = patch.content;
-  if (Object.keys(set).length === 0) return current;
-  const [row] = await db.update(chatMessages).set(set).where(and(...conds)).returning();
-  return row ? toChatMessage(row) : null;
+  const where: Prisma.ChatMessageWhereInput = { id: messageId };
+  if (opts.expectStatus !== undefined) where.status = opts.expectStatus;
+  const data: Prisma.ChatMessageUpdateManyMutationInput = {};
+  if (patch.status !== undefined) data.status = patch.status;
+  if (patch.data !== undefined) data.data = jsonValue(patch.data);
+  if (patch.content !== undefined) data.content = stripNul(patch.content);
+  if (Object.keys(data).length === 0) return current;
+  const res = await prisma.chatMessage.updateMany({ where, data });
+  if (res.count === 0) return null;
+  const row = await prisma.chatMessage.findUnique({ where: { id: messageId } });
+  return row ? toChatMessage(asMessage(row)) : null;
 }

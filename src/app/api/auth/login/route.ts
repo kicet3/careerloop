@@ -1,11 +1,9 @@
-import { eq } from "drizzle-orm";
 import { authError, readJson } from "@/lib/auth/http";
 import { verifyAgainstDummy, verifyPassword } from "@/lib/auth/password";
 import { clientIp, loginAccountLimiter, loginIpLimiter, loginLimiter } from "@/lib/auth/rate-limit";
 import { assertSameOrigin, createSession } from "@/lib/auth/session";
 import { LoginInputSchema, toFieldErrors } from "@/lib/auth/validation";
-import { db, schema } from "@/lib/db/client";
-import { ensureDatabase } from "@/lib/db/migrate";
+import { prisma } from "@/lib/db/client";
 
 const INVALID = "이메일 또는 비밀번호가 올바르지 않습니다.";
 
@@ -31,8 +29,7 @@ export async function POST(req: Request) {
     }
   }
 
-  await ensureDatabase();
-  const [user] = await db.select().from(schema.users).where(eq(schema.users.email, email)).limit(1);
+  const user = await prisma.user.findUnique({ where: { email } });
   // 비밀번호를 아직 설정하지 않은 Google 계정(password_hash null)도 없는 계정과 같은 시간·같은 응답으로 거절한다.
   const ok = user?.passwordHash ? await verifyPassword(password, user.passwordHash) : await verifyAgainstDummy(password);
   if (!user || !ok) return authError(401, INVALID);

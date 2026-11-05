@@ -10,7 +10,7 @@
  * Vercel(VERCEL 환경 변수가 있음):
  * - APP_ENV를 비운 Production 배포(VERCEL_ENV=production)는 PRODUCTION으로 본다(실수로 DEV 규칙으로 뜨지 않게).
  * - APP_URL을 비우면 Production은 https://${VERCEL_PROJECT_PRODUCTION_URL}, Preview는 https://${VERCEL_BRANCH_URL ?? VERCEL_URL}.
- * - 로컬 SQLite(file:) DB와 CLI 엔진은 쓸 수 없다(배포 폴더가 읽기 전용이고 claude·codex 실행 파일이 없다).
+ * - CLI 엔진은 쓸 수 없다(claude·codex 실행 파일이 없다). DB는 PostgreSQL(Supabase) 주소여야 하고 localhost는 막는다.
  *
  * NODE_ENV(빌드 종류)와는 별개다 — `next start`라도 APP_ENV를 주지 않으면 DEV다.
  * 모든 함수는 테스트를 위해 env를 인자로 받는다(기본 process.env).
@@ -109,23 +109,47 @@ export function googleLoginConfigured(env: Env = process.env): boolean {
   return GOOGLE_ENV_KEYS.every((k) => has(env, k));
 }
 
-/** DB 주소·토큰. DATABASE_*가 우선이고, 없으면 Vercel Turso 연동이 넣는 TURSO_DATABASE_URL·TURSO_AUTH_TOKEN. */
-export function databaseEnv(env: Env = process.env): { url: string | null; authToken: string | undefined } {
-  const url = env.DATABASE_URL?.trim() || env.TURSO_DATABASE_URL?.trim() || null;
-  const authToken = env.DATABASE_AUTH_TOKEN?.trim() || env.TURSO_AUTH_TOKEN?.trim() || undefined;
-  return { url, authToken };
+/**
+ * DB 주소(PostgreSQL). 런타임(url)은 DATABASE_URL, 없으면 Supabase Vercel 연동이 넣는 POSTGRES_PRISMA_URL·POSTGRES_URL
+ * (Supabase는 Transaction pooler, 포트 6543). 마이그레이션용 직접 주소(directUrl)는 DIRECT_URL, 없으면 POSTGRES_URL_NON_POOLING
+ * — 둘 다 없으면 null(호출자가 url을 쓴다).
+ */
+export function databaseEnv(env: Env = process.env): { url: string | null; directUrl: string | null } {
+  const url = env.DATABASE_URL?.trim() || env.POSTGRES_PRISMA_URL?.trim() || env.POSTGRES_URL?.trim() || null;
+  const directUrl = env.DIRECT_URL?.trim() || env.POSTGRES_URL_NON_POOLING?.trim() || null;
+  return { url, directUrl };
 }
 
-/** DB 설정의 문제(없으면 null). Vercel에서는 로컬 파일 DB를 막고, Turso 주소에는 토큰을 요구한다. */
-export function databaseEnvProblem(env: Env = process.env): string | null {
-  const { url, authToken } = databaseEnv(env);
-  if (!url) return "DATABASE_URL";
-  if (url.startsWith("file:") && onVercel(env)) return "DATABASE_URL(Vercel에서는 file: 로컬 DB를 쓸 수 없음 — libsql://… Turso 주소)";
-  let host = "";
+/** postgres:// 또는 postgresql:// 주소인가. */
+export function isPostgresUrl(url: string): boolean {
+  return /^postgres(ql)?:\/\//i.test(url.trim());
+}
+
+/** DB 주소의 호스트(소문자). 해석하지 못하면 "". */
+export function databaseHost(url: string): string {
   try {
-    host = new URL(url).hostname;
-  } catch {}
-  if (host.endsWith(".turso.io") && !authToken) return "DATABASE_AUTH_TOKEN(Turso DB 토큰)";
+    return new URL(url).hostname.toLowerCase().replace(/^\[|\]$/g, "");
+  } catch {
+    return "";
+  }
+}
+
+/** 이 머신 안(루프백·docker 로컬) DB 호스트인가. */
+export function isLocalDatabaseHost(host: string): boolean {
+  return host === "localhost" || host === "::1" || host.startsWith("127.") || host.endsWith(".localhost");
+}
+
+const PG_URL_HINT = "postgres:// 또는 postgresql:// 주소여야 함 — Supabase Transaction pooler";
+
+/** DB 설정의 문제(없으면 null). PostgreSQL 주소만 받고, Vercel에서는 로컬호스트 DB를 막는다. */
+export function databaseEnvProblem(env: Env = process.env): string | null {
+  const { url, directUrl } = databaseEnv(env);
+  if (!url) return "DATABASE_URL";
+  if (!isPostgresUrl(url)) return `DATABASE_URL(${PG_URL_HINT})`;
+  if (directUrl && !isPostgresUrl(directUrl)) return "DIRECT_URL(postgres:// 또는 postgresql:// 주소여야 함 — Supabase Session pooler)";
+  if (onVercel(env) && isLocalDatabaseHost(databaseHost(url))) {
+    return "DATABASE_URL(Vercel에서는 localhost DB에 닿을 수 없음 — Supabase 주소)";
+  }
   return null;
 }
 
@@ -160,12 +184,24 @@ export function missingProductionEnv(env: Env = process.env): string[] {
   return missing;
 }
 
+function portOf(url: string): string {
+  try {
+    return new URL(url).port || "5432";
+  } catch {
+    return "";
+  }
+}
+
 /** 모드와 무관하게 알려 줄 Vercel 안내. */
 function vercelWarnings(env: Env): string[] {
   if (!onVercel(env)) return [];
   const warnings: string[] = [];
   if (env.CLI_PROVIDERS === "1") {
     warnings.push("Vercel에서는 CLI 엔진을 쓸 수 없어 CLI_PROVIDERS=1을 무시합니다. ANTHROPIC_API_KEY(Claude API)를 쓰세요.");
+  }
+  const { url } = databaseEnv(env);
+  if (url && databaseHost(url).endsWith(".pooler.supabase.com") && portOf(url) === "5432") {
+    warnings.push("DATABASE_URL이 Supabase Session pooler(5432)입니다. 서버리스 런타임에는 Transaction pooler(6543) 주소를 쓰세요.");
   }
   return warnings;
 }
@@ -176,7 +212,7 @@ function devWarnings(env: Env): string[] {
   if (onVercel(env)) {
     warnings.push("Vercel에서 APP_ENV=DEV로 떠 있습니다. 배포에는 APP_ENV=PRODUCTION과 필수 설정(README '배포')을 넣어 주세요.");
     const db = databaseEnvProblem(env);
-    if (db) warnings.push(`DB 설정이 Vercel에서 동작하지 않습니다: ${db}. Turso(libsql://…)와 DATABASE_AUTH_TOKEN을 넣어 주세요.`);
+    if (db) warnings.push(`DB 설정이 Vercel에서 동작하지 않습니다: ${db}. Supabase PostgreSQL 주소(DATABASE_URL — Transaction pooler)를 넣어 주세요.`);
   }
   if (R2_ENV_KEYS.some((k) => !has(env, k))) {
     warnings.push("R2 설정이 없어 이력서 본문을 로컬 폴더(STORAGE_DIR, 기본 ./data/storage)에 저장합니다.");

@@ -9,11 +9,11 @@ import "server-only";
  * - 오류는 사용자용 문구만 저장한다(내부 주소·원본 오류 메시지는 로그에만).
  * CareerLoop(src/server/postingImport/jobs.ts)에서 가져옴 — 원본은 프로세스 메모리 Map으로 중복 실행을 막아 여러 인스턴스·재시작에서 새었다.
  */
-import { and, count, desc, eq, gte, inArray, lt, or, sql } from "drizzle-orm";
 import { nanoid } from "nanoid";
 import { FeatureError } from "@/lib/api/errors";
-import { db } from "@/lib/db/client";
-import { postingImports, type PostingImportRow } from "@/lib/db/schema";
+import { prisma, type Prisma } from "@/lib/db/client";
+import { stripNul } from "@/lib/db/errors";
+import type { PostingImportRow } from "@/lib/db/types";
 import { DAILY_POSTING_IMPORT_LIMIT, type PostingImportJob, type PostingImportStatus } from "@/lib/domain/postings";
 import type { ProviderId } from "@/lib/domain/providers";
 import { createLlmClient, LlmPermanentError, type LlmClient } from "@/lib/llm";
@@ -70,11 +70,10 @@ export async function createImport(userId: string, rawUrl: string, now = Date.no
   const existing = await findPostingIdByUrl(userId, url);
   if (existing) throw new DuplicatePostingError(existing);
 
-  return db.transaction(async (tx) => {
-    const active = await tx
-      .select()
-      .from(postingImports)
-      .where(and(eq(postingImports.userId, userId), inArray(postingImports.status, ACTIVE)));
+  return prisma.$transaction(async (tx) => {
+    // 같은 사용자의 가져오기 생성을 직렬화한다(READ COMMITTED에서는 개수 확인과 삽입 사이에 다른 요청이 끼어들 수 있다).
+    await tx.$executeRaw`SELECT pg_advisory_xact_lock(hashtext(${`posting-import:${userId}`}))`;
+    const active = (await tx.postingImport.findMany({ where: { userId, status: { in: ACTIVE } } })) as PostingImportRow[];
     // 같은 공고(www·추적 파라미터·끝 슬래시만 다른 링크 포함)를 진행 중이면 그 작업을 재사용한다.
     const key = normalizeUrl(url);
     const same = active.find((r) => normalizeUrl(r.url) === key && !isImportStale(toImportJob(r), now));
@@ -82,44 +81,35 @@ export async function createImport(userId: string, rawUrl: string, now = Date.no
     if (active.filter((r) => !isImportStale(toImportJob(r), now)).length >= MAX_ACTIVE_IMPORTS) {
       throw new FeatureError("진행 중인 공고 가져오기가 많습니다. 끝난 뒤 다시 시도하세요.", 409);
     }
-    const [recent] = await tx
-      .select({ n: count() })
-      .from(postingImports)
-      .where(and(eq(postingImports.userId, userId), gte(postingImports.createdAt, new Date(now - 86_400_000))));
-    if ((recent?.n ?? 0) >= DAILY_POSTING_IMPORT_LIMIT) {
+    const recent = await tx.postingImport.count({ where: { userId, createdAt: { gte: new Date(now - 86_400_000) } } });
+    if (recent >= DAILY_POSTING_IMPORT_LIMIT) {
       throw new FeatureError(
         `공고 링크 가져오기는 하루 ${DAILY_POSTING_IMPORT_LIMIT}번까지 할 수 있습니다. 직접 입력으로 추가하거나 내일 다시 시도하세요.`,
         429,
       );
     }
     const at = new Date(now);
-    const [row] = await tx
-      .insert(postingImports)
-      .values({ id: nanoid(), userId, url, status: "queued", createdAt: at, updatedAt: at })
-      .returning();
-    return { job: toImportJob(row!), reused: false };
+    const row = await tx.postingImport.create({
+      data: { id: nanoid(), userId, url: stripNul(url), status: "queued", createdAt: at, updatedAt: at },
+    });
+    return { job: toImportJob(row as PostingImportRow), reused: false };
   });
 }
 
 export async function getImport(userId: string, id: string): Promise<PostingImportJob | null> {
-  const [row] = await db
-    .select()
-    .from(postingImports)
-    .where(and(eq(postingImports.id, id), eq(postingImports.userId, userId)))
-    .limit(1);
-  return row ? toImportJob(row) : null;
+  const row = await prisma.postingImport.findFirst({ where: { id, userId } });
+  return row ? toImportJob(row as PostingImportRow) : null;
 }
 
 /** 최근 24시간의 가져오기 작업(최신 순). 목록 화면이 새로 열려도 진행 상황을 이어 보여 준다. */
 export async function listRecentImports(userId: string, opts: { limit?: number; now?: number } = {}): Promise<PostingImportJob[]> {
   const now = opts.now ?? Date.now();
-  const rows = await db
-    .select()
-    .from(postingImports)
-    .where(and(eq(postingImports.userId, userId), gte(postingImports.createdAt, new Date(now - 86_400_000))))
-    .orderBy(desc(postingImports.createdAt))
-    .limit(opts.limit ?? 10);
-  return rows.map(toImportJob);
+  const rows = await prisma.postingImport.findMany({
+    where: { userId, createdAt: { gte: new Date(now - 86_400_000) } },
+    orderBy: [{ createdAt: "desc" }, { id: "desc" }],
+    take: opts.limit ?? 10,
+  });
+  return (rows as PostingImportRow[]).map(toImportJob);
 }
 
 class ImportTimeoutError extends Error {
@@ -167,43 +157,35 @@ export interface RunImportDeps {
 export async function runImport(importId: string, deps: RunImportDeps = {}): Promise<void> {
   const now = deps.now ?? Date.now;
   const staleBefore = new Date(now() - IMPORT_STALE_MS);
-  const claimable = or(
-    eq(postingImports.status, "queued"),
-    and(inArray(postingImports.status, ["reading", "analyzing"]), lt(postingImports.updatedAt, staleBefore)),
-  );
-  const [claimed] = await db
-    .update(postingImports)
-    .set({ status: "reading", error: null, attempts: sql`${postingImports.attempts} + 1`, updatedAt: new Date(now()) })
-    .where(and(eq(postingImports.id, importId), lt(postingImports.attempts, MAX_IMPORT_ATTEMPTS), claimable))
-    .returning();
+  const [claimed] = await prisma.postingImport.updateManyAndReturn({
+    where: {
+      id: importId,
+      attempts: { lt: MAX_IMPORT_ATTEMPTS },
+      OR: [{ status: "queued" }, { status: { in: ["reading", "analyzing"] }, updatedAt: { lt: staleBefore } }],
+    },
+    data: { status: "reading", error: null, attempts: { increment: 1 }, updatedAt: new Date(now()) },
+  });
   if (!claimed) {
     // 시도를 다 쓴 멈춘 작업은 실패로 닫는다(계속 '진행 중'으로 남지 않게).
-    await db
-      .update(postingImports)
-      .set({ status: "failed", error: STALE_ERROR, updatedAt: new Date(now()) })
-      .where(
-        and(
-          eq(postingImports.id, importId),
-          gte(postingImports.attempts, MAX_IMPORT_ATTEMPTS),
-          inArray(postingImports.status, ACTIVE),
-          lt(postingImports.updatedAt, staleBefore),
-        ),
-      );
+    await prisma.postingImport.updateMany({
+      where: {
+        id: importId,
+        attempts: { gte: MAX_IMPORT_ATTEMPTS },
+        status: { in: ACTIVE },
+        updatedAt: { lt: staleBefore },
+      },
+      data: { status: "failed", error: STALE_ERROR, updatedAt: new Date(now()) },
+    });
     return;
   }
 
-  const owned = and(
-    eq(postingImports.id, importId),
-    eq(postingImports.attempts, claimed.attempts),
-    inArray(postingImports.status, ACTIVE),
-  );
-  const write = async (patch: Partial<typeof postingImports.$inferInsert>): Promise<boolean> => {
-    const rows = await db
-      .update(postingImports)
-      .set({ ...patch, updatedAt: new Date(now()) })
-      .where(owned)
-      .returning({ id: postingImports.id });
-    return rows.length > 0;
+  const owned: Prisma.PostingImportWhereInput = { id: importId, attempts: claimed.attempts, status: { in: ACTIVE } };
+  const write = async (patch: Prisma.PostingImportUncheckedUpdateManyInput): Promise<boolean> => {
+    const { count } = await prisma.postingImport.updateMany({
+      where: owned,
+      data: { ...patch, ...(typeof patch.error === "string" ? { error: stripNul(patch.error) } : {}), updatedAt: new Date(now()) },
+    });
+    return count > 0;
   };
 
   const controller = new AbortController();
