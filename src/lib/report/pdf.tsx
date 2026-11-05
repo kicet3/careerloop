@@ -453,7 +453,7 @@ function Cover({ r }: { r: ReportModel }) {
   return (
     <View>
       <View style={s.coverBand}>
-        <T style={s.coverKicker}>커리어루프 · 진단 보고서</T>
+        <T style={s.coverKicker}>CareerLoop · 진단 보고서</T>
         <T style={s.coverTitle}>{meta.title}</T>
         <T style={s.coverMeta}>
           지원 직무 {meta.targetRole} · {meta.situationLabel} · {formatDate(meta.completedAt ?? meta.createdAt)}
@@ -1019,7 +1019,7 @@ function ReportDocument({ r }: { r: ReportModel }) {
         </Section>
         <Disclaimer r={r} />
         <View style={s.footer} fixed>
-          <Text>커리어루프 · {formatDate(r.meta.completedAt ?? r.meta.createdAt)}</Text>
+          <Text>CareerLoop · {formatDate(r.meta.completedAt ?? r.meta.createdAt)}</Text>
           <Text render={({ pageNumber, totalPages }) => `${pageNumber} / ${totalPages}`} />
         </View>
       </Page>
@@ -1031,7 +1031,7 @@ function HeaderContent({ r }: { r: ReportModel }) {
   return (
     <View style={s.header}>
       <Text style={{ maxWidth: "65%" }}>{truncate(r.meta.title, 40)}</Text>
-      <Text>커리어루프 진단 보고서</Text>
+      <Text>CareerLoop 진단 보고서</Text>
     </View>
   );
 }

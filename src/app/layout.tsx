@@ -13,8 +13,8 @@ const notoSansKr = Noto_Sans_KR({
 
 export const metadata: Metadata = {
   title: {
-    default: "커리어루프",
-    template: "%s · 커리어루프",
+    default: "CareerLoop",
+    template: "%s · CareerLoop",
   },
   description:
     "AI 심사위원 7명이 이력서를 떨어뜨리려고 읽고, JD 적합도 분석과 개선 방향, 같은 사실로 다시 쓴 이력서를 웹 보고서와 PDF로 드립니다.",
