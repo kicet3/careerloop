@@ -1,6 +1,6 @@
 import "server-only";
 import { createHash, randomBytes } from "node:crypto";
-import { eq } from "drizzle-orm";
+import { and, eq, ne } from "drizzle-orm";
 import { cookies } from "next/headers";
 import { redirect } from "next/navigation";
 import { cache } from "react";
@@ -53,6 +53,16 @@ export async function destroySession(): Promise<void> {
     await db.delete(schema.sessions).where(eq(schema.sessions.id, hashToken(token)));
   }
   store.delete(SESSION_COOKIE);
+}
+
+/** 현재 세션만 남기고 이 사용자의 다른 세션을 모두 지운다(비밀번호 변경 후 다른 기기 로그아웃). */
+export async function revokeOtherSessions(userId: string): Promise<void> {
+  const token = (await cookies()).get(SESSION_COOKIE)?.value;
+  await ensureDatabase();
+  const where = token
+    ? and(eq(schema.sessions.userId, userId), ne(schema.sessions.id, hashToken(token)))
+    : eq(schema.sessions.userId, userId);
+  await db.delete(schema.sessions).where(where);
 }
 
 /** 로그인 사용자(요청당 1회 조회). 서버 컴포넌트·라우트 핸들러 양쪽에서 사용 가능. */

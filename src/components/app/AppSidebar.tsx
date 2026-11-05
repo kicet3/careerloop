@@ -49,7 +49,10 @@ const GROUPS: NavGroup[] = [
 ];
 const SETTINGS_GROUP: NavGroup = {
   label: "설정",
-  items: [{ href: "/app/connections", label: "AI 연결", icon: <PlugIcon />, match: under("/app/connections") }],
+  items: [
+    { href: "/app/account", label: "계정", icon: <UserIcon />, match: under("/app/account") },
+    { href: "/app/connections", label: "AI 연결", icon: <PlugIcon />, match: under("/app/connections") },
+  ],
 };
 
 // ---- 접힘 상태: localStorage에 기억. 막혀 있으면(사파리 개인 모드 등) 이 탭 안에서만 기억한다. ----
@@ -467,6 +470,15 @@ function BoardIcon() {
     <Svg>
       <rect x="3.5" y="4" width="17" height="16" rx="2" />
       <path d="M9.2 4v16M14.8 4v16M5.8 8h1.4M11.3 8h1.4M11.3 11.5h1.4M16.8 8h1.4" />
+    </Svg>
+  );
+}
+
+function UserIcon() {
+  return (
+    <Svg>
+      <circle cx="12" cy="8.5" r="3.5" />
+      <path d="M5 20a7 7 0 0 1 14 0" />
     </Svg>
   );
 }

@@ -109,9 +109,9 @@ describe("Google 로그인 설정", () => {
     expect(googleLoginConfigured({})).toBe(false);
   });
 
-  it("DEV에서 Google 설정이 없으면 로그인할 수 없다고 안내한다", () => {
+  it("DEV에서 Google 설정이 없으면 안내한다", () => {
     const w = validateProductionEnv({ ...FULL, APP_ENV: "DEV", GOOGLE_CLIENT_ID: "" }).warnings.join("\n");
-    expect(w).toMatch(/로그인할 수 없습니다/);
+    expect(w).toMatch(/Google 로그인·회원가입이 꺼집니다/);
     expect(validateProductionEnv({ ...FULL, APP_ENV: "DEV" }).warnings.join("\n")).not.toMatch(/GOOGLE_CLIENT_ID/);
   });
 });

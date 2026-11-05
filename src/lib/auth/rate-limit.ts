@@ -53,10 +53,38 @@ export function clientIp(req: { headers: { get(name: string): string | null } },
 }
 
 const globalForLimits = globalThis as unknown as {
+  __loginLimiter?: ReturnType<typeof createRateLimiter>;
+  __loginIpLimiter?: ReturnType<typeof createRateLimiter>;
+  __loginAccountLimiter?: ReturnType<typeof createRateLimiter>;
+  __passwordChangeLimiter?: ReturnType<typeof createRateLimiter>;
   __diagnosisIpLimiter?: ReturnType<typeof createRateLimiter>;
   __shareLimiter?: ReturnType<typeof createRateLimiter>;
   __googleAuthLimiter?: ReturnType<typeof createRateLimiter>;
 };
+
+/** 로그인: 이메일+IP당 15분에 10회. */
+export const loginLimiter = (globalForLimits.__loginLimiter ??= createRateLimiter({
+  limit: 10,
+  windowMs: 15 * 60_000,
+}));
+
+/** 로그인: IP당 15분에 30회(이메일을 바꿔 가며 시도해도 막힌다 — bcrypt 비용 남용 방지). */
+export const loginIpLimiter = (globalForLimits.__loginIpLimiter ??= createRateLimiter({
+  limit: 30,
+  windowMs: 15 * 60_000,
+}));
+
+/** 로그인 실패: 계정(이메일)당 15분에 20회(IP를 바꿔 가며 한 계정을 노리는 경우). 성공하면 초기화. */
+export const loginAccountLimiter = (globalForLimits.__loginAccountLimiter ??= createRateLimiter({
+  limit: 20,
+  windowMs: 15 * 60_000,
+}));
+
+/** 비밀번호 설정·변경: 사용자당 15분에 10회(현재 비밀번호 추측 방지). */
+export const passwordChangeLimiter = (globalForLimits.__passwordChangeLimiter ??= createRateLimiter({
+  limit: 10,
+  windowMs: 15 * 60_000,
+}));
 
 /** 진단 생성: IP당 하루 20건(계정을 여러 개 만들어 하루 제한을 우회하는 것을 늦춘다). */
 export const diagnosisIpLimiter = (globalForLimits.__diagnosisIpLimiter ??= createRateLimiter({

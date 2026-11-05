@@ -5,7 +5,7 @@ import "server-only";
  * - DEV(기본): 빠진 설정이 있어도 뜬다. 로컬 저장소 폴백·CLI 엔진·Host 기반 Origin 검사를 허용한다.
  * - PRODUCTION: 필수 설정이 모두 있어야 뜬다(validateProductionEnv). 세션 쿠키 Secure 강제, 저장소는 R2만,
  *   CLI 엔진은 CLI_PROVIDERS_IN_PRODUCTION=1일 때만, same-origin 검사는 APP_URL 호스트만 믿는다.
- *   Google 로그인(GOOGLE_CLIENT_ID·GOOGLE_CLIENT_SECRET) 필수(로그인·가입은 Google만 지원).
+ *   Google 로그인(GOOGLE_CLIENT_ID·GOOGLE_CLIENT_SECRET) 필수(가입은 Google로만, 로그인은 Google·이메일).
  *
  * NODE_ENV(빌드 종류)와는 별개다 — `next start`라도 APP_ENV를 주지 않으면 DEV다.
  * 모든 함수는 테스트를 위해 env를 인자로 받는다(기본 process.env).
@@ -94,7 +94,7 @@ function devWarnings(env: Env): string[] {
     warnings.push("ANTHROPIC_API_KEY·CLI_PROVIDERS가 모두 없어 쓸 수 있는 AI 엔진이 없습니다.");
   }
   if (!googleLoginConfigured(env)) {
-    warnings.push("GOOGLE_CLIENT_ID·GOOGLE_CLIENT_SECRET이 없어 로그인할 수 없습니다(Google 로그인만 지원).");
+    warnings.push("GOOGLE_CLIENT_ID·GOOGLE_CLIENT_SECRET이 없어 Google 로그인·회원가입이 꺼집니다(비밀번호를 설정한 기존 계정만 이메일로 로그인 가능).");
   }
   return warnings;
 }

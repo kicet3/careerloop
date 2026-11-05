@@ -127,7 +127,7 @@
 
 ## 6. 인증
 
-- Google 로그인(OAuth 2.0/OIDC, state·PKCE·nonce)만 지원. 세션: 32바이트 랜덤 토큰 → httpOnly·SameSite=Lax·Secure(APP_ENV=PRODUCTION 또는 프로덕션 빌드) 쿠키 `rp_session`,
+- 가입은 Google(OAuth 2.0/OIDC, state·PKCE·nonce)만. 로그인은 Google 또는 이메일+비밀번호(bcryptjs, 계정 설정에서 지정). 세션: 32바이트 랜덤 토큰 → httpOnly·SameSite=Lax·Secure(APP_ENV=PRODUCTION 또는 프로덕션 빌드) 쿠키 `rp_session`,
   DB에는 SHA-256 해시 저장, 30일 만료(15일 지나면 연장).
 - `getCurrentUser()`(서버 전용) / `requireUser()`(없으면 `/login?next=` 리다이렉트) / API용 `requireApiUser()`(401 JSON).
 - 모든 진단 조회·수정은 `userId` 소유권 확인. 공유 토큰(`/share/[token]`)만 비로그인 읽기 허용.
@@ -154,13 +154,14 @@
 | 경로 | 설명 |
 |---|---|
 | `/` | 랜딩: 심사위원 7명 + JD 분석 + 개선 방향성 소개, CTA |
-| `/signup`, `/login` | 인증(Google 로그인·가입만) |
+| `/signup`, `/login` | 인증(가입은 Google만, 로그인은 Google·이메일) |
+| `/app/account` | 계정 정보, 이메일 로그인용 비밀번호 설정·변경 |
 | `/app` | 내 진단 이력(제목, 직무, 상태, 날짜, 7명 중 통과 수) |
 | `/app/new` | 새 진단: 이력서(PDF·DOCX·HWP·HWPX·HTML·TXT·MD 업로드 또는 붙여넣기), 지원 직무(필수), JD(붙여넣기 또는 파일, 선택이지만 강력 권장), 상황, 메모 |
 | `/app/connections` | (CLI_PROVIDERS=1) Claude·ChatGPT 계정 로그인 연결/해제 |
 | `/app/d/[id]` | 진행 중이면 단계별 진행 화면, 완료되면 보고서, 실패했지만 부분 보고서가 가능하면 진행 화면(재시도) + 부분 보고서. 생성 직후 입력 경고는 URL이 아니라 sessionStorage로 넘겨 한 번 표시 |
 | `/share/[token]` | 읽기 전용 공유 보고서 |
-| `GET /api/auth/google` `GET /api/auth/google/callback` `POST /api/auth/logout` | Google OAuth만 |
+| `GET /api/auth/google` `GET /api/auth/google/callback` `POST /api/auth/login` `POST /api/auth/logout` `POST /api/account/password` | 가입은 Google OAuth만 |
 | `GET/POST /api/diagnoses` | 목록 / 생성(multipart) |
 | `GET/DELETE /api/diagnoses/[id]` | 상태+보고서 / 삭제 |
 | `POST /api/diagnoses/[id]/retry` | 재시도 |
