@@ -48,6 +48,7 @@ function header(r: ReportModel, kind: string): string[] {
     `- 상황: ${m.situationLabel}`,
     `- 진단일: ${formatReportDate(m.createdAt)}`,
     ...(m.resumeFileName ? [`- 이력서 파일: ${m.resumeFileName}`] : []),
+    ...(m.hasPortfolio ? [`- 포트폴리오: 포함${m.portfolioFileName ? ` (${m.portfolioFileName})` : ""}`] : []),
     "",
   ];
 }

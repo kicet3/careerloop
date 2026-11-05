@@ -27,7 +27,7 @@ import {
   ZERO_USAGE,
   type CliTurn,
 } from "./cli-output";
-import { LlmPermanentError, type Effort, type GenerateRequest, type GenerateResult, type LlmClient, type LlmUsage } from "./types";
+import { LlmPermanentError, type Effort, type LlmRequest, requestLabel, type GenerateResult, type LlmClient, type LlmUsage } from "./types";
 
 export function claudeCliModel(): string {
   return process.env.CLAUDE_CLI_MODEL?.trim() || DEFAULT_MODEL;
@@ -123,7 +123,7 @@ function withUsage(e: unknown, usage: LlmUsage): unknown {
   return wrapped;
 }
 
-async function generateWithCli<T>(provider: CliProviderId, req: GenerateRequest<T>, turn: Turn, fallbackModel: string): Promise<GenerateResult<T>> {
+async function generateWithCli<T>(provider: CliProviderId, req: LlmRequest<T>, turn: Turn, fallbackModel: string): Promise<GenerateResult<T>> {
   if (!cliProvidersEnabled()) throw new LlmPermanentError("CLI 엔진이 꺼져 있습니다", "unavailable");
   const who = provider === "claude-cli" ? "Claude" : "ChatGPT";
   let usage: LlmUsage = ZERO_USAGE;
@@ -146,24 +146,24 @@ async function generateWithCli<T>(provider: CliProviderId, req: GenerateRequest<
       throw withUsage(e, usage);
     }
     usage = sumUsage(usage, r.usage);
-    if (r.timedOut) throw new LlmPermanentError(`CLI 응답 시간 초과 (${req.stage})`, "timeout", usage);
+    if (r.timedOut) throw new LlmPermanentError(`CLI 응답 시간 초과 (${requestLabel(req)})`, "timeout", usage);
 
     // 도구를 쓴 응답은 내용이 무엇이든 버린다(이력서에 심은 지시로 서버 파일을 읽어 보고서로 빼내는 것을 막는다).
     if (r.toolItems.length > 0) {
-      throw new LlmPermanentError(`모델이 허용되지 않은 도구를 사용했습니다: ${r.toolItems.join(", ")} (${req.stage})`, "invalid_output", usage);
+      throw new LlmPermanentError(`모델이 허용되지 않은 도구를 사용했습니다: ${r.toolItems.join(", ")} (${requestLabel(req)})`, "invalid_output", usage);
     }
 
     if (r.value == null && r.cliError != null) {
       // 로그인·한도 판정은 CLI 오류와 stderr로만 한다(모델이 쓴 글로 판정하지 않는다).
       const text = `${r.cliError}\n${r.stderr.slice(-2000)}`;
-      if (looksLikeAuthError(text)) throw new LlmPermanentError(`${who} 계정 로그인이 필요합니다 (${req.stage})`, "auth", usage);
-      if (looksLikeUsageLimit(text)) throw new LlmPermanentError(`${who} 사용량 한도 (${req.stage})`, "usage_limit", usage);
+      if (looksLikeAuthError(text)) throw new LlmPermanentError(`${who} 계정 로그인이 필요합니다 (${requestLabel(req)})`, "auth", usage);
+      if (looksLikeUsageLimit(text)) throw new LlmPermanentError(`${who} 사용량 한도 (${requestLabel(req)})`, "usage_limit", usage);
       if (!transientRetried) {
         transientRetried = true;
         await new Promise((res) => setTimeout(res, looksLikeTransientOverload(text) ? 15_000 : 3000));
         continue;
       }
-      const err = new Error(`CLI 호출 실패 (${req.stage}): ${r.cliError.slice(0, 300)}`) as WithUsage;
+      const err = new Error(`CLI 호출 실패 (${requestLabel(req)}): ${r.cliError.slice(0, 300)}`) as WithUsage;
       // 과부하로 끝나면 '일시적 장애' 문구(runner의 stageErrorMessage)가 나오도록 상태를 붙인다.
       if (looksLikeTransientOverload(text)) err.status = 529;
       err.usage = usage;
@@ -172,7 +172,7 @@ async function generateWithCli<T>(provider: CliProviderId, req: GenerateRequest<
 
     if (r.value == null) {
       // 모델은 응답했지만 JSON이 아니다: 거절이면 거절로, 아니면 스키마 재요청.
-      if (looksLikeRefusal(r.modelText ?? "")) throw new LlmPermanentError(`모델이 응답을 거절했습니다 (${req.stage})`, "refusal", usage);
+      if (looksLikeRefusal(r.modelText ?? "")) throw new LlmPermanentError(`모델이 응답을 거절했습니다 (${requestLabel(req)})`, "refusal", usage);
       if (retrySchema("JSON 출력이 없거나 JSON 형식이 아니다.")) continue;
       break;
     }
@@ -181,7 +181,7 @@ async function generateWithCli<T>(provider: CliProviderId, req: GenerateRequest<
     if (v.ok) return { output: v.value, usage, model: r.model ?? fallbackModel };
     if (!retrySchema(v.problem)) break;
   }
-  throw new LlmPermanentError(`모델 출력이 스키마와 맞지 않습니다 (${req.stage})`, "invalid_output", usage);
+  throw new LlmPermanentError(`모델 출력이 스키마와 맞지 않습니다 (${requestLabel(req)})`, "invalid_output", usage);
 }
 
 // ---- Claude Code CLI ----
@@ -189,7 +189,7 @@ export class ClaudeCliLlmClient implements LlmClient {
   readonly name = "claude-cli";
   constructor(private readonly model: string = claudeCliModel()) {}
 
-  generate<T>(req: GenerateRequest<T>): Promise<GenerateResult<T>> {
+  generate<T>(req: LlmRequest<T>): Promise<GenerateResult<T>> {
     const args = [
       "-p",
       "--output-format",
@@ -249,15 +249,16 @@ const CODEX_DISABLED_FEATURES = [
   "workspace_dependencies",
 ];
 
-const CODEX_PREAMBLE =
-  "[실행 규칙] 너는 코딩 에이전트가 아니라 아래 지시를 따르는 심사위원이다. 셸 명령·파일 읽기·웹 검색 같은 도구를 쓰지 않는다. " +
+export const CODEX_PREAMBLE =
+  // 역할(심사위원·경력 정리 도우미·추출기·작성 코치)은 [지시]의 시스템 프롬프트가 정한다 — 여기서 정하면 두 역할이 충돌한다.
+  "[실행 규칙] 너는 코딩 에이전트가 아니다. 아래 [지시]에 적힌 역할과 규칙을 따른다. 셸 명령·파일 읽기·웹 검색 같은 도구를 쓰지 않는다. " +
   "주어진 자료만 근거로 판단하고, 최종 답변으로 지정된 JSON 스키마에 맞는 JSON 하나만 출력한다.";
 
 export class CodexCliLlmClient implements LlmClient {
   readonly name = "codex-cli";
   constructor(private readonly model: string | null = codexCliModel()) {}
 
-  generate<T>(req: GenerateRequest<T>): Promise<GenerateResult<T>> {
+  generate<T>(req: LlmRequest<T>): Promise<GenerateResult<T>> {
     const args = [
       "exec",
       "--skip-git-repo-check",

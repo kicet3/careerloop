@@ -1,7 +1,7 @@
 import type Anthropic from "@anthropic-ai/sdk";
 import { describe, expect, it } from "vitest";
 import { z } from "zod";
-import { addUsage, AnthropicLlmClient } from "./anthropic";
+import { addUsage, AnthropicLlmClient, userContent } from "./anthropic";
 import { LlmPermanentError, usageOfError } from "./types";
 
 const ZERO = { inputTokens: 0, outputTokens: 0, cacheReadTokens: 0, cacheWriteTokens: 0 };
@@ -104,5 +104,18 @@ describe("AnthropicLlmClient.generate", () => {
     const err = await new AnthropicLlmClient({ client, model: "m" }).generate(req).catch((e) => e);
     expect(err.reason).toBe("refusal");
     expect(usageOfError(err)?.outputTokens).toBe(100);
+  });
+});
+
+describe("userContent 캐시 지점", () => {
+  it("구분자 앞에만 캐시 지점을 두고, cache=false면 두지 않는다", async () => {
+    const { STAGE_TASK_DELIMITER } = await import("@/lib/panel/prompts");
+    const user = `고정 자료${STAGE_TASK_DELIMITER}대화`;
+    expect(userContent(user)).toEqual([
+      { type: "text", text: "고정 자료", cache_control: { type: "ephemeral" } },
+      { type: "text", text: "대화" },
+    ]);
+    expect(userContent("한 번만 쓰는 본문", false)).toEqual([{ type: "text", text: "한 번만 쓰는 본문" }]);
+    expect(userContent(user, false)[0]).not.toHaveProperty("cache_control");
   });
 });

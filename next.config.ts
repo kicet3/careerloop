@@ -11,7 +11,8 @@ const nextConfig: NextConfig = {
       .filter(Boolean),
   ],
   // PDF 생성(@react-pdf)과 libsql 네이티브 바인딩은 번들링하지 않고 Node 런타임에서 그대로 불러온다.
-  serverExternalPackages: ["@react-pdf/renderer", "@libsql/client", "unpdf", "mammoth"],
+  // neo4j-driver(경력 그래프)도 Node 런타임에서 그대로 불러온다. @aws-sdk/client-s3는 Next 기본 외부 패키지 목록에 있다.
+  serverExternalPackages: ["@react-pdf/renderer", "@libsql/client", "unpdf", "mammoth", "neo4j-driver"],
   // 런타임에 process.cwd() 기준으로 읽는 파일(마이그레이션 SQL, PDF 한글 폰트, pdf.js CMap)을 서버 번들 추적에 포함한다.
   outputFileTracingIncludes: {
     "/*": ["./drizzle/**/*"],
@@ -19,6 +20,8 @@ const nextConfig: NextConfig = {
     "/api/diagnoses": ["./node_modules/pdfjs-dist/cmaps/**/*"],
     "/api/diagnoses/*/pdf": ["./src/lib/report/fonts/**/*"],
     "/api/share/*/pdf": ["./src/lib/report/fonts/**/*"],
+    // 이력서 PDF도 보고서와 같은 나눔고딕을 쓴다 (src/lib/resumes/pdf-fonts.ts)
+    "/api/resumes/*/pdf": ["./src/lib/report/fonts/**/*"],
   },
   turbopack: {
     rules: {

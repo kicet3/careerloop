@@ -25,7 +25,8 @@ import { z } from "zod";
 import { splitUserPrompt } from "@/lib/panel/prompts";
 import {
   LlmPermanentError,
-  type GenerateRequest,
+  type LlmRequest,
+  requestLabel,
   type GenerateResult,
   type LlmClient,
   type LlmUsage,
@@ -97,9 +98,13 @@ function outputFormat(schema: z.ZodType): BetaJSONOutputFormat {
   return f;
 }
 
-/** 공유 자료 블록(앞)과 단계 지시(뒤)를 나눠 앞 블록에 캐시 지점을 둔다. */
-function userContent(user: string): BetaTextBlockParam[] {
+/**
+ * 공유 자료 블록(앞)과 단계 지시·대화(뒤)를 나눠 앞 블록에 캐시 지점을 둔다. 구분자가 없으면 user 전체가 한 블록이다.
+ * cache=false면 캐시 지점을 두지 않는다(한 번만 쓰는 호출에 쓰기 할증만 붙지 않게).
+ */
+export function userContent(user: string, cache = true): BetaTextBlockParam[] {
   const [shared, task] = splitUserPrompt(user);
+  if (!cache) return [{ type: "text", text: task == null ? user : `${shared}\n${task}` }];
   if (task == null) return [{ type: "text", text: user, cache_control: { type: "ephemeral" } }];
   return [
     { type: "text", text: shared, cache_control: { type: "ephemeral" } },
@@ -185,7 +190,7 @@ export class AnthropicLlmClient implements LlmClient {
     this.model = opts?.model ?? anthropicModelName();
   }
 
-  async generate<T>(req: GenerateRequest<T>): Promise<GenerateResult<T>> {
+  async generate<T>(req: LlmRequest<T>): Promise<GenerateResult<T>> {
     let usage: LlmUsage = { inputTokens: 0, outputTokens: 0, cacheReadTokens: 0, cacheWriteTokens: 0 };
     try {
       return await this.generateInner(req, (msg) => {
@@ -206,10 +211,10 @@ export class AnthropicLlmClient implements LlmClient {
   }
 
   private async generateInner<T>(
-    req: GenerateRequest<T>,
+    req: LlmRequest<T>,
     record: (msg: BetaMessage) => LlmUsage,
   ): Promise<GenerateResult<T>> {
-    const messages: BetaMessageParam[] = [{ role: "user", content: userContent(req.user) }];
+    const messages: BetaMessageParam[] = [{ role: "user", content: userContent(req.user, req.cacheUser !== false) }];
     let maxTokens = req.maxTokens ?? DEFAULT_MAX_TOKENS;
     let usage: LlmUsage = { inputTokens: 0, outputTokens: 0, cacheReadTokens: 0, cacheWriteTokens: 0 };
     let raisedLimit = false;
@@ -221,10 +226,10 @@ export class AnthropicLlmClient implements LlmClient {
       usage = record(msg);
 
       if (msg.stop_reason === "refusal") {
-        throw new LlmPermanentError(`모델이 응답을 거절했습니다 (${req.stage})`, "refusal", usage);
+        throw new LlmPermanentError(`모델이 응답을 거절했습니다 (${requestLabel(req)})`, "refusal", usage);
       }
       if (msg.stop_reason === "model_context_window_exceeded") {
-        throw new LlmPermanentError(`입력이 모델 컨텍스트를 넘었습니다 (${req.stage})`, "context_window", usage);
+        throw new LlmPermanentError(`입력이 모델 컨텍스트를 넘었습니다 (${requestLabel(req)})`, "context_window", usage);
       }
       if (msg.stop_reason === "max_tokens") {
         if (!raisedLimit && maxTokens < MAX_OUTPUT_TOKENS) {
@@ -232,7 +237,7 @@ export class AnthropicLlmClient implements LlmClient {
           maxTokens = Math.min(MAX_OUTPUT_TOKENS, maxTokens * 2);
           continue;
         }
-        throw new LlmPermanentError(`응답이 출력 한도(${maxTokens})에서 끊겼습니다 (${req.stage})`, "max_tokens", usage);
+        throw new LlmPermanentError(`응답이 출력 한도(${maxTokens})에서 끊겼습니다 (${requestLabel(req)})`, "max_tokens", usage);
       }
 
       const parsed = parseOutput(msg.content, req.schema);
@@ -252,10 +257,10 @@ export class AnthropicLlmClient implements LlmClient {
       }
       // 빈 응답이면 같은 요청을 그대로 다시 보낸다.
     }
-    throw new LlmPermanentError(`모델 출력이 스키마와 맞지 않습니다 (${req.stage})`, "invalid_output", usage);
+    throw new LlmPermanentError(`모델 출력이 스키마와 맞지 않습니다 (${requestLabel(req)})`, "invalid_output", usage);
   }
 
-  private async call<T>(req: GenerateRequest<T>, messages: BetaMessageParam[], maxTokens: number): Promise<BetaMessage> {
+  private async call<T>(req: LlmRequest<T>, messages: BetaMessageParam[], maxTokens: number): Promise<BetaMessage> {
     try {
       const stream = this.client.beta.messages.stream(
         {

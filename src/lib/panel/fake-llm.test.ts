@@ -1,6 +1,6 @@
 import { describe, expect, it } from "vitest";
 import { STAGE_KEYS, STAGE_SCHEMAS, type DiagnosisInput, type StageOutputs } from "@/lib/domain/schemas";
-import { MockLlmClient } from "@/lib/llm/mock";
+import { FakeLlmClient } from "@/test/fake-llm";
 import { buildStagePrompt, extractTag, splitUserPrompt, STAGE_TASK_DELIMITER, SYSTEM_PROMPT, TAGS } from "./prompts";
 import { verifyQuote } from "./quotes";
 
@@ -32,7 +32,7 @@ const base: DiagnosisInput = {
 };
 
 async function runAll(input: DiagnosisInput) {
-  const llm = new MockLlmClient({ delayMs: 0 });
+  const llm = new FakeLlmClient({ delayMs: 0 });
   const outputs: Partial<StageOutputs> = {};
   for (const stage of STAGE_KEYS) {
     const p = buildStagePrompt(stage, input, outputs);
@@ -42,7 +42,7 @@ async function runAll(input: DiagnosisInput) {
   return outputs as StageOutputs;
 }
 
-describe("prompts + MockLlmClient", () => {
+describe("prompts + FakeLlmClient", () => {
   it("모든 단계가 스키마를 통과하고 인용이 이력서 원문에서 검증된다", async () => {
     const o = await runAll(base);
     for (const stage of STAGE_KEYS) expect(STAGE_SCHEMAS[stage].safeParse(o[stage]).success).toBe(true);

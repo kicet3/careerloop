@@ -71,10 +71,12 @@
   IP당 하루 20건 생성 제한(메모리)도 있다.
 - 업로드: 본문은 Content-Length 유무와 관계없이 바이트를 세며 읽다가 22MB를 넘으면 413(`diagnoses/body.ts`).
   DOCX는 mammoth 전에 ZIP 항목을 실제로 풀어 보며 항목당 20MB·합계 60MB를 넘으면 413(zip bomb).
+  HWP(5.x, cfb+fflate)·HWPX(ZIP)는 압축 해제 합계 32MB 초과 413(적힌 크기를 믿지 않고 실제로 풀며 센다). 암호·배포용·DRM HWP, 암호 HWPX, HWP 3.x는 415.
   PDF는 50쪽 초과 413, 페이지 사이 15초 예산, 글자 수 상한을 넘으면 더 읽지 않는다.
 - 부분 보고서: `done`이면 전체 보고서. `failed`라도 jd·심사위원 7명·fit이 끝났으면 부분 보고서(빠진 섹션 안내 +
   재시도)를 웹·PDF·Markdown(소유자)으로 제공한다. 공유 링크는 `done`만.
-- `LLM_MOCK=1`이면 mock 클라이언트(결정적 가짜 출력, 실제 이력서 줄을 인용, 단계당 짧은 지연).
+- 가짜 심사위원(mock) 엔진은 없다. 테스트는 결정적 가짜 클라이언트(`src/test/fake-llm.ts`, 실제 이력서 줄을 인용)를 주입하고,
+  앱 코드는 eslint `no-restricted-imports`로 `src/test/**`를 import하지 못한다. 로컬 확인은 Claude/ChatGPT 계정 로그인 엔진으로 한다.
 
 ## 5. LLM 호출 규칙 (src/lib/llm/anthropic.ts)
 
@@ -96,9 +98,10 @@
 
 ## 5-1. 계정 로그인 엔진 (src/lib/llm/cli.ts, src/lib/providers/*) — 임시·개인용
 
-- 엔진 id(`domain/providers.ts`): `anthropic`(API 키) · `claude-cli`(Claude 구독 로그인) · `codex-cli`(ChatGPT 로그인) · `mock`.
-  진단 행의 `provider` 컬럼에 저장하고 재시도도 같은 엔진으로 한다. 예전 행(null)은 `model`로 추정(`legacyProvider`).
-- `CLI_PROVIDERS=1`일 때만 CLI 엔진이 보인다. `LLM_MOCK=1`이면 모든 엔진이 mock. mock은 `LLM_MOCK=1`일 때만 선택지에 나오고, 준비된 엔진이 없으면 새 진단은 409로 막는다.
+- 엔진 id(`domain/providers.ts`): `anthropic`(API 키) · `claude-cli`(Claude 구독 로그인) · `codex-cli`(ChatGPT 로그인).
+  진단 행의 `provider` 컬럼에 저장하고 재시도도 같은 엔진으로 한다. 예전 행(null)은 `anthropic`으로 본다(`legacyProvider`).
+  없앤 샘플 엔진(`provider`나 `model`이 `mock`)으로 만든 예전 진단은 보기만 되고, 재시도는 409(`isRetiredEngine`). 데이터 마이그레이션은 하지 않는다.
+- `CLI_PROVIDERS=1`일 때만 CLI 엔진이 보인다. 준비된 엔진이 없으면 새 진단은 409로 막는다.
 - paperclip의 claude-local·codex-local 방식: 공식 CLI를 자식 프로세스로 실행한다. 토큰은 CLI가 자기 저장소에 두고 앱은 읽지 않는다.
   - 로그인 격리: `CLAUDE_CONFIG_DIR=data/providers/claude`, `CODEX_HOME=data/providers/codex`. `system`이면 기본 로그인 사용(웹 로그인·로그아웃 차단).
   - 로그인(`providers/service.ts`): Claude는 `claude auth login --claudeai` → 안내문의 인가 링크(허용 호스트·경로만) → 사용자가 받은
@@ -124,7 +127,7 @@
 
 ## 6. 인증
 
-- 이메일+비밀번호(bcryptjs, cost 12). 세션: 32바이트 랜덤 토큰 → httpOnly·SameSite=Lax·Secure(프로덕션) 쿠키 `rp_session`,
+- 이메일+비밀번호(bcryptjs, cost 12). 세션: 32바이트 랜덤 토큰 → httpOnly·SameSite=Lax·Secure(APP_ENV=PRODUCTION 또는 프로덕션 빌드) 쿠키 `rp_session`,
   DB에는 SHA-256 해시 저장, 30일 만료(15일 지나면 연장).
 - `getCurrentUser()`(서버 전용) / `requireUser()`(없으면 `/login?next=` 리다이렉트) / API용 `requireApiUser()`(401 JSON).
 - 모든 진단 조회·수정은 `userId` 소유권 확인. 공유 토큰(`/share/[token]`)만 비로그인 읽기 허용.
@@ -133,6 +136,19 @@
   페이지·PDF는 IP당 분당. 클라이언트 IP는 X-Forwarded-For 맨 왼쪽을 믿지 않는다 — Vercel은 `x-real-ip`,
   리버스 프록시 뒤면 `TRUSTED_PROXY_HOPS`, 그 밖은 맨 오른쪽 값(`auth/rate-limit.ts clientIp`).
 
+## 6-1. 배포 모드 (APP_ENV, src/lib/config/env.ts)
+
+- `appEnv()`: `APP_ENV` 비면 `DEV`, `DEV`·`PRODUCTION` 밖이면 `AppEnvError`. `isProduction()`. `NODE_ENV`와 별개.
+- 시작 검사: `instrumentation.ts register()`가 마이그레이션 전에 `checkEnvOnStartup()`(`config/startup.ts`) → `validateProductionEnv()`를 부른다.
+  실패하면 누락 목록을 출력하고 `process.exit(1)`(register가 던지기만 하면 Next는 포트를 연 채 모든 요청에 500을 준다). PRODUCTION이면 빠진 항목
+  (`APP_URL`(https)·`DATABASE_URL`·`NEO4J_URI/USER/PASSWORD`·`R2_ACCOUNT_ID/ACCESS_KEY_ID/SECRET_ACCESS_KEY/BUCKET`·AI 엔진
+  = `ANTHROPIC_API_KEY` 또는 `CLI_PROVIDERS=1`+`CLI_PROVIDERS_IN_PRODUCTION=1`)을 모두 모아 한국어 오류로 던진다. DEV는 안내를 `console.warn` 한 번. 빌드(`next build`)는 register를 부르지 않아 영향 없다.
+- PRODUCTION 동작: 세션 쿠키 항상 Secure(`sessionCookieSecure`, DEV는 `NODE_ENV=production`일 때만) · 저장소는 R2만(설정 없으면
+  `StorageConfigError` 503, 로컬 폴백 없음) · `cliProvidersEnabled()`는 `CLI_PROVIDERS_IN_PRODUCTION=1`까지 요구 ·
+  `assertSameOrigin`은 `APP_URL` 호스트만 허용(Host·X-Forwarded-Host 무시). `next.config.ts allowedDevOrigins`는 dev 서버 전용이라 무관.
+- 화면: 서버에서 `appEnv()`를 레이아웃에 내려 `EnvBadge`(`src/components/app/EnvBadge.tsx`, props `{ env }`)가 DEV일 때만 노란 배지.
+- 실행: `npm run dev`(DEV), `npm run start:prod`(`APP_ENV=PRODUCTION next start`).
+
 ## 7. 라우트
 
 | 경로 | 설명 |
@@ -140,7 +156,7 @@
 | `/` | 랜딩: 심사위원 7명 + JD 분석 + 개선 방향성 소개, CTA |
 | `/signup`, `/login` | 인증 |
 | `/app` | 내 진단 이력(제목, 직무, 상태, 날짜, 7명 중 통과 수) |
-| `/app/new` | 새 진단: 이력서(PDF·DOCX·TXT·MD 업로드 또는 붙여넣기), 지원 직무(필수), JD(붙여넣기 또는 파일, 선택이지만 강력 권장), 상황, 메모 |
+| `/app/new` | 새 진단: 이력서(PDF·DOCX·HWP·HWPX·HTML·TXT·MD 업로드 또는 붙여넣기), 지원 직무(필수), JD(붙여넣기 또는 파일, 선택이지만 강력 권장), 상황, 메모 |
 | `/app/connections` | (CLI_PROVIDERS=1) Claude·ChatGPT 계정 로그인 연결/해제 |
 | `/app/d/[id]` | 진행 중이면 단계별 진행 화면, 완료되면 보고서, 실패했지만 부분 보고서가 가능하면 진행 화면(재시도) + 부분 보고서. 생성 직후 입력 경고는 URL이 아니라 sessionStorage로 넘겨 한 번 표시 |
 | `/share/[token]` | 읽기 전용 공유 보고서 |
@@ -151,6 +167,10 @@
 | `POST/DELETE /api/diagnoses/[id]/share` | 공유 링크 생성/해제 |
 | `GET /api/diagnoses/[id]/pdf`, `GET /api/share/[token]/pdf` | PDF 다운로드. 렌더 결과는 메모리 캐시(내용 키)·ETag/304, 동시 요청은 한 번만 렌더. 공유 PDF에는 진단 ID를 넣지 않음 |
 | `GET /api/diagnoses/[id]/markdown?file=panel\|resume` | 원본 스킬 호환 `PANEL.md` / `RESUME-IMPROVED.md` |
+| `/app/graph`, `/app/resumes`, `/app/resumes/new`, `/app/resumes/[id]` | 경력 그래프(편집 + 채팅), 회사별 이력서 — §11 |
+| `/api/graph/**`, `/api/diagnoses/[id]/chat/**`, `/api/resumes/**` | 경력 그래프·그래프 채팅, 심사위원 대화, 회사별 이력서 — §11 |
+| `/app/postings`, `/app/postings/[id]`, `/app/applications` | 공고 보관함·공고 상세(내 경력과 대조), 지원 현황(칸반 + 결과 모아 보기) — §11-4 |
+| `/api/postings/**`, `/api/applications/**`, `/api/insights`, `/api/insights/skills` | 공고·URL 가져오기·대조, 지원·단계·제출본, 인사이트·스킬 갭 — §11-4 |
 
 ## 8. 보고서 구성 (웹·PDF 동일 순서)
 
@@ -172,7 +192,7 @@ JD 키워드 칩은 웹·PDF 모두 찾음(초록)/못 찾음(빨강)으로 표�
 
 | 영역 | 파일 |
 |---|---|
-| A. 엔진 | `src/lib/llm/anthropic.ts`, `src/lib/llm/mock.ts`, `src/lib/llm/index.ts`, `src/lib/panel/**` (prompts, pipeline, quotes, runner, 테스트) |
+| A. 엔진 | `src/lib/llm/anthropic.ts`, `src/lib/llm/index.ts`, `src/test/fake-llm.ts`(테스트 전용), `src/lib/panel/**` (prompts, pipeline, quotes, runner, 테스트) |
 | B. 인증·데이터 접근 | `src/lib/auth/**`, `src/lib/db/migrate.ts`, `drizzle/**`, `src/app/(auth)/**`, `src/app/api/auth/**`, `src/proxy.ts`(필요 시) |
 | C. 진단 API·수집 | `src/lib/ingest/**`, `src/lib/diagnoses/**`(조회·생성·제한·공유 서비스), `src/app/api/diagnoses/**`, `src/app/api/share/**` |
 | D. 보고서 모델·웹 렌더링 | `src/lib/report/model.ts`, `src/lib/report/markdown.ts`, `src/components/report/**` |
@@ -183,7 +203,7 @@ JD 키워드 칩은 웹·PDF 모두 찾음(초록)/못 찾음(빨강)으로 표�
 
 ```ts
 // A. src/lib/llm/index.ts
-export function createLlmClient(): LlmClient;            // 키 없거나 LLM_MOCK=1 → mock
+export function createLlmClient(provider?: ProviderId): LlmClient; // 키가 없거나 없앤 엔진이면 호출 시 unavailable 오류
 export function currentModelName(): string;              // 진단 행의 model 컬럼에 기록
 // A. src/lib/panel/quotes.ts
 export function verifyQuote(resumeText: string, quote: string): boolean; // 공백·따옴표·대소문자·글머리표 정규화 후 부분 일치
@@ -221,7 +241,7 @@ export type DiagnosisStatusResponse = {
 };
 // C. src/lib/ingest/extract.ts
 export async function extractText(file: { name: string; type: string; bytes: Uint8Array }, opts?: { maxChars?: number }): Promise<{ text: string; warnings: string[] }>;
-// PDF(unpdf), DOCX(mammoth), TXT/MD. 10MB 제한, 텍스트 50자 미만이면 "이미지 PDF로 보임 — 텍스트를 붙여넣어 달라" 오류.
+// PDF(unpdf), DOCX(mammoth), HWP 5.x(ingest/hwp.ts), HWPX·HTML(ingest/markup.ts, HTML은 BOM→meta charset→UTF-8), TXT/MD. 10MB 제한, 텍스트 50자 미만이면 "이미지 PDF로 보임 — 텍스트를 붙여넣어 달라" 오류.
 // PDF는 pdfjs-dist의 CMap(node_modules/pdfjs-dist/cmaps)을 넘겨 ToUnicode 없는 한국어 CID 글꼴(macOS 인쇄 PDF 등)도 읽는다.
 
 // D. src/lib/report/model.ts
@@ -234,3 +254,82 @@ export function Report(props: { report: ReportModel; actions?: React.ReactNode }
 // E. src/lib/report/pdf.tsx
 export async function renderReportPdf(r: ReportModel): Promise<Uint8Array>;
 ```
+
+## 11. 경력 그래프·채팅·포트폴리오·이력서 (추가 기능)
+
+공유 타입·공통 모듈 시그니처·파일 소유권은 [CONTRACTS-career.md](./CONTRACTS-career.md)를 본다. 여기서는 구조와 실행 방법만 적는다.
+
+### 11-1. 저장소 구성
+
+| 자료 | 저장소 | 비고 |
+|---|---|---|
+| 경력 그래프(노드·관계) | Neo4j (`src/lib/graph/*`) | 노드마다 `userId`, 모든 쿼리 userId 조건 + 파라미터. 라벨·관계 이름은 화이트리스트만 Cypher에 들어간다. 본인 노드는 `Person`(API에서 id `"me"`) |
+| 채팅 스레드·메시지 | SQLite `chat_threads`·`chat_messages` | `kind: graph \| reviewer`. 그래프 변경안은 메시지 `data`(`graph-proposal`)와 `status`(proposed→applied/dismissed/failed) |
+| 포트폴리오 | SQLite `diagnoses.portfolio_text`·`portfolio_file_name` | 원본 파일은 보관하지 않고 추출 텍스트만 |
+| 회사별 이력서 메타·버전 | SQLite `company_resumes`·`resume_versions` | 버전 번호는 이력서별 유일(조건부 `INSERT … SELECT`로 예약) |
+| 이력서 본문(버전별 JSON) | R2 또는 로컬 폴더 (`src/lib/storage`) | 키 `users/<userId>/resumes/<resumeId>/v<n>.json`. R2 변수 네 개가 모두 있으면 R2, 아니면 `STORAGE_DIR` |
+
+마이그레이션은 `drizzle/0003_career_chat_resumes.sql`(기존처럼 `ensureDatabase()`가 자동 적용). Neo4j 제약·인덱스는 첫 쿼리 때 `ensureGraphSchema()`가 만든다.
+
+개발용 Neo4j 실행(루프백 7474·7687에만 연다):
+
+```bash
+docker compose --env-file .env.local -p resume-career up -d neo4j
+```
+
+`NEO4J_URI`가 없으면 `graphEnabled()`가 false → 그래프 화면은 안내, 그래프 API·그래프 출처 이력서 초안은 503. 나머지 기능은 영향 없다.
+
+### 11-2. 기능 요약
+
+- **경력 그래프 보기·편집** — `/app/graph`, `GET /api/graph`, `POST /api/graph/ops`(`{ ops: GraphOp[] }`, 1~60개).
+  직접 편집과 채팅 변경안이 같은 `GraphOp`와 `applyGraphOps`(한 트랜잭션, 하나라도 틀리면 400 + 아무것도 안 씀)를 쓴다.
+  화면은 외부 라이브러리 없는 SVG 관계도(동심원 배치) + 목록 보기 + 상세/폼. 변경이 생기면 window 이벤트 `career-graph:changed`.
+- **대화로 그래프 만들기** — `/api/graph/chat/threads[/id[/messages|/retry]]`, `/api/graph/chat/messages/[id]/(apply|dismiss)`.
+  메시지 전송은 202로 끝나고 답변은 `after()`에서 만든다(화면은 폴링). LLM 출력(`LlmGraphOpSchema`)을 `toGraphOps` → 기존 노드와
+  중복 합치기 → `planGraphOps`로 현재 그래프 기준 검사 → `proposed` 저장. 사용자가 적용하면 `applied`로 선점한 뒤 `applyGraphOps`.
+- **심사위원 7명과 대화** — 보고서 심사위원 카드의 '이 심사위원과 대화' 시트, `GET/POST /api/diagnoses/[id]/chat`,
+  `GET/DELETE /api/diagnoses/[id]/chat/[threadId]`. 그 심사위원 단계가 done이면 열린다. 진단 때 받은 역할 지시문
+  (`buildStagePrompt`의 역할 부분, `STAGE_TASK_HEADING` 앞)과 판정·단계 출력·이력서·JD 분석을 맥락으로 넣고, 수정안
+  (`before`→`after`→이유)의 원문 인용을 검증한다. 엔진은 그 진단의 엔진을 우선. 공유 화면에는 없다.
+- **포트폴리오 함께 평가** — 새 진단 4단계(선택). 파일(PDF·DOCX·HWP·HWPX·HTML·TXT·MD)과 링크·설명. `<portfolio>` 블록은 심사위원 7명과
+  fit·synthesis·rewrite·plan에만 들어가고(jd·rescreen 제외), 인용 필드에는 이력서 원문만 쓰게 한다. 포트폴리오가 없으면 프롬프트는 이전과 바이트 단위로 같다.
+- **회사별 이력서** — `/app/resumes`, `/app/resumes/new`, `/app/resumes/[id]`, `/api/resumes/**`. 초안 출처는 경력 그래프·진단 재작성본·빈 문서,
+  양식 5종(`RESUME_TEMPLATES`), 저장마다 새 버전(다른 탭이 먼저 저장했으면 409), 버전 복원, 버전별 PDF. "이 이력서로 진단"은
+  sessionStorage(`src/lib/resumes/prefill.ts`)로 새 진단 폼에 이력서·직무·JD를 채운다.
+
+### 11-3. LLM·보안 규칙(추가 기능 공통)
+
+- 호출은 `createLlmClient(provider).generate({ task: "graph-chat" | "reviewer-chat" | "resume-draft", ... })`. 출력 스키마는 도메인 스키마 그대로(테스트용 가짜 LLM도 그 스키마로 답한다).
+- 사용자 입력·이력서·포트폴리오·그래프·대화는 `wrapData`로 감싸고(`neutralizeChat`), 시스템 프롬프트에 `INJECTION_RULE`을 넣는다. 사실을 지어내지 않고 모르는 값은 `[ADD: …]`/되묻기.
+- 상태 변경 라우트는 모두 `assertSameOrigin`, 인증은 `requireApiUser`, 다른 사용자 자료는 404(그래프 연산은 400).
+- 남용 방지(프로세스 메모리 기준, 느슨함): 그래프 채팅 사용자당 10분 30통·답변 대기 중 재전송 409, 심사위원 채팅 대화당 30통·24시간 100통(`REVIEWER_CHAT_DAILY_LIMIT`), AI 이력서 초안 하루 30회.
+
+### 11-4. 공고 보관함·지원 현황·경력 대조 (2차)
+
+시그니처·소유권은 CONTRACTS-career.md §7. 마이그레이션 `drizzle/0004_career_postings_applications.sql`(`job_postings`, `posting_imports`,
+`applications`, `application_events`, `diagnoses.posting_id`, `company_resumes.posting_id`). 날짜·마감은 KST 순수 함수(`src/lib/time/kst.ts`,
+`src/lib/postings/deadline.ts`)로만 계산한다 — 서버(UTC)와 브라우저가 같은 답을 낸다.
+
+- **공고 보관함** — `/app/postings`, `/app/postings/[id]`, `GET/POST /api/postings`, `GET/PATCH/DELETE /api/postings/[id]`.
+  모든 쿼리에 `userId` 조건. URL은 `normalizeUrl` 키(`urlKey`, 사용자별 유일)로 중복을 막고 409 + `existingId`. `http(s)`가 아닌 주소는 저장하지 않는다.
+  상세의 '이 공고로 진단'(sessionStorage prefill, `postingId`), '이 공고용 이력서'(`/app/resumes/new?postingId=`), '지원 기록 추가'
+  (`/app/applications?new=1&postingId=`). `POST /api/diagnoses`·`POST /api/resumes`는 `postingId` 소유권을 확인하고(아니면 404) 비운 직무·JD를 공고 값으로 채운다.
+- **URL 가져오기** — `POST /api/postings/import` → 202 `{ jobId, job }`, `GET /api/postings/import[/jobId]`(화면은 폴링).
+  엔진이 없으면 작업을 만들기 전에 409. 실행은 `after()`에서 `runImport`: 조건부 UPDATE(`attempts`+1)로 한 번만 차지, 1회 180초 상한,
+  5분 넘게 멈춘 작업은 조회 때 다시 실행, 3회 뒤 실패. 페이지 읽기(`fetch.ts`)는 사설·루프백·CGNAT·링크로컬·ULA를 막고(DNS 결과 전부 검사,
+  검사한 주소로만 접속), 리다이렉트 3회마다 재검사, 2MB·20초. JSON-LD JobPosting을 본문 앞에 붙이고 LLM task `posting-extract`로 사실을 뽑은 뒤,
+  회사·직무 근거가 본문에 없으면 실패, 마감일·시각은 근거 문구에 있을 때만 저장. 사용자에게는 보여도 되는 오류 문구만 남긴다.
+  제한: 하루 20회(DB), 동시 3건, 분당 6회(메모리).
+- **내 경력과 대조** — 공고 상세의 `PostingMatchCard`(`GET /api/postings/[id]/match`), 그래프 화면의 `SkillGapPanel`(`GET /api/insights/skills`).
+  LLM 없이 계산한다. 요구 기술은 그 공고에 연결된 진단의 JD 분석(단계 완료분) 키워드, 없거나 추정이면 공고 본문에서 사전(`src/lib/skills/dictionary.ts`)으로 뽑고
+  '자격 요건'/'우대 사항' 머리글로 필수·우대를 나눈다. 그래프의 기술을 `canonicalSkill`로 맞춰 증명됨(직무·프로젝트·경험의 `USED_SKILL` + 성과)·
+  보유만·없음으로 분류. 공고는 Neo4j에 쓰지 않는다. 그래프가 꺼져 있으면 503. '그래프 채팅으로 추가'는 `/app/graph?ask=…#graph-chat`
+  (`GraphChatPanel initialMessage` — 입력만 채우고 보내기는 사용자가 누른다).
+- **지원 현황** — `/app/applications`(`?new=1&postingId=`, `?open=<id>`), `/api/applications[?postingId=]`, `/api/applications/[id]`,
+  `POST /api/applications/[id]/stage`, `GET /api/applications/[id]/submitted[/pdf]`, `GET /api/insights`. 단계 변경과 이벤트는 한 batch이고,
+  단계가 읽은 값 그대로일 때만 바꾼다(동시 요청은 하나만 성공, 나머지 409). 제출본: 이력서 버전을 고르거나 처음 '지원 완료' 이후 단계로 갈 때
+  그 버전 문서를 `users/<u>/applications/<id>/submitted.json`(+ `submitted-meta.json`)에 복사 — 원본 이력서를 지워도 제출본·PDF·`resumeLabel`이 남는다.
+  공고 상태: 지원서를 낸 지원이 생기면 공고 `applied`(이미 `closed`면 유지), 지원 삭제·공고 연결 변경 뒤 다른 지원이 없으면 `applied`→`planned`.
+  인사이트는 실제 결과만 센다: 응답률 = 과제·면접·최종 합격에 한 번이라도 도달 / 지원 완료 이후 단계에 도달(이벤트 기준), 단계 도달, 이력서 버전별,
+  회사별(연결 진단의 `fit.matchScore`는 참고값), 할 일 제안(마감·일정·팔로업, KST 마감 시각 기준). 예측 표현은 쓰지 않는다. `/app`에 요약 카드.
+- **사이드바** — 진단·경력·서류·지원·설정 그룹. 넓은 화면에서 바깥 칸이 행 높이만큼 늘어나 긴 페이지에서도 배경·경계선이 끝까지 이어진다.

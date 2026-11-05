@@ -181,6 +181,8 @@ export function buildReportModel(diagnosis: Diagnosis, stages: DiagnosisStage[])
       situationLabel: SITUATION_LABELS[diagnosis.situation] ?? diagnosis.situation,
       hasJd: Boolean(diagnosis.jdText?.trim()),
       resumeFileName: diagnosis.resumeFileName,
+      hasPortfolio: Boolean(diagnosis.portfolioText?.trim()),
+      portfolioFileName: diagnosis.portfolioText?.trim() ? (diagnosis.portfolioFileName ?? null) : null,
       createdAt: diagnosis.createdAt,
       completedAt: diagnosis.completedAt,
       model: diagnosis.model,

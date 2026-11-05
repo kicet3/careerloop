@@ -24,7 +24,7 @@ const STEPS: Record<ProviderConnection["id"], string[]> = {
 
 export function ProviderConnections({ initial }: { initial: ProviderConnection[] }) {
   return (
-    <div className="space-y-5">
+    <div className="grid gap-5 xl:grid-cols-2 xl:items-start">
       {initial.map((c) => (
         <ProviderCard key={c.id} initial={c} />
       ))}

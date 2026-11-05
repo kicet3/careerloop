@@ -2,6 +2,7 @@ import type { ReactNode } from "react";
 import type { ReviewerCard } from "@/lib/report/types";
 import type { CheckedQuote } from "@/lib/report/types";
 import { BulletList, Chip, EmptyState, QuoteBlock, VerdictBadge } from "./primitives";
+import { ReviewerChatButton } from "./ReviewerChatButton";
 
 function QuotedIssues({ items }: { items: { quote: CheckedQuote; issue: string }[] }) {
   return (
@@ -108,7 +109,7 @@ function Detail({ card }: { card: ReviewerCard }) {
   );
 }
 
-export function ReviewerDetails({ reviewers }: { reviewers: ReviewerCard[] }) {
+export function ReviewerDetails({ reviewers, chatDiagnosisId }: { reviewers: ReviewerCard[]; chatDiagnosisId?: string }) {
   if (!reviewers.length) return <EmptyState>심사위원 결과가 아직 없습니다.</EmptyState>;
   return (
     <div className="space-y-4">
@@ -125,6 +126,11 @@ export function ReviewerDetails({ reviewers }: { reviewers: ReviewerCard[] }) {
           <div className="mt-4">
             <Detail card={card} />
           </div>
+          {chatDiagnosisId && (
+            <div className="mt-4 flex justify-end border-t border-slate-100 pt-3 print:hidden">
+              <ReviewerChatButton diagnosisId={chatDiagnosisId} reviewer={card.id} />
+            </div>
+          )}
         </article>
       ))}
     </div>

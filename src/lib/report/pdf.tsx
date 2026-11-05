@@ -458,6 +458,11 @@ function Cover({ r }: { r: ReportModel }) {
           지원 직무 {meta.targetRole} · {meta.situationLabel} · {formatDate(meta.completedAt ?? meta.createdAt)}
         </T>
         {meta.resumeFileName ? <T style={[s.coverMeta, { marginTop: 2 }]}>이력서 파일 {meta.resumeFileName}</T> : null}
+        {meta.hasPortfolio ? (
+          <T style={[s.coverMeta, { marginTop: 2 }]}>
+            포트폴리오 포함{meta.portfolioFileName ? ` · ${meta.portfolioFileName}` : ""}
+          </T>
+        ) : null}
       </View>
 
       <View style={s.statRow}>

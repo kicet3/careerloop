@@ -45,3 +45,6 @@ next-env.d.ts
 
 # CLI 엔진 로그인 정보(앱 전용 CLAUDE_CONFIG_DIR·CODEX_HOME)
 /data/providers/
+
+# 로컬 오브젝트 저장소(R2 미설정 시 폴백)
+/data/storage/

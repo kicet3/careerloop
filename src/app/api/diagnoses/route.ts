@@ -4,11 +4,12 @@ import { assertSameOrigin, requireApiUser } from "@/lib/auth/session";
 import { ensureDatabase } from "@/lib/db/migrate";
 import { BodyTooLargeError, readFormDataLimited } from "@/lib/diagnoses/body";
 import { runDeadline } from "@/lib/diagnoses/deadline";
-import { parseDiagnosisForm, requestedProvider } from "@/lib/diagnoses/form";
+import { parseDiagnosisForm, requestedPostingId, requestedProvider } from "@/lib/diagnoses/form";
 import { errorResponse, jsonError } from "@/lib/diagnoses/http";
 import { createDiagnosis, listDiagnoses } from "@/lib/diagnoses/service";
 import type { CreateDiagnosisResponse } from "@/lib/diagnoses/types";
 import { runDiagnosis } from "@/lib/panel/runner";
+import { getPosting, POSTING_NOT_FOUND } from "@/lib/postings/service";
 import { resolveRequestedProvider } from "@/lib/providers/options";
 
 export const runtime = "nodejs";
@@ -16,8 +17,8 @@ export const runtime = "nodejs";
 // compute)의 최대값이다. Hobby 플랜은 300 이하로 낮춰야 배포된다(README '배포' 참고). 리터럴이어야 한다.
 export const maxDuration = 800;
 
-/** 파일 2개(각 10MB) + 텍스트 여유분. */
-const MAX_BODY_BYTES = 22 * 1024 * 1024;
+/** 파일 3개(이력서·JD·포트폴리오, 각 10MB) + 텍스트 여유분. */
+const MAX_BODY_BYTES = 32 * 1024 * 1024;
 
 export async function GET() {
   await ensureDatabase();
@@ -60,8 +61,12 @@ export async function POST(req: Request) {
 
   try {
     const provider = await resolveRequestedProvider(requestedProvider(form));
-    const { input, warnings } = await parseDiagnosisForm(form);
-    const { id } = await createDiagnosis(user.id, input, provider);
+    // 보관 공고로 진단: 내 공고인지 확인하고, JD·직무를 비워 보냈으면 공고의 것을 쓴다.
+    const postingId = requestedPostingId(form);
+    const posting = postingId ? await getPosting(user.id, postingId) : null;
+    if (postingId && !posting) return jsonError(POSTING_NOT_FOUND, 404);
+    const { input, warnings } = await parseDiagnosisForm(form, { posting });
+    const { id } = await createDiagnosis(user.id, { ...input, postingId: posting?.id ?? null }, provider);
     after(async () => {
       try {
         await runDiagnosis(id, { deadlineAt: runDeadline(startedAt, maxDuration) });

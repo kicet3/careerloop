@@ -5,6 +5,24 @@ import nextTs from "eslint-config-next/typescript";
 const eslintConfig = defineConfig([
   ...nextVitals,
   ...nextTs,
+  // 테스트용 가짜 LLM·도우미(src/test/**)는 테스트 파일에서만 쓴다. 앱 코드가 가짜 심사 결과를 낼 수 없게 막는다.
+  {
+    files: ["src/**/*.{ts,tsx,js,jsx,mjs}"],
+    ignores: ["src/**/*.test.{ts,tsx}", "src/**/*.test-utils.{ts,tsx}", "src/test/**"],
+    rules: {
+      "no-restricted-imports": [
+        "error",
+        {
+          patterns: [
+            {
+              group: ["@/test", "@/test/*", "**/test/fake-llm"],
+              message: "테스트 전용 모듈입니다. 앱 코드에서는 실제 엔진(createLlmClient)을 쓰세요.",
+            },
+          ],
+        },
+      ],
+    },
+  },
   // Override default ignores of eslint-config-next.
   globalIgnores([
     // Default ignores of eslint-config-next:

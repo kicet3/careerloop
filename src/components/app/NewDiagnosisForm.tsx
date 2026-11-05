@@ -2,23 +2,28 @@
 
 import Link from "next/link";
 import { useRouter } from "next/navigation";
-import { useState } from "react";
+import { useEffect, useState } from "react";
 import { Alert } from "@/components/ui/Alert";
 import { Button } from "@/components/ui/Button";
 import { Card } from "@/components/ui/Card";
 import { NO_ENGINE_MESSAGE, PROVIDER_DATA_DESTINATION, type ProviderId, type ProviderOption } from "@/lib/domain/providers";
 import { SITUATION_LABELS } from "@/lib/domain/reviewers";
 import { SITUATIONS, type Situation } from "@/lib/domain/schemas";
+import { takeDiagnosisPrefill } from "@/lib/resumes/prefill";
 import { saveCreationWarnings } from "./creation-warnings";
-import { FileDrop } from "./FileDrop";
+import { FileDrop, UPLOAD_ACCEPT, UPLOAD_FORMATS_LABEL } from "./FileDrop";
 import { SegmentedTabs } from "./Tabs";
 
-const RESUME_ACCEPT = [".pdf", ".docx", ".txt", ".md"];
-const JD_ACCEPT = [".pdf", ".docx", ".txt", ".md"];
+const RESUME_ACCEPT = UPLOAD_ACCEPT;
+const JD_ACCEPT = UPLOAD_ACCEPT;
+const PORTFOLIO_ACCEPT = UPLOAD_ACCEPT;
+/** 서버 상한(src/lib/diagnoses/form.ts MAX_PORTFOLIO_NOTE_CHARS)과 같게 둔다. */
+const PORTFOLIO_NOTE_MAX = 5000;
 
 /**
  * POST /api/diagnoses multipart 필드 이름.
  * 이력서는 resumeFile 또는 resumeText 중 하나, JD는 jdFile 또는 jdText 중 하나(둘 다 없으면 JD 없음).
+ * 포트폴리오(선택)는 portfolioFile과 portfolioText(링크·설명)를 함께 보낼 수 있다.
  */
 export const DIAGNOSIS_FORM_FIELDS = {
   resumeFile: "resumeFile",
@@ -28,7 +33,10 @@ export const DIAGNOSIS_FORM_FIELDS = {
   jdFile: "jdFile",
   situation: "situation",
   notes: "notes",
+  portfolioFile: "portfolioFile",
+  portfolioText: "portfolioText",
   provider: "provider",
+  postingId: "postingId",
 } as const;
 
 const SITUATION_HINTS: Record<Situation, string> = {
@@ -71,13 +79,38 @@ export function NewDiagnosisForm({
   const [jdText, setJdText] = useState("");
   const [situation, setSituation] = useState<Situation>("general");
   const [notes, setNotes] = useState("");
+  const [portfolioFile, setPortfolioFile] = useState<File | null>(null);
+  const [portfolioText, setPortfolioText] = useState("");
 
-  const [fileError, setFileError] = useState<{ resume?: string; jd?: string }>({});
+  const [fileError, setFileError] = useState<{ resume?: string; jd?: string; portfolio?: string }>({});
   const [error, setError] = useState<string | null>(null);
   const [submitting, setSubmitting] = useState(false);
+  const [prefilled, setPrefilled] = useState(false);
+  /** 공고 보관함의 "이 공고로 진단"에서 왔으면 그 공고(진단이 공고에 연결된다). */
+  const [posting, setPosting] = useState<{ id: string; label: string } | null>(null);
+
+  // 이력서 화면의 "이 이력서로 진단"이 sessionStorage로 넘긴 값(한 번 읽고 지운다). 저장소는 마운트 뒤에만 읽을 수 있다.
+  useEffect(() => {
+    const p = takeDiagnosisPrefill();
+    if (!p) return;
+    /* eslint-disable react-hooks/set-state-in-effect -- 외부 저장소(sessionStorage)에서 한 번 읽는다 */
+    if (p.postingId) setPosting({ id: p.postingId, label: p.postingLabel ?? "" });
+    if (p.resumeText.trim()) {
+      setResumeMode("text");
+      setResumeText(p.resumeText);
+    }
+    if (p.targetRole.trim()) setTargetRole(p.targetRole);
+    if (p.jdText.trim()) {
+      setJdMode("text");
+      setJdText(p.jdText);
+    }
+    setPrefilled(true);
+    /* eslint-enable react-hooks/set-state-in-effect */
+  }, []);
 
   const hasResume = resumeMode === "file" ? !!resumeFile : resumeText.trim().length > 0;
   const hasJd = jdMode === "file" ? !!jdFile : jdText.trim().length > 0;
+  const hasPortfolio = !!portfolioFile || portfolioText.trim().length > 0;
 
   async function onSubmit(e: React.FormEvent<HTMLFormElement>) {
     e.preventDefault();
@@ -104,7 +137,10 @@ export function NewDiagnosisForm({
     else if (jdText.trim()) fd.set(F.jdText, jdText);
     fd.set(F.situation, situation);
     if (notes.trim()) fd.set(F.notes, notes.trim());
+    if (portfolioFile) fd.set(F.portfolioFile, portfolioFile);
+    if (portfolioText.trim()) fd.set(F.portfolioText, portfolioText.trim());
     fd.set(F.provider, provider);
+    if (posting) fd.set(F.postingId, posting.id);
 
     setSubmitting(true);
     try {
@@ -128,10 +164,18 @@ export function NewDiagnosisForm({
     }
   }
 
+  // 넓은 화면(xl~)은 1·2번, 3·4번 카드를 2열로 나란히 두고 나머지(엔진·안내·제출)는 전체 폭. data-half 카드만 반 칸.
   return (
-    <form onSubmit={onSubmit} className="space-y-6" noValidate>
+    <form onSubmit={onSubmit} className="grid gap-6 xl:grid-cols-2 xl:items-start [&>*]:col-span-full xl:[&>[data-half]]:col-span-1" noValidate>
+      {prefilled && (
+        <Alert tone="info">
+          {posting
+            ? `보관한 공고${posting.label ? `(${posting.label})` : ""}의 직무와 JD를 채웠습니다. 이력서를 넣고 진단을 시작하세요. 진단은 이 공고에 연결됩니다.`
+            : "이력서 화면에서 내용을 가져와 채웠습니다. 확인한 뒤 진단을 시작하세요."}
+        </Alert>
+      )}
       {/* 1. 이력서 */}
-      <Card className="p-5 sm:p-6">
+      <Card data-half className="p-5 sm:p-6">
         <SectionTitle step={1} title="이력서" required />
         <div className="mt-4 space-y-3">
           <SegmentedTabs
@@ -148,7 +192,7 @@ export function NewDiagnosisForm({
               file={resumeFile}
               accept={RESUME_ACCEPT}
               label="이력서 파일을 끌어다 놓거나 눌러서 선택"
-              hint="PDF · DOCX · TXT · MD, 10MB 이하. 이미지로 된 PDF는 글자를 읽지 못하니 붙여넣기를 써 주세요."
+              hint={`${UPLOAD_FORMATS_LABEL}, 10MB 이하. 이미지로 된 PDF와 암호·배포용 HWP는 읽지 못하니 붙여넣기를 써 주세요.`}
               onChange={(f, err) => {
                 setResumeFile(f);
                 setFileError((p) => ({ ...p, resume: err ?? undefined }));
@@ -169,7 +213,7 @@ export function NewDiagnosisForm({
       </Card>
 
       {/* 2. 지원 직무 + JD */}
-      <Card className="p-5 sm:p-6">
+      <Card data-half className="p-5 sm:p-6">
         <SectionTitle step={2} title="지원할 자리" />
         <div className="mt-4 space-y-5">
           <div>
@@ -240,7 +284,7 @@ export function NewDiagnosisForm({
       </Card>
 
       {/* 3. 상황·메모 */}
-      <Card className="p-5 sm:p-6">
+      <Card data-half className="p-5 sm:p-6">
         <SectionTitle step={3} title="상황과 메모" />
         <fieldset className="mt-4">
           <legend className="text-sm font-medium text-slate-800">지원 상황</legend>
@@ -283,10 +327,54 @@ export function NewDiagnosisForm({
         </div>
       </Card>
 
-      {/* 4. AI 엔진 */}
+      {/* 4. 포트폴리오(선택) */}
+      <Card data-half className="p-5 sm:p-6">
+        <SectionTitle step={4} title="포트폴리오" optional />
+        <p className="mt-2 text-sm text-slate-500">
+          포트폴리오를 함께 내면 심사위원 7명과 적합도·재작성·개선 방향이 이력서와 <strong className="font-medium text-slate-700">별개 자료</strong>로
+          참고합니다. 이력서에 빠진 근거를 찾아 옮길 방향을 알려 주며, 인용 확인은 이력서 원문만 대상으로 합니다.
+        </p>
+        <div className="mt-4 space-y-4">
+          <div>
+            <span className="block text-sm font-medium text-slate-800">포트폴리오 파일</span>
+            <div className="mt-1.5">
+              <FileDrop
+                file={portfolioFile}
+                accept={PORTFOLIO_ACCEPT}
+                label="포트폴리오 파일을 끌어다 놓거나 눌러서 선택"
+                hint={`${UPLOAD_FORMATS_LABEL}, 10MB 이하. 글자를 읽을 수 있는 파일만 반영되며, 긴 파일은 앞부분만 씁니다.`}
+                onChange={(f, err) => {
+                  setPortfolioFile(f);
+                  setFileError((p) => ({ ...p, portfolio: err ?? undefined }));
+                }}
+              />
+            </div>
+            {fileError.portfolio && <p className="mt-2 text-sm text-red-600">{fileError.portfolio}</p>}
+          </div>
+          <div>
+            <label htmlFor="portfolioText" className="block text-sm font-medium text-slate-800">
+              링크·설명
+            </label>
+            <textarea
+              id="portfolioText"
+              value={portfolioText}
+              onChange={(e) => setPortfolioText(e.target.value)}
+              maxLength={PORTFOLIO_NOTE_MAX}
+              rows={4}
+              placeholder={"예: https://github.com/me/payments — 결제 정산 배치를 Kotlin으로 재작성, 처리 시간 4시간 → 40분.\n링크는 열어 보지 못하므로 프로젝트 내용·역할·결과를 함께 적어 주세요."}
+              className={textareaClass}
+            />
+            <p className="mt-1 text-right text-xs text-slate-400">
+              {portfolioText.length}/{PORTFOLIO_NOTE_MAX}
+            </p>
+          </div>
+        </div>
+      </Card>
+
+      {/* 5. AI 엔진 */}
       {(providers.length > 1 || hasCliOptions) && (
         <Card className="p-5 sm:p-6">
-          <SectionTitle step={4} title="AI 엔진" />
+          <SectionTitle step={5} title="AI 엔진" />
           <fieldset className="mt-4">
             <legend className="sr-only">심사에 쓸 AI 엔진</legend>
             <div className="grid gap-2 sm:grid-cols-2">
@@ -334,10 +422,8 @@ export function NewDiagnosisForm({
 
       <Alert tone="info" title="보내기 전에 확인해 주세요">
         {destination
-          ? `이력서와 JD는 분석을 위해 ${destination}(으)로 전송됩니다. `
-          : provider === "mock"
-            ? "개발용 mock 모드라 샘플 결과를 만들며, 이력서는 외부로 전송되지 않습니다. "
-            : "이력서와 JD는 분석을 위해 선택한 AI 엔진으로 전송됩니다. "}
+          ? `이력서와 JD${hasPortfolio ? ", 포트폴리오" : ""}는 분석을 위해 ${destination}(으)로 전송됩니다. `
+          : `이력서와 JD${hasPortfolio ? ", 포트폴리오" : ""}는 분석을 위해 선택한 AI 엔진으로 전송됩니다. `}
         주민등록번호, 집 주소, 전화번호 등 보내고 싶지 않은 정보는 미리 지워 주세요. 심사는 이력서에 있는 사실만 사용하며,
         모르는 내용은 지어내지 않고 질문으로 남깁니다.
       </Alert>
@@ -364,7 +450,17 @@ const inputClass =
   "mt-1.5 block w-full rounded-lg border border-slate-300 bg-white px-3 py-2 text-[15px] text-slate-900 placeholder:text-slate-400 focus:border-indigo-500 focus:outline-none focus:ring-2 focus:ring-indigo-500/20";
 const textareaClass = `${inputClass} resize-y leading-relaxed`;
 
-function SectionTitle({ step, title, required }: { step: number; title: string; required?: boolean }) {
+function SectionTitle({
+  step,
+  title,
+  required,
+  optional,
+}: {
+  step: number;
+  title: string;
+  required?: boolean;
+  optional?: boolean;
+}) {
   return (
     <h2 className="flex items-center gap-2 text-base font-semibold text-slate-900">
       <span className="grid size-6 place-items-center rounded-full bg-indigo-600 text-xs font-bold text-white">
@@ -372,6 +468,7 @@ function SectionTitle({ step, title, required }: { step: number; title: string; 
       </span>
       {title}
       {required && <span className="text-red-600" aria-hidden>*</span>}
+      {optional && <span className="text-sm font-normal text-slate-400">(선택)</span>}
     </h2>
   );
 }

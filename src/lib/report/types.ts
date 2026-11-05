@@ -75,6 +75,9 @@ export interface ReportModel {
     situationLabel: string;
     hasJd: boolean;
     resumeFileName: string | null;
+    /** 포트폴리오를 함께 심사했는지(이력서와 별개 자료). 이전 진단·고정 예시는 없을 수 있다. */
+    hasPortfolio?: boolean;
+    portfolioFileName?: string | null;
     createdAt: Date;
     completedAt: Date | null;
     model: string;

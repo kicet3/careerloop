@@ -1,0 +1,444 @@
+/*
+ * 성과 중심 이력서 양식(docs/reference/resume-template-performance.html)의 화면 스타일(PerformanceSheet 전용).
+ * 색 토큰·글자 크기(pt)·78px 섹션 라벨 2단 그리드·간격은 원본 값을 그대로 옮겼다.
+ * PDF(src/lib/resumes/pdf-performance.tsx)는 같은 값을 pt로 환산해 쓴다 — 한쪽을 바꾸면 다른 쪽도 맞춘다.
+ * 이 프로젝트의 Turbopack 규칙은 *.css를 모두 일반(전역) CSS로 다루므로(CSS Modules 아님) 클래스에 'pf-' 접두사를 붙였다.
+ */
+.pf-root {
+  --ink: #20262e;
+  --muted: #596574;
+  --accent: #264e77;
+  --line: #d9e0e7;
+  --paper: #fff;
+  --canvas: #edf1f5;
+  background: var(--canvas);
+  color: var(--ink);
+  font-family: Pretendard, "Apple SD Gothic Neo", "Noto Sans KR", sans-serif;
+  word-break: keep-all;
+  overflow-wrap: anywhere;
+  -webkit-font-smoothing: antialiased;
+  border-radius: 8px;
+  padding: 20px 0 1px;
+}
+.pf-root *,
+.pf-root *::before,
+.pf-root *::after {
+  box-sizing: border-box;
+}
+
+.pf-status {
+  max-width: 794px;
+  margin: 0 auto 13px;
+  display: flex;
+  justify-content: space-between;
+  gap: 16px;
+  font-size: 11px;
+  color: var(--muted);
+  padding: 0 3px;
+}
+.pf-overflow {
+  color: #9c392c;
+  font-weight: 600;
+}
+
+.pf-sheet-wrap {
+  padding: 0 24px 45px;
+  overflow-x: auto;
+}
+.pf-sheet {
+  position: relative;
+  width: 210mm;
+  min-height: 297mm;
+  background: var(--paper);
+  padding: 15mm 16mm;
+  box-shadow: 0 8px 30px #23344916;
+  margin: 0 auto;
+}
+.pf-body {
+  font-size: 10pt;
+  line-height: 1.6;
+}
+.pf-header {
+  padding-bottom: 17px;
+}
+.pf-identity-row {
+  display: flex;
+  justify-content: space-between;
+  align-items: flex-start;
+  gap: 25px;
+}
+.pf-name {
+  font-size: 30pt;
+  font-weight: 750;
+  line-height: 1.2;
+  letter-spacing: -1.1px;
+  margin: 0 0 8px;
+}
+.pf-role {
+  font-size: 13pt;
+  line-height: 1.45;
+  font-weight: 650;
+  color: var(--accent);
+  margin: 0;
+}
+.pf-experience {
+  font-size: 9pt;
+  font-weight: 450;
+  color: var(--muted);
+  margin-left: 8px;
+}
+.pf-contact {
+  font-size: 8.5pt;
+  text-align: right;
+  line-height: 1.85;
+  padding-top: 3px;
+  color: var(--muted);
+  max-width: 250px;
+}
+.pf-contact > div {
+  white-space: normal;
+}
+.pf-intro {
+  margin: 16px 0 0;
+  font-size: 10pt;
+  line-height: 1.7;
+  max-width: 100%;
+  color: #364352;
+}
+
+.pf-section {
+  display: grid;
+  grid-template-columns: 78px minmax(0, 1fr);
+  column-gap: 20px;
+  padding: 17px 0 16px;
+  border-top: 1px solid var(--line);
+}
+.pf-section:last-child {
+  padding-bottom: 0;
+}
+.pf-section-label {
+  min-width: 0;
+}
+.pf-section h2 {
+  font-size: 9.5pt;
+  line-height: 1.6;
+  font-weight: 700;
+  color: var(--accent);
+  margin: 0;
+  padding-top: 1px;
+}
+/* 섹션 제목을 비우면 기본 제목을 같은 색으로 보인다(안내 문구처럼 흐리게 하지 않는다). */
+.pf-section h2.pf-field:empty::before {
+  color: var(--accent);
+}
+.pf-section-content {
+  min-width: 0;
+}
+
+.pf-highlights {
+  margin: 0;
+  padding: 0;
+  list-style: none;
+}
+.pf-highlights > li {
+  padding: 0 0 9px;
+}
+.pf-highlights > li:last-child {
+  padding: 0;
+}
+.pf-highlight-title {
+  font-weight: 700;
+  font-size: 10pt;
+  line-height: 1.55;
+}
+.pf-highlight-context {
+  font-size: 8.5pt;
+  color: var(--muted);
+  line-height: 1.6;
+  margin-top: 1px;
+}
+
+.pf-entry + .pf-entry {
+  margin-top: 15px;
+}
+.pf-entry-head {
+  display: flex;
+  align-items: baseline;
+  justify-content: space-between;
+  gap: 18px;
+}
+.pf-entry-title {
+  font-weight: 700;
+  font-size: 10.5pt;
+  line-height: 1.5;
+}
+.pf-period {
+  white-space: nowrap;
+  font-size: 8pt;
+  color: var(--muted);
+  font-variant-numeric: tabular-nums;
+}
+.pf-entry-meta {
+  font-size: 8.5pt;
+  color: var(--muted);
+  margin: 2px 0 5px;
+}
+.pf-entry p {
+  margin: 3px 0;
+  font-size: 9.3pt;
+  line-height: 1.62;
+}
+.pf-entry ul {
+  padding: 0 0 0 14px;
+  margin: 4px 0 0;
+  list-style: disc;
+}
+.pf-entry li {
+  padding-left: 1px;
+  margin: 3px 0;
+  font-size: 9.3pt;
+  line-height: 1.6;
+}
+.pf-project + .pf-project {
+  margin-top: 16px;
+}
+.pf-project .pf-entry-meta {
+  margin-bottom: 7px;
+}
+.pf-detail {
+  display: grid;
+  grid-template-columns: 26px minmax(0, 1fr);
+  gap: 8px;
+  margin: 4px 0;
+  font-size: 9.3pt;
+  line-height: 1.62;
+}
+.pf-detail dt {
+  font-weight: 600;
+  color: var(--muted);
+  margin: 0;
+}
+.pf-detail dd {
+  margin: 0;
+}
+.pf-detail.pf-result dd {
+  font-weight: 650;
+  color: var(--ink);
+}
+.pf-evidence {
+  font-size: 8pt;
+  color: var(--muted);
+  margin-top: 5px;
+}
+.pf-skills {
+  display: grid;
+  grid-template-columns: 92px minmax(0, 1fr);
+  column-gap: 12px;
+  row-gap: 5px;
+  font-size: 9pt;
+  line-height: 1.6;
+  margin: 0;
+}
+.pf-skills dt {
+  font-weight: 650;
+  margin: 0;
+}
+.pf-skills dd {
+  margin: 0;
+  color: #42505f;
+}
+.pf-education .pf-entry-head + .pf-entry-head {
+  margin-top: 7px;
+}
+.pf-education .pf-entry-title {
+  font-size: 9pt;
+  font-weight: 550;
+}
+.pf-education .pf-period {
+  font-size: 8pt;
+}
+
+/* 편집 칸: 원본과 같은 hover·focus 표시, 비면 대괄호 안내 문구. */
+.pf-field {
+  border-radius: 2px;
+  outline: none;
+}
+.pf-multiline {
+  white-space: pre-wrap;
+}
+.pf-field[contenteditable] {
+  cursor: text;
+}
+.pf-field[contenteditable]:hover {
+  background: #eef5fc;
+}
+.pf-field[contenteditable]:focus {
+  background: #eef5fc;
+  outline: 1.5px solid #85a9cc;
+  outline-offset: 3px;
+}
+.pf-field:empty::before {
+  content: attr(data-empty);
+  color: #8894a1;
+  white-space: pre-wrap;
+}
+.pf-add {
+  background: #fef08a;
+  border-radius: 2px;
+}
+
+/* 항목 추가·삭제 컨트롤(화면 전용, PDF에는 없다). 레이아웃 높이를 바꾸지 않게 삭제 버튼은 여백에 띄운다. */
+.pf-item {
+  position: relative;
+}
+.pf-remove {
+  position: absolute;
+  top: 0;
+  right: -13mm;
+  width: 22px;
+  height: 22px;
+  border: 1px solid #bcc9d6;
+  border-radius: 999px;
+  background: #fff;
+  color: var(--muted);
+  font: inherit;
+  font-size: 12px;
+  line-height: 1;
+  cursor: pointer;
+  opacity: 0;
+  transition: opacity 0.12s;
+}
+.pf-item:hover > .pf-remove,
+.pf-item:focus-within > .pf-remove,
+.pf-remove:focus-visible {
+  opacity: 1;
+}
+.pf-remove:hover {
+  color: #9c392c;
+  border-color: #9c392c;
+}
+.pf-add-button {
+  display: block;
+  margin-top: 4px;
+  border: 0;
+  padding: 0;
+  background: none;
+  color: #6f8db0;
+  font: inherit;
+  font-size: 8pt;
+  cursor: pointer;
+}
+.pf-add-button:hover {
+  color: var(--accent);
+  text-decoration: underline;
+}
+.pf-add-button:disabled {
+  color: #b6c1cc;
+  cursor: default;
+  text-decoration: none;
+}
+.pf-add-bullet {
+  top: 28px;
+}
+.pf-remove:disabled {
+  display: none;
+}
+
+.pf-notes {
+  max-width: 794px;
+  margin: 0 auto 35px;
+  padding: 0 4px;
+  font-size: 12px;
+  line-height: 1.85;
+  color: var(--muted);
+}
+.pf-notes strong {
+  color: var(--ink);
+}
+.pf-notes ul {
+  padding-left: 18px;
+  margin: 6px 0;
+  list-style: disc;
+}
+
+@media (max-width: 850px) {
+  .pf-status {
+    padding: 0 20px;
+  }
+  .pf-sheet-wrap {
+    padding-left: 20px;
+    padding-right: 20px;
+  }
+  .pf-notes {
+    padding: 0 20px;
+  }
+}
+@media (max-width: 600px) {
+  .pf-sheet-wrap {
+    overflow: visible;
+    padding: 0 12px 25px;
+  }
+  .pf-sheet {
+    width: 100%;
+    min-height: 0;
+    padding: 28px 22px;
+  }
+  .pf-identity-row {
+    display: block;
+  }
+  .pf-contact {
+    text-align: left;
+    margin-top: 10px;
+    max-width: none;
+    padding-top: 0;
+  }
+  .pf-name {
+    font-size: 27pt;
+  }
+  .pf-role {
+    font-size: 12pt;
+  }
+  .pf-experience {
+    display: inline-block;
+    margin-left: 7px;
+  }
+  .pf-intro {
+    margin-top: 13px;
+  }
+  .pf-section {
+    grid-template-columns: 1fr;
+    gap: 10px;
+    padding: 17px 0;
+  }
+  .pf-section h2 {
+    font-size: 10pt;
+  }
+  .pf-entry-head {
+    gap: 6px;
+    flex-wrap: wrap;
+  }
+  .pf-skills {
+    grid-template-columns: 84px 1fr;
+  }
+  .pf-status {
+    font-size: 10px;
+  }
+  .pf-entry-title {
+    font-size: 10pt;
+  }
+  .pf-remove {
+    right: -16px;
+    opacity: 1;
+  }
+}
+@media print {
+  .pf-status,
+  .pf-notes,
+  .pf-remove,
+  .pf-add-button {
+    display: none !important;
+  }
+  .pf-field:empty::before {
+    content: none;
+  }
+}

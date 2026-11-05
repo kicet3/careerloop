@@ -1,6 +1,6 @@
 import { describe, expect, it } from "vitest";
 import { STAGE_DEPENDENCIES, STAGE_KEYS, type DiagnosisInput, type StageKey, type StageOutputs } from "@/lib/domain/schemas";
-import { MockLlmClient } from "@/lib/llm/mock";
+import { FakeLlmClient } from "@/test/fake-llm";
 import type { GenerateRequest, GenerateResult, LlmClient } from "@/lib/llm/types";
 import { scoreFit } from "./fit-score";
 import { runPipeline } from "./pipeline";
@@ -21,14 +21,14 @@ jiwon@example.com · 010-1111-2222
   notes: null,
 };
 
-/** mock 출력을 쓰되 호출 순서·동시성을 기록하고, 지정한 단계는 실패시키는 가짜 클라이언트. */
+/** 가짜 LLM(FakeLlmClient) 출력을 쓰되 호출 순서·동시성을 기록하고, 지정한 단계는 실패시키는 가짜 클라이언트. */
 class RecordingLlm implements LlmClient {
   readonly name = "recording";
   readonly log: string[] = [];
   readonly calls: StageKey[] = [];
   running = 0;
   maxRunning = 0;
-  private readonly inner = new MockLlmClient({ delayMs: 0 });
+  private readonly inner = new FakeLlmClient({ delayMs: 0 });
 
   constructor(private readonly opts: { fail?: StageKey[]; delay?: (s: StageKey) => number } = {}) {}
 

@@ -13,11 +13,12 @@ import { nanoid } from "nanoid";
 import { db } from "@/lib/db/client";
 import { diagnoses, diagnosisStages, type UsageTotals } from "@/lib/db/schema";
 import { STAGE_LABELS } from "@/lib/domain/reviewers";
-import { STAGE_KEYS, STAGE_SCHEMAS, type DiagnosisInput, type StageKey, type StageOutputs } from "@/lib/domain/schemas";
+import { STAGE_KEYS, STAGE_SCHEMAS, type StageKey, type StageOutputs } from "@/lib/domain/schemas";
 import { HEARTBEAT_MS } from "@/lib/diagnoses/summary";
 import { createLlmClient, legacyProvider } from "@/lib/llm";
 import { LlmPermanentError, usageOfError, type LlmClient, type LlmUsage } from "@/lib/llm/types";
 import { runPipeline } from "./pipeline";
+import type { PanelInput } from "./prompts";
 
 const ZERO_USAGE: UsageTotals = { inputTokens: 0, outputTokens: 0, cacheReadTokens: 0, cacheWriteTokens: 0 };
 
@@ -140,13 +141,14 @@ export async function runDiagnosis(
         .where(and(eq(diagnosisStages.diagnosisId, diagnosisId), inArray(diagnosisStages.stage, rerun)));
     }
 
-    const input: DiagnosisInput = {
+    const input: PanelInput = {
       resumeText: diagnosis.resumeText,
       resumeFileName: diagnosis.resumeFileName,
       targetRole: diagnosis.targetRole,
       jdText: diagnosis.jdText?.trim() ? diagnosis.jdText : null,
       situation: diagnosis.situation,
       notes: diagnosis.notes?.trim() ? diagnosis.notes : null,
+      portfolioText: diagnosis.portfolioText?.trim() ? diagnosis.portfolioText : null,
     };
 
     let usage: UsageTotals = { ...ZERO_USAGE, ...(diagnosis.usage ?? {}) };

@@ -30,7 +30,7 @@ export default async function DiagnosisPage({ params }: Props) {
   const warningAlert = <CreationWarnings id={diagnosis.id} />;
 
   const back = (
-    <Link href="/app" className="inline-flex items-center gap-1 text-sm text-slate-500 hover:text-slate-800">
+    <Link href="/app" className="inline-flex items-center gap-1 text-sm text-slate-500 hover:text-slate-800 print:hidden">
       <span aria-hidden>←</span> 내 진단
     </Link>
   );
@@ -42,7 +42,11 @@ export default async function DiagnosisPage({ params }: Props) {
       <div className="space-y-4">
         {back}
         {warningAlert}
-        <Report report={report} actions={<ReportActions id={diagnosis.id} shareToken={diagnosis.shareToken} />} />
+        <Report
+          report={report}
+          reviewerChat={{ diagnosisId: diagnosis.id }}
+          actions={<ReportActions id={diagnosis.id} shareToken={diagnosis.shareToken} />}
+        />
       </div>
     );
   }
@@ -53,7 +57,7 @@ export default async function DiagnosisPage({ params }: Props) {
   const startedAt = startedTimes.length ? Math.min(...startedTimes) : diagnosis.createdAt.getTime();
 
   return (
-    <div className="mx-auto max-w-3xl space-y-4">
+    <div className="space-y-4">
       {back}
       <div>
         <h1 className="text-2xl font-bold tracking-tight break-words text-slate-900">{diagnosis.title}</h1>
@@ -83,6 +87,7 @@ export default async function DiagnosisPage({ params }: Props) {
             return (
               <Report
                 report={report}
+                reviewerChat={{ diagnosisId: diagnosis.id }}
                 actions={
                   <ReportActions id={diagnosis.id} shareToken={diagnosis.shareToken} partial hasRewrite={!!report.rewrite} />
                 }

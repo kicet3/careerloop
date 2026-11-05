@@ -1,9 +1,11 @@
 import type { Metadata } from "next";
 import Link from "next/link";
 import { DIAGNOSIS_STATUS_VIEW, formatDateTime } from "@/components/app/stages";
+import { InsightsSummaryCard } from "@/components/applications/InsightsPanels";
 import { Badge } from "@/components/ui/Badge";
 import { buttonClass } from "@/components/ui/Button";
 import { Card } from "@/components/ui/Card";
+import { getInsights } from "@/lib/applications/insights-service";
 import { requireUser } from "@/lib/auth/session";
 import { listDiagnoses, markStaleRunsFailed, type DiagnosisListItem } from "@/lib/diagnoses/service";
 
@@ -12,7 +14,14 @@ export const metadata: Metadata = { title: "내 진단" };
 export default async function DiagnosesPage() {
   const user = await requireUser("/app");
   await markStaleRunsFailed(user.id);
-  const items = await listDiagnoses(user.id);
+  const [items, insights] = await Promise.all([
+    listDiagnoses(user.id),
+    // 지원 요약이 실패해도 진단 목록은 보여 준다.
+    getInsights(user.id).catch((err) => {
+      console.error("[app] 지원 인사이트 집계 실패", err);
+      return null;
+    }),
+  ]);
 
   return (
     <div className="space-y-6">
@@ -26,6 +35,9 @@ export default async function DiagnosesPage() {
         </Link>
       </div>
 
+      {/* 지원 성과 요약(지원 기록이나 할 일이 있을 때만) — applications 담당 */}
+      {insights && <InsightsSummaryCard insights={insights} />}
+
       {items.length === 0 ? (
         <Card className="px-6 py-14 text-center">
           <p className="text-lg font-semibold text-slate-900">아직 받은 진단이 없습니다</p>
@@ -38,7 +50,7 @@ export default async function DiagnosesPage() {
           </Link>
         </Card>
       ) : (
-        <ul className="grid gap-3">
+        <ul className="grid gap-3 md:grid-cols-2 xl:grid-cols-3 min-[1920px]:grid-cols-4">
           {items.map((item) => (
             <li key={item.id}>
               <DiagnosisRow item={item} />
@@ -55,7 +67,7 @@ function DiagnosisRow({ item }: { item: DiagnosisListItem }) {
   return (
     <Link
       href={`/app/d/${item.id}`}
-      className="block rounded-xl border border-slate-200 bg-white p-4 shadow-sm transition-colors hover:border-indigo-300 hover:bg-indigo-50/30 sm:p-5"
+      className="block h-full rounded-xl border border-slate-200 bg-white p-4 shadow-sm transition-colors hover:border-indigo-300 hover:bg-indigo-50/30 sm:p-5"
     >
       <div className="flex flex-wrap items-start justify-between gap-x-4 gap-y-2">
         <div className="min-w-0 flex-1">

@@ -1,8 +1,7 @@
 /**
  * 새 진단에서 고를 수 있는 엔진 목록과 선택 검증(서버 전용).
- * - anthropic: ANTHROPIC_API_KEY가 있고 LLM_MOCK이 아닐 때.
+ * - anthropic: ANTHROPIC_API_KEY가 있을 때.
  * - claude-cli·codex-cli: CLI_PROVIDERS=1일 때 보이고, CLI 설치 + 로그인이면 사용 가능.
- * - mock: LLM_MOCK=1일 때만(개발·테스트용). 사용자 화면의 선택지로는 내보내지 않는다.
  */
 import "server-only";
 import {
@@ -23,8 +22,7 @@ function option(id: ProviderId, ready: boolean, reason: string | null, account: 
 }
 
 export async function listProviderOptions(): Promise<ProviderOption[]> {
-  const mockOnly = process.env.LLM_MOCK === "1";
-  const hasKey = !!process.env.ANTHROPIC_API_KEY && !mockOnly;
+  const hasKey = !!process.env.ANTHROPIC_API_KEY;
   const out: ProviderOption[] = [];
   if (hasKey) out.push(option("anthropic", true, null));
   if (cliProvidersEnabled()) {
@@ -39,7 +37,6 @@ export async function listProviderOptions(): Promise<ProviderOption[]> {
       out.push(option(id, s.installed && s.loggedIn, reason, s.loggedIn ? s.account : null));
     });
   }
-  if (mockOnly) out.push(option("mock", true, null));
   return out;
 }
 

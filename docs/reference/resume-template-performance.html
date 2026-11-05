@@ -1,0 +1,136 @@
+<!doctype html>
+<html lang="ko">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1">
+<title>성과 중심 이력서</title>
+<style>
+:root{--ink:#20262e;--muted:#596574;--accent:#264e77;--line:#d9e0e7;--paper:#fff;--canvas:#edf1f5}
+*{box-sizing:border-box}body{margin:0;background:var(--canvas);color:var(--ink);font-family:Pretendard,"Apple SD Gothic Neo","Noto Sans KR",sans-serif;word-break:keep-all;overflow-wrap:anywhere;-webkit-font-smoothing:antialiased}button{font:inherit;cursor:pointer}.toolbar{display:flex;align-items:center;justify-content:space-between;gap:24px;max-width:1020px;margin:30px auto 20px;padding:0 28px}.toolbar h1{font-size:19px;margin:0 0 7px;font-weight:700}.toolbar p{font-size:13px;line-height:1.7;color:var(--muted);margin:0}.actions{display:flex;gap:8px;flex-shrink:0}.actions button{border:1px solid #bcc9d6;padding:10px 15px;border-radius:6px;background:white;color:var(--ink);font-size:13px;font-weight:600}.actions button.primary{background:var(--accent);border-color:var(--accent);color:white}.actions button:hover{filter:brightness(.95)}.actions button:focus-visible{outline:3px solid #91b3d5;outline-offset:3px}.status{max-width:794px;margin:0 auto 13px;display:flex;justify-content:space-between;gap:16px;font-size:11px;color:var(--muted);padding:0 3px}.status .overflow{color:#9c392c;font-weight:600}.sheet-wrap{padding:0 24px 45px;overflow-x:auto}.sheet{width:210mm;min-height:297mm;background:var(--paper);padding:15mm 16mm;box-shadow:0 8px 30px #23344916;margin:0 auto}.resume-body{font-size:10pt;line-height:1.6}.resume-header{padding-bottom:17px}.identity-row{display:flex;justify-content:space-between;align-items:flex-start;gap:25px}.name{font-size:30pt;font-weight:750;line-height:1.2;letter-spacing:-1.1px;margin:0 0 8px}.role{font-size:13pt;line-height:1.45;font-weight:650;color:var(--accent);margin:0}.role .experience{font-size:9pt;font-weight:450;color:var(--muted);margin-left:8px}.contact{font-size:8.5pt;text-align:right;line-height:1.85;padding-top:3px;color:var(--muted);max-width:250px}.contact div{white-space:normal}.intro{margin:16px 0 0;font-size:10pt;line-height:1.7;max-width:100%;color:#364352}.section{display:grid;grid-template-columns:78px minmax(0,1fr);column-gap:20px;padding:17px 0 16px;border-top:1px solid var(--line)}.section:last-child{padding-bottom:0}.section h2{font-size:9.5pt;line-height:1.6;font-weight:700;color:var(--accent);margin:0;padding-top:1px}.section-content{min-width:0}.highlights{margin:0;padding:0;list-style:none}.highlights li{padding:0 0 9px}.highlights li:last-child{padding:0}.highlight-title{font-weight:700;font-size:10pt;line-height:1.55}.highlight-context{font-size:8.5pt;color:var(--muted);line-height:1.6;margin-top:1px}.entry+.entry{margin-top:15px}.entry-head{display:flex;align-items:baseline;justify-content:space-between;gap:18px}.entry-title{font-weight:700;font-size:10.5pt;line-height:1.5}.period{white-space:nowrap;font-size:8pt;color:var(--muted);font-variant-numeric:tabular-nums}.entry-meta{font-size:8.5pt;color:var(--muted);margin:2px 0 5px}.entry p{margin:3px 0;font-size:9.3pt;line-height:1.62}.entry ul{padding:0 0 0 14px;margin:4px 0 0}.entry li{padding-left:1px;margin:3px 0;font-size:9.3pt;line-height:1.6}.project+.project{margin-top:16px}.project .entry-meta{margin-bottom:7px}.detail{display:grid;grid-template-columns:26px minmax(0,1fr);gap:8px;margin:4px 0;font-size:9.3pt;line-height:1.62}.detail dt{font-weight:600;color:var(--muted);margin:0}.detail dd{margin:0}.detail.result dd{font-weight:650;color:var(--ink)}.evidence{font-size:8pt;color:var(--muted);margin-top:5px}.skills{display:grid;grid-template-columns:92px minmax(0,1fr);column-gap:12px;row-gap:5px;font-size:9pt;line-height:1.6}.skills dt{font-weight:650;margin:0}.skills dd{margin:0;color:#42505f}.education .entry-head+.entry-head{margin-top:7px}.education .entry-title{font-size:9pt;font-weight:550}.education .period{font-size:8pt}.print-link{color:inherit;text-decoration:underline;text-underline-offset:2px}.field{border-radius:2px;outline:none}.field:hover{background:#eef5fc}.field:focus{background:#eef5fc;outline:1.5px solid #85a9cc;outline-offset:3px}.field:empty:before{content:attr(data-empty);color:#8894a1}.field[contenteditable]{cursor:text}.notes{max-width:794px;margin:0 auto 35px;padding:0 4px;font-size:12px;line-height:1.85;color:var(--muted)}.notes strong{color:var(--ink)}.notes ul{padding-left:18px;margin:6px 0}.toast{position:fixed;bottom:24px;left:50%;transform:translateX(-50%);background:#20262e;color:#fff;font-size:13px;padding:12px 20px;border-radius:6px;max-width:90vw;z-index:5}.toast[hidden]{display:none}
+@media(max-width:850px){.toolbar{display:block;margin-top:22px;padding:0 20px}.actions{margin-top:15px;flex-wrap:wrap}.status{padding:0 20px}.sheet-wrap{padding-left:20px;padding-right:20px}.sheet{margin-left:auto;margin-right:auto}.notes{padding:0 20px}.toolbar p{font-size:12px}}
+@media(max-width:600px){.sheet-wrap{overflow:visible;padding:0 12px 25px}.sheet{width:100%;min-height:0;padding:28px 22px}.resume-body{font-size:10pt}.identity-row{display:block}.contact{text-align:left;margin-top:10px;max-width:none;padding-top:0}.name{font-size:27pt}.role{font-size:12pt}.role .experience{display:inline-block;margin-left:7px}.intro{margin-top:13px}.section{grid-template-columns:1fr;gap:10px;padding:17px 0}.section h2{font-size:10pt}.entry-head{gap:6px;flex-wrap:wrap}.skills{grid-template-columns:84px 1fr}.status{font-size:10px}.entry-title{font-size:10pt}}
+@media print{@page{size:A4;margin:15mm 16mm}body{background:#fff;color:var(--ink);-webkit-print-color-adjust:exact;print-color-adjust:exact}.toolbar,.status,.notes,.toast{display:none!important}.sheet-wrap{padding:0;overflow:visible}.sheet{width:auto;min-height:0;padding:0;margin:0;box-shadow:none}.resume-body{width:auto}.field:hover,.field:focus{background:none;outline:none}.field:empty:before{content:none}.entry,.project,.highlights li,.education{break-inside:avoid}.section h2{break-after:avoid}.contact{max-width:250px}.identity-row{display:flex}.name{font-size:30pt}.role{font-size:13pt}.contact{text-align:right;margin:0;padding-top:3px}.section{grid-template-columns:78px minmax(0,1fr);column-gap:20px}.entry-head{flex-wrap:nowrap}.skills{grid-template-columns:92px minmax(0,1fr)}}
+</style>
+</head>
+<body>
+<header class="toolbar">
+  <div><h1>성과 중심 이력서</h1><p>대괄호 항목을 클릭해 내 경험으로 바꾸세요. 수정 후 ‘작성본 저장’으로 보관할 수 있습니다.</p></div>
+  <div class="actions"><button type="button" id="save">작성본 저장</button><button type="button" id="print" class="primary">PDF로 저장</button></div>
+</header>
+<div class="status"><span>A4 1장 기준 · 내용을 늘리면 페이지가 추가될 수 있습니다</span><span id="fit" role="status">분량 확인 중</span></div>
+<div class="sheet-wrap">
+<main class="sheet" aria-label="이력서 편집 영역">
+<div class="resume-body" id="resume">
+  <header class="resume-header">
+    <div class="identity-row">
+      <div>
+        <h1 class="name"><span class="field" contenteditable="plaintext-only" data-empty="이름" aria-label="이름">[이름]</span></h1>
+        <p class="role"><span class="field" contenteditable="plaintext-only" aria-label="지원 직무">[지원 직무]</span><span class="experience field" contenteditable="plaintext-only" aria-label="총 경력">총 경력 [0년 0개월]</span></p>
+      </div>
+      <div class="contact">
+        <div class="field" contenteditable="plaintext-only" aria-label="이메일">[이메일 주소]</div>
+        <div class="field" contenteditable="plaintext-only" aria-label="전화번호">[연락처]</div>
+        <div class="field" contenteditable="plaintext-only" aria-label="포트폴리오 주소">[포트폴리오 또는 업무 자료 URL]</div>
+      </div>
+    </div>
+    <p class="intro field" contenteditable="plaintext-only" aria-label="직무 요약">[주요 고객·업무의 문제]를 [핵심 방법]으로 개선하는 [직무명]입니다.<br>[핵심 경험·도메인]에서 [담당 범위]를 맡아 [확인 가능한 결과]를 만들었습니다.</p>
+  </header>
+
+  <section class="section" aria-labelledby="highlights-heading">
+    <h2 id="highlights-heading" class="field" contenteditable="plaintext-only">핵심 성과</h2>
+    <div class="section-content">
+      <ul class="highlights">
+        <li><div class="highlight-title field" contenteditable="plaintext-only" aria-label="핵심 성과 첫 번째">[직무 KPI] [기준값] → [개선값] · [개선 폭과 단위]</div><div class="highlight-context field" contenteditable="plaintext-only" aria-label="첫 성과의 근거">[측정 기간·대상] / [본인이 수행한 핵심 행동]</div></li>
+        <li><div class="highlight-title field" contenteditable="plaintext-only" aria-label="핵심 성과 두 번째">[대표 변화 또는 도입 결과] · [확인 가능한 규모]</div><div class="highlight-context field" contenteditable="plaintext-only" aria-label="두 번째 성과의 근거">[적용 범위·확인 시점] / [조직에 남은 기여]</div></li>
+      </ul>
+    </div>
+  </section>
+
+  <section class="section" aria-labelledby="career-heading">
+    <h2 id="career-heading" class="field" contenteditable="plaintext-only">경력</h2>
+    <div class="section-content">
+      <article class="entry">
+        <div class="entry-head"><div class="entry-title field" contenteditable="plaintext-only" aria-label="최근 회사명">[최근 회사명]</div><div class="period field" contenteditable="plaintext-only" aria-label="최근 경력 기간">[YYYY.MM] - [현재 / YYYY.MM]</div></div>
+        <div class="entry-meta field" contenteditable="plaintext-only" aria-label="최근 직무">[부서] · [직무·직급]</div>
+        <p class="field" contenteditable="plaintext-only" aria-label="최근 경력 담당 범위">[서비스·제품·업무]의 [담당 범위]를 맡아 [주요 책임]을 수행.</p>
+        <ul><li class="field" contenteditable="plaintext-only" aria-label="최근 경력 대표 기여">[직접 결정·실행한 일]로 [검증된 변화 또는 성과]에 기여.</li></ul>
+      </article>
+      <article class="entry">
+        <div class="entry-head"><div class="entry-title field" contenteditable="plaintext-only" aria-label="이전 회사명">[이전 회사명 또는 주요 활동]</div><div class="period field" contenteditable="plaintext-only" aria-label="이전 경력 기간">[YYYY.MM] - [YYYY.MM]</div></div>
+        <div class="entry-meta field" contenteditable="plaintext-only" aria-label="이전 직무">[부서·조직] · [역할]</div>
+        <p class="field" contenteditable="plaintext-only" aria-label="이전 경력 요약">[지원 직무와 관련된 경험]을 수행하며 [확인 가능한 결과]를 달성.</p>
+      </article>
+    </div>
+  </section>
+
+  <section class="section" aria-labelledby="projects-heading">
+    <h2 id="projects-heading" class="field" contenteditable="plaintext-only">대표 프로젝트</h2>
+    <div class="section-content">
+      <article class="project">
+        <div class="entry-head"><div class="entry-title field" contenteditable="plaintext-only" aria-label="첫 프로젝트명">[문제와 변화가 드러나는 프로젝트명]</div><div class="period field" contenteditable="plaintext-only" aria-label="첫 프로젝트 기간">[YYYY.MM - MM]</div></div>
+        <div class="entry-meta field" contenteditable="plaintext-only" aria-label="첫 프로젝트 역할">[회사·활동명] · [팀 구성] · 내 역할: [결정·실행 범위]</div>
+        <dl class="detail"><dt>문제</dt><dd class="field" contenteditable="plaintext-only" aria-label="첫 프로젝트 문제">[어떤 자료]로 [개선이 필요한 원인·상황]을 확인.</dd></dl>
+        <dl class="detail"><dt>행동</dt><dd class="field" contenteditable="plaintext-only" aria-label="첫 프로젝트 본인 행동">[선택 기준]에 따라 [본인의 판단·실행·협업]을 수행.</dd></dl>
+        <dl class="detail result"><dt>결과</dt><dd class="field" contenteditable="plaintext-only" aria-label="첫 프로젝트 결과">[기간·대상]에서 [지표 전후 변화 또는 검증 결과] 확인.</dd></dl>
+        <div class="evidence field" contenteditable="plaintext-only" aria-label="첫 프로젝트 근거">근거: [측정 자료명 또는 공개 가능한 링크]</div>
+      </article>
+      <article class="project">
+        <div class="entry-head"><div class="entry-title field" contenteditable="plaintext-only" aria-label="두 번째 프로젝트명">[다른 핵심 역량을 보여주는 프로젝트명]</div><div class="period field" contenteditable="plaintext-only" aria-label="두 번째 프로젝트 기간">[YYYY.MM - MM]</div></div>
+        <div class="entry-meta field" contenteditable="plaintext-only" aria-label="두 번째 프로젝트 역할">[회사·활동명] · [팀 구성] · 내 역할: [결정·실행 범위]</div>
+        <dl class="detail"><dt>문제</dt><dd class="field" contenteditable="plaintext-only" aria-label="두 번째 프로젝트 문제">[고객·동료·업무]의 [문제]와 [목표 또는 제약]을 파악.</dd></dl>
+        <dl class="detail"><dt>행동</dt><dd class="field" contenteditable="plaintext-only" aria-label="두 번째 프로젝트 본인 행동">[비교한 대안·합의 기준]을 바탕으로 [본인 행동]을 실행.</dd></dl>
+        <dl class="detail result"><dt>결과</dt><dd class="field" contenteditable="plaintext-only" aria-label="두 번째 프로젝트 결과">[확인한 결과]를 얻고 [프로세스·기준·산출물]을 정착.</dd></dl>
+        <div class="evidence field" contenteditable="plaintext-only" aria-label="두 번째 프로젝트 근거">근거: [측정 자료명 또는 공개 가능한 링크]</div>
+      </article>
+    </div>
+  </section>
+
+  <section class="section" aria-labelledby="skills-heading">
+    <h2 id="skills-heading" class="field" contenteditable="plaintext-only">직무 역량</h2>
+    <dl class="section-content skills">
+      <dt class="field" contenteditable="plaintext-only" aria-label="핵심 업무 역량">[업무·방법론]</dt><dd class="field" contenteditable="plaintext-only" aria-label="업무 역량 근거">[실제로 수행할 수 있는 일과 적용 경험]</dd>
+      <dt class="field" contenteditable="plaintext-only" aria-label="도구와 기술">[도구·기술]</dt><dd class="field" contenteditable="plaintext-only" aria-label="도구 활용 근거">[도구명]을 활용한 [분석·설계·개발·운영 범위]</dd>
+    </dl>
+  </section>
+
+  <section class="section" aria-labelledby="education-heading">
+    <h2 id="education-heading" class="field" contenteditable="plaintext-only">학력·자격</h2>
+    <div class="section-content education">
+      <div class="entry-head"><div class="entry-title field" contenteditable="plaintext-only" aria-label="학력">[학교·전공] · [학위·졸업 상태]</div><div class="period field" contenteditable="plaintext-only" aria-label="학력 기간">[YYYY.MM - YYYY.MM]</div></div>
+      <div class="entry-head"><div class="entry-title field" contenteditable="plaintext-only" aria-label="자격 또는 교육">[직무 관련 자격·교육] · [발급·운영 기관]</div><div class="period field" contenteditable="plaintext-only" aria-label="자격 취득 시점">[YYYY.MM]</div></div>
+    </div>
+  </section>
+</div>
+</main>
+</div>
+<aside class="notes" aria-label="작성 안내">
+  <strong>채울 때 확인하세요</strong>
+  <ul>
+    <li>수치에는 기간·대상·비교 기준을 함께 적고, 팀의 성과와 본인의 역할을 구분하세요.</li>
+    <li>대괄호는 실제 정보로 바꾸세요. 수치가 없다면 확인 가능한 산출물·적용 범위를 적으세요.</li>
+    <li>신입이라면 ‘경력’을 ‘관련 경험’으로 바꾸고 인턴·교육·개인 프로젝트의 성격을 밝혀 주세요.</li>
+    <li>‘PDF로 저장’에서 A4, 배율 100%, 머리글·바닥글 해제를 선택하세요. 안내와 버튼은 인쇄되지 않습니다.</li>
+    <li>수정 내용은 자동 저장되지 않습니다. ‘작성본 저장’으로 HTML을 내려받으면 이어서 편집할 수 있습니다.</li>
+  </ul>
+</aside>
+<div class="toast" role="status" hidden id="toast"></div>
+<script>
+const resume=document.getElementById('resume');
+const fit=document.getElementById('fit');
+let timer;
+function notify(message){const el=document.getElementById('toast');el.textContent=message;el.hidden=false;clearTimeout(timer);timer=setTimeout(()=>el.hidden=true,3500)}
+function checkFit(){if(innerWidth<600){fit.textContent='인쇄는 A4로 출력됩니다';fit.className='';return}const maxHeight=267*96/25.4;const tooLong=resume.getBoundingClientRect().height>maxHeight;fit.textContent=tooLong?'내용이 1장을 넘습니다':'현재 1장 범위';fit.className=tooLong?'overflow':''}
+document.getElementById('print').addEventListener('click',()=>window.print());
+document.getElementById('save').addEventListener('click',()=>{
+  const clone=document.documentElement.cloneNode(true);
+  clone.querySelector('#toast').hidden=true;
+  clone.querySelector('#toast').textContent='';
+  const name=resume.querySelector('.name').textContent.trim().replace(/[\\/:*?"<>|\[\]]/g,'').slice(0,40)||'작성본';
+  clone.querySelector('title').textContent=name+' 이력서';
+  const blob=new Blob(['<!doctype html>\n'+clone.outerHTML],{type:'text/html;charset=utf-8'});
+  const url=URL.createObjectURL(blob);const a=document.createElement('a');a.href=url;a.download=name+'_이력서.html';document.body.append(a);a.click();a.remove();setTimeout(()=>URL.revokeObjectURL(url),1000);notify('작성본을 다운로드했습니다. 저장한 파일에서 계속 편집할 수 있습니다.');
+});
+resume.addEventListener('input',checkFit);window.addEventListener('resize',checkFit);document.fonts.ready.then(checkFit);
+</script>
+</body>
+</html>

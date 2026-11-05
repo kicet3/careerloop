@@ -12,11 +12,16 @@ import { spawn, type ChildProcess } from "node:child_process";
 import { mkdirSync, mkdtempSync } from "node:fs";
 import os from "node:os";
 import path from "node:path";
+import { isProduction } from "@/lib/config/env";
 import type { CliProviderId } from "@/lib/domain/providers";
 
-/** CLI 엔진 사용 여부. 임시·개인용 기능이라 명시적으로 켜야 한다. LLM_MOCK=1이면 끈다(테스트·데모). */
+/**
+ * CLI 엔진 사용 여부. 임시·개인용 기능이라 CLI_PROVIDERS=1로 명시적으로 켜야 한다.
+ * APP_ENV=PRODUCTION이면 한 서버 계정의 구독을 모든 사용자가 쓰게 되므로 CLI_PROVIDERS_IN_PRODUCTION=1까지 있어야 켠다.
+ */
 export function cliProvidersEnabled(env: Record<string, string | undefined> = process.env): boolean {
-  return env.CLI_PROVIDERS === "1" && env.LLM_MOCK !== "1";
+  if (env.CLI_PROVIDERS !== "1") return false;
+  return !isProduction(env) || env.CLI_PROVIDERS_IN_PRODUCTION === "1";
 }
 
 export function cliBinary(provider: CliProviderId): string {

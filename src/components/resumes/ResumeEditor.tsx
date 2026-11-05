@@ -1,0 +1,621 @@
+"use client";
+
+import { useRouter } from "next/navigation";
+import { useEffect, useState } from "react";
+import { formatDateTime } from "@/components/app/stages";
+import { SegmentedTabs } from "@/components/app/Tabs";
+import { Alert } from "@/components/ui/Alert";
+import { Badge } from "@/components/ui/Badge";
+import { Button, buttonClass } from "@/components/ui/Button";
+import { Card } from "@/components/ui/Card";
+import { cn } from "@/components/ui/cn";
+import {
+  RESUME_TEMPLATE_IDS,
+  RESUME_TEMPLATES,
+  ResumeDocumentSchema,
+  type ResumeDocument,
+  type ResumeTemplateId,
+} from "@/lib/domain/resumes";
+import { countAddMarkers, resumeToText } from "@/lib/resumes/layout";
+import { saveDiagnosisPrefill, takeDraftNotes, type DraftNotes } from "@/lib/resumes/prefill";
+import { MAX_RESUME_JD_CHARS, MAX_RESUME_META_CHARS, type ResumeMeta, type ResumeVersionMeta } from "@/lib/resumes/types";
+import { PerformanceSheet } from "./PerformanceSheet";
+import { ResumeDocumentForm } from "./ResumeDocumentForm";
+import { ResumePreview } from "./ResumePreview";
+import { inputClass, textareaClass } from "./styles";
+
+type Pane = "edit" | "preview";
+/** 성과 중심 양식의 편집 방식: 시트 위에서 바로 / 구조화 입력 폼. */
+type PerfPane = "sheet" | "form";
+type Busy = "save" | "template" | "meta" | "delete" | "restore" | "view" | null;
+
+const LEAVE_CONFIRM = "저장하지 않은 변경이 있습니다. 저장하지 않고 이 화면을 떠날까요? (변경 내용은 사라집니다)";
+
+async function readError(res: Response, fallback: string): Promise<string> {
+  const data = (await res.json().catch(() => null)) as { error?: string } | null;
+  return data?.error ?? fallback;
+}
+
+/** 회사별 이력서 편집 화면: 구조화 폼 + 양식 미리보기 + 버전 저장·복원 + PDF·진단 연결. */
+export function ResumeEditor({
+  resume: initialResume,
+  versions: initialVersions,
+  initialDocument,
+  currentVersionId,
+}: {
+  resume: ResumeMeta;
+  versions: ResumeVersionMeta[];
+  initialDocument: ResumeDocument;
+  currentVersionId: string | null;
+}) {
+  const router = useRouter();
+  const [meta, setMeta] = useState(initialResume);
+  const [versions, setVersions] = useState(initialVersions);
+  const [doc, setDoc] = useState(initialDocument);
+  const [baseVersionId, setBaseVersionId] = useState(currentVersionId);
+  const [dirty, setDirty] = useState(false);
+  const [note, setNote] = useState("");
+  const [pane, setPane] = useState<Pane>("edit");
+  const [perfPane, setPerfPane] = useState<PerfPane>("sheet");
+  const [busy, setBusy] = useState<Busy>(null);
+  const [error, setError] = useState<string | null>(null);
+  const [notice, setNotice] = useState<string | null>(null);
+  const [draftNotes, setDraftNotes] = useState<DraftNotes | null>(null);
+  const [viewing, setViewing] = useState<{ version: ResumeVersionMeta; document: ResumeDocument } | null>(null);
+  const [metaOpen, setMetaOpen] = useState(false);
+  const [metaForm, setMetaForm] = useState({
+    company: meta.company,
+    roleTitle: meta.roleTitle,
+    title: meta.title,
+    jdText: meta.jdText ?? "",
+  });
+
+  const template = RESUME_TEMPLATES[meta.templateId];
+  const current = versions.find((v) => v.id === baseVersionId) ?? null;
+  const addCount = countAddMarkers(doc);
+
+  // 새로 만든 이력서의 AI 초안 메모(sessionStorage로 한 번만 넘어온다). 저장소는 마운트 뒤에만 읽을 수 있다.
+  useEffect(() => {
+    const n = takeDraftNotes(meta.id);
+    // eslint-disable-next-line react-hooks/set-state-in-effect -- 외부 저장소(sessionStorage)에서 한 번 읽는다
+    if (n) setDraftNotes(n);
+  }, [meta.id]);
+
+  // 저장하지 않은 변경이 있으면 페이지를 떠날 때 확인한다.
+  useEffect(() => {
+    if (!dirty) return;
+    const onBeforeUnload = (e: BeforeUnloadEvent) => {
+      e.preventDefault();
+    };
+    window.addEventListener("beforeunload", onBeforeUnload);
+    // 앱 안 링크(next/link 사이드바 등)는 클라이언트 라우팅이라 beforeunload가 뜨지 않는다: 캡처 단계에서 먼저 가로채 확인한다.
+    const onClick = (e: MouseEvent) => {
+      if (e.defaultPrevented || e.button !== 0 || e.metaKey || e.ctrlKey || e.shiftKey || e.altKey) return;
+      const a = (e.target as Element | null)?.closest?.("a[href]");
+      if (!(a instanceof HTMLAnchorElement) || a.hasAttribute("download") || (a.target && a.target !== "_self")) return;
+      const url = new URL(a.href, window.location.href);
+      if (url.origin !== window.location.origin) return; // 다른 사이트는 문서를 내리므로 beforeunload가 맡는다
+      if (url.pathname === window.location.pathname && url.search === window.location.search) return; // 같은 화면(해시 이동)
+      if (!window.confirm(LEAVE_CONFIRM)) {
+        e.preventDefault();
+        e.stopPropagation();
+      }
+    };
+    document.addEventListener("click", onClick, true);
+    return () => {
+      window.removeEventListener("beforeunload", onBeforeUnload);
+      document.removeEventListener("click", onClick, true);
+    };
+  }, [dirty]);
+
+  function edit(next: ResumeDocument) {
+    setDoc(next);
+    setDirty(true);
+    setNotice(null);
+  }
+
+  /** 새 버전으로 저장. 성공하면 그 버전, 실패하면 null. */
+  async function save(): Promise<ResumeVersionMeta | null> {
+    setError(null);
+    setNotice(null);
+    const parsed = ResumeDocumentSchema.safeParse(doc);
+    if (!parsed.success) {
+      setError("입력한 내용 중 너무 긴 항목이 있습니다. 길이를 줄여 주세요.");
+      return null;
+    }
+    setBusy("save");
+    try {
+      const res = await fetch(`/api/resumes/${meta.id}/versions`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ document: parsed.data, note: note.trim() || undefined, baseVersionId }),
+      });
+      if (!res.ok) {
+        setError(await readError(res, "저장하지 못했습니다."));
+        return null;
+      }
+      const { version } = (await res.json()) as { version: ResumeVersionMeta };
+      setVersions((vs) => [version, ...vs]);
+      setBaseVersionId(version.id);
+      setDirty(false);
+      setNote("");
+      setNotice(`v${version.versionNo}로 저장했습니다.`);
+      setMeta((m) => ({ ...m, currentVersionId: version.id, updatedAt: version.createdAt }));
+      return version;
+    } catch {
+      setError("서버에 연결하지 못했습니다.");
+      return null;
+    } finally {
+      setBusy(null);
+    }
+  }
+
+  /** PDF 내려받기: 저장하지 않은 변경이 있으면 먼저 새 버전으로 저장하고 그 버전으로 만든다. */
+  async function downloadPdf() {
+    let versionId = baseVersionId;
+    if (dirty) {
+      const v = await save();
+      if (!v) return;
+      versionId = v.id;
+    }
+    if (!versionId) {
+      setError("저장된 버전이 없습니다. 먼저 저장해 주세요.");
+      return;
+    }
+    // download 속성 링크로 받는다(페이지 이동이 아니라서 '떠나기' 확인이 뜨지 않는다).
+    const a = document.createElement("a");
+    a.href = `/api/resumes/${meta.id}/pdf?version=${encodeURIComponent(versionId)}`;
+    a.download = "";
+    document.body.append(a);
+    a.click();
+    a.remove();
+  }
+
+  async function patchMeta(body: Record<string, unknown>, kind: "template" | "meta"): Promise<boolean> {
+    setError(null);
+    setBusy(kind);
+    try {
+      const res = await fetch(`/api/resumes/${meta.id}`, {
+        method: "PATCH",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify(body),
+      });
+      if (!res.ok) {
+        setError(await readError(res, "변경하지 못했습니다."));
+        return false;
+      }
+      const { resume } = (await res.json()) as { resume: ResumeMeta };
+      setMeta(resume);
+      return true;
+    } catch {
+      setError("서버에 연결하지 못했습니다.");
+      return false;
+    } finally {
+      setBusy(null);
+    }
+  }
+
+  async function changeTemplate(id: ResumeTemplateId) {
+    if (id === meta.templateId) return;
+    const prev = meta.templateId;
+    setMeta((m) => ({ ...m, templateId: id })); // 미리보기는 바로 바꾸고, 실패하면 되돌린다.
+    if (!(await patchMeta({ templateId: id }, "template"))) setMeta((m) => ({ ...m, templateId: prev }));
+  }
+
+  async function saveMeta(e: React.FormEvent) {
+    e.preventDefault();
+    const ok = await patchMeta(
+      {
+        company: metaForm.company,
+        roleTitle: metaForm.roleTitle,
+        title: metaForm.title,
+        jdText: metaForm.jdText.trim() ? metaForm.jdText : null,
+      },
+      "meta",
+    );
+    if (ok) {
+      setMetaOpen(false);
+      setNotice("지원 정보를 바꿨습니다.");
+      router.refresh();
+    }
+  }
+
+  async function viewVersion(v: ResumeVersionMeta) {
+    setError(null);
+    setBusy("view");
+    try {
+      const res = await fetch(`/api/resumes/${meta.id}/versions/${v.id}`);
+      if (!res.ok) {
+        setError(await readError(res, "버전을 불러오지 못했습니다."));
+        return;
+      }
+      const data = (await res.json()) as { version: ResumeVersionMeta; document: ResumeDocument };
+      setViewing(data);
+    } catch {
+      setError("서버에 연결하지 못했습니다.");
+    } finally {
+      setBusy(null);
+    }
+  }
+
+  async function restore(v: ResumeVersionMeta) {
+    if (dirty && !window.confirm("저장하지 않은 변경이 있습니다. 버리고 이 버전을 복원할까요?")) return;
+    setError(null);
+    setBusy("restore");
+    try {
+      const res = await fetch(`/api/resumes/${meta.id}/versions/${v.id}/restore`, { method: "POST" });
+      if (!res.ok) {
+        setError(await readError(res, "복원하지 못했습니다."));
+        return;
+      }
+      const { version } = (await res.json()) as { version: ResumeVersionMeta };
+      const docRes = await fetch(`/api/resumes/${meta.id}/versions/${version.id}`);
+      const data = docRes.ok ? ((await docRes.json().catch(() => null)) as { document: ResumeDocument } | null) : null;
+      setVersions((vs) => [version, ...vs]);
+      setMeta((m) => ({ ...m, currentVersionId: version.id, updatedAt: version.createdAt }));
+      if (!data?.document) {
+        // 복원은 됐지만 화면 내용은 옛 편집 그대로다: 저장된 것처럼 표시하지 않고 다시 읽게 한다.
+        setError(`v${version.versionNo}로 복원했지만 내용을 불러오지 못했습니다. 페이지를 새로고침해 주세요.`);
+        return;
+      }
+      setBaseVersionId(version.id);
+      setDoc(data.document);
+      setDirty(false);
+      setViewing(null);
+      setNotice(`v${v.versionNo}을(를) v${version.versionNo}로 복원했습니다.`);
+    } catch {
+      setError("서버에 연결하지 못했습니다.");
+    } finally {
+      setBusy(null);
+    }
+  }
+
+  async function remove() {
+    if (!window.confirm("이 이력서를 삭제할까요? 모든 버전이 함께 사라지며 되돌릴 수 없습니다.")) return;
+    setError(null);
+    setBusy("delete");
+    try {
+      const res = await fetch(`/api/resumes/${meta.id}`, { method: "DELETE" });
+      if (!res.ok && res.status !== 404) {
+        setError(await readError(res, "삭제하지 못했습니다."));
+        setBusy(null);
+        return;
+      }
+      setDirty(false);
+      router.push("/app/resumes");
+      router.refresh();
+    } catch {
+      setError("서버에 연결하지 못했습니다.");
+      setBusy(null);
+    }
+  }
+
+  function startDiagnosis() {
+    // 진단에는 지금 내용이 넘어가지만, 이 이력서에는 저장되지 않은 채 화면을 떠난다.
+    if (dirty && !window.confirm("저장하지 않은 변경이 있습니다. 저장하지 않고 진단 화면으로 이동할까요? (진단에는 지금 내용이 들어가지만 이 이력서에는 남지 않습니다)")) {
+      return;
+    }
+    const ok = saveDiagnosisPrefill({
+      resumeText: resumeToText(doc, meta.templateId),
+      targetRole: meta.roleTitle,
+      jdText: meta.jdText ?? "",
+    });
+    if (!ok) {
+      setError("브라우저 저장소를 쓸 수 없어 내용을 넘기지 못했습니다. '텍스트 복사'로 복사해 붙여넣어 주세요.");
+      return;
+    }
+    router.push("/app/new");
+  }
+
+  async function copyText() {
+    try {
+      await navigator.clipboard.writeText(resumeToText(doc, meta.templateId));
+      setNotice("이력서 텍스트를 복사했습니다.");
+    } catch {
+      setError("복사하지 못했습니다.");
+    }
+  }
+
+  const isPerformance = meta.templateId === "performance";
+
+  return (
+    <div className="space-y-5">
+      {/* 머리글 */}
+      <div className="flex flex-wrap items-start justify-between gap-3">
+        <div className="min-w-0">
+          <h1 className="text-2xl font-bold tracking-tight break-words text-slate-900">{meta.title}</h1>
+          <p className="mt-1 flex flex-wrap items-center gap-x-2 gap-y-1 text-sm text-slate-500">
+            <span>
+              {meta.company} · {meta.roleTitle}
+            </span>
+            {current && <Badge tone="neutral">v{current.versionNo}</Badge>}
+            {dirty && <Badge tone="warning">저장 안 됨</Badge>}
+            {addCount > 0 && <Badge tone="warning">채울 칸 {addCount}개</Badge>}
+            <button type="button" onClick={() => setMetaOpen((o) => !o)} className="font-medium text-indigo-700 hover:underline">
+              지원 정보 {metaOpen ? "닫기" : "수정"}
+            </button>
+          </p>
+        </div>
+        <div className="flex flex-wrap gap-2">
+          <Button
+            variant="secondary"
+            onClick={downloadPdf}
+            loading={busy === "save"}
+            disabled={busy !== null || (!dirty && !baseVersionId)}
+            title={dirty ? "저장하지 않은 변경을 새 버전으로 저장한 뒤 내려받습니다" : undefined}
+          >
+            {dirty ? "저장하고 PDF 내려받기" : "PDF 내려받기"}
+          </Button>
+          <Button variant="secondary" onClick={copyText}>
+            텍스트 복사
+          </Button>
+          <Button variant="secondary" onClick={startDiagnosis}>
+            이 이력서로 진단
+          </Button>
+          <Button onClick={save} loading={busy === "save"} disabled={!dirty || busy !== null}>
+            저장
+          </Button>
+        </div>
+      </div>
+
+      {metaOpen && (
+        <Card className="p-4 sm:p-5">
+          <form onSubmit={saveMeta} className="space-y-4">
+            <div className="grid gap-4 sm:grid-cols-3">
+              {(
+                [
+                  ["company", "회사명"],
+                  ["roleTitle", "직무"],
+                  ["title", "제목"],
+                ] as const
+              ).map(([k, label]) => (
+                <label key={k} className="block">
+                  <span className="block text-sm font-medium text-slate-800">{label}</span>
+                  <input
+                    value={metaForm[k]}
+                    maxLength={MAX_RESUME_META_CHARS}
+                    onChange={(e) => setMetaForm((f) => ({ ...f, [k]: e.target.value }))}
+                    className={inputClass}
+                  />
+                </label>
+              ))}
+            </div>
+            <label className="block">
+              <span className="block text-sm font-medium text-slate-800">채용 공고(JD)</span>
+              <textarea
+                value={metaForm.jdText}
+                maxLength={MAX_RESUME_JD_CHARS}
+                rows={5}
+                onChange={(e) => setMetaForm((f) => ({ ...f, jdText: e.target.value }))}
+                className={textareaClass}
+              />
+            </label>
+            <div className="flex justify-end gap-2">
+              <Button variant="ghost" onClick={() => setMetaOpen(false)}>
+                취소
+              </Button>
+              <Button type="submit" loading={busy === "meta"} disabled={busy !== null}>
+                지원 정보 저장
+              </Button>
+            </div>
+          </form>
+        </Card>
+      )}
+
+      {draftNotes && (
+        <Alert tone="info" title="AI 초안을 만들었습니다">
+          {draftNotes.missingInfo.length > 0 && (
+            <>
+              <p>
+                채워야 할 정보가 있습니다. 본문의 <mark className="rounded bg-yellow-200 px-0.5">[ADD: …]</mark> 자리를 채워 주세요.
+              </p>
+              <ul className="mt-1 list-disc pl-5">
+                {draftNotes.missingInfo.map((q, i) => (
+                  <li key={i}>{q}</li>
+                ))}
+              </ul>
+            </>
+          )}
+          {draftNotes.notes.length > 0 && (
+            <ul className="mt-2 list-disc pl-5 text-indigo-800/80">
+              {draftNotes.notes.map((q, i) => (
+                <li key={i}>{q}</li>
+              ))}
+            </ul>
+          )}
+          <button type="button" onClick={() => setDraftNotes(null)} className="mt-2 text-xs font-medium underline">
+            닫기
+          </button>
+        </Alert>
+      )}
+      {error && <Alert tone="error">{error}</Alert>}
+      {notice && !error && <Alert tone="info">{notice}</Alert>}
+
+      {/* 양식 선택 */}
+      <div className="flex flex-wrap items-center gap-2">
+        <span className="text-sm font-medium text-slate-700">양식</span>
+        <div role="radiogroup" aria-label="이력서 양식" className="flex flex-wrap gap-1.5">
+          {RESUME_TEMPLATE_IDS.map((id) => {
+            const t = RESUME_TEMPLATES[id];
+            const active = id === meta.templateId;
+            return (
+              <button
+                key={id}
+                type="button"
+                role="radio"
+                aria-checked={active}
+                title={t.description}
+                disabled={busy === "template"}
+                onClick={() => changeTemplate(id)}
+                className={cn(
+                  "inline-flex items-center gap-1.5 rounded-full border px-3 py-1 text-sm transition-colors",
+                  active
+                    ? "border-indigo-500 bg-indigo-50 font-medium text-indigo-800"
+                    : "border-slate-300 bg-white text-slate-700 hover:bg-slate-50",
+                )}
+              >
+                <span aria-hidden className="inline-block size-2 rounded-full" style={{ backgroundColor: t.style.accent }} />
+                {t.name}
+              </button>
+            );
+          })}
+        </div>
+      </div>
+
+      {isPerformance ? (
+        // 성과 중심 양식: 원본처럼 A4 시트 위에서 바로 고치거나, 구조화 폼으로 고친다(같은 문서 상태).
+        <div className="space-y-3">
+          <div className="flex flex-wrap items-center justify-between gap-2">
+            <SegmentedTabs
+              label="편집 방식"
+              value={perfPane}
+              onChange={setPerfPane}
+              options={[
+                { value: "sheet", label: "시트에서 편집" },
+                { value: "form", label: "입력 폼" },
+              ]}
+            />
+            <p className="text-xs text-slate-500">
+              {perfPane === "sheet"
+                ? "대괄호 항목을 클릭해 내 경험으로 바꾸세요. 빈 칸은 PDF에 찍히지 않습니다."
+                : "입력한 내용은 시트에 그대로 반영됩니다."}
+            </p>
+          </div>
+          {perfPane === "sheet" ? (
+            <PerformanceSheet document={doc} onChange={edit} />
+          ) : (
+            <div className="max-w-3xl">
+              <ResumeDocumentForm value={doc} onChange={edit} sectionOrder={template.sectionOrder} />
+            </div>
+          )}
+          <Card className="flex flex-col gap-2 p-4 sm:flex-row sm:items-end">
+            <label className="block min-w-0 flex-1">
+              <span className="block text-xs font-medium text-slate-600">버전 메모 (선택)</span>
+              <input
+                value={note}
+                maxLength={200}
+                onChange={(e) => setNote(e.target.value)}
+                placeholder="예: 정산 성과 수치 보강"
+                className="mt-1 block w-full rounded-md border border-slate-300 bg-white px-2.5 py-1.5 text-sm text-slate-900 placeholder:text-slate-400 focus:border-indigo-500 focus:ring-2 focus:ring-indigo-500/20 focus:outline-none"
+              />
+            </label>
+            <Button onClick={save} loading={busy === "save"} disabled={!dirty || busy !== null}>
+              새 버전으로 저장
+            </Button>
+          </Card>
+        </div>
+      ) : (
+        <>
+          {/* 모바일: 편집/미리보기 전환, 넓은 화면: 나란히 */}
+          <div className="lg:hidden">
+            <SegmentedTabs
+              label="보기"
+              value={pane}
+              onChange={setPane}
+              options={[
+                { value: "edit", label: "편집" },
+                { value: "preview", label: "미리보기" },
+              ]}
+            />
+          </div>
+          <div className="grid gap-5 lg:grid-cols-2">
+            <div className={cn("min-w-0 space-y-3", pane !== "edit" && "hidden lg:block")}>
+              <ResumeDocumentForm value={doc} onChange={edit} sectionOrder={template.sectionOrder} />
+              <Card className="flex flex-col gap-2 p-4 sm:flex-row sm:items-end">
+                <label className="block min-w-0 flex-1">
+                  <span className="block text-xs font-medium text-slate-600">버전 메모 (선택)</span>
+                  <input
+                    value={note}
+                    maxLength={200}
+                    onChange={(e) => setNote(e.target.value)}
+                    placeholder="예: 정산 성과 수치 보강"
+                    className="mt-1 block w-full rounded-md border border-slate-300 bg-white px-2.5 py-1.5 text-sm text-slate-900 placeholder:text-slate-400 focus:border-indigo-500 focus:ring-2 focus:ring-indigo-500/20 focus:outline-none"
+                  />
+                </label>
+                <Button onClick={save} loading={busy === "save"} disabled={!dirty || busy !== null}>
+                  새 버전으로 저장
+                </Button>
+              </Card>
+            </div>
+            <div className={cn("min-w-0", pane !== "preview" && "hidden lg:block")}>
+              <div className="lg:sticky lg:top-4">
+                <p className="mb-2 text-xs text-slate-500">
+                  {template.name} 양식 미리보기 ·{" "}
+                  {dirty ? "PDF를 내려받으면 지금 내용을 먼저 새 버전으로 저장한 뒤 그 버전으로 만듭니다." : "PDF는 이 내용으로 만듭니다."}
+                </p>
+                <ResumePreview
+                  document={doc}
+                  templateId={meta.templateId}
+                  className="max-h-none lg:max-h-[calc(100vh-6rem)] lg:overflow-y-auto"
+                />
+              </div>
+            </div>
+          </div>
+        </>
+      )}
+
+      {/* 버전 */}
+      <Card>
+        <div className="px-5 pt-5">
+          <h2 className="text-base font-semibold text-slate-900">버전 {versions.length}개</h2>
+          <p className="mt-1 text-sm text-slate-500">저장할 때마다 새 버전이 생깁니다. 복원하면 그 내용으로 새 버전을 만듭니다.</p>
+        </div>
+        <ul className="mt-3 divide-y divide-slate-100">
+          {versions.map((v) => (
+            <li key={v.id} className="flex flex-wrap items-center justify-between gap-2 px-5 py-3">
+              <div className="min-w-0">
+                <p className="flex flex-wrap items-center gap-2 text-sm font-medium text-slate-900">
+                  v{v.versionNo}
+                  {v.id === baseVersionId && <Badge tone="accent">현재</Badge>}
+                  <Badge tone={v.source === "ai" ? "info" : "neutral"}>{v.source === "ai" ? "AI 초안" : "직접 저장"}</Badge>
+                </p>
+                <p className="mt-0.5 truncate text-xs text-slate-500">
+                  <time dateTime={new Date(v.createdAt).toISOString()}>{formatDateTime(v.createdAt)}</time>
+                  {v.note ? ` · ${v.note}` : ""}
+                </p>
+              </div>
+              <div className="flex gap-1.5">
+                <Button size="sm" variant="ghost" onClick={() => viewVersion(v)} disabled={busy !== null}>
+                  보기
+                </Button>
+                <a href={`/api/resumes/${meta.id}/pdf?version=${encodeURIComponent(v.id)}`} download className={buttonClass("ghost", "sm")}>
+                  PDF
+                </a>
+                {v.id !== baseVersionId && (
+                  <Button size="sm" variant="secondary" onClick={() => restore(v)} disabled={busy !== null}>
+                    복원
+                  </Button>
+                )}
+              </div>
+            </li>
+          ))}
+        </ul>
+      </Card>
+
+      {viewing && (
+        <Card className="p-4 sm:p-5">
+          <div className="mb-3 flex flex-wrap items-center justify-between gap-2">
+            <h2 className="text-base font-semibold text-slate-900">v{viewing.version.versionNo} 미리보기</h2>
+            <div className="flex gap-2">
+              {viewing.version.id !== baseVersionId && (
+                <Button size="sm" onClick={() => restore(viewing.version)} loading={busy === "restore"} disabled={busy !== null}>
+                  이 버전 복원
+                </Button>
+              )}
+              <Button size="sm" variant="ghost" onClick={() => setViewing(null)}>
+                닫기
+              </Button>
+            </div>
+          </div>
+          <ResumePreview document={viewing.document} templateId={meta.templateId} />
+        </Card>
+      )}
+
+      <div className="flex justify-end border-t border-slate-200 pt-4">
+        <Button variant="danger" onClick={remove} loading={busy === "delete"} disabled={busy !== null && busy !== "delete"}>
+          이력서 삭제
+        </Button>
+      </div>
+    </div>
+  );
+}

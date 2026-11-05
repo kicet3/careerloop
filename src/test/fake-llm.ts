@@ -1,7 +1,7 @@
 /**
- * API 키 없이 쓰는 결정적 가짜 LLM. 프롬프트(panel/prompts.ts 형식)에서 이력서·JD 분석·이전 단계 결과를 읽어
- * 스키마에 맞는 그럴듯한 한국어 결과를 만든다. 인용은 실제 이력서 줄을 그대로 써서 verifyQuote를 통과한다.
- * 판정은 일부러 섞는다(ATS는 처음 REJECT, 재심사 PASS).
+ * 테스트 전용 결정적 가짜 LLM. 앱 코드에서는 import할 수 없다(eslint no-restricted-imports).
+ * 프롬프트(panel/prompts.ts 형식)에서 이력서·JD 분석·이전 단계 결과를 읽어 스키마에 맞는 한국어 결과를 만든다.
+ * 인용은 실제 이력서 줄을 그대로 써서 verifyQuote를 통과한다. 판정은 일부러 섞는다(ATS는 처음 REJECT, 재심사 PASS).
  */
 import type {
   AtsResult,
@@ -17,18 +17,21 @@ import type {
   StageOutputs,
   SynthesisResult,
 } from "@/lib/domain/schemas";
+import { CHAT_TAGS, type GraphChatOutput, type ReviewerChatOutput } from "@/lib/domain/chat";
+import { emptyResumeDocument, type ResumeDraftOutput } from "@/lib/domain/resumes";
+import type { PostingFacts } from "@/lib/domain/postings";
 import { computeMatchScore } from "@/lib/panel/fit-score";
 import { extractField, extractJson, extractTag, TAGS } from "@/lib/panel/prompts";
-import { LlmPermanentError, type GenerateRequest, type GenerateResult, type LlmClient } from "./types";
+import {
+  LlmPermanentError,
+  requestLabel,
+  type GenerateResult,
+  type LlmClient,
+  type LlmRequest,
+  type LlmTask,
+} from "@/lib/llm/types";
 
-export const MOCK_MODEL_NAME = "mock";
-
-function delayMs(): number {
-  const raw = process.env.MOCK_DELAY_MS?.trim();
-  if (!raw) return 400;
-  const n = Number(raw);
-  return Number.isFinite(n) && n >= 0 ? n : 400;
-}
+export const FAKE_MODEL_NAME = "fake";
 
 function sleep(ms: number, signal?: AbortSignal): Promise<void> {
   if (ms <= 0) return Promise.resolve();
@@ -92,7 +95,7 @@ function requirements(jd: JdAnalysis | null): { req: Requirement; must: boolean 
 
 const TECH_RE = /[A-Za-z][A-Za-z0-9+#.]*(?:\s?[A-Z][A-Za-z0-9+#.]*)?/g;
 
-function mockJd(ctx: Ctx): JdAnalysis {
+function fakeJd(ctx: Ctx): JdAnalysis {
   const posting = extractTag(ctx.user, TAGS.jobPosting);
   if (posting) {
     const postingLines = posting
@@ -157,7 +160,7 @@ function keywordSplit(ctx: Ctx) {
   };
 }
 
-function mockAts(ctx: Ctx, rescreen: boolean): AtsResult {
+function fakeAts(ctx: Ctx, rescreen: boolean): AtsResult {
   const { withNumber, plain } = classify(ctx.lines);
   const { present, missing } = keywordSplit(ctx);
   const contactOk = /@|\d{2,4}-\d{3,4}-\d{4}/.test(ctx.resume);
@@ -189,7 +192,7 @@ function mockAts(ctx: Ctx, rescreen: boolean): AtsResult {
   };
 }
 
-function mockGatekeeper(ctx: Ctx): GatekeeperResult {
+function fakeGatekeeper(ctx: Ctx): GatekeeperResult {
   const { plain, withNumber } = classify(ctx.lines);
   const weak = plain.length >= 3 ? plain : ctx.lines;
   return {
@@ -208,7 +211,7 @@ function mockGatekeeper(ctx: Ctx): GatekeeperResult {
   };
 }
 
-const READER_MOCK: Record<ReaderId, { verdict: ReaderResult["verdict"]; oneLiner: string; issue: string; others: [string, string] }> = {
+const READER_FAKE: Record<ReaderId, { verdict: ReaderResult["verdict"]; oneLiner: string; issue: string; others: [string, string] }> = {
   manager: {
     verdict: "MAYBE",
     oneLiner: "할 수 있을 것 같지만 첫날부터 맡길 증거는 절반뿐이다.",
@@ -243,8 +246,8 @@ const READER_MOCK: Record<ReaderId, { verdict: ReaderResult["verdict"]; oneLiner
 
 const READER_OFFSET: Record<ReaderId, number> = { manager: 2, rival: 3, ceo: 4, recruiter: 0, teammate: 5 };
 
-function mockReader(ctx: Ctx, id: ReaderId): ReaderResult {
-  const m = READER_MOCK[id];
+function fakeReader(ctx: Ctx, id: ReaderId): ReaderResult {
+  const m = READER_FAKE[id];
   const pool = id === "recruiter" ? ctx.lines.slice(0, Math.max(1, Math.ceil(ctx.lines.length / 3))) : ctx.lines;
   return {
     verdict: m.verdict,
@@ -256,7 +259,7 @@ function mockReader(ctx: Ctx, id: ReaderId): ReaderResult {
 
 const FIT_CYCLE: FitResult["items"][number]["status"][] = ["met", "partial", "missing", "met", "partial"];
 
-function mockFit(ctx: Ctx): FitResult {
+function fakeFit(ctx: Ctx): FitResult {
   const reqs = requirements(ctx.jd);
   const { withNumber } = classify(ctx.lines);
   const evidence = withNumber.length ? withNumber : ctx.lines;
@@ -282,7 +285,7 @@ function mockFit(ctx: Ctx): FitResult {
   };
 }
 
-function mockSynthesis(ctx: Ctx): SynthesisResult {
+function fakeSynthesis(ctx: Ctx): SynthesisResult {
   const { plain, withNumber } = classify(ctx.lines);
   const p = plain.length ? plain : ctx.lines;
   const w = withNumber.length ? withNumber : ctx.lines;
@@ -340,7 +343,7 @@ function mockSynthesis(ctx: Ctx): SynthesisResult {
   };
 }
 
-function mockRewrite(ctx: Ctx): RewriteResult {
+function fakeRewrite(ctx: Ctx): RewriteResult {
   const synthesis = extractJson<SynthesisResult>(ctx.user, TAGS.synthesis);
   const ko = isKorean(ctx.resume);
   const lines = ctx.lines;
@@ -380,7 +383,7 @@ function mockRewrite(ctx: Ctx): RewriteResult {
   };
 }
 
-function mockPlan(ctx: Ctx): ImprovementPlan {
+function fakePlan(ctx: Ctx): ImprovementPlan {
   const synthesis = extractJson<SynthesisResult>(ctx.user, TAGS.synthesis);
   const fit = extractJson<FitResult>(ctx.user, TAGS.fit);
   const reqs = requirements(ctx.jd);
@@ -446,43 +449,202 @@ function mockPlan(ctx: Ctx): ImprovementPlan {
   };
 }
 
-function mockOutput(stage: StageKey, ctx: Ctx): StageOutputs[StageKey] {
+function fakeOutput(stage: StageKey, ctx: Ctx): StageOutputs[StageKey] {
   switch (stage) {
     case "jd":
-      return mockJd(ctx);
+      return fakeJd(ctx);
     case "ats":
-      return mockAts(ctx, false);
+      return fakeAts(ctx, false);
     case "rescreen":
-      return mockAts(ctx, true);
+      return fakeAts(ctx, true);
     case "gatekeeper":
-      return mockGatekeeper(ctx);
+      return fakeGatekeeper(ctx);
     case "manager":
     case "rival":
     case "ceo":
     case "recruiter":
     case "teammate":
-      return mockReader(ctx, stage);
+      return fakeReader(ctx, stage);
     case "fit":
-      return mockFit(ctx);
+      return fakeFit(ctx);
     case "synthesis":
-      return mockSynthesis(ctx);
+      return fakeSynthesis(ctx);
     case "rewrite":
-      return mockRewrite(ctx);
+      return fakeRewrite(ctx);
     case "plan":
-      return mockPlan(ctx);
+      return fakePlan(ctx);
   }
 }
 
-export class MockLlmClient implements LlmClient {
-  readonly name = "mock";
+// ---------------------------------------------------------------------------
+// 파이프라인 밖 기능(task)의 가짜 출력 — 프롬프트의 CHAT_TAGS 태그에서 자료를 읽는다.
+// ---------------------------------------------------------------------------
+
+function fakeGraphChat(user: string): GraphChatOutput {
+  const message = (extractTag(user, CHAT_TAGS.latestMessage) ?? "").trim();
+  if (!message) {
+    return { reply: "어떤 경험을 정리할까요? 회사·프로젝트·맡은 일·결과를 편하게 말씀해 주세요.", ops: [], summary: "", followUpQuestions: [] };
+  }
+  const firstLine = message.split(/\r?\n/)[0]!.trim();
+  const title = firstLine.length > 60 ? `${firstLine.slice(0, 60)}…` : firstLine;
+  const skills = [...new Set((message.match(TECH_RE) ?? []).map((t) => t.trim()).filter((t) => t.length >= 2))].slice(0, 3);
+  const blank = { ref: "", id: "", label: "" as const, props: [], type: "" as const, from: "", to: "" };
+  const ops: GraphChatOutput["ops"] = [
+    {
+      ...blank,
+      op: "addNode",
+      ref: "new:exp",
+      label: "Experience",
+      props: [
+        { key: "title", value: title },
+        { key: "description", value: message.slice(0, 500) },
+      ],
+    },
+    { ...blank, op: "addEdge", type: "HAS_EXPERIENCE", from: "me", to: "new:exp" },
+    ...skills.flatMap((name, i): GraphChatOutput["ops"] => [
+      { ...blank, op: "addNode", ref: `new:skill${i}`, label: "Skill", props: [{ key: "name", value: name }] },
+      { ...blank, op: "addEdge", type: "USED_SKILL", from: "new:exp", to: `new:skill${i}` },
+    ]),
+  ];
+  return {
+    reply: `말씀하신 내용을 '${title}' 경험으로 정리했어요.${skills.length ? ` 사용한 기술(${skills.join(", ")})도 연결했습니다.` : ""} 확인 후 적용해 주세요.`,
+    ops,
+    summary: `경험 1개${skills.length ? `, 기술 ${skills.length}개` : ""} 추가`,
+    followUpQuestions: ["이 경험은 언제부터 언제까지였나요?", "결과를 숫자로 말할 수 있나요? 예: 처리 시간 30% 단축"],
+  };
+}
+
+function fakeReviewerChat(user: string): ReviewerChatOutput {
+  const resume = extractTag(user, CHAT_TAGS.resume) ?? "";
+  const lines = quotableLines(resume);
+  const before = resume.trim() ? pick(lines, 1) : null;
+  const reviewer = extractField(user, "심사위원") ?? "심사위원";
+  return {
+    reply: `${reviewer}로서 보면, 지적한 줄은 무엇을 했는지만 있고 결과가 없습니다. 아래처럼 결과를 숫자로 붙이면 제 판단이 달라질 수 있어요.`,
+    suggestedEdits: [
+      {
+        before,
+        after: before ? `${before} — [ADD: 이 일로 바뀐 수치는? 예: 처리 시간 30% 단축]` : "[ADD: 대표 성과 한 줄]",
+        reason: "결과 수치가 있어야 같은 경력의 다른 지원자와 비교할 수 있다.",
+      },
+    ],
+    followUpQuestions: ["이 업무로 개선된 지표와 기간은 무엇인가요?"],
+    verdictOutlook: "수치를 채우면 '보류'에서 '합격' 쪽으로 기울 가능성이 있다(추정).",
+  };
+}
+
+function fakeResumeDraft(user: string): ResumeDraftOutput {
+  const resume = extractTag(user, CHAT_TAGS.resume) ?? "";
+  const lines = resume.trim() ? quotableLines(resume) : [];
+  const company = extractField(user, "지원 회사") ?? "지원 회사";
+  const role = extractField(user, "지원 직무") ?? "지원 직무";
+  const doc = emptyResumeDocument();
+  doc.basics.name = resume.split(/\r?\n/).map((l) => l.trim()).find(Boolean)?.slice(0, 80) ?? "[ADD: 이름]";
+  doc.basics.headline = `${role} 지원`.slice(0, 160);
+  doc.summary = `${company} ${role} 포지션에 지원합니다. [ADD: 대표 성과 한 줄]`;
+  doc.experience = [
+    {
+      company: "[ADD: 회사]",
+      department: "",
+      title: role.slice(0, 120),
+      startDate: "",
+      endDate: "",
+      location: "",
+      scope: "",
+      bullets: (lines.length > 1 ? lines.slice(1, 5) : ["[ADD: 주요 업무와 결과]"]).map((l) => l.slice(0, 500)),
+    },
+  ];
+  return {
+    document: doc,
+    notes: ["가짜 초안: 기존 이력서 줄을 경력 불릿으로 옮겼다."],
+    missingInfo: ["회사명과 재직 기간은?", "대표 성과의 수치는?"],
+  };
+}
+
+/**
+ * 공고 페이지 본문(<posting_page>)에서 "회사: …", "직무: …"(모집 직무·포지션·모집 분야), 마감/접수 줄의 날짜·시각을 읽는다.
+ * 근거(*Evidence)는 본문 줄을 그대로 쓴다. 회사·직무 줄이 없으면 isJobPosting=false(목록·로그인 페이지 흉내).
+ * 근거 검증 실패를 시험하려면 본문에 "[가짜:근거없음]"을 넣는다 — 근거 문구를 본문에 없는 말로 바꾼다.
+ */
+function fakePostingExtract(user: string): PostingFacts {
+  const page = extractTag(user, CHAT_TAGS.postingPage) ?? "";
+  const lines = page.split(/\r?\n/).map((l) => l.trim()).filter(Boolean);
+  const find = (re: RegExp) => {
+    for (const line of lines) {
+      const m = re.exec(line);
+      if (m) return { line, value: (m[1] ?? "").trim() };
+    }
+    return null;
+  };
+  const company = find(/^(?:회사|회사명|기업|기업명)\s*[:：]\s*(.+)$/);
+  const role = find(/^(?:직무|모집\s*직무|포지션|모집\s*분야)\s*[:：]\s*(.+)$/);
+  const deadlineLine = lines.find((l) => /마감|접수\s*기간|지원\s*기간/.test(l)) ?? "";
+  const date = /(20\d{2})\s*[.\-/년]\s*(\d{1,2})\s*[.\-/월]\s*(\d{1,2})/.exec(deadlineLine);
+  const time = /(\d{1,2}):(\d{2})/.exec(deadlineLine);
+  const pad = (v: string) => v.padStart(2, "0");
+  const fakeEvidence = page.includes("[가짜:근거없음]");
+  const blank: PostingFacts = {
+    isJobPosting: false,
+    company: "",
+    companyEvidence: "",
+    roleTitle: "",
+    roleEvidence: "",
+    employmentType: "unknown",
+    workType: "unknown",
+    location: "",
+    careerLevel: "unknown",
+    deadline: "",
+    deadlineTime: "",
+    deadlineEvidence: "",
+    rolling: false,
+    note: "공고 본문을 찾지 못했습니다.",
+  };
+  if (!company || !role) return blank;
+  const has = (re: RegExp) => re.test(page);
+  return {
+    ...blank,
+    isJobPosting: true,
+    company: company.value.slice(0, 200),
+    companyEvidence: fakeEvidence ? "본문에 없는 회사 문구" : company.line.slice(0, 500),
+    roleTitle: role.value.slice(0, 300),
+    roleEvidence: fakeEvidence ? "본문에 없는 직무 문구" : role.line.slice(0, 500),
+    employmentType: has(/인턴/) ? "intern" : has(/계약직/) ? "contract" : has(/정규직/) ? "full_time" : "unknown",
+    workType: has(/원격|리모트/) ? "remote" : has(/하이브리드/) ? "hybrid" : "unknown",
+    location: find(/^(?:근무지|근무\s*지역|위치)\s*[:：]\s*(.+)$/)?.value.slice(0, 300) ?? "",
+    careerLevel: has(/신입/) ? "entry" : has(/경력\s*무관/) ? "any" : has(/경력/) ? "experienced" : "unknown",
+    deadline: date ? `${date[1]}-${pad(date[2]!)}-${pad(date[3]!)}` : "",
+    deadlineTime: date && time ? `${pad(time[1]!)}:${time[2]}` : "",
+    deadlineEvidence: date ? deadlineLine.slice(0, 500) : "",
+    rolling: has(/상시\s*채용|채용\s*시\s*마감/),
+    note: lines.slice(0, 5).join("\n").slice(0, 2000),
+  };
+}
+
+function fakeTaskOutput(task: LlmTask, user: string): unknown {
+  switch (task) {
+    case "graph-chat":
+      return fakeGraphChat(user);
+    case "reviewer-chat":
+      return fakeReviewerChat(user);
+    case "resume-draft":
+      return fakeResumeDraft(user);
+    case "posting-extract":
+      return fakePostingExtract(user);
+  }
+}
+
+export class FakeLlmClient implements LlmClient {
+  readonly name = "fake";
   private readonly delay: number;
 
+  /** delayMs: 호출마다 기다릴 시간(기본 0). 동시성·취소 테스트에서 쓴다. */
   constructor(opts?: { delayMs?: number }) {
-    this.delay = opts?.delayMs ?? delayMs();
+    this.delay = opts?.delayMs ?? 0;
   }
 
-  async generate<T>(req: GenerateRequest<T>): Promise<GenerateResult<T>> {
+  async generate<T>(req: LlmRequest<T>): Promise<GenerateResult<T>> {
     await sleep(this.delay, req.signal);
+    if (req.task !== undefined) return this.result(req, fakeTaskOutput(req.task, req.user));
     const resume = extractTag(req.user, TAGS.resume) ?? "";
     const ctx: Ctx = {
       user: req.user,
@@ -491,15 +653,19 @@ export class MockLlmClient implements LlmClient {
       lines: quotableLines(resume),
       jd: extractJson<JdAnalysis>(req.user, TAGS.jdAnalysis),
     };
-    const parsed = req.schema.safeParse(mockOutput(req.stage, ctx));
+    return this.result(req, fakeOutput(req.stage, ctx));
+  }
+
+  private result<T>(req: LlmRequest<T>, raw: unknown): GenerateResult<T> {
+    const parsed = req.schema.safeParse(raw);
     if (!parsed.success) {
-      throw new LlmPermanentError(`mock 출력이 스키마와 맞지 않습니다 (${req.stage})`, "invalid_output");
+      throw new LlmPermanentError(`가짜 출력이 스키마와 맞지 않습니다 (${requestLabel(req)})`, "invalid_output");
     }
     const inputTokens = Math.ceil((req.system.length + req.user.length) / 3);
     return {
       output: parsed.data,
       usage: { inputTokens, outputTokens: 800, cacheReadTokens: 0, cacheWriteTokens: 0 },
-      model: MOCK_MODEL_NAME,
+      model: FAKE_MODEL_NAME,
     };
   }
 }

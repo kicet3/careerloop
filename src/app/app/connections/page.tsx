@@ -12,9 +12,9 @@ export default async function ConnectionsPage() {
   await requireUser("/app/connections");
   const enabled = cliProvidersEnabled();
   return (
-    <div className="mx-auto max-w-3xl">
+    <div>
       <h1 className="text-2xl font-bold tracking-tight text-slate-900">AI 연결</h1>
-      <p className="mt-1 mb-6 text-sm text-slate-500">
+      <p className="mt-1 mb-6 max-w-prose text-sm text-slate-500">
         API 키 대신 Claude 구독 계정이나 ChatGPT 계정으로 로그인해 진단을 돌립니다. 서버 PC의 Claude Code·Codex CLI를 통해
         호출하며, 로그인 정보는 이 앱 전용 폴더(<code>data/providers</code>)에만 저장됩니다.
       </p>

@@ -1,0 +1,72 @@
+import type { Metadata } from "next";
+import { CareerGraphView } from "@/components/graph/CareerGraphView";
+import { GraphChatPanel } from "@/components/graph/GraphChatPanel";
+import { SkillGapPanel } from "@/components/match/SkillGapPanel";
+import { Alert } from "@/components/ui/Alert";
+import { Card } from "@/components/ui/Card";
+import { requireUser } from "@/lib/auth/session";
+import { MAX_CHAT_MESSAGE_CHARS } from "@/lib/domain/chat";
+import type { CareerGraph } from "@/lib/domain/graph";
+import { getCareerGraph, GraphUnavailableError, graphEnabled } from "@/lib/graph/service";
+
+export const metadata: Metadata = { title: "경력 그래프" };
+export const dynamic = "force-dynamic";
+
+export default async function GraphPage({ searchParams }: { searchParams: Promise<Record<string, string | string[] | undefined>> }) {
+  const user = await requireUser("/app/graph");
+  // ?ask=… — 공고 대조의 '그래프 채팅으로 추가'가 채팅 입력을 미리 채운다(보내기는 사용자가 누른다).
+  const askRaw = (await searchParams).ask;
+  const ask = (typeof askRaw === "string" ? askRaw.trim().slice(0, MAX_CHAT_MESSAGE_CHARS) : "") || undefined;
+
+  if (!graphEnabled()) {
+    return (
+      <div className="space-y-6">
+        <Header />
+        <Card className="p-5">
+          <Alert tone="warning" title="경력 그래프 저장소가 설정되지 않았습니다">
+            이 서버에는 Neo4j 연결 정보(NEO4J_URI·NEO4J_USER·NEO4J_PASSWORD)가 없어 경력 그래프를 쓸 수 없습니다. 관리자라면
+            .env.example의 Neo4j 항목을 채우고(개발용은 docker-compose.yml) 서버를 다시 시작해 주세요.
+          </Alert>
+        </Card>
+      </div>
+    );
+  }
+
+  // 첫 화면은 서버에서 그려 깜박임을 없앤다. Neo4j가 잠시 안 되면 오류 안내를 보이고 화면에서 다시 시도할 수 있다.
+  let initialGraph: CareerGraph | null = null;
+  let initialError: string | null = null;
+  try {
+    initialGraph = await getCareerGraph(user.id, { personName: user.name });
+  } catch (err) {
+    if (!(err instanceof GraphUnavailableError)) console.error("[GET /app/graph]", err);
+    initialError = "경력 그래프 저장소에 연결하지 못했습니다. 잠시 후 다시 시도해 주세요.";
+  }
+
+  return (
+    <div className="space-y-6">
+      <Header />
+      <div className="grid gap-6 xl:grid-cols-[minmax(0,1fr)_clamp(22rem,32%,36rem)] xl:items-start">
+        <CareerGraphView initialGraph={initialGraph} initialError={initialError} />
+        <div className="min-w-0 space-y-6">
+          <section id="graph-chat" aria-label="경력 정리 채팅" className="min-w-0 scroll-mt-20">
+            <GraphChatPanel initialMessage={ask} />
+          </section>
+          <section aria-label="공고 대비 부족한 기술" className="min-w-0">
+            <SkillGapPanel />
+          </section>
+        </div>
+      </div>
+    </div>
+  );
+}
+
+function Header() {
+  return (
+    <div>
+      <h1 className="text-2xl font-bold tracking-tight text-slate-900">경력 그래프</h1>
+      <p className="mt-1 max-w-prose text-sm text-slate-500">
+        회사·직무·프로젝트·경험·기술·성과를 서로 이어 정리해 둡니다. 채팅으로 이야기하거나 직접 추가해 보세요.
+      </p>
+    </div>
+  );
+}

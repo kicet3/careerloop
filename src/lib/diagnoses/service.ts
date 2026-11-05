@@ -4,7 +4,7 @@ import { nanoid } from "nanoid";
 import { db } from "@/lib/db/client";
 import { diagnoses, diagnosisRuns, diagnosisStages, type Diagnosis, type DiagnosisStage } from "@/lib/db/schema";
 import { REVIEWER_IDS, STAGE_KEYS, type DiagnosisInput, type StageKey } from "@/lib/domain/schemas";
-import type { ProviderId } from "@/lib/domain/providers";
+import { isRetiredEngine, RETIRED_ENGINE_MESSAGE, type ProviderId } from "@/lib/domain/providers";
 import { defaultProvider, modelNameFor } from "@/lib/llm";
 import {
   dailyDiagnosisLimit,
@@ -16,6 +16,7 @@ import {
   STALE_AFTER_MS,
 } from "./summary";
 import type { DiagnosisListItem } from "./types";
+import type { DiagnosisPortfolio } from "./form";
 import { DiagnosisServiceError } from "./errors";
 
 export { DiagnosisServiceError };
@@ -128,10 +129,12 @@ export async function listDiagnoses(userId: string): Promise<DiagnosisListItem[]
  * 제한: 사용자당 진행 중(queued/running) 1건(409), 최근 24시간 DAILY_DIAGNOSIS_LIMIT건(429).
  * 하루 제한은 실행 원장(diagnosis_runs)으로 센다 — 진단을 지워도 횟수가 돌아오지 않는다.
  * provider는 호출자가 검증한 엔진(providers/options.ts resolveRequestedProvider). 재시도도 이 엔진으로 한다.
+ * 포트폴리오(선택)는 이력서와 별개 자료로 portfolio_text / portfolio_file_name에 저장한다.
+ * postingId(선택)는 호출자가 소유권을 확인한 보관 공고 id다(진단의 JD 사본은 jdText에 따로 남는다).
  */
 export async function createDiagnosis(
   userId: string,
-  input: DiagnosisInput,
+  input: DiagnosisInput & Partial<DiagnosisPortfolio> & { postingId?: string | null },
   provider: ProviderId = defaultProvider(),
 ): Promise<{ id: string }> {
   await markStaleRunsFailed(userId);
@@ -178,6 +181,9 @@ export async function createDiagnosis(
       jdText: input.jdText,
       resumeText: input.resumeText,
       resumeFileName: input.resumeFileName,
+      portfolioText: input.portfolioText?.trim() ? input.portfolioText : null,
+      portfolioFileName: input.portfolioText?.trim() ? (input.portfolioFileName ?? null) : null,
+      postingId: input.postingId ?? null,
       status: "queued",
       model: modelNameFor(provider),
       provider,
@@ -275,6 +281,7 @@ export async function clearShareToken(id: string, userId: string): Promise<void>
  * 재시도 준비: 실패·중단된 단계를 pending으로 되돌리고 진단을 queued로. done 단계는 그대로 둬서 이어서 실행된다.
  * 한 트랜잭션 안에서 '다른 진행 중 진단 없음'을 확인하고 failed → queued로 조건부 전환한다(생성과 같은 잠금).
  * 진단 하나당 MAX_RETRIES_PER_DIAGNOSIS회까지(원장으로 센다). 호출자가 이후 after()로 runDiagnosis(id)를 예약한다.
+ * 없앤 샘플(mock) 엔진으로 만든 예전 진단은 보기만 되고 재시도는 409로 막는다.
  */
 export async function prepareRetry(id: string, userId: string): Promise<void> {
   await markStaleRunsFailed(userId);
@@ -282,11 +289,12 @@ export async function prepareRetry(id: string, userId: string): Promise<void> {
 
   await db.transaction(async (tx) => {
     const [found] = await tx
-      .select({ status: diagnoses.status })
+      .select({ status: diagnoses.status, provider: diagnoses.provider, model: diagnoses.model })
       .from(diagnoses)
       .where(and(eq(diagnoses.id, id), eq(diagnoses.userId, userId)))
       .limit(1);
     if (!found) throw new DiagnosisServiceError("진단을 찾을 수 없습니다.", 404);
+    if (isRetiredEngine(found)) throw new DiagnosisServiceError(RETIRED_ENGINE_MESSAGE, 409);
     if (found.status === "done") throw new DiagnosisServiceError("이미 완료된 진단입니다.", 409);
     if (found.status !== "failed") throw new DiagnosisServiceError("진단이 아직 진행 중입니다.", 409);
 

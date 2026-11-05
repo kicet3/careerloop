@@ -1,53 +1,56 @@
-import type { ProviderId } from "@/lib/domain/providers";
+import { RETIRED_ENGINE_MESSAGE, type ProviderId } from "@/lib/domain/providers";
 import { AnthropicLlmClient, anthropicModelName } from "./anthropic";
 import { ClaudeCliLlmClient, claudeCliModel, CodexCliLlmClient, codexCliModel } from "./cli";
-import { MOCK_MODEL_NAME, MockLlmClient } from "./mock";
-import type { LlmClient } from "./types";
+import { LlmPermanentError, type GenerateResult, type LlmClient } from "./types";
 
-export type { LlmClient, LlmUsage, GenerateRequest, GenerateResult, Effort } from "./types";
-export { LlmPermanentError } from "./types";
+export type { LlmClient, LlmUsage, GenerateRequest, TaskRequest, LlmRequest, LlmTask, GenerateResult, Effort } from "./types";
+export { LlmPermanentError, LLM_TASKS, requestLabel } from "./types";
 
-function isMockMode(): boolean {
-  return process.env.LLM_MOCK === "1" || !process.env.ANTHROPIC_API_KEY;
-}
-
-/** 엔진을 고르지 않은 요청의 기본 엔진: API 키가 있으면 Claude API, 없거나 LLM_MOCK=1이면 mock. */
+/** 엔진을 고르지 않은 요청의 기본 엔진. 실제 사용 가능 여부는 providers/options.ts가 검증한다. */
 export function defaultProvider(): ProviderId {
-  return isMockMode() ? "mock" : "anthropic";
+  return "anthropic";
 }
 
-/** 예전(엔진 컬럼이 없던) 진단 행의 엔진 추정. */
-export function legacyProvider(model: string): ProviderId {
-  return model === MOCK_MODEL_NAME ? "mock" : "anthropic";
+/** 예전(엔진 컬럼이 없던) 진단 행의 엔진 추정. 없앤 샘플 엔진 행은 domain/providers.ts isRetiredEngine으로 따로 막는다. */
+// eslint-disable-next-line @typescript-eslint/no-unused-vars -- 호출부 호환용 인자(예전엔 model로 mock을 골랐다)
+export function legacyProvider(_model: string): ProviderId {
+  return "anthropic";
 }
 
-/** LLM_MOCK=1이면 어떤 엔진이든 mock(테스트·데모). */
+/** 호출하면 바로 영구 오류를 내는 클라이언트(키가 없거나 지원하지 않는 엔진). 단계 실패로 기록된다. */
+class UnavailableLlmClient implements LlmClient {
+  readonly name = "unavailable";
+  constructor(private readonly message: string) {}
+  async generate<T>(): Promise<GenerateResult<T>> {
+    throw new LlmPermanentError(this.message, "unavailable");
+  }
+}
+
 export function createLlmClient(provider: ProviderId = defaultProvider()): LlmClient {
-  if (process.env.LLM_MOCK === "1") return new MockLlmClient();
   switch (provider) {
     case "anthropic":
-      return process.env.ANTHROPIC_API_KEY ? new AnthropicLlmClient() : new MockLlmClient();
+      return process.env.ANTHROPIC_API_KEY
+        ? new AnthropicLlmClient()
+        : new UnavailableLlmClient("서버에 ANTHROPIC_API_KEY가 설정되지 않았습니다");
     case "claude-cli":
       return new ClaudeCliLlmClient();
     case "codex-cli":
       return new CodexCliLlmClient();
-    case "mock":
-      return new MockLlmClient();
+    default:
+      // DB에 남은 예전 엔진 값(예: 없앤 'mock')이 타입을 우회해 들어온 경우.
+      return new UnavailableLlmClient(RETIRED_ENGINE_MESSAGE);
   }
 }
 
 /** 진단 행의 model 컬럼에 기록할 이름. */
 export function modelNameFor(provider: ProviderId): string {
-  if (process.env.LLM_MOCK === "1") return MOCK_MODEL_NAME;
   switch (provider) {
     case "anthropic":
-      return process.env.ANTHROPIC_API_KEY ? anthropicModelName() : MOCK_MODEL_NAME;
+      return anthropicModelName();
     case "claude-cli":
       return `${claudeCliModel()} (Claude 계정 로그인)`;
     case "codex-cli":
       return `${codexCliModel() ?? "Codex 기본 모델"} (ChatGPT 계정 로그인)`;
-    case "mock":
-      return MOCK_MODEL_NAME;
   }
 }
 

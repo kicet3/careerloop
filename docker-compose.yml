@@ -1,0 +1,14 @@
+# 개발용 Neo4j(경력·경험 그래프). 로컬 루프백에만 연다.
+services:
+  neo4j:
+    image: neo4j:5-community
+    ports:
+      - "127.0.0.1:7474:7474"
+      - "127.0.0.1:7687:7687"
+    environment:
+      NEO4J_AUTH: neo4j/${NEO4J_PASSWORD:?NEO4J_PASSWORD를 .env.local에 설정하세요}
+      NEO4J_server_memory_heap_max__size: 1G
+    volumes:
+      - neo4j-data:/data
+volumes:
+  neo4j-data:

@@ -3,7 +3,7 @@ import { tmpdir } from "node:os";
 import path from "node:path";
 import { afterAll, beforeAll, describe, expect, it, vi } from "vitest";
 import type { DiagnosisInput, StageKey } from "@/lib/domain/schemas";
-import { MockLlmClient } from "@/lib/llm/mock";
+import { FakeLlmClient } from "@/test/fake-llm";
 import { LlmPermanentError, type GenerateRequest, type GenerateResult, type LlmClient } from "@/lib/llm/types";
 
 vi.mock("server-only", () => ({}));
@@ -27,11 +27,11 @@ const input: DiagnosisInput = {
   notes: null,
 };
 
-/** mock 출력을 쓰되 단계별로 실패·대기를 끼워 넣는 클라이언트. */
+/** 가짜 LLM(FakeLlmClient) 출력을 쓰되 단계별로 실패·대기를 끼워 넣는 클라이언트. */
 class ScriptedLlm implements LlmClient {
   readonly name = "scripted";
   readonly calls: StageKey[] = [];
-  private readonly inner = new MockLlmClient({ delayMs: 0 });
+  private readonly inner = new FakeLlmClient({ delayMs: 0 });
   constructor(private readonly script: Partial<Record<StageKey, (req: GenerateRequest<unknown>) => Promise<void>>> = {}) {}
   async generate<T>(req: GenerateRequest<T>): Promise<GenerateResult<T>> {
     this.calls.push(req.stage);

@@ -5,7 +5,7 @@ import { afterAll, beforeAll, describe, expect, it, vi } from "vitest";
 import type { DiagnosisInput } from "@/lib/domain/schemas";
 
 vi.mock("server-only", () => ({}));
-vi.mock("@/lib/llm", () => ({ defaultProvider: () => "mock", modelNameFor: () => "test-model" }));
+vi.mock("@/lib/llm", () => ({ defaultProvider: () => "anthropic", modelNameFor: () => "test-model" }));
 
 const dir = mkdtempSync(path.join(tmpdir(), "rp-diag-"));
 process.env.DATABASE_URL = `file:${path.join(dir, "test.db")}`;
@@ -31,7 +31,7 @@ beforeAll(async () => {
   await ensureDatabase();
   ({ db, schema } = await import("@/lib/db/client"));
   svc = await import("./service");
-  for (const id of ["u1", "u2", "u3", "u4", "u5", "u-provider"]) {
+  for (const id of ["u1", "u2", "u3", "u4", "u5", "u-provider", "u-portfolio", "u-retired"]) {
     await db.insert(schema.users).values({ id, email: `${id}@x.com`, passwordHash: "x" });
   }
 });
@@ -63,6 +63,26 @@ describe("diagnoses service", () => {
     const found = await svc.getDiagnosisForUser(id, "u-provider");
     expect(found?.diagnosis.provider).toBe("codex-cli");
     await setStatus(id, "done");
+  });
+
+  it("포트폴리오는 이력서와 따로 저장하고, 비었으면 null", async () => {
+    const { id } = await svc.createDiagnosis("u-portfolio", {
+      ...input,
+      portfolioText: "결제 정산 배치 재작성 — 처리 시간 4시간 → 40분",
+      portfolioFileName: "portfolio.pdf",
+    });
+    const found = await svc.getDiagnosisForUser(id, "u-portfolio");
+    expect(found?.diagnosis).toMatchObject({
+      resumeText: input.resumeText,
+      portfolioText: "결제 정산 배치 재작성 — 처리 시간 4시간 → 40분",
+      portfolioFileName: "portfolio.pdf",
+    });
+    await setStatus(id, "done");
+
+    const { id: plain } = await svc.createDiagnosis("u-portfolio", { ...input, portfolioText: "  ", portfolioFileName: "x.pdf" });
+    const row = await svc.getDiagnosisForUser(plain, "u-portfolio");
+    expect(row?.diagnosis).toMatchObject({ portfolioText: null, portfolioFileName: null });
+    await setStatus(plain, "done");
   });
 
   it("하루 제한 초과는 429", async () => {
@@ -189,5 +209,25 @@ describe("diagnoses service", () => {
     expect(await svc.markStaleRunsFailed("u5")).toBe(0);
     await setStatus(id, "running", new Date(Date.now() - 3 * 60 * 1000));
     expect(await svc.markStaleRunsFailed("u5")).toBe(1);
+  });
+
+  it("없앤 샘플(mock) 엔진의 예전 진단: 보기는 되고 재시도는 409", async () => {
+    const { eq } = await import("drizzle-orm");
+    // provider 컬럼에 'mock'이 남은 행, provider가 비고 model만 'mock'인 더 예전 행
+    for (const [i, values] of [{ provider: "mock", model: "mock" }, { provider: null, model: "mock" }].entries()) {
+      const { id } = await svc.createDiagnosis("u-retired", input);
+      await db
+        .update(schema.diagnoses)
+        .set({ ...(values as unknown as { provider: null; model: string }), status: "failed" })
+        .where(eq(schema.diagnoses.id, id));
+      const found = await svc.getDiagnosisForUser(id, "u-retired");
+      expect(found?.diagnosis.model).toBe("mock");
+      expect(found?.stages).toHaveLength(13);
+      await expect(svc.prepareRetry(id, "u-retired")).rejects.toMatchObject({
+        status: 409,
+        message: expect.stringContaining("더 이상 지원하지 않는 샘플 엔진"),
+      });
+      expect((await svc.getDiagnosisForUser(id, "u-retired"))?.diagnosis.status, `case ${i}`).toBe("failed");
+    }
   });
 });

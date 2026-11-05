@@ -237,3 +237,18 @@ describe("점수·인용 검증·부분 보고서 (리뷰 수정 사항)", () =>
     expect(md).not.toContain(`2. **${second}**`);
   });
 });
+
+describe("buildReportModel — 포트폴리오 표시", () => {
+  it("포트폴리오가 있으면 meta와 마크다운 머리에 표시하고, 없으면 표시하지 않는다", () => {
+    const withPf = buildReportModel(
+      makeSampleDiagnosis({ portfolioText: "정산 배치 재작성", portfolioFileName: "portfolio.pdf" }),
+      makeSampleStages(),
+    );
+    expect(withPf.meta).toMatchObject({ hasPortfolio: true, portfolioFileName: "portfolio.pdf" });
+    expect(renderPanelMarkdown(withPf)).toContain("- 포트폴리오: 포함 (portfolio.pdf)");
+
+    const plain = buildReportModel(makeSampleDiagnosis({ portfolioText: "  ", portfolioFileName: "x.pdf" }), makeSampleStages());
+    expect(plain.meta).toMatchObject({ hasPortfolio: false, portfolioFileName: null });
+    expect(renderPanelMarkdown(plain)).not.toContain("포트폴리오");
+  });
+});

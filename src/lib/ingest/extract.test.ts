@@ -1,13 +1,17 @@
 import { readFileSync } from "node:fs";
 import path from "node:path";
 import { deflateRawSync } from "node:zlib";
+import * as CFB from "cfb";
+import { strToU8, zipSync } from "fflate";
 import { describe, expect, it } from "vitest";
+import { MAX_HWP_BODY_BYTES, readHwpSection } from "./hwp";
 import {
   assertDocxWithinLimits,
   detectKind,
   extractText,
   IngestError,
   MAX_DOCX_ENTRY_BYTES,
+  MAX_HWPX_TOTAL_BYTES,
   MAX_PDF_PAGES,
   MAX_UPLOAD_BYTES,
   normalizeText,
@@ -59,8 +63,13 @@ describe("detectKind", () => {
     expect(detectKind("cv.docx", "application/octet-stream")).toBe("docx");
     expect(detectKind("cv.md", "")).toBe("text");
     expect(detectKind("cv", "text/plain; charset=utf-8")).toBe("text");
-    expect(detectKind("cv.hwp", "application/pdf")).toBeNull();
+    expect(detectKind("cv.hwp", "application/pdf")).toBe("hwp");
+    expect(detectKind("이력서.HWPX", "")).toBe("hwpx");
+    expect(detectKind("경력.htm", "")).toBe("html");
+    expect(detectKind("cv", "application/x-hwp")).toBe("hwp");
+    expect(detectKind("cv", "text/html; charset=euc-kr")).toBe("html");
     expect(detectKind("cv.doc", "")).toBeNull();
+    expect(detectKind("cv.hwt", "application/x-hwp")).toBeNull();
   });
 });
 
@@ -72,7 +81,7 @@ describe("extractText", () => {
   });
 
   it("지원하지 않는 형식은 415 IngestError", async () => {
-    const p = extractText({ name: "resume.hwp", type: "application/x-hwp", bytes: enc.encode(LONG) });
+    const p = extractText({ name: "resume.doc", type: "application/msword", bytes: enc.encode(LONG) });
     await expect(p).rejects.toBeInstanceOf(IngestError);
     await expect(p).rejects.toMatchObject({ status: 415 });
   });
@@ -218,5 +227,184 @@ describe("추출 제한", () => {
     const line = "Jane Doe - Backend Engineer. Built payment systems in Kotlin and Spring Boot for 3 years.";
     const r = await extractText({ name: "cv.pdf", type: "application/pdf", bytes: tinyPdf(line, 10) }, { maxChars: 100 });
     expect(r.text.match(/Backend Engineer/g)).toHaveLength(2);
+  });
+});
+
+// ---------------------------------------------------------------------------
+// HWP·HWPX·HTML — CareerLoop(src/server/extract.test.ts)에서 가져와 늘림
+// ---------------------------------------------------------------------------
+
+const HWP_BODY = "프로젝트 경험\r본인 역할: 결제 API를 Kotlin과 Spring Boot로 설계하고 장애율을 40% 줄였습니다.";
+const HWP_TEXT = "프로젝트 경험\n본인 역할: 결제 API를 Kotlin과 Spring Boot로 설계하고 장애율을 40% 줄였습니다.";
+
+/** HWP 5.x 최소 문서(CFB). 첫 문단 앞에 확장 제어 문자(구역 정의 'secd') 하나를 넣는다. */
+function hwpFixture(opts: { compressed?: boolean; flags?: number; truncate?: boolean; version?: number; sections?: Buffer[] } = {}) {
+  const { compressed = true, flags = 0, truncate = false, version = 5 } = opts;
+  const cfb = CFB.utils.cfb_new();
+  const fileHeader = Buffer.alloc(256);
+  fileHeader.write("HWP Document File");
+  fileHeader[35] = version;
+  fileHeader.writeUInt32LE((compressed ? 1 : 0) | flags, 36);
+  CFB.utils.cfb_add(cfb, "FileHeader", fileHeader);
+  const sections = opts.sections ?? [paraRecord(HWP_BODY, true)];
+  sections.forEach((record, i) => {
+    const body = truncate ? record.subarray(0, 11) : record;
+    CFB.utils.cfb_add(cfb, `BodyText/Section${i}`, compressed ? deflateRawSync(body) : body);
+  });
+  return new Uint8Array(CFB.write(cfb, { type: "buffer" }) as Buffer);
+}
+
+/** PARA_TEXT(67) 레코드 하나. withControl이면 앞에 8 WCHAR 확장 제어를 붙인다. */
+function paraRecord(text: string, withControl = false): Buffer {
+  const control = Buffer.alloc(16);
+  control.writeUInt16LE(2);
+  control.write("dces", 2, "ascii");
+  control.writeUInt16LE(2, 14);
+  const content = Buffer.concat([withControl ? control : Buffer.alloc(0), Buffer.from(text, "utf16le")]);
+  const header = Buffer.alloc(4);
+  header.writeUInt32LE((content.length << 20) | 67);
+  return Buffer.concat([header, content]);
+}
+
+describe("HWP 5.x", () => {
+  it.each([true, false])("본문에서 제어 문자를 빼고 한국어를 읽는다 (압축 %s)", async (compressed) => {
+    const r = await extractText({ name: "resume.hwp", type: "", bytes: hwpFixture({ compressed }) });
+    expect(r.text).toBe(HWP_TEXT);
+  });
+
+  it("여러 구역을 번호 순서(10이 2 뒤)로 읽는다", async () => {
+    const sections = Array.from({ length: 11 }, (_, i) => paraRecord(`구역 ${i} — 경력 기술서 내용을 충분히 길게 적습니다.`));
+    const r = await extractText({ name: "cv.hwp", type: "", bytes: hwpFixture({ sections }) });
+    const order = [...r.text.matchAll(/구역 (\d+)/g)].map((m) => Number(m[1]));
+    expect(order).toEqual([0, 1, 2, 3, 4, 5, 6, 7, 8, 9, 10]);
+  });
+
+  it.each([
+    [2, /암호/],
+    [256, /암호/],
+    [4, /배포용/],
+    [16, /DRM/],
+    [1024, /DRM/],
+  ])("읽을 수 없는 HWP(속성 %i)는 한국어 안내와 함께 415", async (flag, message) => {
+    const p = extractText({ name: "resume.hwp", type: "", bytes: hwpFixture({ flags: flag }) });
+    await expect(p).rejects.toThrow(message);
+    await expect(p).rejects.toMatchObject({ status: 415 });
+  });
+
+  it("HWP 3.x와 HWP가 아닌 파일은 이유를 밝혀 거절한다", async () => {
+    const v3 = Buffer.alloc(128);
+    v3.write("HWP Document File V3.00 \x1a\x01\x02\x03\x04\x05");
+    await expect(extractText({ name: "old.hwp", type: "", bytes: new Uint8Array(v3) })).rejects.toThrow(/HWP 3\.x/);
+    await expect(extractText({ name: "fake.hwp", type: "", bytes: enc.encode(LONG) })).rejects.toThrow(/HWP 파일이 아닙니다/);
+    await expect(extractText({ name: "v4.hwp", type: "", bytes: hwpFixture({ version: 4 }) })).rejects.toThrow(/HWP 5\.x/);
+  });
+
+  it("레코드가 잘린 HWP는 손상 안내", async () => {
+    await expect(extractText({ name: "cv.hwp", type: "", bytes: hwpFixture({ truncate: true }) })).rejects.toThrow(/손상/);
+  });
+
+  it(`압축을 풀면 ${MAX_HWP_BODY_BYTES / 1024 / 1024}MB를 넘는 HWP는 413`, async () => {
+    // 압축률이 매우 높은 큰 레코드(공백만). 선언 크기와 상관없이 실제로 풀어 보다가 멈춘다.
+    const huge = Buffer.alloc(MAX_HWP_BODY_BYTES + 1024, 0x20);
+    const bytes = hwpFixture({ sections: [huge] });
+    expect(bytes.byteLength).toBeLessThan(MAX_UPLOAD_BYTES);
+    await expect(extractText({ name: "bomb.hwp", type: "", bytes })).rejects.toMatchObject({ status: 413 });
+  });
+
+  it("readHwpSection: 탭은 공백, 묶음 빈칸은 공백으로", () => {
+    const tab = Buffer.alloc(16);
+    tab.writeUInt16LE(9);
+    const content = Buffer.concat([Buffer.from("가", "utf16le"), tab, Buffer.from("나\u001e다", "utf16le")]);
+    const header = Buffer.alloc(4);
+    header.writeUInt32LE((content.length << 20) | 67);
+    expect(readHwpSection(Buffer.concat([header, content]))).toBe("가 나 다");
+  });
+});
+
+describe("HWPX", () => {
+  const section = (text: string) =>
+    strToU8(
+      `<?xml version="1.0" encoding="UTF-8"?><hs:sec xmlns:hs="http://www.hancom.co.kr/hwpml/2011/section" xmlns:hp="http://www.hancom.co.kr/hwpml/2011/paragraph"><hp:p><hp:run><hp:t>${text}</hp:t></hp:run></hp:p></hs:sec>`,
+    );
+  const pad = " — 결제 시스템 운영 경력과 성과를 자세히 적은 문단입니다.";
+
+  it("구역을 숫자 순서로 읽고 header.xml 등 서식 파일은 뺀다", async () => {
+    const archive = zipSync({
+      mimetype: strToU8("application/hwp+zip"),
+      "Contents/section10.xml": section("마지막" + pad),
+      "Contents/section2.xml": section("중간" + pad),
+      "Contents/section0.xml": section("처음 &amp; 역할" + pad),
+      "Contents/header.xml": strToU8("<hh:head>제외할 서식</hh:head>"),
+    });
+    const r = await extractText({ name: "resume.hwpx", type: "", bytes: archive });
+    expect(r.text).toBe(`처음 & 역할${pad}\n\n중간${pad}\n\n마지막${pad}`);
+  });
+
+  it("글자 요소 안의 탭·줄바꿈을 살린다", async () => {
+    const xml = `<hs:sec xmlns:hs="s" xmlns:hp="p"><hp:p><hp:run><hp:t>기간<hp:tab/>2021-2024<hp:lineBreak/>회사: 페이랩${pad}</hp:t></hp:run></hp:p></hs:sec>`;
+    const r = await extractText({ name: "cv.hwpx", type: "", bytes: zipSync({ "Contents/section0.xml": strToU8(xml) }) });
+    expect(r.text).toBe(`기간 2021-2024\n회사: 페이랩${pad}`);
+  });
+
+  it("암호가 걸린 HWPX(manifest의 encryption-data)는 415", async () => {
+    const archive = zipSync({
+      "META-INF/manifest.xml": strToU8('<odf:manifest><odf:file-entry odf:full-path="Contents/section0.xml"><odf:encryption-data/></odf:file-entry></odf:manifest>'),
+      "Contents/section0.xml": new Uint8Array([1, 2, 3, 4]),
+    });
+    await expect(extractText({ name: "locked.hwpx", type: "", bytes: archive })).rejects.toMatchObject({ status: 415 });
+  });
+
+  it("본문 구역이 없으면 안내, ZIP이 아니면 손상 안내", async () => {
+    await expect(
+      extractText({ name: "cv.hwpx", type: "", bytes: zipSync({ "Contents/header.xml": strToU8("<x/>") }) }),
+    ).rejects.toThrow(/본문/);
+    await expect(extractText({ name: "cv.hwpx", type: "", bytes: enc.encode(LONG) })).rejects.toThrow(/HWPX 구조/);
+  });
+
+  it(`압축을 풀면 ${MAX_HWPX_TOTAL_BYTES / 1024 / 1024}MB를 넘는 HWPX(zip bomb)는 413 — 선언 크기가 거짓이어도`, async () => {
+    const bomb = Buffer.alloc(MAX_HWPX_TOTAL_BYTES + 1024, 0x20);
+    for (const declaredSize of [undefined, 1000]) {
+      const bytes = makeZip([{ name: "Contents/section0.xml", data: bomb, declaredSize }]);
+      await expect(extractText({ name: "bomb.hwpx", type: "", bytes })).rejects.toMatchObject({ status: 413 });
+    }
+  });
+});
+
+describe("HTML", () => {
+  it("본문과 엔티티를 읽고 스크립트·스타일·숨긴 내용을 뺀다", async () => {
+    const html =
+      '<html><head><title>제목</title><script>비밀()</script></head><body><h1>경험 &amp; 성과</h1>' +
+      "<p>결제 요청 실패율을 <b>50%</b> 줄이고 정산 배치를 2시간에서 10분으로 단축했습니다.</p>" +
+      '<div hidden>숨긴 내용</div><span style="display: none">안 보임</span><style>body {color:red}</style>' +
+      "<noscript>노스크립트</noscript><p>본인 역할</p></body></html>";
+    const r = await extractText({ name: "resume.html", type: "", bytes: enc.encode(html) });
+    expect(r.text).toBe(
+      "경험 & 성과\n\n결제 요청 실패율을 50% 줄이고 정산 배치를 2시간에서 10분으로 단축했습니다.\n\n본인 역할",
+    );
+  });
+
+  it("소스의 들여쓰기·줄바꿈은 공백 하나로 접고, br·표는 구분한다", async () => {
+    const html = `<body>
+      <p>
+        Kotlin   Spring Boot
+        PostgreSQL 운영 경험 3년
+      </p>
+      <table><tr><td>기간</td><td>2021-2024</td></tr><tr><td>회사</td><td>페이랩</td></tr></table>
+      <p>첫 줄<br>둘째 줄</p>
+    </body>`;
+    const r = await extractText({ name: "cv.htm", type: "", bytes: enc.encode(html) });
+    expect(r.text).toBe("Kotlin Spring Boot PostgreSQL 운영 경험 3년\n\n기간 2021-2024\n회사 페이랩\n\n첫 줄\n둘째 줄");
+  });
+
+  it("meta charset이 EUC-KR이면 그 인코딩으로 읽는다", async () => {
+    // "한글 이력서" (EUC-KR)
+    const korean = Buffer.from([0xc7, 0xd1, 0xb1, 0xdb, 0x20, 0xc0, 0xcc, 0xb7, 0xc2, 0xbc, 0xad]);
+    const bytes = Buffer.concat([
+      Buffer.from('<html><head><meta charset="euc-kr"></head><body><p>'),
+      korean,
+      Buffer.from(" - Backend Engineer, payment systems in Kotlin and Spring Boot</p></body></html>"),
+    ]);
+    const r = await extractText({ name: "cv.html", type: "", bytes: new Uint8Array(bytes) });
+    expect(r.text.startsWith("한글 이력서 - Backend")).toBe(true);
   });
 });

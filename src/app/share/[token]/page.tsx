@@ -35,16 +35,16 @@ export default async function SharedReportPage({ params }: Props) {
 
   return (
     <>
-      <header className="border-b border-slate-200 bg-white">
-        <div className="mx-auto flex h-14 max-w-5xl items-center justify-between gap-3 px-4 sm:px-6">
+      <header className="border-b border-slate-200 bg-white print:hidden">
+        <div className="flex h-14 items-center justify-between gap-3 px-4 sm:px-6 lg:px-8">
           <Logo />
           <Link href="/signup" className={buttonClass("secondary", "sm")}>
             내 이력서도 진단받기
           </Link>
         </div>
       </header>
-      <main className="mx-auto w-full max-w-5xl flex-1 px-4 py-8 sm:px-6">
-        <p className="mb-4 rounded-lg border border-slate-200 bg-white px-4 py-2.5 text-sm text-slate-600">
+      <main className="w-full min-w-0 flex-1 px-4 py-6 sm:px-6 lg:px-8 lg:py-8 print:p-0">
+        <p className="mb-4 rounded-lg border border-slate-200 bg-white px-4 py-2.5 text-sm text-slate-600 print:hidden">
           링크로 공유된 읽기 전용 보고서입니다.
         </p>
         <Report

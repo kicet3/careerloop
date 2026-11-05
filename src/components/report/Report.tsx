@@ -78,23 +78,33 @@ function MobileToc({ items }: { items: TocItem[] }) {
   );
 }
 
-export function Report({ report, actions }: { report: ReportModel; actions?: ReactNode }) {
+export function Report({
+  report,
+  actions,
+  reviewerChat,
+}: {
+  report: ReportModel;
+  actions?: ReactNode;
+  /** 주면 심사위원 카드에 '이 심사위원과 대화' 버튼을 단다(본인 진단 화면만. 공유 화면은 주지 않는다). */
+  reviewerChat?: { diagnosisId: string };
+}) {
   const items = tocItems(report);
   const jdInferred = report.jd?.analysis.source === "inferred";
   return (
     <div className="bg-white text-slate-900 antialiased print:bg-white">
-      <div className="mx-auto w-full max-w-6xl px-4 py-8 sm:px-6 sm:py-12 lg:grid lg:grid-cols-[11rem_minmax(0,1fr)] lg:gap-12 print:block print:max-w-none print:px-0 print:py-0">
+      {/* 목차는 왼쪽 고정 폭, 본문은 남은 폭을 모두 쓴다(긴 문단은 각 섹션에서 폭을 제한). */}
+      <div className="w-full px-4 py-8 sm:px-6 sm:py-12 lg:grid lg:grid-cols-[11rem_minmax(0,1fr)] lg:gap-10 lg:px-8 xl:grid-cols-[13rem_minmax(0,1fr)] xl:gap-12 print:block print:px-0 print:py-0">
         <aside className="hidden lg:block print:hidden">
           <Toc items={items} />
         </aside>
 
-        <div className="min-w-0 max-w-[960px]">
+        <div className="min-w-0">
           <MobileToc items={items} />
           <SummaryHeader report={report} actions={actions} />
 
           <div className="mt-12 space-y-14 print:mt-8 print:space-y-10">
             <Section id="reviewers" number={2} title="심사위원 7명의 판정" description="서로의 결과를 보지 않고 각자 이 이력서를 떨어뜨릴 이유를 찾았습니다.">
-              <ReviewerVerdicts reviewers={report.reviewers} />
+              <ReviewerVerdicts reviewers={report.reviewers} chatDiagnosisId={reviewerChat?.diagnosisId} />
             </Section>
 
             <Section
@@ -119,7 +129,7 @@ export function Report({ report, actions }: { report: ReportModel; actions?: Rea
             </Section>
 
             <Section id="details" number={7} title="심사위원별 상세">
-              <ReviewerDetails reviewers={report.reviewers} />
+              <ReviewerDetails reviewers={report.reviewers} chatDiagnosisId={reviewerChat?.diagnosisId} />
             </Section>
 
             <Section id="disclaimer" number={8} title="고지">

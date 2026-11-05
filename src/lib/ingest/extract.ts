@@ -1,11 +1,19 @@
 /**
- * 업로드 파일(이력서·JD)에서 텍스트를 뽑는다. PDF(unpdf), DOCX(mammoth), TXT/MD(UTF-8)만 받는다.
+ * 업로드 파일(이력서·포트폴리오·JD)에서 텍스트를 뽑는다. PDF(unpdf), DOCX(mammoth), HWP 5.x(cfb), HWPX(ZIP+XML),
+ * HTML(htmlparser2, 스크립트 무시), TXT/MD(UTF-8)를 받는다.
  * 실패는 사용자에게 그대로 보여줄 한국어 메시지를 담은 IngestError로 던진다.
+ * HWP·HWPX·HTML 경로는 CareerLoop(src/server/extract.ts)에서 가져와 고쳤다(hwp.ts·markup.ts·zip.ts).
  */
 
 import { existsSync } from "node:fs";
 import path from "node:path";
-import { inflateRawSync } from "node:zlib";
+import { IngestError } from "./errors";
+import { extractHwp } from "./hwp";
+import { decodeHtml, htmlText, hwpxSectionText } from "./markup";
+import { readZipWithinLimits, ZipLimitError } from "./zip";
+import { isSpaceTabNbsp, trimLineEnds } from "@/lib/text/whitespace";
+
+export { IngestError } from "./errors";
 
 export const MAX_UPLOAD_BYTES = 10 * 1024 * 1024;
 export const MIN_TEXT_LENGTH = 50;
@@ -20,46 +28,61 @@ export const DEFAULT_MAX_CHARS = 100_000;
 export const MAX_DOCX_ENTRY_BYTES = 20 * 1024 * 1024;
 export const MAX_DOCX_TOTAL_BYTES = 60 * 1024 * 1024;
 const MAX_DOCX_ENTRIES = 2000;
+/** HWPX(ZIP) 압축 해제 합계 상한. HWP 본문 상한(MAX_HWP_BODY_BYTES)과 같다. */
+export const MAX_HWPX_TOTAL_BYTES = 32 * 1024 * 1024;
+const MAX_HWPX_ENTRIES = 2000;
 
-export class IngestError extends Error {
-  constructor(
-    message: string,
-    readonly status: 400 | 413 | 415 = 400,
-  ) {
-    super(message);
-    this.name = "IngestError";
-  }
-}
+export type FileKind = "pdf" | "docx" | "hwp" | "hwpx" | "html" | "text";
 
-type FileKind = "pdf" | "docx" | "text";
+/** 업로드 UI가 받는 확장자(서버 detectKind와 같은 목록). */
+export const UPLOAD_EXTENSIONS = [".pdf", ".docx", ".hwp", ".hwpx", ".html", ".htm", ".txt", ".md"] as const;
 
 const DOCX_MIME = "application/vnd.openxmlformats-officedocument.wordprocessingml.document";
+const HWP_MIMES = new Set(["application/x-hwp", "application/haansofthwp", "application/vnd.hancom.hwp"]);
+const HWPX_MIMES = new Set(["application/hwp+zip", "application/vnd.hancom.hwpx", "application/haansofthwpx"]);
 
 export function detectKind(name: string, type: string): FileKind | null {
   const ext = name.toLowerCase().match(/\.([a-z0-9]+)$/)?.[1] ?? "";
   if (ext === "pdf") return "pdf";
   if (ext === "docx") return "docx";
+  if (ext === "hwp") return "hwp";
+  if (ext === "hwpx") return "hwpx";
+  if (ext === "html" || ext === "htm") return "html";
   if (ext === "txt" || ext === "md" || ext === "markdown") return "text";
-  // 확장자가 없을 때만 MIME으로 판단한다(.hwp·.doc 등은 거절).
+  // 확장자가 없을 때만 MIME으로 판단한다(.doc 등 모르는 확장자는 거절).
   if (ext) return null;
   const mime = type.toLowerCase().split(";")[0].trim();
   if (mime === "application/pdf") return "pdf";
   if (mime === DOCX_MIME) return "docx";
+  if (HWP_MIMES.has(mime)) return "hwp";
+  if (HWPX_MIMES.has(mime)) return "hwpx";
+  if (mime === "text/html") return "html";
   if (mime === "text/plain" || mime === "text/markdown" || mime === "text/x-markdown") return "text";
   return null;
 }
 
 /** NFC 정규화, 줄바꿈 통일, 줄 끝 공백 제거, 빈 줄 3개 이상 → 2개, 앞뒤 공백 제거. */
 export function normalizeText(raw: string): string {
-  return raw
-    .replace(/^﻿/, "")
+  const text = raw
+    .replace(/^\uFEFF/, "")
     .normalize("NFC")
     .replace(/\r\n?/g, "\n")
-    .replace(/\u0000/g, "")
-    .replace(/[ \t ]+$/gm, "")
+    .replace(/\u0000/g, "");
+  // 줄 끝 공백은 줄 단위로 지운다. `/[ \t\u00a0]+$/gm`은 긴 공백 덩어리 뒤에 글자가 오면 O(n²)이다(ReDoS).
+  return trimLineEnds(text, isSpaceTabNbsp)
     .replace(/\n{3,}/g, "\n\n")
     .trim();
 }
+
+/** 형식별 읽기 실패 기본 안내(IngestError가 아닌 예외일 때). */
+const READ_FAILURE: Record<FileKind, string> = {
+  pdf: "PDF를 읽지 못했습니다. 암호가 걸려 있거나 손상된 파일일 수 있습니다. 텍스트를 붙여넣어 주세요.",
+  docx: "DOCX를 읽지 못했습니다. 손상된 파일이거나 DOCX 형식이 아닐 수 있습니다. 텍스트를 붙여넣어 주세요.",
+  hwp: "HWP를 읽지 못했습니다. 손상된 파일일 수 있습니다. 한글에서 PDF로 내보내거나 텍스트를 붙여넣어 주세요.",
+  hwpx: "HWPX를 읽지 못했습니다. 손상된 파일일 수 있습니다. 한글에서 PDF로 내보내거나 텍스트를 붙여넣어 주세요.",
+  html: "HTML 파일을 읽지 못했습니다. 텍스트를 붙여넣어 주세요.",
+  text: "파일을 읽지 못했습니다. 텍스트를 붙여넣어 주세요.",
+};
 
 export async function extractText(
   file: {
@@ -79,7 +102,7 @@ export async function extractText(
   const kind = detectKind(file.name, file.type);
   if (!kind) {
     throw new IngestError(
-      "지원하지 않는 파일 형식입니다. PDF, DOCX, TXT, MD 파일만 올릴 수 있습니다. (HWP·DOC는 PDF로 변환하거나 텍스트를 붙여넣어 주세요.)",
+      "지원하지 않는 파일 형식입니다. PDF, DOCX, HWP, HWPX, HTML, TXT, MD 파일만 올릴 수 있습니다. (DOC 등은 PDF로 변환하거나 텍스트를 붙여넣어 주세요.)",
       415,
     );
   }
@@ -87,21 +110,29 @@ export async function extractText(
   const warnings: string[] = [];
   let raw: string;
   try {
-    raw =
-      kind === "pdf"
-        ? await extractPdf(file.bytes, maxChars)
-        : kind === "docx"
-          ? await extractDocx(file.bytes, warnings)
-          : decodeUtf8(file.bytes, warnings);
+    switch (kind) {
+      case "pdf":
+        raw = await extractPdf(file.bytes, maxChars);
+        break;
+      case "docx":
+        raw = await extractDocx(file.bytes, warnings);
+        break;
+      case "hwp":
+        raw = extractHwp(file.bytes, maxChars);
+        break;
+      case "hwpx":
+        raw = extractHwpx(file.bytes, maxChars);
+        break;
+      case "html":
+        raw = htmlText(decodeHtml(file.bytes), maxChars);
+        break;
+      case "text":
+        raw = decodeUtf8(file.bytes, warnings);
+        break;
+    }
   } catch (err) {
     if (err instanceof IngestError) throw err;
-    throw new IngestError(
-      kind === "pdf"
-        ? "PDF를 읽지 못했습니다. 암호가 걸려 있거나 손상된 파일일 수 있습니다. 텍스트를 붙여넣어 주세요."
-        : kind === "docx"
-          ? "DOCX를 읽지 못했습니다. 손상된 파일이거나 DOCX 형식이 아닐 수 있습니다. 텍스트를 붙여넣어 주세요."
-          : "파일을 읽지 못했습니다. 텍스트를 붙여넣어 주세요.",
-    );
+    throw new IngestError(READ_FAILURE[kind]);
   }
 
   const text = normalizeText(raw);
@@ -166,69 +197,68 @@ async function extractPdf(bytes: Uint8Array, maxChars: number): Promise<string> 
 }
 
 /**
- * DOCX(ZIP)의 압축 해제 크기를 mammoth에 넘기기 전에 확인한다. 중앙 디렉터리의 선언 크기는 거짓일 수 있으므로
- * 각 항목을 maxOutputLength를 건 inflate로 실제로 풀어 본다(상한을 넘는 순간 zlib이 멈춘다).
+ * DOCX(ZIP)의 압축 해제 크기를 mammoth에 넘기기 전에 확인한다. 선언 크기가 아니라 실제로 풀어 본 크기로 판단한다(zip.ts).
  * 상한을 넘거나 구조가 이상하면 IngestError.
  */
 export function assertDocxWithinLimits(bytes: Uint8Array): void {
-  const buf = Buffer.from(bytes.buffer, bytes.byteOffset, bytes.byteLength);
-  const tooBig = () =>
-    new IngestError("DOCX 압축을 풀면 너무 커집니다. 다른 파일을 올리거나 텍스트를 붙여넣어 주세요.", 413);
-  const broken = () => new IngestError("DOCX 구조를 읽지 못했습니다. 손상된 파일일 수 있습니다. 텍스트를 붙여넣어 주세요.");
-
-  // End of central directory 레코드: 파일 끝에서 22 + 최대 65535(주석)바이트 안에 있다.
-  let eocd = -1;
-  for (let i = buf.length - 22; i >= Math.max(0, buf.length - 22 - 0xffff); i--) {
-    if (buf.readUInt32LE(i) === 0x06054b50) {
-      eocd = i;
-      break;
-    }
+  try {
+    readZipWithinLimits(bytes, {
+      maxEntryBytes: MAX_DOCX_ENTRY_BYTES,
+      maxTotalBytes: MAX_DOCX_TOTAL_BYTES,
+      maxEntries: MAX_DOCX_ENTRIES,
+    });
+  } catch (err) {
+    throw zipError(err, "DOCX");
   }
-  if (eocd < 0) throw broken();
-  const entries = buf.readUInt16LE(eocd + 10);
-  const cdSize = buf.readUInt32LE(eocd + 12);
-  const cdOffset = buf.readUInt32LE(eocd + 16);
-  if (entries === 0xffff || cdOffset === 0xffffffff) throw tooBig(); // ZIP64는 받지 않는다
-  if (entries > MAX_DOCX_ENTRIES) throw tooBig();
-  if (cdOffset + cdSize > buf.length) throw broken();
+}
 
-  let total = 0;
-  let p = cdOffset;
-  for (let n = 0; n < entries; n++) {
-    if (p + 46 > buf.length || buf.readUInt32LE(p) !== 0x02014b50) throw broken();
-    const method = buf.readUInt16LE(p + 10);
-    const compSize = buf.readUInt32LE(p + 20);
-    const declared = buf.readUInt32LE(p + 24);
-    const nameLen = buf.readUInt16LE(p + 28);
-    const extraLen = buf.readUInt16LE(p + 30);
-    const commentLen = buf.readUInt16LE(p + 32);
-    const localOffset = buf.readUInt32LE(p + 42);
-    p += 46 + nameLen + extraLen + commentLen;
-
-    if (compSize === 0xffffffff || declared === 0xffffffff || localOffset === 0xffffffff) throw tooBig();
-    if (declared > MAX_DOCX_ENTRY_BYTES) throw tooBig();
-    if (localOffset + 30 > buf.length || buf.readUInt32LE(localOffset) !== 0x04034b50) throw broken();
-    const dataStart = localOffset + 30 + buf.readUInt16LE(localOffset + 26) + buf.readUInt16LE(localOffset + 28);
-    if (dataStart + compSize > buf.length) throw broken();
-
-    const limit = Math.min(MAX_DOCX_ENTRY_BYTES, MAX_DOCX_TOTAL_BYTES - total);
-    let actual: number;
-    if (method === 0) {
-      actual = compSize;
-    } else if (method === 8) {
-      try {
-        // limit+1바이트까지만 풀도록 해서, 그만큼 나오면 상한 초과로 본다.
-        actual = inflateRawSync(buf.subarray(dataStart, dataStart + compSize), { maxOutputLength: limit + 1 }).byteLength;
-      } catch (e) {
-        if (e instanceof RangeError || (e as { code?: string }).code === "ERR_BUFFER_TOO_LARGE") throw tooBig();
-        throw broken();
-      }
-    } else {
-      throw broken();
-    }
-    if (actual > limit) throw tooBig();
-    total += actual;
+function zipError(err: unknown, label: "DOCX" | "HWPX"): unknown {
+  if (!(err instanceof ZipLimitError)) return err;
+  if (err.reason === "too-big") {
+    return new IngestError(`${label} 압축을 풀면 너무 커집니다. 다른 파일을 올리거나 텍스트를 붙여넣어 주세요.`, 413);
   }
+  if (err.reason === "encrypted") {
+    return new IngestError(`암호가 걸린 ${label}는 읽을 수 없습니다. 암호를 해제하거나 PDF로 내보내 올려 주세요.`, 415);
+  }
+  return new IngestError(`${label} 구조를 읽지 못했습니다. 손상된 파일일 수 있습니다. 텍스트를 붙여넣어 주세요.`);
+}
+
+const HWPX_SECTION = /^Contents\/section(\d+)\.xml$/i;
+
+/**
+ * HWPX(한글 2010 이후 개방형, ZIP 안의 XML): Contents/sectionN.xml을 번호 순서로 읽는다.
+ * 암호를 건 HWPX는 META-INF/manifest.xml에 encryption-data가 있고 구역 XML이 암호문이라 거절한다.
+ */
+function extractHwpx(bytes: Uint8Array, maxChars: number): string {
+  let entries: Map<string, Buffer>;
+  try {
+    entries = readZipWithinLimits(
+      bytes,
+      { maxEntryBytes: MAX_HWPX_TOTAL_BYTES, maxTotalBytes: MAX_HWPX_TOTAL_BYTES, maxEntries: MAX_HWPX_ENTRIES },
+      (name) => HWPX_SECTION.test(name) || name === "META-INF/manifest.xml",
+    );
+  } catch (err) {
+    throw zipError(err, "HWPX");
+  }
+  if (entries.get("META-INF/manifest.xml")?.toString("utf8").includes("encryption-data")) {
+    throw new IngestError("암호가 걸린 HWPX는 읽을 수 없습니다. 한글에서 암호를 해제하거나 PDF로 내보내 올려 주세요.", 415);
+  }
+  const sections = [...entries.keys()]
+    .filter((name) => HWPX_SECTION.test(name))
+    .sort((a, b) => Number(HWPX_SECTION.exec(a)![1]) - Number(HWPX_SECTION.exec(b)![1]));
+  if (!sections.length) {
+    throw new IngestError("HWPX 본문(Contents/section*.xml)을 찾지 못했습니다. 한글에서 PDF로 내보내 올려 주세요.");
+  }
+  // HWP 경로처럼 maxChars에 닿으면 더 읽지 않는다(작은 zip이 32MB 텍스트로 불어나는 것을 막는다).
+  const texts: string[] = [];
+  let chars = 0;
+  for (const name of sections) {
+    if (chars > maxChars) break;
+    const text = hwpxSectionText(entries.get(name)!.toString("utf8"), maxChars - chars);
+    texts.push(text);
+    chars += text.length + 2;
+  }
+  return texts.join("\n\n");
 }
 
 async function extractDocx(bytes: Uint8Array, warnings: string[]): Promise<string> {

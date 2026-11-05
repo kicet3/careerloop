@@ -6,11 +6,11 @@
  * - deps.signal이 중단되면 아직 시작하지 않은 단계는 시작하지 않는다(진행 중 호출은 SDK가 signal로 끊는다).
  */
 import { STAGE_DEPENDENCIES, STAGE_KEYS, STAGE_SCHEMAS } from "@/lib/domain/schemas";
-import type { DiagnosisInput, StageKey, StageOutputs } from "@/lib/domain/schemas";
+import type { StageKey, StageOutputs } from "@/lib/domain/schemas";
 import type { LlmClient, LlmUsage } from "@/lib/llm/types";
 import type { z } from "zod";
 import { scoreFit } from "./fit-score";
-import { buildStagePrompt } from "./prompts";
+import { buildStagePrompt, type PanelInput } from "./prompts";
 
 /**
  * 모델 출력의 파생 값을 코드로 다시 계산한다. 지금은 fit.matchScore 하나 — 모델의 산수 대신 매트릭스에서 계산해
@@ -43,7 +43,8 @@ function toError(e: unknown): Error {
   return e instanceof Error ? e : new Error(String(e));
 }
 
-export async function runPipeline(input: DiagnosisInput, deps: PipelineDeps): Promise<{ ok: boolean }> {
+/** input.portfolioText가 있으면 리뷰어·fit·synthesis·rewrite·plan 프롬프트에 이력서와 별개 자료로 들어간다. */
+export async function runPipeline(input: PanelInput, deps: PipelineDeps): Promise<{ ok: boolean }> {
   const outputs: Partial<StageOutputs> = { ...deps.existing };
   const state = new Map<StageKey, State>();
   for (const stage of STAGE_KEYS) if (outputs[stage] != null) state.set(stage, "done");

@@ -84,6 +84,14 @@ export function SummaryHeader({ report, actions }: { report: ReportModel; action
                 <dd className="font-medium text-amber-700">공고 없이 진단</dd>
               </div>
             )}
+            {meta.hasPortfolio && (
+              <div className="flex min-w-0 gap-1.5">
+                <dt className="sr-only">추가 자료</dt>
+                <dd className="truncate font-medium text-indigo-700" title={meta.portfolioFileName ?? undefined}>
+                  포트폴리오 포함{meta.portfolioFileName ? ` · ${meta.portfolioFileName}` : ""}
+                </dd>
+              </div>
+            )}
           </dl>
         </div>
         {actions && <div className="border-t border-slate-100 pt-4 print:hidden">{actions}</div>}

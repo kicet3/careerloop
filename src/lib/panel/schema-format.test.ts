@@ -1,6 +1,7 @@
 import { describe, expect, it } from "vitest";
 import { toStrictJsonSchema } from "@/lib/llm/anthropic";
 import { STAGE_KEYS, STAGE_SCHEMAS } from "@/lib/domain/schemas";
+import { PostingFactsSchema } from "@/lib/domain/postings";
 
 function walk(node: unknown, visit: (n: Record<string, unknown>) => void) {
   if (Array.isArray(node)) return node.forEach((n) => walk(n, visit));
@@ -26,5 +27,16 @@ describe("toStrictJsonSchema", () => {
     expect(s).toContain('"enum":["PASS","REJECT"]');
     const syn = JSON.stringify(toStrictJsonSchema(STAGE_SCHEMAS.synthesis));
     expect(syn).toContain('"critical","major","minor"');
+  });
+
+  it("공고 추출 스키마(PostingFactsSchema)도 모든 필드 필수·enum 유지", () => {
+    const schema = toStrictJsonSchema(PostingFactsSchema) as { required?: string[]; properties?: Record<string, unknown> };
+    expect(new Set(schema.required)).toEqual(new Set(Object.keys(PostingFactsSchema.shape)));
+    const s = JSON.stringify(schema);
+    expect(s).toContain('"full_time"');
+    walk(schema, (n) => {
+      if (n.type === "object") expect(n.additionalProperties).toBe(false);
+      expect(n.anyOf).toBeUndefined();
+    });
   });
 });

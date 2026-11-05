@@ -1,6 +1,6 @@
 /**
- * 파이프라인이 의존하는 LLM 경계. 구현체는 anthropic.ts(실제 API)와 mock.ts(키 없이 로컬 개발·테스트)다.
- * 파이프라인은 이 인터페이스만 알기 때문에 테스트에서 가짜 클라이언트를 주입할 수 있다.
+ * 파이프라인이 의존하는 LLM 경계. 구현체는 anthropic.ts(Claude API)와 cli.ts(Claude·ChatGPT 계정 로그인 CLI)다.
+ * 파이프라인은 이 인터페이스만 알기 때문에 테스트에서 가짜 클라이언트(src/test/fake-llm.ts)를 주입할 수 있다.
  */
 import type { z } from "zod";
 import type { StageKey } from "@/lib/domain/schemas";
@@ -14,16 +14,49 @@ export interface LlmUsage {
   cacheWriteTokens: number;
 }
 
-export interface GenerateRequest<T> {
-  stage: StageKey;
-  /** 단계 공통 지시문(페르소나·규칙). 캐시가 잘 되도록 요청마다 바뀌는 값을 넣지 않는다. */
+/**
+ * 파이프라인 밖 기능의 LLM 호출 종류(심사 단계가 아닌 호출). 테스트용 가짜 LLM은 이 값으로 가짜 출력을 고른다.
+ * - graph-chat: 경력 그래프 채팅(GraphChatOutputSchema)
+ * - reviewer-chat: 심사위원 채팅(ReviewerChatOutputSchema)
+ * - resume-draft: 회사별 이력서 초안(ResumeDraftOutputSchema)
+ * - posting-extract: 채용 공고 페이지 본문에서 회사·직무·마감 등 추출(PostingFactsSchema)
+ */
+export const LLM_TASKS = ["graph-chat", "reviewer-chat", "resume-draft", "posting-extract"] as const;
+export type LlmTask = (typeof LLM_TASKS)[number];
+
+interface BaseRequest<T> {
+  /** 공통 지시문(페르소나·규칙). 캐시가 잘 되도록 요청마다 바뀌는 값을 넣지 않는다. */
   system: string;
-  /** 이 요청에서만 쓰는 자료(이력서·JD·이전 단계 결과). */
+  /** 이 요청에서만 쓰는 자료(이력서·JD·이전 단계 결과·대화). */
   user: string;
   schema: z.ZodType<T>;
   effort: Effort;
   maxTokens?: number;
   signal?: AbortSignal;
+  /**
+   * user 앞부분(STAGE_TASK_DELIMITER 앞, 없으면 전체)에 프롬프트 캐시 지점을 둘지(기본 true, Claude API만 해당).
+   * 한 번만 보내고 다시 쓰지 않는 호출(공고 추출 등)은 false로 둬 캐시 쓰기 할증을 피한다.
+   */
+  cacheUser?: boolean;
+}
+
+/** 심사 파이프라인 단계 호출. */
+export interface GenerateRequest<T> extends BaseRequest<T> {
+  stage: StageKey;
+  task?: undefined;
+}
+
+/** 파이프라인 밖 기능 호출(채팅·이력서 초안 등). */
+export interface TaskRequest<T> extends BaseRequest<T> {
+  task: LlmTask;
+  stage?: undefined;
+}
+
+export type LlmRequest<T> = GenerateRequest<T> | TaskRequest<T>;
+
+/** 로그·오류 메시지용 호출 이름(단계 키 또는 task). */
+export function requestLabel(req: LlmRequest<unknown>): string {
+  return req.task !== undefined ? req.task : req.stage;
 }
 
 export interface GenerateResult<T> {
@@ -35,7 +68,7 @@ export interface GenerateResult<T> {
 
 export interface LlmClient {
   readonly name: string;
-  generate<T>(req: GenerateRequest<T>): Promise<GenerateResult<T>>;
+  generate<T>(req: LlmRequest<T>): Promise<GenerateResult<T>>;
 }
 
 /**

@@ -6,6 +6,7 @@ import { redirect } from "next/navigation";
 import { cache } from "react";
 import { db, schema } from "@/lib/db/client";
 import { ensureDatabase } from "@/lib/db/migrate";
+import { httpsAppUrlHost, isProduction } from "@/lib/config/env";
 import { safeNextPath } from "./validation";
 
 export const SESSION_COOKIE = "rp_session";
@@ -19,11 +20,16 @@ function hashToken(token: string): string {
   return createHash("sha256").update(token).digest("hex");
 }
 
+/** 세션 쿠키 Secure 여부. APP_ENV=PRODUCTION이면 항상, DEV면 프로덕션 빌드(next start)일 때만. */
+export function sessionCookieSecure(env: Record<string, string | undefined> = process.env): boolean {
+  return isProduction(env) || env.NODE_ENV === "production";
+}
+
 function cookieOptions(expires: Date) {
   return {
     httpOnly: true,
     sameSite: "lax" as const,
-    secure: process.env.NODE_ENV === "production",
+    secure: sessionCookieSecure(),
     path: "/",
     expires,
   };
@@ -110,8 +116,9 @@ export async function requireApiUser(): Promise<SessionUser | Response> {
 /**
  * 상태 변경 요청의 same-origin 확인(CSRF 방어). 위반이면 403 Response, 통과면 null.
  * Origin이 없는 요청(브라우저가 아닌 클라이언트)은 Sec-Fetch-Site가 cross-site가 아니면 통과시킨다.
+ * APP_ENV=PRODUCTION이면 Host·X-Forwarded-Host 헤더(클라이언트·프록시가 바꿀 수 있음)를 믿지 않고 APP_URL 호스트만 허용한다.
  */
-export function assertSameOrigin(req: Request): Response | null {
+export function assertSameOrigin(req: Request, env: Record<string, string | undefined> = process.env): Response | null {
   const forbidden = () => Response.json({ error: "허용되지 않은 요청 출처입니다." }, { status: 403 });
   const origin = req.headers.get("origin");
   if (!origin) {
@@ -124,6 +131,12 @@ export function assertSameOrigin(req: Request): Response | null {
     return forbidden();
   }
   const allowed = new Set<string>();
+  if (isProduction(env)) {
+    // 시작 시 검사(validateProductionEnv)로 https APP_URL이 보장된다. 없으면 모두 거부.
+    const appHost = httpsAppUrlHost(env);
+    if (appHost) allowed.add(appHost);
+    return allowed.has(originHost) ? null : forbidden();
+  }
   const host = req.headers.get("host");
   if (host) allowed.add(host);
   const fwdHost = req.headers.get("x-forwarded-host");
@@ -131,9 +144,9 @@ export function assertSameOrigin(req: Request): Response | null {
   try {
     allowed.add(new URL(req.url).host);
   } catch {}
-  if (process.env.APP_URL) {
+  if (env.APP_URL) {
     try {
-      allowed.add(new URL(process.env.APP_URL).host);
+      allowed.add(new URL(env.APP_URL).host);
     } catch {}
   }
   return allowed.has(originHost) ? null : forbidden();

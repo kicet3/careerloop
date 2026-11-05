@@ -3,9 +3,10 @@ import { REVIEWERS } from "@/lib/domain/reviewers";
 import { PENDING_VERDICT } from "@/lib/report/model";
 import type { ReviewerCard } from "@/lib/report/types";
 import { TONE_DOT, VerdictBadge, cx } from "./primitives";
+import { ReviewerChatButton } from "./ReviewerChatButton";
 
 /** 심사위원 7명의 한 줄 평. 아직 결과가 없는 심사위원도 '미완료'로 자리를 지킨다. */
-export function ReviewerVerdicts({ reviewers }: { reviewers: ReviewerCard[] }) {
+export function ReviewerVerdicts({ reviewers, chatDiagnosisId }: { reviewers: ReviewerCard[]; chatDiagnosisId?: string }) {
   const byId = new Map(reviewers.map((r) => [r.id, r]));
   return (
     <ol className="grid gap-3 sm:grid-cols-2">
@@ -35,6 +36,11 @@ export function ReviewerVerdicts({ reviewers }: { reviewers: ReviewerCard[] }) {
             <p className="text-sm leading-relaxed text-slate-700">
               {card ? card.oneLiner : "이 심사위원의 결과가 아직 없습니다."}
             </p>
+            {card && chatDiagnosisId && (
+              <div className="mt-auto pt-1 print:hidden">
+                <ReviewerChatButton diagnosisId={chatDiagnosisId} reviewer={id} />
+              </div>
+            )}
           </li>
         );
       })}
