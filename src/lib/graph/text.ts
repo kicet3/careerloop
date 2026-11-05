@@ -23,7 +23,7 @@ function propsText(node: GraphNode, cap: number): string {
   const titleKey = NODE_TITLE_KEY[node.label];
   const parts = Object.entries(node.props as Record<string, unknown>)
     .filter(([k, v]) => k !== titleKey && v !== undefined && v !== null && v !== "")
-    .map(([k, v]) => `${k}=${String(v).replace(/\s+/g, " ").slice(0, cap)}`);
+    .map(([k, v]) => `${k}=${(Array.isArray(v) ? v.join("|") : String(v)).replace(/\s+/g, " ").slice(0, cap)}`);
   return parts.length ? ` (${parts.join(", ")})` : "";
 }
 

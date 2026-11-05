@@ -170,9 +170,13 @@ async function runStep(tx: ManagedTransaction, userId: string, step: PlanStep, n
 
 /**
  * 변경 연산을 한 트랜잭션으로 적용한다. 형식·존재·관계 방향이 하나라도 틀리면 GraphOpError(400)이고 아무것도 쓰지 않는다.
- * 사용자 Person 노드가 없으면 만든다.
+ * 사용자 Person 노드가 없으면 만든다. opts.maxOps는 이력서 가져오기 변경안에만 쓴다(직접 편집 API는 기본값).
  */
-export async function applyGraphOps(userId: string, ops: readonly GraphOp[]): Promise<ApplyGraphOpsResult> {
+export async function applyGraphOps(
+  userId: string,
+  ops: readonly GraphOp[],
+  opts: { maxOps?: number } = {},
+): Promise<ApplyGraphOpsResult> {
   assertUserId(userId);
   if (ops.length === 0) return { created: {}, applied: 0 };
   const s = await session();
@@ -180,7 +184,7 @@ export async function applyGraphOps(userId: string, ops: readonly GraphOp[]): Pr
     return await s.executeWrite(async (tx) => {
       const now = Date.now();
       await tx.run(`MERGE (p:Person {userId: $userId}) ON CREATE SET p.createdAt = $now`, { userId, now });
-      const { steps, created } = planGraphOps(await existingNodes(tx, userId), ops, () => `n_${nanoid(12)}`);
+      const { steps, created } = planGraphOps(await existingNodes(tx, userId), ops, () => `n_${nanoid(12)}`, opts);
       for (const step of steps) await runStep(tx, userId, step, now);
       return { created, applied: steps.length };
     });

@@ -84,6 +84,61 @@ const url = () => z.string().trim().max(500).describe("http(s) URL");
 
 export const SKILL_CATEGORIES = ["language", "framework", "tool", "domain", "soft", "other"] as const;
 
+/**
+ * 자소서 소재 분류(Project·Experience.categories). 정의·최소 입력 기준은 experience-categories.ts, 근거는
+ * docs/EXPERIENCE-CATEGORIES.md. 순서가 곧 저장 순서다(정렬해 저장해 비교가 흔들리지 않게 한다).
+ */
+export const STORY_TAGS = [
+  "problem-solving",
+  "collaboration",
+  "challenge-failure",
+  "motivation",
+  "leadership",
+  "values",
+  "learning",
+  "responsibility",
+] as const;
+export type StoryTag = (typeof STORY_TAGS)[number];
+/** 노드 하나에 달 수 있는 소재 분류 수. */
+export const MAX_STORY_TAGS = 3;
+
+/** LLM·사용자가 한국어로 준 분류 이름 → id. 정규화(공백·기호 제거, 소문자) 뒤 비교한다. 서로 겹치지 않아야 한다. */
+export const STORY_TAG_ALIASES: Record<StoryTag, readonly string[]> = {
+  "problem-solving": ["문제해결", "문제 해결", "문제해결·개선", "개선", "트러블슈팅", "problem solving", "problemsolving"],
+  collaboration: ["협업", "협업·갈등 해결", "갈등", "갈등해결", "갈등 해결", "팀워크", "의사소통", "teamwork"],
+  "challenge-failure": ["도전", "실패", "도전·실패 극복", "실패극복", "실패 극복", "도전·실패", "challenge", "failure"],
+  motivation: ["지원동기", "지원 동기", "지원동기 소재", "직무 관심", "계기"],
+  leadership: ["리더십", "리더쉽", "주도성", "리더십·주도성", "주도"],
+  values: ["가치관", "성장과정", "성장 과정", "성장과정·가치관", "장단점", "성격"],
+  learning: ["학습", "자기개발", "자기계발", "자기개발·학습", "공부"],
+  responsibility: ["책임감", "직업윤리", "윤리", "고객지향", "책임감·직업윤리·고객지향", "주인의식"],
+};
+
+const tagKey = (s: string) => s.normalize("NFKC").toLowerCase().replace(/[\s.,·()\-_/|]+/g, "");
+const TAG_LOOKUP = new Map<string, StoryTag>(
+  STORY_TAGS.flatMap((t) => [[tagKey(t), t] as const, ...STORY_TAG_ALIASES[t].map((a) => [tagKey(a), t] as const)]),
+);
+
+/** 분류 이름(id 또는 별칭) → id. 모르면 null. */
+export function resolveStoryTag(value: string): StoryTag | null {
+  return TAG_LOOKUP.get(tagKey(value)) ?? null;
+}
+
+/** 중복 제거·STORY_TAGS 순서 정렬·상한 자르기. */
+export function normalizeStoryTags(tags: readonly StoryTag[]): StoryTag[] {
+  const set = new Set(tags);
+  return STORY_TAGS.filter((t) => set.has(t)).slice(0, MAX_STORY_TAGS);
+}
+
+/** Project·Experience 공통: 자소서 소재(STAR) 필드. 모두 선택. */
+const storyProps = () => ({
+  situation: long(1000).optional().describe("상황·목표(S·T)"),
+  action: long(1000).optional().describe("내가 한 행동·방법·선택 이유(A)"),
+  result: long(1000).optional().describe("결과(R). 수치가 있으면 수치"),
+  learned: long(1000).optional().describe("배운 점·가치관·이후 변화"),
+  categories: z.array(z.enum(STORY_TAGS)).min(1).max(MAX_STORY_TAGS).optional().describe("자소서 소재 분류(최대 3개)"),
+});
+
 export const NODE_PROP_SCHEMAS = {
   Company: z.object({
     name: short(),
@@ -109,14 +164,17 @@ export const NODE_PROP_SCHEMAS = {
     startDate: date().optional(),
     endDate: date().optional(),
     url: url().optional(),
+    ...storyProps(),
   }),
   Experience: z.object({
     title: short(),
     kind: short(40).optional().describe("동아리·대외활동·봉사·공모전·연구 등"),
     organization: short().optional(),
     description: long().optional(),
+    myRole: short().optional().describe("이 경험에서 본인이 맡은 역할"),
     startDate: date().optional(),
     endDate: date().optional(),
+    ...storyProps(),
   }),
   Skill: z.object({
     name: short(80),
@@ -310,6 +368,38 @@ export function normalizeGraphDate(value: string): string {
   return m[3] ? `${m[1]}-${pad(m[2]!)}-${pad(m[3])}` : `${m[1]}-${pad(m[2]!)}`;
 }
 
+/** 붙여 볼 최대 단어 수("책임감 직업윤리 고객지향" 같은 별칭). */
+const MAX_TAG_WORDS = 3;
+
+/**
+ * "collaboration, 리더십 | foo" → 알려진 분류(정렬·상한)와 모르는 값. 쉼표·|·/·가운뎃점은 경계이고, 공백으로 나뉜 단어는
+ * 가장 긴 별칭부터 맞춘다("리더십 문제 해결" → leadership + problem-solving).
+ */
+export function parseStoryTags(value: string): { tags: StoryTag[]; unknown: string[] } {
+  const tags: StoryTag[] = [];
+  const unknown: string[] = [];
+  for (const segment of value.split(/[,|/·]+/)) {
+    const words = segment.split(/\s+/).filter(Boolean);
+    let i = 0;
+    while (i < words.length) {
+      let matched = 0;
+      for (let len = Math.min(MAX_TAG_WORDS, words.length - i); len >= 1; len--) {
+        const t = resolveStoryTag(words.slice(i, i + len).join(" "));
+        if (t) {
+          tags.push(t);
+          matched = len;
+          break;
+        }
+      }
+      if (matched === 0) {
+        unknown.push(words[i]!);
+        i += 1;
+      } else i += matched;
+    }
+  }
+  return { tags: normalizeStoryTags(tags), unknown };
+}
+
 /** 문자열 값을 속성 타입으로. 숫자는 수가 하나뿐일 때만("약 5명" → 5), 범위("3-4", "5~6명")는 그대로 둬 검증에서 빠지게 한다. */
 function coerceProp(key: string, schema: z.ZodType, value: string): unknown {
   const inner = schema instanceof z.ZodOptional ? schema.unwrap() : schema;
@@ -325,11 +415,12 @@ function coerceProp(key: string, schema: z.ZodType, value: string): unknown {
 /**
  * LLM 연산을 엄격한 GraphOp로 바꾼다. 형식이 틀린 연산은 버리고 사유를 errors에 남긴다(변경안 전체를 버리지 않는다).
  * 존재 여부·소유권·관계 방향 검사는 여기서 하지 않는다 — applyGraphOps가 한다.
+ * opts.max: 앞에서부터 볼 연산 수(기본 MAX_OPS_PER_BATCH, 이력서 가져오기는 MAX_IMPORT_OPS).
  */
-export function toGraphOps(llmOps: readonly LlmGraphOp[]): { ops: GraphOp[]; errors: string[] } {
+export function toGraphOps(llmOps: readonly LlmGraphOp[], opts: { max?: number } = {}): { ops: GraphOp[]; errors: string[] } {
   const ops: GraphOp[] = [];
   const errors: string[] = [];
-  llmOps.slice(0, MAX_OPS_PER_BATCH).forEach((o, i) => {
+  llmOps.slice(0, opts.max ?? MAX_OPS_PER_BATCH).forEach((o, i) => {
     let candidate: unknown;
     if (o.op === "addNode" || o.op === "updateNode") {
       if (!o.label) {
@@ -343,6 +434,14 @@ export function toGraphOps(llmOps: readonly LlmGraphOp[]): { ops: GraphOp[]; err
         if (!(key in shape)) continue; // 화이트리스트 밖 키는 버린다
         if (value.trim() === "") {
           if (o.op === "updateNode") props[key] = null;
+          continue;
+        }
+        const inner = shape[key] instanceof z.ZodOptional ? (shape[key] as z.ZodOptional).unwrap() : shape[key];
+        if (inner instanceof z.ZodArray) {
+          // 문자열 배열(자소서 소재 분류): 쪼개서 id로 바꾸고, 모르는 값은 버리고 알린다. 남은 것이 없으면 그 속성만 뺀다.
+          const { tags, unknown } = parseStoryTags(value);
+          if (unknown.length > 0) errors.push(`#${i + 1} ${o.op}: 속성 ${key}의 알 수 없는 값 '${unknown.join(", ").slice(0, 40)}'은(는) 뺐습니다`);
+          if (tags.length > 0) props[key] = tags;
           continue;
         }
         const coerced = coerceProp(key, shape[key]!, value.trim());

@@ -15,6 +15,10 @@ export type DbRateLimit = { bucket: string; limit: number; windowMs: number };
 export const RESUME_DRAFT_LIMIT: DbRateLimit = { bucket: "resume-draft", limit: 30, windowMs: 24 * 60 * 60_000 };
 /** 그래프 채팅 전송·재시도: 사용자당 10분 30회. */
 export const GRAPH_CHAT_LIMIT: DbRateLimit = { bucket: "graph-chat", limit: 30, windowMs: 10 * 60_000 };
+/** 그래프에 묻기 전송·재시도: 사용자당 10분 30회. */
+export const GRAPH_QA_LIMIT: DbRateLimit = { bucket: "graph-qa", limit: 30, windowMs: 10 * 60_000 };
+/** 이력서·포트폴리오로 그래프 채우기: 사용자당 24시간 10회(긴 문서 1건이 큰 LLM 호출 1회). */
+export const GRAPH_IMPORT_LIMIT: DbRateLimit = { bucket: "graph-import", limit: 10, windowMs: 24 * 60 * 60_000 };
 /** 진단 생성: IP당 24시간 20건(계정을 여러 개 만들어 하루 제한을 우회하는 것을 늦춘다). */
 export const DIAGNOSIS_IP_LIMIT: DbRateLimit = { bucket: "diagnosis-ip", limit: 20, windowMs: 24 * 60 * 60_000 };
 

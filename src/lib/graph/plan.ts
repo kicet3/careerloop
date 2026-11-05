@@ -32,14 +32,17 @@ export type PlanStep =
 /**
  * @param existing 사용자의 현재 노드 id → 라벨 (Person 제외)
  * @param newId 새 노드 id 생성기(테스트에서 고정 가능)
+ * @param opts.maxOps 한 번에 적용할 연산 수 상한(기본 MAX_OPS_PER_BATCH). 이력서 가져오기 변경안만 더 크게 연다.
  * @returns 실행할 단계와 임시 ref → 새 id
  */
 export function planGraphOps(
   existing: ReadonlyMap<string, NodeLabel>,
   ops: readonly GraphOp[],
   newId: () => string,
+  opts: { maxOps?: number } = {},
 ): { steps: PlanStep[]; created: Record<string, string> } {
-  if (ops.length > MAX_OPS_PER_BATCH) throw new GraphOpError(`한 번에 ${MAX_OPS_PER_BATCH}개까지 바꿀 수 있습니다.`);
+  const maxOps = opts.maxOps ?? MAX_OPS_PER_BATCH;
+  if (ops.length > maxOps) throw new GraphOpError(`한 번에 ${maxOps}개까지 바꿀 수 있습니다.`);
   const nodes = new Map(existing);
   const created: Record<string, string> = {};
   const deleted = new Set<string>();

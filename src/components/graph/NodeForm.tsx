@@ -13,7 +13,9 @@ import {
   fieldsFor,
   formValuesFrom,
   linkOptionsForNewNode,
+  splitTags,
 } from "./model";
+import { cn } from "@/components/ui/cn";
 import { inputClass, labelClass, textareaClass } from "./styles";
 
 /**
@@ -42,6 +44,8 @@ export function NodeForm({
   const [busy, setBusy] = useState(false);
 
   const fields = useMemo(() => fieldsFor(label), [label]);
+  const basicFields = fields.filter((f) => f.group !== "story");
+  const storyFields = fields.filter((f) => f.group === "story");
   const linkOptions = useMemo(() => (node ? [] : linkOptionsForNewNode(graph, label)), [graph, label, node]);
 
   function changeLabel(next: NodeLabel) {
@@ -94,10 +98,24 @@ export function NodeForm({
       )}
 
       <div className="grid gap-4 sm:grid-cols-2">
-        {fields.map((f) => (
+        {basicFields.map((f) => (
           <Field key={f.key} id={`${uid}-${f.key}`} spec={f} value={values[f.key]} onChange={(v) => setValues((s) => ({ ...s, [f.key]: v }))} />
         ))}
       </div>
+
+      {storyFields.length > 0 && (
+        <fieldset className="space-y-3 rounded-lg border border-slate-200 bg-white p-3 sm:p-4">
+          <legend className="px-1 text-sm font-semibold text-slate-800">자소서 소재(STAR)</legend>
+          <p className="text-xs text-slate-500">
+            상황·행동·결과를 나눠 적어 두면 자소서 문항과 이력서 초안에 바로 쓸 수 있어요. 모두 선택 항목입니다.
+          </p>
+          <div className="grid gap-4 sm:grid-cols-2">
+            {storyFields.map((f) => (
+              <Field key={f.key} id={`${uid}-${f.key}`} spec={f} value={values[f.key]} onChange={(v) => setValues((s) => ({ ...s, [f.key]: v }))} />
+            ))}
+          </div>
+        </fieldset>
+      )}
 
       {!node && (
         <div>
@@ -160,9 +178,53 @@ function Field({
       return (
         <div className="sm:col-span-2">
           {label}
-          <textarea id={id} rows={3} className={textareaClass} value={text} onChange={(e) => onChange(e.target.value)} />
+          <textarea
+            id={id}
+            rows={3}
+            className={textareaClass}
+            placeholder={spec.placeholder}
+            value={text}
+            onChange={(e) => onChange(e.target.value)}
+          />
         </div>
       );
+    case "tags": {
+      const picked = splitTags(text);
+      const max = spec.maxItems ?? Infinity;
+      const toggle = (v: string, on: boolean) => {
+        const next = on ? [...picked, v] : picked.filter((x) => x !== v);
+        onChange(splitTags(next.join(",")).join(","));
+      };
+      return (
+        <fieldset className="sm:col-span-2">
+          <legend className={labelClass}>
+            {spec.label}
+            <span className="ml-1 text-xs font-normal text-slate-500">(최대 {spec.maxItems}개 · {picked.length}개 선택)</span>
+          </legend>
+          <div id={id} className="grid gap-x-3 gap-y-1.5 sm:grid-cols-2">
+            {spec.options?.map((o) => {
+              const checked = picked.includes(o.value);
+              const disabled = !checked && picked.length >= max;
+              return (
+                <label
+                  key={o.value}
+                  className={cn("flex items-start gap-2 text-sm", disabled ? "cursor-not-allowed text-slate-400" : "text-slate-700")}
+                >
+                  <input
+                    type="checkbox"
+                    className="mt-0.5 size-4 shrink-0 accent-indigo-600"
+                    checked={checked}
+                    disabled={disabled}
+                    onChange={(e) => toggle(o.value, e.target.checked)}
+                  />
+                  <span>{o.label}</span>
+                </label>
+              );
+            })}
+          </div>
+        </fieldset>
+      );
+    }
     case "select":
       return (
         <div>

@@ -45,7 +45,7 @@ const SYSTEM = [
   "8. 성과 중심 항목도 자료에 있는 사실로만 채운다:",
   "   - highlights(핵심 성과 2~3개): title은 '지표 기준값 → 개선값 · 개선 폭', context는 '측정 기간·대상 / 본인이 한 핵심 행동'. 수치가 자료에 없으면 확인 가능한 산출물·적용 범위를 쓰거나 `[ADD: 기준값·개선값]`처럼 비워 둔다.",
   "   - experience: department(부서·조직), title(직무·직급), scope(담당 범위·주요 책임 한 문장), bullets(직접 결정·실행한 일과 검증된 결과).",
-  "   - projects: company(회사·활동명), team(팀 구성), role(내 역할: 결정·실행 범위), problem(어떤 자료로 확인한 문제), action(본인의 판단·실행·협업), result(기간·대상과 지표 변화), evidence(측정 자료명·공개 링크). 팀 성과와 본인 역할을 구분한다.",
+  "   - projects: company(회사·활동명), team(팀 구성), role(내 역할: 결정·실행 범위), problem(어떤 자료로 확인한 문제), action(본인의 판단·실행·협업), result(기간·대상과 지표 변화), evidence(측정 자료명·공개 링크). 팀 성과와 본인 역할을 구분한다. 자료의 situation, action, result 속성이 있으면 problem, action, result에 우선 쓴다.",
   "   - skills: category는 역량·분류, detail은 '실제로 할 수 있는 일과 적용 경험' 한 줄, items는 관련 기술명.",
   "   - basics.totalExperience는 자료의 재직 기간으로 계산할 수 있을 때만(예: \"5년 3개월\"), basics.portfolioUrl은 자료에 있을 때만. headings는 모두 빈 문자열(기본 제목).",
   "   - 모르는 칸을 그럴듯한 값으로 채우지 않는다. 필요한 칸은 `[ADD: ...]`, 필요 없으면 빈 문자열.",

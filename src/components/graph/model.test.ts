@@ -8,6 +8,7 @@ import {
   describeEdge,
   displayProps,
   fieldsFor,
+  formatPropValue,
   formValuesFrom,
   linkOptionsForNewNode,
   NEW_NODE_REF,
@@ -112,6 +113,44 @@ describe("표시", () => {
     expect(sortNodesForList([older, role]).map((n) => n.id)).toEqual(["r1", "r0"]);
     expect(displayProps(skill)).toEqual([{ key: "category", label: "분류", value: "언어" }]);
     expect(displayProps(role).find((p) => p.key === "current")?.value).toBe("예");
+  });
+});
+
+describe("자소서 소재 분류(tags)·STAR", () => {
+  const project = node("p1", "Project", { name: "대시보드", categories: ["values", "collaboration"], situation: "정산이 느렸다" });
+
+  it("Project fieldsFor에 tags 필드(선택지 8개)와 story 그룹", () => {
+    const fields = fieldsFor("Project");
+    const tags = fields.find((f) => f.key === "categories");
+    expect(tags).toMatchObject({ kind: "tags", group: "story", maxItems: 3 });
+    expect(tags?.options).toHaveLength(8);
+    expect(tags?.options?.[1]).toEqual({ value: "collaboration", label: "협업·갈등 해결" });
+    expect(fields.find((f) => f.key === "situation")).toMatchObject({ kind: "textarea", group: "story", label: "상황·목표(S·T)" });
+    expect(fieldsFor("Experience").find((f) => f.key === "myRole")?.kind).toBe("text");
+  });
+
+  it("formValuesFrom은 배열을 정렬해 잇는다", () => {
+    expect(formValuesFrom("Project", project.props as Record<string, unknown>).categories).toBe("collaboration,values");
+  });
+
+  it("buildUpdateNodeOps: 태그 변경은 배열, 모두 해제는 null, 순서만 다르면 변경 없음", () => {
+    const base = formValuesFrom("Project", project.props as Record<string, unknown>);
+    const changed = buildUpdateNodeOps(project, { ...base, categories: "leadership,collaboration" });
+    expect(changed).toEqual({
+      ok: true,
+      ops: [{ op: "updateNode", id: "p1", label: "Project", props: { categories: ["collaboration", "leadership"] } }],
+    });
+    const cleared = buildUpdateNodeOps(project, { ...base, categories: "" });
+    expect(cleared.ok && cleared.ops[0]!.op === "updateNode" && cleared.ops[0]!.props).toEqual({ categories: null });
+    expect(buildUpdateNodeOps(project, { ...base, categories: "values,collaboration" })).toEqual({ ok: false, error: "바뀐 내용이 없습니다." });
+    const added = buildAddNodeOps("Experience", { title: "동아리", categories: "learning" });
+    expect(added.ok && added.ops[0]!.op === "addNode" && added.ops[0]!.props).toEqual({ title: "동아리", categories: ["learning"] });
+  });
+
+  it("formatPropValue·displayProps는 이름으로 바꾸고 story 그룹을 표시한다", () => {
+    expect(formatPropValue("Project", "categories", ["collaboration", "values"])).toBe("협업·갈등 해결 · 성장과정·가치관(장단점 포함)");
+    expect(formatPropValue("Skill", "category", "language")).toBe("언어");
+    expect(displayProps(project).find((p) => p.key === "situation")).toMatchObject({ group: "story", value: "정산이 느렸다" });
   });
 });
 

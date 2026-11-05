@@ -1,6 +1,6 @@
 import type { Metadata } from "next";
 import { CareerGraphView } from "@/components/graph/CareerGraphView";
-import { GraphChatPanel } from "@/components/graph/GraphChatPanel";
+import { GraphAssistantPanel } from "@/components/graph/GraphAssistantPanel";
 import { SkillGapPanel } from "@/components/match/SkillGapPanel";
 import { Alert } from "@/components/ui/Alert";
 import { Card } from "@/components/ui/Card";
@@ -8,6 +8,7 @@ import { requireUser } from "@/lib/auth/session";
 import { MAX_CHAT_MESSAGE_CHARS } from "@/lib/domain/chat";
 import type { CareerGraph } from "@/lib/domain/graph";
 import { getCareerGraph, GraphUnavailableError, graphEnabled } from "@/lib/graph/service";
+import { uploadLimitsFor } from "@/lib/ingest/upload-limits";
 
 export const metadata: Metadata = { title: "경력 그래프" };
 export const dynamic = "force-dynamic";
@@ -15,8 +16,11 @@ export const dynamic = "force-dynamic";
 export default async function GraphPage({ searchParams }: { searchParams: Promise<Record<string, string | string[] | undefined>> }) {
   const user = await requireUser("/app/graph");
   // ?ask=… — 공고 대조의 '그래프 채팅으로 추가'가 채팅 입력을 미리 채운다(보내기는 사용자가 누른다).
-  const askRaw = (await searchParams).ask;
+  const params = await searchParams;
+  const askRaw = params.ask;
   const ask = (typeof askRaw === "string" ? askRaw.trim().slice(0, MAX_CHAT_MESSAGE_CHARS) : "") || undefined;
+  // ?tab=qa — '그래프에 묻기' 탭으로 연다.
+  const tab = params.tab === "qa" ? "qa" : undefined;
 
   if (!graphEnabled()) {
     return (
@@ -48,8 +52,8 @@ export default async function GraphPage({ searchParams }: { searchParams: Promis
       <div className="grid gap-6 xl:grid-cols-[minmax(0,1fr)_clamp(22rem,32%,36rem)] xl:items-start">
         <CareerGraphView initialGraph={initialGraph} initialError={initialError} />
         <div className="min-w-0 space-y-6">
-          <section id="graph-chat" aria-label="경력 정리 채팅" className="min-w-0 scroll-mt-20">
-            <GraphChatPanel initialMessage={ask} />
+          <section id="graph-chat" aria-label="경력 그래프 만들기·묻기" className="min-w-0 scroll-mt-20">
+            <GraphAssistantPanel initialMessage={ask} initialTab={tab} uploadLimits={uploadLimitsFor()} />
           </section>
           <section aria-label="공고 대비 부족한 기술" className="min-w-0">
             <SkillGapPanel />
@@ -65,7 +69,8 @@ function Header() {
     <div>
       <h1 className="text-2xl font-bold tracking-tight text-slate-900">경력 그래프</h1>
       <p className="mt-1 max-w-prose text-sm text-slate-500">
-        회사·직무·프로젝트·경험·기술·성과를 서로 이어 정리해 둡니다. 채팅으로 이야기하거나 직접 추가해 보세요.
+        회사·직무·프로젝트·경험·기술·성과를 서로 이어 정리해 둡니다. 채팅으로 이야기하거나 이력서를 올려 채우고, 정리한 그래프에 질문해
+        보세요.
       </p>
     </div>
   );

@@ -1,6 +1,8 @@
 "use client";
 /**
- * 공고 직접 추가·수정 폼. 수정은 바뀐 필드만 PATCH로 보낸다. 같은 URL의 공고가 이미 있으면(409) 그 공고 링크를 보여 준다.
+ * 공고 직접 추가·수정 폼(메타·JD 원문). 수정은 바뀐 필드만 PATCH로 보낸다. 같은 URL의 공고가 이미 있으면(409) 그 공고 링크를 보여 준다.
+ * 저장하면 서버가 JD를 제목 기준으로 바로 구역에 나눈다. AI 엔진이 있으면 'AI로 섹션 정리'(기본 켜짐)를 골라 저장 뒤
+ * 부모가 POST /api/postings/[id]/structure를 부르게 한다(onSaved의 structure).
  */
 import Link from "next/link";
 import { useState } from "react";
@@ -66,16 +68,22 @@ export function PostingForm({
   posting,
   onSaved,
   onCancel,
+  aiAvailable = false,
 }: {
   /** 있으면 수정, 없으면 새 공고. */
   posting?: JobPosting;
-  onSaved: (posting: JobPosting) => void;
+  /** structure: 저장 뒤 AI로 구역을 정리할지(사용자가 고르고 JD가 새로 들어왔거나 바뀐 경우). */
+  onSaved: (posting: JobPosting, opts: { structure: boolean }) => void;
   onCancel: () => void;
+  /** AI 엔진을 쓸 수 있으면 'AI로 섹션 정리' 선택지를 보인다. */
+  aiAvailable?: boolean;
 }) {
   const initial = posting ? pick(posting) : EMPTY;
   const [v, setV] = useState<Fields>(initial);
   const [error, setError] = useState<ApiError | null>(null);
   const [saving, setSaving] = useState(false);
+  const [aiStructure, setAiStructure] = useState(true);
+  const jdTouched = v.jdText.trim() !== "" && v.jdText !== initial.jdText;
   const set = <K extends keyof Fields>(k: K, value: Fields[K]) => setV((prev) => ({ ...prev, [k]: value }));
 
   function setDeadline(deadline: string) {
@@ -120,7 +128,7 @@ export function PostingForm({
         return;
       }
       const data = (await res.json()) as { posting: JobPosting };
-      onSaved(data.posting);
+      onSaved(data.posting, { structure: aiAvailable && aiStructure && jdTouched });
     } catch {
       setError({ error: "서버에 연결하지 못했습니다. 네트워크를 확인해 주세요." });
       setSaving(false);
@@ -290,9 +298,24 @@ export function PostingForm({
             placeholder="주요 업무·자격 요건·우대 사항을 붙여넣으면 진단과 경력 대조에 씁니다."
             onChange={(e) => set("jdText", e.target.value)}
           />
-          <p className="mt-1 text-right text-xs text-slate-500">
-            {v.jdText.length.toLocaleString("ko-KR")} / {POSTING_LIMITS.jdText.toLocaleString("ko-KR")}자
-          </p>
+          <div className="mt-1 flex flex-wrap items-center justify-between gap-2">
+            {aiAvailable && jdTouched ? (
+              <label className="flex items-center gap-2 text-sm text-slate-700">
+                <input
+                  type="checkbox"
+                  checked={aiStructure}
+                  onChange={(e) => setAiStructure(e.target.checked)}
+                  className="size-4 rounded border-slate-300 text-indigo-600 focus:ring-indigo-500"
+                />
+                저장 뒤 AI로 섹션 정리
+              </label>
+            ) : (
+              <span className="text-xs text-slate-500">저장하면 제목(자격 요건·우대 사항 등) 기준으로 구역을 나눠 보여 줍니다.</span>
+            )}
+            <p className="ml-auto text-xs text-slate-500">
+              {v.jdText.length.toLocaleString("ko-KR")} / {POSTING_LIMITS.jdText.toLocaleString("ko-KR")}자
+            </p>
+          </div>
         </div>
       </div>
       <div className="flex flex-wrap justify-end gap-2">

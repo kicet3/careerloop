@@ -34,6 +34,9 @@ export function NodeDetail({
   if (id !== PERSON_ID && !node) return null;
 
   const label = endpointLabel(graph, id) ?? "Person";
+  const props = node ? displayProps(node) : [];
+  const basicProps = props.filter((p) => p.group !== "story");
+  const storyProps = props.filter((p) => p.group === "story");
   const edges = edgesOf(graph, id);
 
   async function run(key: string, ops: GraphOp[]) {
@@ -63,15 +66,12 @@ export function NodeDetail({
         </Button>
       </div>
 
-      {node && displayProps(node).length > 0 && (
-        <dl className="grid gap-x-4 gap-y-2 text-sm sm:grid-cols-[8rem_1fr]">
-          {displayProps(node).map((p) => (
-            <div key={p.key} className="contents">
-              <dt className="font-medium text-slate-500">{p.label}</dt>
-              <dd className="mb-1 break-words whitespace-pre-wrap text-slate-800 sm:mb-0">{p.value}</dd>
-            </div>
-          ))}
-        </dl>
+      {basicProps.length > 0 && <PropList items={basicProps} />}
+      {storyProps.length > 0 && (
+        <div>
+          <h4 className="mb-2 text-sm font-semibold text-slate-700">자소서 소재(STAR)</h4>
+          <PropList items={storyProps} />
+        </div>
       )}
 
       <div>
@@ -138,5 +138,18 @@ export function NodeDetail({
           ))}
       </div>
     </div>
+  );
+}
+
+function PropList({ items }: { items: { key: string; label: string; value: string }[] }) {
+  return (
+    <dl className="grid gap-x-4 gap-y-2 text-sm sm:grid-cols-[8rem_1fr]">
+      {items.map((p) => (
+        <div key={p.key} className="contents">
+          <dt className="font-medium text-slate-500">{p.label}</dt>
+          <dd className="mb-1 break-words whitespace-pre-wrap text-slate-800 sm:mb-0">{p.value}</dd>
+        </div>
+      ))}
+    </dl>
   );
 }

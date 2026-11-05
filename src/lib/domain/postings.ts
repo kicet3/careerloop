@@ -1,10 +1,16 @@
 /**
  * 채용 공고 보관함 계약(클라이언트·서버 공용): 공고 상태·라벨, 입력 zod 스키마, API 응답 형태,
- * URL 가져오기 작업 상태, 공고 페이지 LLM 추출 출력(PostingFactsSchema).
+ * URL 가져오기 작업 상태, 공고 페이지 LLM 추출 출력(PostingExtractSchema). 구역별 구조는 ./posting-structure.ts.
  * 저장은 PostgreSQL job_postings·posting_imports(prisma/schema.prisma). 마감 날짜는 KST 'YYYY-MM-DD'(src/lib/time/kst.ts).
  */
 import { z } from "zod";
 import { isValidKstDate, isValidKstTime } from "@/lib/time/kst";
+import {
+  PostingSectionsLlmSchema,
+  PostingStructureEditSchema,
+  type PostingHighlights,
+  type PostingStructure,
+} from "./posting-structure";
 
 // ---------------------------------------------------------------------------
 // 상태·분류
@@ -144,16 +150,25 @@ export const PostingCreateInputSchema = z
   });
 export type PostingCreateInput = z.output<typeof PostingCreateInputSchema>;
 
-/** 공고 수정(PATCH). 보낸 필드만 바꾼다. 마감 일관성은 서비스가 기존 행과 합쳐 postingDeadlineError로 검사한다. */
+/**
+ * 공고 수정(PATCH). 보낸 필드만 바꾼다. 마감 일관성은 서비스가 기존 행과 합쳐 postingDeadlineError로 검사한다.
+ * structured: '구역 편집' 결과(출처는 'user'로 저장).
+ */
 export const PostingUpdateInputSchema = z
-  .object(postingFields)
+  .object({ ...postingFields, structured: PostingStructureEditSchema })
   .partial()
   .strict()
   .refine((v) => Object.keys(v).length > 0, "바꿀 항목이 없습니다.");
 export type PostingUpdateInput = z.output<typeof PostingUpdateInputSchema>;
 
 /** URL 가져오기 요청. 형식·공개 주소 검사는 src/lib/postings/url.ts parsePostingUrl. */
-export const PostingImportInputSchema = z.object({ url: z.string().trim().min(1, "공고 주소를 입력하세요.").max(POSTING_LIMITS.url) }).strict();
+export const PostingImportInputSchema = z
+  .object({
+    url: z.string().trim().min(1, "공고 주소를 입력하세요.").max(POSTING_LIMITS.url),
+    /** '다시 가져오기': 공고 찾기에 같은 공고가 있어도 페이지를 다시 읽고, 내 보관함의 같은 공고를 새 내용으로 맞춘다. */
+    refresh: z.boolean().optional().default(false),
+  })
+  .strict();
 
 // ---------------------------------------------------------------------------
 // 응답 형태(API·화면)
@@ -170,7 +185,15 @@ export interface JobPosting {
   /** 채용 플랫폼 식별자(예: wanted, jobkorea, saramin) 또는 호스트 이름. 모르면 "". */
   platform: string;
   status: PostingStatus;
+  /** 진단·이력서·경력 대조가 읽는 JD 텍스트. URL 가져오기는 구조를 제목 붙은 구역 텍스트로 조합한 값(원문은 sourceText). */
   jdText: string;
+  /**
+   * 구역별 구조. 저장된 값이 없으면 getPosting이 jdText를 정규식으로 즉석 구조화한 값(source 'regex', 저장하지 않음)을 싣는다.
+   * 목록(JobPostingSummary)에는 없다.
+   */
+  structured: PostingStructure | null;
+  /** 가져온 페이지 본문 원문. 직접 입력은 ""(jdText가 원문). */
+  sourceText: string;
   deadline: string;
   deadlineTime: string;
   deadlineKind: DeadlineKind;
@@ -181,12 +204,14 @@ export interface JobPosting {
   note: string;
   /** 'manual' 또는 AI 추출 엔진(ProviderId, 예: 'claude-cli'). */
   extractedBy: string;
+  /** URL 가져오기(또는 공고 찾기에서 담기)로 만든 공고면 공용 공고 id. 직접 입력은 null. */
+  sharedPostingId: string | null;
   createdAt: number;
   updatedAt: number;
 }
 
-/** 목록 화면용 요약(JD 원문 제외). */
-export type JobPostingSummary = Omit<JobPosting, "jdText"> & { hasJd: boolean };
+/** 목록 화면용 요약(JD·구조·원문 제외). highlights는 카드 칩(기술 스택·연봉)용으로 서버가 구조에서 잘라 낸 값. */
+export type JobPostingSummary = Omit<JobPosting, "jdText" | "structured" | "sourceText"> & { hasJd: boolean; highlights?: PostingHighlights };
 
 // ---------------------------------------------------------------------------
 // URL 가져오기 작업
@@ -210,6 +235,10 @@ export interface PostingImportJob {
   /** 사용자에게 보여도 되는 한국어 오류 문구(내부 오류 원문은 담지 않는다). */
   error: string | null;
   postingId: string | null;
+  /** 결과 공용 공고 id(재사용했거나 새로 만든 것). */
+  sharedPostingId: string | null;
+  /** '다시 가져오기' 작업이면 true. */
+  refresh: boolean;
   createdAt: number;
   updatedAt: number;
 }
@@ -219,7 +248,7 @@ export interface PostingImportJob {
 // ---------------------------------------------------------------------------
 
 /**
- * 공고 페이지 본문에서 뽑은 사실. 구조화 출력용이라 선택 필드·유니온 없이 모든 필드 필수(없으면 "" / 'unknown').
+ * 공고 페이지 본문에서 뽑은 사실(회사·직무·마감 등). 공고 내용은 PostingExtractSchema의 sections(구역별 항목)로 받는다. 구조화 출력용이라 선택 필드·유니온 없이 모든 필드 필수(없으면 "" / 'unknown').
  * *Evidence는 페이지 본문 원문 그대로의 짧은 인용 — extract.ts가 본문에 실제로 있는지 확인하고, 근거 없는 값은 버린다.
  */
 export const PostingFactsSchema = z.object({
@@ -236,6 +265,9 @@ export const PostingFactsSchema = z.object({
   deadlineTime: z.string().max(10).describe("명시된 마감 시각을 한국 시간 HH:mm으로. 날짜만 있으면 빈 문자열"),
   deadlineEvidence: z.string().max(500).describe("마감일·시각이 나온 본문 문구를 그대로 복사. 없으면 빈 문자열"),
   rolling: z.boolean().describe("'상시 채용'·'채용 시 마감'이 명시된 경우만 true"),
-  note: z.string().max(8000).describe("주요 업무·필수 자격·우대 사항·지원 시 확인 사항을 한국어로 간결하게. 필수와 우대를 구분"),
 });
 export type PostingFacts = z.infer<typeof PostingFactsSchema>;
+
+/** URL 가져오기의 LLM 출력: 사실 + 구역별 항목(호출 1회). */
+export const PostingExtractSchema = PostingFactsSchema.extend({ sections: PostingSectionsLlmSchema });
+export type PostingExtract = z.infer<typeof PostingExtractSchema>;

@@ -117,6 +117,28 @@ describe("resumes service", () => {
     expect(list[0]!.id).toBe(resume.id); // 최근 수정 순
   });
 
+  it("버전 저장에 양식을 함께 주면 이력서 양식도 바뀌고, 충돌로 취소되면 그대로", async () => {
+    const { resume, version: v1 } = await service.createResume("ua", {
+      company: "T사",
+      roleTitle: "PM",
+      templateId: "performance",
+      document: doc("t1"),
+      source: "manual",
+    });
+    // 옛 기준 버전으로 저장(409)하면 양식도 바뀌지 않는다.
+    const v2 = await service.saveVersion("ua", resume.id, doc("t2"), { source: "manual", baseVersionId: v1.id });
+    await expect(
+      service.saveVersion("ua", resume.id, doc("x"), { source: "manual", baseVersionId: v1.id, templateId: "classic" }),
+    ).rejects.toMatchObject({ status: 409 });
+    expect((await service.getResumeMeta("ua", resume.id))!.templateId).toBe("performance");
+
+    await service.saveVersion("ua", resume.id, doc("t3"), { source: "manual", baseVersionId: v2!.id, templateId: "modern" });
+    expect((await service.getResumeMeta("ua", resume.id))!.templateId).toBe("modern");
+    // 양식을 주지 않으면 그대로
+    await service.saveVersion("ua", resume.id, doc("t4"), { source: "manual" });
+    expect((await service.getResumeMeta("ua", resume.id))!.templateId).toBe("modern");
+  });
+
   it("같은 기준 버전으로 동시에 저장하면 하나만 성공하고 나머지는 409", async () => {
     const { resume, version: v1 } = await service.createResume("ua", { company: "C", roleTitle: "R", templateId: "compact", document: doc("0"), source: "manual" });
     const results = await Promise.allSettled(

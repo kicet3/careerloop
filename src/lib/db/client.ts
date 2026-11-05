@@ -43,6 +43,13 @@ export function getPrisma(): PrismaClient {
     if (globalForDb.__prismaTest) return globalForDb.__prismaTest;
     throw new Error("테스트 DB가 설치되지 않았습니다. src/test/db.ts의 createTestDb()를 먼저 호출하세요.");
   }
+  const cached: { $disconnect(): Promise<void> } | undefined = globalForDb.__prisma;
+  // 개발 서버: `prisma generate`로 클라이언트 모듈이 새로 불러와지면(HMR) 옛 스키마로 만든 보관 클라이언트를 바꾼다
+  // (그대로 두면 새 컬럼을 "Unknown field"로 거절해 개발 서버를 재시작해야 한다).
+  if (cached && process.env.NODE_ENV !== "production" && !(cached instanceof PrismaClient)) {
+    globalForDb.__prisma = undefined;
+    void cached.$disconnect().catch(() => {});
+  }
   return (globalForDb.__prisma ??= createPrismaClient());
 }
 

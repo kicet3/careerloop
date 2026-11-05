@@ -292,6 +292,7 @@ export const GOOGLE_ERROR_MESSAGES: Record<string, string> = {
     "이 이메일로 가입된 계정이 있지만 Google이 이 주소의 소유를 보증하지 않아 연결할 수 없습니다. 관리자에게 문의해 주세요.",
   google_unavailable: "Google 로그인이 설정되지 않았습니다. 관리자에게 문의해 주세요.",
   rate_limited: "요청이 너무 많습니다. 잠시 후 다시 시도해 주세요.",
+  consent_required: "가입하려면 필수 항목(이용약관 동의·개인정보 안내 확인·만 14세 이상)을 모두 체크해 주세요.",
 };
 
 /** ?error= 값을 화면 문구로. 모르는 값이면 null(임의 문자열을 그대로 보여 주지 않는다). */

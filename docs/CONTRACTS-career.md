@@ -47,6 +47,11 @@ REL_RULES[type] = { name(한국어), from: EndpointLabel[], to: EndpointLabel[] 
 NODE_PROP_SCHEMAS[label]: z.ZodObject   // 라벨별 속성(대표 키 NODE_TITLE_KEY: Company.name, Role.title, Project.name,
                                         // Experience.title, Skill.name, Achievement.summary, Education.school, Certification.name)
                                         // 날짜는 "YYYY" | "YYYY-MM" | "YYYY-MM-DD"
+// Project·Experience 공통 자소서 소재(STAR) 속성 — 모두 선택, 기존 노드·변경안은 그대로 통과(Neo4j 마이그레이션 없음):
+//   situation(상황·목표 S·T, ≤1000), action(내 행동 A, ≤1000), result(결과 R, ≤1000), learned(배운 점, ≤1000),
+//   categories: StoryTag[] (1~3개, 네이티브 문자열 리스트로 저장). Experience에는 myRole(내 역할)도 있다(Project는 기존 myRole·teamSize).
+STORY_TAGS = ["problem-solving","collaboration","challenge-failure","motivation","leadership","values","learning","responsibility"]
+STORY_TAG_ALIASES[tag]: string[]; resolveStoryTag(s): StoryTag|null; parseStoryTags(s); normalizeStoryTags(tags)  // 정렬·중복 제거·3개
 type NodeProps<L>; allowedPropKeys(label): string[]
 type GraphNode = { id; label; props; createdAt; updatedAt }   // label로 좁혀지는 유니온
 type GraphEdge = { id: `${type}:${from}:${to}`; type; from; to } // from/to는 노드 id 또는 "me". (type,from,to) 유일
@@ -68,7 +73,13 @@ describeGraphOp(op, graph?, batch?): string  // "회사 추가: 페이랩", "연
 // LLM 구조화 출력용 평평한 형식(유니온·선택 필드 없음). 해당 없는 필드는 "" / []
 LlmGraphOpSchema: { op, ref, id, label: NodeLabel|"", props: {key,value:string}[], type: RelType|"", from, to }
 toGraphOps(llmOps): { ops: GraphOp[]; errors: string[] }  // 형 변환(숫자·참거짓), 화이트리스트 밖 키 제거, 틀린 연산은 errors로
+                                                         // categories: "협업, leadership" → ["collaboration","leadership"] (모르는 값은 errors)
 ```
+
+경험 카테고리 10개(`src/lib/domain/experience-categories.ts`)와 완성도 판정(`src/lib/graph/completeness.ts`:
+`assessExperienceChecklist(graph)`, `categoryAskMessage(status)`, `checklistToPromptText(checklist)`)은 [EXPERIENCE-CATEGORIES.md](./EXPERIENCE-CATEGORIES.md).
+그래프 채팅 프롬프트는 `<experience_checklist>`(`CHAT_TAGS.experienceChecklist`)를 그래프 뒤·캐시 구분자 앞에 넣고,
+LLM의 updateNode `categories`는 기존 태그와 합집합으로 바꾼다(`mergeCategoryUpdates`). 직접 편집은 그대로 교체한다.
 
 ## 3. `src/lib/domain/chat.ts` (공용)
 
@@ -393,3 +404,26 @@ src/lib/ingest/extract.ts      기존 extract 진입점에 .hwp/.hwpx/.html(.htm
 - `requirementsFromJd`는 `{ source, requirements }`를 돌려준다. `matchKeywords`는 `(required, skills)`를 받는다(CareerLoop와 같음).
   응답 타입 `PostingMatchResponse`·`SkillGapResponse`는 `src/lib/graph/match.ts`에 있다.
 - `GraphChatPanel` props: `{ initialThreadId?: string; initialMessage?: string }`. 그래프 페이지가 `?ask=`를 `initialMessage`로 넘긴다.
+
+## 8. 이력서·포트폴리오 가져오기 · 그래프에 묻기(3차)
+
+설계·신호·가중치·평가는 `docs/GRAPH-QA.md`. 스키마 변경 없음 — `chat_threads.kind`에 `graph-qa` 추가, 나머지는 `chat_messages.data`(Json).
+
+```
+POST /api/graph/chat/threads/[threadId]/import   multipart: file | text, docKind(resume|portfolio), provider → 202 { message, warnings }
+                                                 413 용량 · 415 형식 · 400 입력 없음/짧음 · 409 대기 중 · 429 GRAPH_IMPORT_LIMIT(24h 10회)
+GET|POST /api/graph/qa/threads                   목록 { threads, graphEnabled } / 생성 201 { thread }
+GET|PATCH|DELETE /api/graph/qa/threads/[id]      뷰 GraphQaThreadView(폴링) / 이름 / 삭제 204
+POST /api/graph/qa/threads/[id]/messages         { message(≤1000자), provider } → 202 · 409 대기 중 · 429 GRAPH_QA_LIMIT(10분 30회)
+POST /api/graph/qa/threads/[id]/retry            { provider } → 202 · 409 다시 시도할 것 없음
+```
+
+- `ChatMessageData`에 `DocumentImportData`(사용자 메시지: `{kind:"document-import", docKind, fileName, text, chars, truncated, warnings}`,
+  원본 파일 없음·뷰에서는 text 비움)와 `GraphAnswerData`(`{kind:"graph-answer", sources: GraphSource[], insufficient, grounded, missingInfo,
+  suggestions, droppedCitations?, debug?}`)를 더했다. `GraphSource = {n, nodeId, label, name, path: GraphPathStep[], pathText, snippet, exists?}`.
+- `GraphProposalData.source?: "chat" | "document-import"` — 가져오기 변경안만 적용 상한 `MAX_IMPORT_OPS`(150). 직접 편집 API는 60 그대로.
+- `toGraphOps(llmOps, { max? })`, `planGraphOps(existing, ops, newId, { maxOps? })`, `applyGraphOps(userId, ops, { maxOps? })`.
+- `LLM_TASKS`에 `graph-import`·`graph-qa`·`graph-qa-rerank`. 환경 변수 `GRAPH_QA_LLM_RERANK`(off | on, 기본: API 엔진만).
+- 그래프 화면 오른쪽은 `GraphAssistantPanel`(`initialMessage`, `initialTab`(`?tab=qa`), `uploadLimits`) — "그래프 만들기" | "그래프에 묻기".
+  window 이벤트 `career-graph:focus`(`focusGraphNode(id, pathIds?)`)로 출처 칩이 그래프 노드를 고르고 경로를 강조한다.
+  체크리스트 루트 id는 `experience-checklist`.

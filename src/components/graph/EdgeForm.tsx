@@ -3,24 +3,36 @@
 import { useId, useMemo, useState } from "react";
 import { Alert } from "@/components/ui/Alert";
 import { Button } from "@/components/ui/Button";
-import { type CareerGraph, type GraphOp, NODE_LABEL_META } from "@/lib/domain/graph";
+import { type CareerGraph, type GraphOp, NODE_LABEL_META, type NodeLabel } from "@/lib/domain/graph";
 import { connectableTargets, describeEdge, endpointLabel, endpointName, relationsBetween } from "./model";
 import { inputClass, labelClass } from "./styles";
 
-/** 선택한 노드(또는 본인)에서 다른 끝점으로 관계를 하나 추가하는 폼. 허용 방향의 관계만 고를 수 있다. */
+/**
+ * 선택한 노드(또는 본인)에서 다른 끝점으로 관계를 하나 추가하는 폼. 허용 방향의 관계만 고를 수 있다.
+ * targetLabels가 오면(경험 체크리스트의 '연결하기') 그 라벨의 대상만 보인다(본인 제외).
+ */
 export function EdgeForm({
   graph,
   sourceId,
+  targetLabels,
   onSubmit,
   onCancel,
 }: {
   graph: CareerGraph;
   sourceId: string;
+  targetLabels?: readonly NodeLabel[];
   onSubmit: (ops: GraphOp[]) => Promise<void>;
   onCancel: () => void;
 }) {
   const uid = useId();
-  const targets = useMemo(() => connectableTargets(graph, sourceId), [graph, sourceId]);
+  const targets = useMemo(() => {
+    const all = connectableTargets(graph, sourceId);
+    if (!targetLabels) return all;
+    return all.filter((id) => {
+      const l = endpointLabel(graph, id);
+      return l !== null && l !== "Person" && targetLabels.includes(l);
+    });
+  }, [graph, sourceId, targetLabels]);
   const [targetId, setTargetId] = useState(targets[0] ?? "");
   const relations = useMemo(() => (targetId ? relationsBetween(graph, sourceId, targetId) : []), [graph, sourceId, targetId]);
   const [relIdx, setRelIdx] = useState(0);

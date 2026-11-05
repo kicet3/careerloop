@@ -54,3 +54,71 @@ export async function setAccountPassword(
   });
   return { ok: true, created: !row.passwordHash };
 }
+
+export type DeleteAccountResult = { ok: true } | { ok: false; reason: "not_found" | "graph_failed" | "storage_failed" };
+
+export interface DeleteAccountDeps {
+  /** 테스트용: 그래프 삭제를 바꾼다. 기본은 NEO4J_URI가 있을 때만 deleteUserGraph. */
+  deleteGraph?: (userId: string) => Promise<void>;
+  /** 테스트용: 저장소(users/<id>/ 접두사) 삭제를 바꾼다. */
+  deleteStorage?: (userId: string) => Promise<void>;
+}
+
+async function deleteUserStorage(userId: string): Promise<void> {
+  const { deleteObject, listByPrefix, userPrefix } = await import("@/lib/storage");
+  for (const key of await listByPrefix(userPrefix(userId))) await deleteObject(key);
+}
+
+/**
+ * 회원 탈퇴: 경력 그래프(Neo4j) → 저장소 객체(users/<id>/ 접두사, R2·로컬) → DB 사용자 행 순으로 지운다.
+ * DB 행을 지우면 세션·공고·진단·이력서·지원 기록·채팅·동의 기록이 FK CASCADE로 함께 지워지고, 공용 공고의
+ * created_by는 null이 된다(공용 공고 자체는 공고 페이지 내용이라 남는다). 그래프 삭제가 실패하면 아무것도 지우지 않고
+ * graph_failed(다시 시도). 저장소 삭제가 실패해도 DB 행을 지우지 않고 storage_failed를 돌려준다 — 행이 남아 있어야 사용자가
+ * 다시 탈퇴를 시도해 같은 접두사를 지울 수 있다(행을 먼저 지우면 남은 파일을 다시 찾을 길이 없다). 그래프는 이미 지워졌을 수 있지만
+ * 다시 시도해도 안전하다(멱등). 공용 공고의 'N명이 담음'은 탈퇴 뒤 다시 센다.
+ * 호출자(라우트)는 성공 뒤 세션 쿠키를 지운다(destroySession).
+ */
+export async function deleteAccount(userId: string, deps: DeleteAccountDeps = {}): Promise<DeleteAccountResult> {
+  const exists = await prisma.user.findUnique({ where: { id: userId }, select: { id: true } });
+  if (!exists) return { ok: false, reason: "not_found" };
+
+  try {
+    if (deps.deleteGraph) await deps.deleteGraph(userId);
+    else {
+      const { graphEnabled } = await import("@/lib/graph/client");
+      if (graphEnabled()) await (await import("@/lib/graph/service")).deleteUserGraph(userId);
+    }
+  } catch (err) {
+    console.error("[deleteAccount] 그래프 삭제 실패", err);
+    return { ok: false, reason: "graph_failed" };
+  }
+
+  try {
+    await (deps.deleteStorage ?? deleteUserStorage)(userId);
+  } catch (err) {
+    console.error("[deleteAccount] 저장소 객체 삭제 실패", userId, err);
+    return { ok: false, reason: "storage_failed" };
+  }
+
+  // CASCADE로 지워질 보관함 공고가 연결된 공용 공고 — 지운 뒤 담은 사용자 수를 다시 센다.
+  const shared = await prisma.jobPosting.findMany({
+    select: { sharedPostingId: true },
+    where: { userId, sharedPostingId: { not: null } },
+    distinct: ["sharedPostingId"],
+  });
+
+  await prisma.$transaction([
+    // rate_events는 사용자 FK가 없다 — 사용자 id를 키로 쓴 기록만 지운다(IP 키는 해시라 사용자와 연결되지 않는다).
+    prisma.rateEvent.deleteMany({ where: { key: userId } }),
+    prisma.user.deleteMany({ where: { id: userId } }),
+  ]);
+
+  if (shared.length > 0) {
+    const { refreshSharedImporterCount } = await import("@/lib/postings/shared");
+    for (const { sharedPostingId } of shared) {
+      // 탈퇴는 이미 끝났다 — 다시 세기 실패는 로그만 남긴다(다음 담기·가져오기 때 다시 센다).
+      await refreshSharedImporterCount(sharedPostingId!).catch((err) => console.error("[deleteAccount] 담은 수 다시 세기 실패", err));
+    }
+  }
+  return { ok: true };
+}

@@ -69,6 +69,13 @@ describe("/api/postings", () => {
     expect(await dup.json()).toEqual({ error: "이미 보관함에 있는 공고입니다.", existingId: posting.id });
   });
 
+  it("직접 추가도 JD를 제목 기준으로 구조화해 저장한다(source 'regex')", async () => {
+    const res = await postings.POST(json("/api/postings", "POST", { company: "구조", roleTitle: "Server", jdText: "자격 요건\n- Kotlin 3년\n우대 사항\n- Kafka 경험" }));
+    expect(res.status).toBe(201);
+    const { posting } = (await res.json()) as { posting: { structured: { source: string; requirements: string[]; preferred: string[] } } };
+    expect(posting.structured).toMatchObject({ source: "regex", requirements: ["Kotlin 3년"], preferred: ["Kafka 경험"] });
+  });
+
   it("입력 오류는 한국어 400, 로그인 없으면 401, 다른 출처면 403", async () => {
     const bad = await postings.POST(json("/api/postings", "POST", { company: "", roleTitle: "x" }));
     expect(bad.status).toBe(400);

@@ -4,6 +4,8 @@
  * - 메시지 전송은 202로 바로 끝나고 답변은 서버가 백그라운드로 만든다 → 답을 기다리는 동안 스레드를 폴링한다.
  * - 변경안을 적용하면 window 이벤트 'career-graph:changed'를 보내 그래프 화면이 다시 읽게 한다.
  * - initialMessage가 오면(공고 대조의 '그래프 채팅으로 추가') 새 대화로 열고 입력을 미리 채운다. 보내기는 사용자가 누른다.
+ * - 같은 화면의 경험 체크리스트는 window 이벤트(GRAPH_CHAT_ASK_EVENT)로 같은 일을 한다(같은 문구를 다시 눌러도 다시 채운다).
+ * - [이력서·포트폴리오로 채우기]: 문서를 올리면 같은 대화에서 변경안을 받는다(POST …/import, 원본은 저장하지 않는다).
  */
 import { useCallback, useEffect, useRef, useState } from "react";
 import { Alert, Badge, Button, Card, Spinner, cn } from "@/components/ui";
@@ -11,31 +13,14 @@ import type { GraphChatMessageView, GraphThreadView } from "@/lib/chat/graph-cha
 import type { ChatThread } from "@/lib/domain/chat";
 import { MAX_CHAT_MESSAGE_CHARS } from "@/lib/domain/chat";
 import { NO_ENGINE_MESSAGE, type ProviderId, type ProviderOption } from "@/lib/domain/providers";
-import { emitGraphChanged } from "./api";
+import { SELF_HOSTED_UPLOAD_LIMITS, type UploadLimits } from "@/lib/ingest/upload-limits";
+import { emitGraphChanged, GRAPH_CHAT_ASK_EVENT } from "./api";
+import { chatApi as api, useElapsed } from "./chat-client";
+import { GraphImportForm } from "./GraphImportForm";
 
 const PROVIDER_STORAGE_KEY = "graph-chat:provider";
-
-class ApiError extends Error {
-  constructor(
-    message: string,
-    readonly status: number,
-  ) {
-    super(message);
-  }
-}
-
-async function api<T>(url: string, init?: RequestInit & { json?: unknown }): Promise<T> {
-  const res = await fetch(url, {
-    ...init,
-    headers: init?.json !== undefined ? { "Content-Type": "application/json" } : undefined,
-    body: init?.json !== undefined ? JSON.stringify(init.json) : init?.body,
-    cache: "no-store",
-  });
-  if (res.status === 204) return undefined as T;
-  const data = (await res.json().catch(() => null)) as { error?: string } | null;
-  if (!res.ok) throw new ApiError(data?.error ?? "요청을 처리하지 못했습니다. 잠시 후 다시 시도해 주세요.", res.status);
-  return data as T;
-}
+/** 변경안 줄이 이보다 많으면(문서 가져오기) 앞부분만 보이고 나머지는 펼쳐 본다. */
+const OP_LINES_PREVIEW = 12;
 
 const STATUS_BADGE = {
   proposed: { tone: "accent", label: "확인 대기" },
@@ -43,16 +28,6 @@ const STATUS_BADGE = {
   dismissed: { tone: "neutral", label: "거절함" },
   failed: { tone: "negative", label: "적용 실패" },
 } as const;
-
-function useElapsed(since: number | null): number {
-  const [now, setNow] = useState(() => Date.now());
-  useEffect(() => {
-    if (since === null) return;
-    const t = setInterval(() => setNow(Date.now()), 1000);
-    return () => clearInterval(t);
-  }, [since]);
-  return since === null ? 0 : Math.max(0, Math.floor((now - since) / 1000));
-}
 
 /**
  * 미리 채운 메시지(?ask=)를 보낸 뒤 주소에서 지운다. 남겨 두면 새로고침할 때 같은 문구가 다시 채워지고 새 대화로 바뀐다.
@@ -65,7 +40,16 @@ function clearAskQuery() {
   window.history.replaceState(null, "", `${url.pathname}${url.search}${url.hash}`);
 }
 
-export function GraphChatPanel({ initialThreadId, initialMessage }: { initialThreadId?: string; initialMessage?: string }) {
+export function GraphChatPanel({
+  initialThreadId,
+  initialMessage,
+  uploadLimits = SELF_HOSTED_UPLOAD_LIMITS,
+}: {
+  initialThreadId?: string;
+  initialMessage?: string;
+  /** 서버의 업로드 상한(uploadLimitsFor) — 이력서·포트폴리오 가져오기 폼. */
+  uploadLimits?: UploadLimits;
+}) {
   const [threads, setThreads] = useState<ChatThread[] | null>(null);
   const [graphOn, setGraphOn] = useState(true);
   const [threadId, setThreadId] = useState<string | null>(initialThreadId ?? null);
@@ -79,9 +63,12 @@ export function GraphChatPanel({ initialThreadId, initialMessage }: { initialThr
   const startFresh = useRef(Boolean(initialMessage) && !initialThreadId);
   const [sending, setSending] = useState(false);
   const [busyMessage, setBusyMessage] = useState<string | null>(null);
+  const [importOpen, setImportOpen] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const listRef = useRef<HTMLDivElement>(null);
   const inputRef = useRef<HTMLTextAreaElement>(null);
+  // 체크리스트·그래프에 묻기의 '채우기' 요청 번호(바뀔 때마다 입력란으로 포커스).
+  const [focusRequest, setFocusRequest] = useState(0);
   const loadSeq = useRef(0);
   // 같은 화면에서 다른 기술을 골라 initialMessage가 바뀌면 입력을 다시 채운다(렌더 중 조정 — effect의 setState를 피한다).
   const [seenInitial, setSeenInitial] = useState(initialMessage);
@@ -93,6 +80,40 @@ export function GraphChatPanel({ initialThreadId, initialMessage }: { initialThr
       setError(null);
     }
   }
+
+  // 같은 화면의 체크리스트 '채팅으로 채우기': 주소(?ask=)를 거치지 않고 입력을 채우고 새 대화로 연다.
+  useEffect(() => {
+    const onAsk = (ev: Event) => {
+      const message = (ev as CustomEvent<{ message?: string } | undefined>).detail?.message;
+      if (!message) return;
+      ev.preventDefault();
+      setInput(message);
+      setThreadId(null);
+      setError(null);
+      // 지금은 이 패널이 숨은 탭(hidden)일 수 있다 — 탭 전환이 커밋된 뒤(아래 effect)에 커서를 옮긴다.
+      setFocusRequest((n) => n + 1);
+    };
+    window.addEventListener(GRAPH_CHAT_ASK_EVENT, onAsk);
+    return () => window.removeEventListener(GRAPH_CHAT_ASK_EVENT, onAsk);
+  }, []);
+
+  // 채우기 요청 뒤: 탭이 보이게 바뀐 커밋 다음에 입력란으로 스크롤·포커스한다(숨은 요소에는 포커스가 가지 않는다).
+  useEffect(() => {
+    if (focusRequest === 0) return;
+    const el = inputRef.current;
+    if (!el) return;
+    const run = () => {
+      el.scrollIntoView({ block: "center", behavior: "smooth" });
+      el.focus({ preventScroll: true });
+    };
+    // 같은 커밋에서 부모 탭도 바뀌므로 대개 바로 보인다. 아직 숨어 있으면 다음 프레임에 한 번 더 시도한다.
+    if (el.offsetParent !== null) {
+      run();
+      return;
+    }
+    const raf = requestAnimationFrame(run);
+    return () => cancelAnimationFrame(raf);
+  }, [focusRequest]);
 
   // 미리 채운 메시지가 오면 입력란으로 커서를 옮긴다.
   useEffect(() => {
@@ -215,6 +236,24 @@ export function GraphChatPanel({ initialThreadId, initialMessage }: { initialThr
     } finally {
       setSending(false);
     }
+  }
+
+  /** 이력서·포트폴리오 보내기: 대화가 없으면 먼저 만들고, 응답(202) 뒤 폴링 흐름을 탄다. 실패는 폼이 보인다. */
+  async function sendImport(form: FormData, label: string) {
+    if (pending) throw new Error("이전 메시지의 답변을 만드는 중입니다. 잠시 후 다시 보내 주세요.");
+    let id = threadId;
+    if (!id) {
+      const r = await api<{ thread: ChatThread }>("/api/graph/chat/threads", { method: "POST", json: { title: `자료 가져오기: ${label}` } });
+      id = r.thread.id;
+      setThreads((ts) => [r.thread, ...(ts ?? [])]);
+      setThreadId(id);
+    }
+    if (provider) form.append("provider", provider);
+    const r = await api<{ warnings?: string[] }>(`/api/graph/chat/threads/${encodeURIComponent(id)}/import`, { method: "POST", body: form });
+    setImportOpen(false);
+    setError(r.warnings?.length ? r.warnings.join(" ") : null);
+    await loadThread(id);
+    api<{ threads: ChatThread[] }>("/api/graph/chat/threads").then((x) => setThreads(x.threads), () => {});
   }
 
   async function retry() {
@@ -342,7 +381,19 @@ export function GraphChatPanel({ initialThreadId, initialMessage }: { initialThr
           </div>
         )}
         {messages.map((m) =>
-          m.role === "user" ? (
+          m.role === "user" && m.data?.kind === "document-import" ? (
+            <div key={m.id} className="flex justify-end">
+              <div className="max-w-[85%] rounded-2xl rounded-br-sm border border-indigo-200 bg-indigo-50 px-3.5 py-2 text-sm text-indigo-900">
+                <p className="font-medium break-words">
+                  {m.data.docKind === "portfolio" ? "포트폴리오" : "이력서"}: {m.data.fileName ?? "붙여넣은 글"}
+                </p>
+                <p className="text-xs text-indigo-700">
+                  읽어 낸 글 {m.data.chars.toLocaleString()}자{m.data.truncated && " · 앞부분만 읽음"}
+                </p>
+                {m.data.warnings.length > 0 && <p className="mt-1 text-xs text-amber-700">{m.data.warnings.join(" ")}</p>}
+              </div>
+            </div>
+          ) : m.role === "user" ? (
             <div key={m.id} className="flex justify-end">
               <p className="max-w-[85%] rounded-2xl rounded-br-sm bg-indigo-600 px-3.5 py-2 text-sm whitespace-pre-wrap break-words text-white">
                 {m.content}
@@ -388,6 +439,17 @@ export function GraphChatPanel({ initialThreadId, initialMessage }: { initialThr
           <Alert tone="error" className="mb-2">
             {error}
           </Alert>
+        )}
+        {importOpen ? (
+          <div className="mb-2">
+            <GraphImportForm uploadLimits={uploadLimits} disabled={disabled || pending} onSubmit={sendImport} onCancel={() => setImportOpen(false)} />
+          </div>
+        ) : (
+          <div className="mb-2 flex justify-end">
+            <Button size="sm" variant="secondary" onClick={() => setImportOpen(true)} disabled={disabled || pending}>
+              이력서·포트폴리오로 채우기
+            </Button>
+          </div>
         )}
         <form
           className="flex items-end gap-2"
@@ -479,16 +541,10 @@ function AssistantMessage({
               <p className="mr-auto font-medium text-slate-900">변경안: {proposal.summary || `${proposal.ops.length}개 변경`}</p>
               {badge && <Badge tone={badge.tone}>{badge.label}</Badge>}
             </div>
-            <ul className="mt-2 space-y-1 text-slate-700">
-              {(m.opLines ?? proposal.ops.map((o) => o.op)).map((line, i) => (
-                <li key={i} className="flex gap-1.5 break-words">
-                  <span aria-hidden className="text-slate-400">
-                    •
-                  </span>
-                  <span className="min-w-0">{line}</span>
-                </li>
-              ))}
-            </ul>
+            {proposal.source === "document-import" && (
+              <p className="mt-1 text-xs text-slate-500">이력서·포트폴리오에서 만든 변경안 · {proposal.ops.length}개 변경</p>
+            )}
+            <OpLineList lines={m.opLines ?? proposal.ops.map((o) => o.op)} />
             {proposal.error && <p className="mt-2 text-red-700">{proposal.error}</p>}
             {m.status === "proposed" && (
               <div className="mt-3 flex flex-wrap gap-2">
@@ -533,5 +589,41 @@ function AssistantMessage({
         )}
       </div>
     </div>
+  );
+}
+
+function OpLine({ line }: { line: string }) {
+  return (
+    <li className="flex gap-1.5 break-words">
+      <span aria-hidden className="text-slate-400">
+        •
+      </span>
+      <span className="min-w-0">{line}</span>
+    </li>
+  );
+}
+
+/** 변경안 줄 목록. 많으면(문서 가져오기) 앞부분만 보이고 나머지는 펼친다. */
+function OpLineList({ lines }: { lines: string[] }) {
+  const head = lines.slice(0, OP_LINES_PREVIEW);
+  const rest = lines.slice(OP_LINES_PREVIEW);
+  return (
+    <>
+      <ul className="mt-2 space-y-1 text-slate-700">
+        {head.map((line, i) => (
+          <OpLine key={i} line={line} />
+        ))}
+      </ul>
+      {rest.length > 0 && (
+        <details className="mt-1 text-slate-700">
+          <summary className="cursor-pointer text-xs text-indigo-700">나머지 {rest.length}개 보기</summary>
+          <ul className="mt-1 space-y-1">
+            {rest.map((line, i) => (
+              <OpLine key={i} line={line} />
+            ))}
+          </ul>
+        </details>
+      )}
+    </>
   );
 }

@@ -13,16 +13,27 @@ datasource db {
 }
 
 model User {
-  id           String   @id
-  email        String   @unique(map: "users_email_unique")
-  name         String?
+  id              String    @id
+  email           String    @unique(map: "users_email_unique")
+  name            String?
   /// 예전 이메일·비밀번호 가입 계정의 해시. Google 계정은 null.
-  passwordHash String?  @map("password_hash")
+  passwordHash    String?   @map("password_hash")
   /// Google 계정 고유 ID(id_token의 sub). Google 로그인을 연결하지 않았으면 null.
-  googleSub    String?  @unique(map: "users_google_sub_unique") @map("google_sub")
-  createdAt    DateTime @default(now()) @map("created_at") @db.Timestamptz(3)
+  googleSub       String?   @unique(map: "users_google_sub_unique") @map("google_sub")
+  /// UserRole('user' | 'admin', src/lib/domain/users.ts). ADMIN_EMAILS에 있는 이메일은 로그인·세션 확인 때 admin으로 올린다.
+  role            String    @default("user")
+  /// UserStatus('pending' | 'approved' | 'rejected' | 'suspended'). 새 가입은 pending — 승인 전에는 앱·비용 API를 쓸 수 없다.
+  status          String    @default("pending")
+  approvedAt      DateTime? @map("approved_at") @db.Timestamptz(3)
+  /// 승인한 관리자 id(또는 'system:admin_emails'·'system:migration'). FK 없음 — 관리자가 탈퇴해도 기록은 남는다.
+  approvedBy      String?   @map("approved_by")
+  statusChangedAt DateTime? @map("status_changed_at") @db.Timestamptz(3)
+  lastLoginAt     DateTime? @map("last_login_at") @db.Timestamptz(3)
+  createdAt       DateTime  @default(now()) @map("created_at") @db.Timestamptz(3)
 
   sessions       Session[]
+  consents       UserConsent[]
+  sharedPostings SharedPosting[]
   jobPostings    JobPosting[]
   postingImports PostingImport[]
   diagnoses      Diagnosis[]
@@ -31,6 +42,7 @@ model User {
   companyResumes CompanyResume[]
   applications   Application[]
 
+  @@index([status, createdAt], map: "users_status_idx")
   @@map("users")
 }
 
@@ -47,41 +59,73 @@ model Session {
   @@map("sessions")
 }
 
+/// 약관·개인정보 안내 확인·만 14세 확인·마케팅 수신 동의 기록(append-only). 현재 상태는 (user, type)별 최신 행.
+/// 문서 버전이 바뀌면(src/lib/legal/consents.ts) 필수 항목을 다시 받는다. 탈퇴하면 함께 지워진다(CASCADE).
+model UserConsent {
+  id        Int      @id @default(autoincrement())
+  userId    String   @map("user_id")
+  /// ConsentType
+  type      String
+  /// 동의한 문서 버전(CONSENT_DOCS[type].version).
+  version   String
+  agreed    Boolean
+  /// ConsentSource('signup' | 'gate' | 'account')
+  source    String
+  /// HMAC-SHA256(ip) 앞 32자. 원문 IP는 저장하지 않는다.
+  ipHash    String?  @map("ip_hash")
+  /// User-Agent 앞 200자.
+  userAgent String?  @map("user_agent")
+  createdAt DateTime @default(now()) @map("created_at") @db.Timestamptz(3)
+
+  user User @relation(fields: [userId], references: [id], onDelete: Cascade, map: "user_consents_user_id_fkey")
+
+  @@index([userId, type, createdAt], map: "user_consents_user_idx")
+  @@map("user_consents")
+}
+
 /// 채용 공고 보관함. 같은 사용자 안에서 정규화 URL(url_key)은 유일하다(URL 없는 공고는 url_key null이라 여러 개 가능).
 /// 마감은 KST 날짜·시각 문자열(domain/postings.ts).
 model JobPosting {
-  id             String   @id
-  userId         String   @map("user_id")
-  company        String
-  roleTitle      String   @map("role_title")
-  url            String?
+  id                String   @id
+  userId            String   @map("user_id")
+  company           String
+  roleTitle         String   @map("role_title")
+  url               String?
   /// normalizeUrl(url). 중복 판별용.
-  urlKey         String?  @map("url_key")
-  platform       String?
+  urlKey            String?  @map("url_key")
+  platform          String?
   /// PostingStatus
-  status         String   @default("saved")
-  /// JD 원문(≤30000자).
-  jdText         String?  @map("jd_text")
+  status            String   @default("saved")
+  /// JD 텍스트(≤30000자). 진단·이력서·경력 대조가 읽는다. URL 가져오기는 구조(structured)를 제목 붙은 구역 텍스트로 조합해 둔다.
+  jdText            String?  @map("jd_text")
+  /// PostingStructure(jsonb, src/lib/domain/posting-structure.ts). null이면 아직 없음(화면은 jdText를 정규식으로 즉석 구조화).
+  structured        Json?
+  structuredVersion Int?     @map("structured_version")
+  /// 가져온 페이지 본문 원문(≤30000자). 직접 입력은 null(jdText가 원문).
+  sourceText        String?  @map("source_text")
   /// 'YYYY-MM-DD'(KST).
-  deadline       String?
+  deadline          String?
   /// 'HH:mm'(KST). 날짜만 있으면 null.
-  deadlineTime   String?  @map("deadline_time")
+  deadlineTime      String?  @map("deadline_time")
   /// DeadlineKind
-  deadlineKind   String   @default("unspecified") @map("deadline_kind")
+  deadlineKind      String   @default("unspecified") @map("deadline_kind")
   /// EmploymentType
-  employmentType String   @default("unknown") @map("employment_type")
+  employmentType    String   @default("unknown") @map("employment_type")
   /// WorkType
-  workType       String   @default("unknown") @map("work_type")
-  location       String?
+  workType          String   @default("unknown") @map("work_type")
+  location          String?
   /// CareerLevel
-  careerLevel    String   @default("unknown") @map("career_level")
-  note           String?
+  careerLevel       String   @default("unknown") @map("career_level")
+  note              String?
   /// 'manual' 또는 AI 추출 엔진(ProviderId).
-  extractedBy    String   @default("manual") @map("extracted_by")
-  createdAt      DateTime @default(now()) @map("created_at") @db.Timestamptz(3)
-  updatedAt      DateTime @default(now()) @map("updated_at") @db.Timestamptz(3)
+  extractedBy       String   @default("manual") @map("extracted_by")
+  /// URL 가져오기로 만든(또는 공고 찾기에서 담은) 공고면 공용 공고 id. 직접 입력은 null(공유하지 않는다).
+  sharedPostingId   String?  @map("shared_posting_id")
+  createdAt         DateTime @default(now()) @map("created_at") @db.Timestamptz(3)
+  updatedAt         DateTime @default(now()) @map("updated_at") @db.Timestamptz(3)
 
   user           User            @relation(fields: [userId], references: [id], onDelete: Cascade, map: "job_postings_user_id_fkey")
+  sharedPosting  SharedPosting?  @relation(fields: [sharedPostingId], references: [id], onDelete: SetNull, map: "job_postings_shared_posting_id_fkey")
   postingImports PostingImport[]
   diagnoses      Diagnosis[]
   companyResumes CompanyResume[]
@@ -89,25 +133,80 @@ model JobPosting {
 
   @@unique([userId, urlKey], map: "job_postings_url_uq")
   @@index([userId, updatedAt], map: "job_postings_user_idx")
+  @@index([sharedPostingId], map: "job_postings_shared_idx")
   @@map("job_postings")
+}
+
+/// 공용 공고(공고 찾기). URL 가져오기 결과만 정규화 URL(url_key)당 한 행으로 모은다 — 승인된 모든 사용자가 본다.
+/// 공고 페이지에서 뽑은 값만 둔다. 개인 메모·상태·지원 기록·직접 입력 공고는 job_postings에만 있다(공유하지 않는다).
+/// 같은 URL을 다시 가져오면 LLM을 부르지 않고 이 행을 복사한다. '다시 가져오기'(refresh)만 페이지를 다시 읽어 이 행을 갱신한다.
+model SharedPosting {
+  id                String    @id
+  /// normalizeUrl(url). 전역 유일.
+  urlKey            String    @unique(map: "shared_postings_url_key_unique") @map("url_key")
+  /// 최종(리다이렉트 뒤) 주소.
+  url               String
+  platform          String?
+  company           String
+  roleTitle         String    @map("role_title")
+  /// composeJdText(structured) 또는 추출 JD(≤30000자).
+  jdText            String?   @map("jd_text")
+  /// PostingStructure(jsonb).
+  structured        Json?
+  structuredVersion Int?      @map("structured_version")
+  /// 가져온 페이지 본문(≤30000자).
+  sourceText        String?   @map("source_text")
+  deadline          String?
+  deadlineTime      String?   @map("deadline_time")
+  deadlineKind      String    @default("unspecified") @map("deadline_kind")
+  employmentType    String    @default("unknown") @map("employment_type")
+  workType          String    @default("unknown") @map("work_type")
+  location          String?
+  careerLevel       String    @default("unknown") @map("career_level")
+  /// AI 추출 엔진(ProviderId).
+  extractedBy       String    @map("extracted_by")
+  /// 이 공고를 보관함에 둔 사용자 수(job_postings.shared_posting_id 개수). refreshSharedImporterCount가 다시 센다.
+  importerCount     Int       @default(0) @map("importer_count")
+  /// 처음 가져온 사용자(관리·남용 대응용, 화면에 내보내지 않는다). 탈퇴하면 null.
+  createdBy         String?   @map("created_by")
+  /// 관리자가 공고 찾기에서 숨긴 시각(개인 페이지·비공개 링크 등). 숨긴 공고는 목록·재사용에서 빠진다.
+  hiddenAt          DateTime? @map("hidden_at") @db.Timestamptz(3)
+  /// 페이지를 마지막으로 읽은 시각.
+  fetchedAt         DateTime  @map("fetched_at") @db.Timestamptz(3)
+  createdAt         DateTime  @default(now()) @map("created_at") @db.Timestamptz(3)
+  updatedAt         DateTime  @default(now()) @map("updated_at") @db.Timestamptz(3)
+
+  creator        User?           @relation(fields: [createdBy], references: [id], onDelete: SetNull, map: "shared_postings_created_by_fkey")
+  jobPostings    JobPosting[]
+  postingImports PostingImport[]
+
+  @@index([fetchedAt], map: "shared_postings_fetched_idx")
+  @@map("shared_postings")
 }
 
 /// 공고 URL 가져오기 작업. 하루 가져오기 제한은 이 표의 최근 24시간 행 수로 센다.
 model PostingImport {
-  id        String   @id
-  userId    String   @map("user_id")
-  url       String
+  id              String   @id
+  userId          String   @map("user_id")
+  url             String
   /// PostingImportStatus
-  status    String   @default("queued")
+  status          String   @default("queued")
   /// 사용자에게 보여도 되는 한국어 오류 문구.
-  error     String?
-  postingId String?  @map("posting_id")
-  attempts  Int      @default(0)
-  createdAt DateTime @default(now()) @map("created_at") @db.Timestamptz(3)
-  updatedAt DateTime @default(now()) @map("updated_at") @db.Timestamptz(3)
+  error           String?
+  postingId       String?  @map("posting_id")
+  attempts        Int      @default(0)
+  /// normalizeUrl(url). 진행 중 작업 재사용·공용 공고 조회용. 예전 행은 null.
+  urlKey          String?  @map("url_key")
+  /// true면 '다시 가져오기': 공용 공고가 있어도 페이지를 다시 읽고 공용 공고·내 공고를 갱신한다.
+  refresh         Boolean  @default(false)
+  /// 결과 공용 공고(재사용했거나 새로 만든 것).
+  sharedPostingId String?  @map("shared_posting_id")
+  createdAt       DateTime @default(now()) @map("created_at") @db.Timestamptz(3)
+  updatedAt       DateTime @default(now()) @map("updated_at") @db.Timestamptz(3)
 
-  user    User        @relation(fields: [userId], references: [id], onDelete: Cascade, map: "posting_imports_user_id_fkey")
-  posting JobPosting? @relation(fields: [postingId], references: [id], onDelete: SetNull, map: "posting_imports_posting_id_fkey")
+  user          User           @relation(fields: [userId], references: [id], onDelete: Cascade, map: "posting_imports_user_id_fkey")
+  posting       JobPosting?    @relation(fields: [postingId], references: [id], onDelete: SetNull, map: "posting_imports_posting_id_fkey")
+  sharedPosting SharedPosting? @relation(fields: [sharedPostingId], references: [id], onDelete: SetNull, map: "posting_imports_shared_posting_id_fkey")
 
   @@index([userId, createdAt], map: "posting_imports_user_idx")
   @@map("posting_imports")
@@ -233,12 +332,17 @@ model ChatMessage {
   @@map("chat_messages")
 }
 
-/// 회사(지원처)별 이력서. 본문은 버전별로 오브젝트 저장소에 JSON으로 두고 여기에는 메타데이터만 둔다.
+/// 이력서. kind='company'는 지원처(공고)별, kind='general'은 회사 지정 없는 공용(마스터) 이력서(company·roleTitle 빈 문자열, postingId null).
+/// 본문은 버전별로 오브젝트 저장소에 JSON으로 두고 여기에는 메타데이터만 둔다.
 model CompanyResume {
   id               String   @id
   userId           String   @map("user_id")
-  company          String
-  roleTitle        String   @map("role_title")
+  /// ResumeKind('company' | 'general')
+  kind             String   @default("company")
+  /// 공용 이력서는 ''.
+  company          String   @default("")
+  /// 공용 이력서는 ''(또는 사용자가 적은 희망 직무).
+  roleTitle        String   @default("") @map("role_title")
   jdText           String?  @map("jd_text")
   /// 이 이력서를 만든 보관 공고. 공고를 지우면 null.
   postingId        String?  @map("posting_id")
@@ -247,14 +351,19 @@ model CompanyResume {
   title            String
   /// 현재 버전(resume_versions.id). FK는 순환을 피하려고 걸지 않는다.
   currentVersionId String?  @map("current_version_id")
+  /// 복제·'공용 이력서 내용으로 시작'의 원본 이력서. 원본을 지우면 null.
+  sourceResumeId   String?  @map("source_resume_id")
   createdAt        DateTime @default(now()) @map("created_at") @db.Timestamptz(3)
   updatedAt        DateTime @default(now()) @map("updated_at") @db.Timestamptz(3)
 
   user         User            @relation(fields: [userId], references: [id], onDelete: Cascade, map: "company_resumes_user_id_fkey")
   posting      JobPosting?     @relation(fields: [postingId], references: [id], onDelete: SetNull, map: "company_resumes_posting_id_fkey")
+  sourceResume CompanyResume?  @relation("ResumeCopies", fields: [sourceResumeId], references: [id], onDelete: SetNull, map: "company_resumes_source_resume_id_fkey")
+  copies       CompanyResume[] @relation("ResumeCopies")
   versions     ResumeVersion[]
   applications Application[]
 
+  @@index([userId, kind, updatedAt], map: "company_resumes_user_kind_idx")
   @@index([userId, updatedAt], map: "company_resumes_user_idx")
   @@index([postingId], map: "company_resumes_posting_idx")
   @@map("company_resumes")

@@ -9,7 +9,10 @@ export const SERVICE_NAME = "CareerLoop";
  * 빈 문자열인 항목은 화면에 표시하지 않는다.
  */
 export interface BusinessInfo {
+  /** 영문 표기(저작권 줄·PDF). */
   name: string;
+  /** 사업자등록상 상호(약관·처리방침 등 법적 문서). */
+  legalName: string;
   representative: string;
   registrationNumber: string;
   address: string;
@@ -18,18 +21,18 @@ export interface BusinessInfo {
 }
 
 export const BUSINESS: Readonly<BusinessInfo> = {
-  name: "snowlink",
-  /** 대표자 성명 — 실제 값으로 채울 것 */
-  representative: "",
-  /** 사업자등록번호 — 실제 값으로 채울 것 */
-  registrationNumber: "",
-  /** 사업장 주소 — 실제 값으로 채울 것 */
+  name: "SnowLink",
+  legalName: "스노우링크(SnowLink)",
+  representative: "이현대",
+  registrationNumber: "335-17-02746",
+  /** 사업장 주소 — 실제 값으로 채울 것(비어 있으면 표시하지 않음) */
   address: "",
-  /** 연락 이메일 — 실제 값으로 채울 것 */
-  email: "",
-  /** 연락 전화 — 실제 값으로 채울 것 */
-  phone: "",
+  email: "support@snowlink.team",
+  phone: "010-4953-4821",
 };
 
-/** PDF creator/producer 등 서비스 표기(예: "CareerLoop (snowlink)"). */
+/** 호스팅 서비스 제공자(전자상거래법 제10조 표시 권장 항목). */
+export const HOSTING_PROVIDER = "Vercel Inc.";
+
+/** PDF creator/producer 등 서비스 표기(예: "CareerLoop (SnowLink)"). */
 export const SERVICE_CREDIT = `${SERVICE_NAME} (${BUSINESS.name})`;

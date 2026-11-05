@@ -90,6 +90,86 @@ describe("공고 저장소", () => {
   });
 });
 
+const JD = ["주요 업무", "- 결제 API 개발", "자격 요건", "- Python 3년 이상", "- SQL 경험", "우대 사항", "- Kafka 경험", "근무 조건", "연봉: 6,000만원 이상"].join("\n");
+
+describe("구조화 공고", () => {
+  it("직접 추가는 jdText를 정규식으로 구조화해 저장하고, 읽을 때 그대로 돌려준다", async () => {
+    const p = await service.createPosting("ua", input({ company: "구조", roleTitle: "백엔드", jdText: JD }));
+    expect(p.structured).toMatchObject({ source: "regex", requirements: ["Python 3년 이상", "SQL 경험"], preferred: ["Kafka 경험"], duties: ["결제 API 개발"] });
+    expect(p.structured!.conditions.salary).toBe("6,000만원 이상");
+    expect(p.sourceText).toBe("");
+    const row = await tdb.prisma.jobPosting.findUniqueOrThrow({ where: { id: p.id } });
+    expect(row.structuredVersion).toBe(1);
+    expect(await service.getPosting("ua", p.id)).toMatchObject({ structured: p.structured });
+  });
+
+  it("목록: 구조에서 기술·연봉 칩만 잘라 싣는다(구조 전체·원문은 싣지 않는다)", async () => {
+    const p = await service.createPosting("ua", input({ company: "칩", roleTitle: "백엔드", jdText: JD }));
+    const summary = (await service.listPostings("ua")).find((x) => x.id === p.id)!;
+    expect(summary.highlights).toEqual({ techStack: expect.arrayContaining(["Python", "SQL", "Kafka"]), salary: "6,000만원 이상" });
+    expect(summary).not.toHaveProperty("structured");
+    expect(summary).not.toHaveProperty("sourceText");
+  });
+
+  it("저장된 구조가 깨졌거나 버전이 다르면 버리고, jdText가 있으면 즉석 정규식 구조를 돌려준다", async () => {
+    expect(service.parseStoredStructure({ version: 99 })).toBeNull();
+    expect(service.parseStoredStructure("깨짐")).toBeNull();
+    const p = await service.createPosting("ua", input({ company: "깨짐", roleTitle: "백엔드", jdText: JD }));
+    await tdb.prisma.jobPosting.update({ where: { id: p.id }, data: { structured: { ...p.structured, version: 2 } } });
+    expect((await service.getPosting("ua", p.id))!.structured).toMatchObject({ source: "regex", requirements: ["Python 3년 이상", "SQL 경험"] });
+    // 구조 없는 기존 행(지연 백필): null이면 즉석 계산, jdText도 없으면 null.
+    const empty = await service.createPosting("ua", input({ company: "빈", roleTitle: "백엔드" }));
+    expect(empty.structured).toBeNull();
+    await tdb.prisma.jobPosting.update({ where: { id: empty.id }, data: { jdText: JD } });
+    expect((await service.getPosting("ua", empty.id))!.structured?.source).toBe("regex");
+  });
+
+  it("PATCH: jdText를 바꾸면 정규식 구조를 다시 만들고, 구역 편집은 source 'user'(조합 상태면 jdText도 다시 조합)", async () => {
+    const p = await service.createPosting("ua", input({ company: "수정", roleTitle: "백엔드", jdText: JD }));
+    const changed = await service.updatePosting("ua", p.id, { jdText: `${JD}\n복리후생\n- 점심 식대` });
+    expect(changed!.structured).toMatchObject({ source: "regex", benefits: ["점심 식대"] });
+
+    const { version, source, jdComposed, sourceHash, extractedAt, ...edit } = changed!.structured!;
+    void [version, source, jdComposed, sourceHash, extractedAt];
+    const edited = await service.updatePosting("ua", p.id, { structured: { ...edit, benefits: ["점심 식대", "도서 구입비"] } });
+    expect(edited!.structured).toMatchObject({ source: "user", jdComposed: false, benefits: ["점심 식대", "도서 구입비"] });
+    // 직접 입력 JD(조합 안 됨)는 사용자 글이라 덮어쓰지 않는다.
+    expect(edited!.jdText).toBe(changed!.jdText);
+
+    // URL 가져오기처럼 jdText가 구조로 조합된 공고: 편집하면 jdText도 다시 조합한다.
+    const composed = { ...edited!.structured!, source: "llm" as const, jdComposed: true };
+    await tdb.prisma.jobPosting.update({ where: { id: p.id }, data: { structured: composed, sourceText: JD } });
+    const recomposed = await service.updatePosting("ua", p.id, { structured: { ...edit, requirements: ["Go 5년 이상"] } });
+    expect(recomposed!.structured).toMatchObject({ source: "user", jdComposed: true });
+    expect(recomposed!.jdText).toContain("자격 요건\n- Go 5년 이상");
+    // 조합된 상태에서 jdText를 직접 고치면 구조는 두고 조합만 끈다.
+    const manual = await service.updatePosting("ua", p.id, { jdText: "직접 고친 JD" });
+    expect(manual!.structured).toMatchObject({ source: "user", jdComposed: false });
+    expect(manual!.jdText).toBe("직접 고친 JD");
+    const { isStructureStale } = await import("./structure");
+    expect(isStructureStale(manual!)).toBe(true);
+    // 바뀐 원문에 맞춰 구역을 고쳐 저장하면 '원문이 바뀌었습니다' 안내가 사라진다.
+    const fixed = await service.updatePosting("ua", p.id, { structured: { ...edit, requirements: ["Rust 3년 이상"] } });
+    expect(fixed!.structured).toMatchObject({ source: "user", jdComposed: false });
+    expect(fixed!.jdText).toBe("직접 고친 JD");
+    expect(isStructureStale(fixed!)).toBe(false);
+  });
+
+  it("setPostingStructure: 원문 기준 다시 정리면 jdText를 조합하고, 얇으면 조합하지 않는다", async () => {
+    const { structureFromText } = await import("./structure");
+    const p = await service.createPosting("ua", input({ company: "다시", roleTitle: "백엔드", jdText: JD }));
+    const rich = { ...structureFromText(JD), source: "llm" as const };
+    const saved = await service.setPostingStructure("ua", p.id, rich, { composeJd: true });
+    expect(saved!.structured).toMatchObject({ source: "llm", jdComposed: true });
+    expect(saved!.jdText.startsWith("주요 업무\n- 결제 API 개발\n\n자격 요건")).toBe(true);
+    const thin = { ...structureFromText("짧은 본문"), source: "llm" as const };
+    const kept = await service.setPostingStructure("ua", p.id, thin, { composeJd: true, rawText: JD });
+    expect(kept!.structured!.jdComposed).toBe(false);
+    expect(kept!.jdText).toBe(JD);
+    expect(await service.setPostingStructure("ub", p.id, rich, { composeJd: true })).toBeNull();
+  });
+});
+
 describe("공고 삭제와 FK", () => {
   it("공고를 지우면 연결된 진단·이력서·지원·가져오기는 남고 postingId만 null(ON DELETE SET NULL)", async () => {
     const p = await service.createPosting("ua", input({ company: "FK", roleTitle: "R" }));
@@ -130,6 +210,10 @@ describe("URL 가져오기 작업", () => {
     const posting = await service.getPosting("ua", done!.postingId!);
     expect(posting).toMatchObject({ company: "페이랩", roleTitle: "백엔드 개발자", deadline: "2026-11-20", deadlineTime: "18:00", extractedBy: "fake" });
     expect(posting!.jdText).toContain("Python과 SQL");
+    // 원문은 sourceText에, 구조는 AI 출처로 저장된다(이 본문은 구역 제목이 없어 얇다 → jdText도 원문).
+    expect(posting!.sourceText).toContain("Python과 SQL");
+    expect(posting!.structured).toMatchObject({ source: "llm", jdComposed: false });
+    expect(posting!.note).toBe("");
     // 끝난 작업은 다시 실행하지 않는다.
     await imports.runImport(job.id, { llm, fetchPage });
     expect(spy).toHaveBeenCalledTimes(1);

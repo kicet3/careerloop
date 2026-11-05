@@ -138,9 +138,39 @@ describe("JD 섹션", () => {
     expect(result.required).toEqual(["Python"]);
     expect(result.preferred).toEqual(["Docker"]);
     expect(result.duties).toEqual(["API 구현"]);
-    expect(result.other).toEqual(["복리후생", "식대 지원"]);
+    expect(result.other).toEqual([]);
+    expect(result.benefits).toEqual(["식대 지원"]);
     expect(result.keywords).toEqual(expect.arrayContaining(["Python", "Docker"]));
     expect(analyzeJobDescription("Python 개발\n협업 경험").required).toEqual([]);
+  });
+
+  it("복리후생·전형 절차·근무 조건·회사 소개·지원 방법 구역을 나눈다", () => {
+    const result = analyzeJobDescription(
+      [
+        "[회사 소개]",
+        "페이랩은 결제 인프라를 만듭니다.",
+        "자격 요건",
+        "- Python 3년 이상",
+        "근무 조건",
+        "연봉: 5,000만원 이상",
+        "근무지: 서울 강남",
+        "[복리후생]",
+        "- 점심 식대",
+        "전형 절차",
+        "서류 → 1차 면접 → 최종 합격",
+        "지원 방법",
+        "이력서와 포트폴리오 제출",
+        "기타 사항",
+        "보훈 대상자 우대",
+      ].join("\n"),
+    );
+    expect(result.company).toEqual(["페이랩은 결제 인프라를 만듭니다."]);
+    expect(result.required).toEqual(["Python 3년 이상"]);
+    expect(result.conditions).toEqual(["연봉: 5,000만원 이상", "근무지: 서울 강남"]);
+    expect(result.benefits).toEqual(["점심 식대"]);
+    expect(result.process).toEqual(["서류 → 1차 면접 → 최종 합격"]);
+    expect(result.application).toEqual(["이력서와 포트폴리오 제출"]);
+    expect(result.other).toEqual(["보훈 대상자 우대"]);
   });
 
   it("[대괄호] 제목과 영문 제목도 인식한다", () => {
@@ -159,6 +189,7 @@ describe("목록 필터·정렬", () => {
     url: "",
     urlKey: null,
     platform: "",
+    sharedPostingId: null,
     status: "reviewing",
     deadline: "",
     deadlineTime: "",

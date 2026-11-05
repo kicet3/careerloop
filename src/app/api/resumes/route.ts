@@ -24,7 +24,8 @@ export async function GET() {
 }
 
 /**
- * 새 이력서: 출처가 그래프·진단이면 AI 초안, 빈 문서면 바로 v1.
+ * 새 이력서: 출처가 그래프·진단이면 AI 초안, 빈 문서면 바로 v1, sourceResumeId면 그 이력서 내용을 복사(AI 없음).
+ * kind 'general'은 공용 이력서(회사·공고 없음).
  * postingId(보관 공고)를 주면 내 공고인지 확인하고, 비운 회사·직무·JD를 공고 값으로 채운 뒤 이력서를 공고에 연결한다.
  */
 export async function POST(req: Request) {
@@ -35,14 +36,16 @@ export async function POST(req: Request) {
 
   try {
     let raw = await readJsonBody(req);
-    const postingId = (raw as { postingId?: unknown } | null)?.postingId;
-    if (typeof postingId === "string" && postingId.trim()) {
+    const body = raw as { postingId?: unknown; kind?: unknown } | null;
+    const postingId = body?.postingId;
+    // 공용 이력서는 공고에 연결하지 않는다(보낸 postingId는 무시).
+    if (body?.kind !== "general" && typeof postingId === "string" && postingId.trim()) {
       const posting = await getPosting(user.id, postingId.trim().slice(0, 64));
       if (!posting) return jsonError(POSTING_NOT_FOUND, 404);
       raw = withResumePostingDefaults(raw, posting);
     }
     const input = parseJsonInput(CreateResumeInputSchema, raw);
-    if (input.source.kind !== "blank") {
+    if (input.source.kind !== "blank" && !input.sourceResumeId) {
       // AI 초안: 사용자당 24시간 30회(엔진 비용·남용 방지). DB 원장이라 인스턴스 사이에 공유된다.
       const limit = await hitDbLimit(RESUME_DRAFT_LIMIT, user.id);
       if (!limit.ok) {

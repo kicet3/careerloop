@@ -1,7 +1,8 @@
 import { describe, expect, it } from "vitest";
 import { toStrictJsonSchema } from "@/lib/llm/anthropic";
 import { STAGE_KEYS, STAGE_SCHEMAS } from "@/lib/domain/schemas";
-import { PostingFactsSchema } from "@/lib/domain/postings";
+import { PostingSectionsLlmSchema, PostingSectionsOnlySchema } from "@/lib/domain/posting-structure";
+import { PostingExtractSchema, PostingFactsSchema } from "@/lib/domain/postings";
 
 function walk(node: unknown, visit: (n: Record<string, unknown>) => void) {
   if (Array.isArray(node)) return node.forEach((n) => walk(n, visit));
@@ -38,5 +39,17 @@ describe("toStrictJsonSchema", () => {
       if (n.type === "object") expect(n.additionalProperties).toBe(false);
       expect(n.anyOf).toBeUndefined();
     });
+  });
+
+  it("공고 구역 스키마(PostingExtractSchema·PostingSectionsOnlySchema)도 모든 필드 필수·유니온 없음", () => {
+    for (const zs of [PostingExtractSchema, PostingSectionsOnlySchema]) {
+      const schema = toStrictJsonSchema(zs) as { required?: string[]; properties?: Record<string, { required?: string[] }> };
+      expect(new Set(schema.required)).toEqual(new Set(Object.keys(zs.shape)));
+      expect(new Set(schema.properties!.sections!.required)).toEqual(new Set(Object.keys(PostingSectionsLlmSchema.shape)));
+      walk(schema, (n) => {
+        if (n.type === "object") expect(n.additionalProperties).toBe(false);
+        expect(n.anyOf).toBeUndefined();
+      });
+    }
   });
 });

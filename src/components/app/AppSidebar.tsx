@@ -1,14 +1,14 @@
 "use client";
 
 /**
- * 앱 주 메뉴(진단·경력·서류·지원·설정 그룹). 넓은 화면(lg 이상, 1024px~)은 왼쪽 고정 사이드바(아이콘만 보이는 접힌 모드 지원),
+ * 앱 주 메뉴(진단·경력·서류·지원 그룹) + 하단 계정 메뉴(계정 설정·AI 연결·로그아웃). 넓은 화면(lg 이상, 1024px~)은 왼쪽 고정 사이드바(아이콘만 보이는 접힌 모드 지원),
  * 좁은 화면은 상단 얇은 바 + 햄버거 → 왼쪽 서랍(오버레이). 인쇄할 때는 둘 다 숨긴다.
  */
 import Link from "next/link";
-import { usePathname, useRouter } from "next/navigation";
+import { usePathname } from "next/navigation";
 import { useEffect, useId, useRef, useState, useSyncExternalStore, type ReactNode } from "react";
 import { cn } from "@/components/ui/cn";
-import { Spinner } from "@/components/ui/Spinner";
+import { AccountMenu } from "./AccountMenu";
 import { BusinessInfo } from "./BusinessInfo";
 import { EnvBadge } from "./EnvBadge";
 import { Logo } from "./Logo";
@@ -20,6 +20,9 @@ interface NavItem {
   label: string;
   icon: ReactNode;
   match: (p: string) => boolean;
+  /** 숫자 배지(0이면 숨김). 회원 관리의 승인 대기 수. */
+  badge?: number;
+  badgeLabel?: string;
 }
 
 const under = (base: string) => (p: string) => p === base || p.startsWith(`${base}/`);
@@ -47,13 +50,23 @@ const GROUPS: NavGroup[] = [
     ],
   },
 ];
-const SETTINGS_GROUP: NavGroup = {
-  label: "설정",
-  items: [
-    { href: "/app/account", label: "계정", icon: <UserIcon />, match: under("/app/account") },
-    { href: "/app/connections", label: "AI 연결", icon: <PlugIcon />, match: under("/app/connections") },
-  ],
-};
+
+/** 관리자 메뉴(role=admin만). pendingCount는 승인 대기 회원 수. */
+function adminGroup(pendingCount: number): NavGroup {
+  return {
+    label: "관리",
+    items: [
+      {
+        href: "/app/admin/users",
+        label: "회원 관리",
+        icon: <UsersIcon />,
+        match: under("/app/admin/users"),
+        badge: pendingCount,
+        badgeLabel: `승인 대기 ${pendingCount}명`,
+      },
+    ],
+  };
+}
 
 // ---- 접힘 상태: localStorage에 기억. 막혀 있으면(사파리 개인 모드 등) 이 탭 안에서만 기억한다. ----
 
@@ -103,18 +116,28 @@ function useCollapsed(): [boolean, (v: boolean) => void] {
 
 // ---- 컴포넌트 ----
 
-/** showConnections: CLI 엔진(CLI_PROVIDERS=1)이 켜져 있을 때만 'AI 연결' 메뉴를 보인다. */
+/**
+ * showConnections: CLI 엔진(CLI_PROVIDERS=1)이 켜져 있을 때만 'AI 연결' 메뉴를 보인다.
+ * isAdmin: 관리자면 '관리 > 회원 관리' 메뉴와 승인 대기 배지(pendingCount)를 보인다.
+ */
 export function AppSidebar({
   email,
+  name = null,
   showConnections = false,
+  isAdmin = false,
+  pendingCount = 0,
   env,
 }: {
   email: string;
+  name?: string | null;
   showConnections?: boolean;
+  isAdmin?: boolean;
+  pendingCount?: number;
   env: AppEnv;
 }) {
   const pathname = usePathname() ?? "";
-  const groups = showConnections ? [...GROUPS, SETTINGS_GROUP] : GROUPS;
+  // 계정 설정·AI 연결은 하단 계정 메뉴에 모았다(주 메뉴에 같은 링크를 두지 않는다).
+  const groups = isAdmin ? [...GROUPS, adminGroup(pendingCount)] : GROUPS;
   const [collapsed, setCollapsed] = useCollapsed();
 
   // 서랍은 연 시점의 경로를 기억한다 — 경로가 바뀌면(메뉴로 이동·뒤로가기) 닫고 기록도 지운다.
@@ -141,7 +164,8 @@ export function AppSidebar({
           collapsed ? "w-16" : "w-60",
         )}
       >
-        <aside aria-label="사이드 메뉴" className="sticky top-0 flex h-dvh flex-col">
+        {/* z-40: 접힌 모드의 계정 메뉴가 본문 위로 펼쳐진다. */}
+        <aside aria-label="사이드 메뉴" className="sticky top-0 z-40 flex h-dvh flex-col">
           <div
             className={cn(
               "flex min-h-14 border-b border-slate-100 py-3",
@@ -150,22 +174,30 @@ export function AppSidebar({
           >
             <Logo href="/app" iconOnly={collapsed} />
             <EnvBadge env={env} />
-          </div>
-          <NavList groups={groups} pathname={pathname} collapsed={collapsed} className="flex-1 overflow-y-auto" />
-          <div className={cn("border-t border-slate-100 py-3", collapsed ? "px-2" : "px-3")}>
             <button
               type="button"
               onClick={() => setCollapsed(!collapsed)}
               aria-label={collapsed ? "메뉴 펼치기" : "메뉴 접기"}
-              title={collapsed ? "메뉴 펼치기" : undefined}
-              className={cn(itemClass(false), collapsed && "justify-center px-0")}
+              title={collapsed ? "메뉴 펼치기" : "메뉴 접기"}
+              className={cn(
+                "grid size-7 shrink-0 place-items-center rounded-md text-slate-400 transition-colors hover:bg-slate-100 hover:text-slate-700 focus-visible:outline-2 focus-visible:outline-indigo-600",
+                !collapsed && "ml-auto",
+              )}
             >
               <CollapseIcon flipped={collapsed} />
-              {!collapsed && <span>메뉴 접기</span>}
             </button>
-            <Account email={email} collapsed={collapsed} />
+          </div>
+          <NavList groups={groups} pathname={pathname} collapsed={collapsed} className="flex-1 overflow-y-auto" />
+          <div className={cn("border-t border-slate-100 py-2", collapsed ? "px-2" : "px-3")}>
+            <AccountMenu
+              email={email}
+              name={name}
+              collapsed={collapsed}
+              placement={collapsed ? "right" : "top"}
+              showConnections={showConnections}
+            />
             {/* 접힌 모드(w-16)는 폭이 좁아 사업자 정보를 숨긴다. */}
-            {!collapsed && <BusinessInfo compact className="mt-3 px-1" />}
+            {!collapsed && <BusinessInfo compact className="mt-1.5 px-2" />}
           </div>
         </aside>
       </div>
@@ -180,9 +212,9 @@ export function AppSidebar({
         <Drawer onClose={closeDrawer} badge={<EnvBadge env={env} />}>
           {/* 지금 보고 있는 메뉴를 눌러 경로가 그대로여도 서랍은 닫는다. */}
           <NavList groups={groups} pathname={pathname} collapsed={false} className="flex-1 overflow-y-auto" onNavigate={closeDrawer} />
-          <div className="border-t border-slate-100 px-3 py-3">
-            <Account email={email} collapsed={false} />
-            <BusinessInfo compact className="mt-3 px-1" />
+          <div className="border-t border-slate-100 px-3 py-2">
+            <AccountMenu email={email} name={name} showConnections={showConnections} onNavigate={closeDrawer} />
+            <BusinessInfo compact className="mt-1.5 px-2" />
           </div>
         </Drawer>
       )}
@@ -219,20 +251,33 @@ function NavList({
           <ul className="space-y-1">
             {group.items.map((item) => {
               const active = item.match(pathname);
+              const badge = item.badge && item.badge > 0 ? item.badge : 0;
+              const fullLabel = badge && item.badgeLabel ? `${item.label} (${item.badgeLabel})` : item.label;
               return (
                 <li key={item.href}>
                   <Link
                     href={item.href}
                     onClick={onNavigate}
                     aria-current={active ? "page" : undefined}
-                    aria-label={collapsed ? item.label : undefined}
-                    title={collapsed ? item.label : undefined}
+                    aria-label={collapsed || badge ? fullLabel : undefined}
+                    title={collapsed ? fullLabel : undefined}
                     className={cn(itemClass(active), collapsed && "justify-center px-0")}
                   >
-                    <span aria-hidden className={cn("shrink-0", active ? "text-indigo-600" : "text-slate-400")}>
+                    <span aria-hidden className={cn("relative shrink-0", active ? "text-indigo-600" : "text-slate-400")}>
                       {item.icon}
+                      {collapsed && badge > 0 && (
+                        <span className="absolute -top-0.5 -right-0.5 size-2 rounded-full bg-rose-500 ring-2 ring-white" />
+                      )}
                     </span>
                     {!collapsed && <span className="truncate">{item.label}</span>}
+                    {!collapsed && badge > 0 && (
+                      <span
+                        aria-hidden
+                        className="ml-auto rounded-full bg-rose-500 px-1.5 py-px text-[11px] leading-4 font-semibold text-white tabular-nums"
+                      >
+                        {badge > 99 ? "99+" : badge}
+                      </span>
+                    )}
                   </Link>
                 </li>
               );
@@ -241,51 +286,6 @@ function NavList({
         </section>
       ))}
     </nav>
-  );
-}
-
-/** 계정 이메일 + 로그아웃. 접힌 모드는 머리글자와 아이콘만 보인다. */
-function Account({ email, collapsed }: { email: string; collapsed: boolean }) {
-  const router = useRouter();
-  const [pending, setPending] = useState(false);
-
-  async function logout() {
-    setPending(true);
-    try {
-      await fetch("/api/auth/logout", { method: "POST" });
-    } finally {
-      router.push("/");
-      router.refresh();
-    }
-  }
-
-  return (
-    <div className={cn("mt-2 flex gap-2", collapsed ? "flex-col items-center" : "items-center px-1")}>
-      {collapsed ? (
-        <span
-          title={email}
-          className="grid size-8 place-items-center rounded-full bg-slate-100 text-xs font-semibold text-slate-600 uppercase"
-        >
-          <span aria-hidden>{email.slice(0, 1)}</span>
-          <span className="sr-only">{email}</span>
-        </span>
-      ) : (
-        <span className="min-w-0 flex-1 truncate text-sm text-slate-500" title={email}>
-          {email}
-        </span>
-      )}
-      <button
-        type="button"
-        onClick={logout}
-        disabled={pending}
-        aria-label={collapsed ? "로그아웃" : undefined}
-        title={collapsed ? "로그아웃" : undefined}
-        className="inline-flex h-8 shrink-0 items-center justify-center gap-1.5 rounded-lg px-2 text-sm font-medium text-slate-600 hover:bg-slate-100 hover:text-slate-900 disabled:opacity-60"
-      >
-        {pending ? <Spinner size="sm" /> : <LogoutIcon />}
-        {!collapsed && <span>로그아웃</span>}
-      </button>
-    </div>
   );
 }
 
@@ -330,7 +330,8 @@ function Drawer({ onClose, badge, children }: { onClose: () => void; badge: Reac
       }
       if (e.key !== "Tab" || !panelRef.current) return;
       const focusables = panelRef.current.querySelectorAll<HTMLElement>(
-        'a[href], button:not([disabled]), [tabindex]:not([tabindex="-1"])',
+        // tabindex=-1(계정 메뉴 항목 등 Tab 순서 밖)은 빼야 처음·끝 판정이 맞다.
+        'a[href]:not([tabindex="-1"]), button:not([disabled]):not([tabindex="-1"]), [tabindex]:not([tabindex="-1"])',
       );
       if (focusables.length === 0) return;
       const first = focusables[0]!;
@@ -474,30 +475,13 @@ function BoardIcon() {
   );
 }
 
-function UserIcon() {
+function UsersIcon() {
   return (
     <Svg>
-      <circle cx="12" cy="8.5" r="3.5" />
-      <path d="M5 20a7 7 0 0 1 14 0" />
-    </Svg>
-  );
-}
-
-function PlugIcon() {
-  return (
-    <Svg>
-      <path d="M9 3.5v4M15 3.5v4" />
-      <path d="M6.5 7.5h11v3a5.5 5.5 0 0 1-11 0z" />
-      <path d="M12 16v4.5" />
-    </Svg>
-  );
-}
-
-function LogoutIcon() {
-  return (
-    <Svg className="size-[18px]">
-      <path d="M14 4.5H6.5a2 2 0 0 0-2 2v11a2 2 0 0 0 2 2H14" />
-      <path d="M17 8.5l3.5 3.5-3.5 3.5M20.5 12H10" />
+      <circle cx="9" cy="8.5" r="3.2" />
+      <path d="M3.5 19.5a5.5 5.5 0 0 1 11 0" />
+      <circle cx="16.5" cy="9.5" r="2.5" />
+      <path d="M15.5 14.2a4.6 4.6 0 0 1 5 4.8" />
     </Svg>
   );
 }

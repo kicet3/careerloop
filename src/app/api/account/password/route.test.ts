@@ -34,7 +34,13 @@ beforeAll(async () => {
       email: "g@x.com",
       passwordHash: null,
       googleSub: "sub-g",
+      // 앱 API는 승인 + 필수 동의(현재 버전)가 있어야 쓸 수 있다(src/lib/auth/session.ts requireApiUser).
+      status: "approved",
     },
+  });
+  const { CONSENT_DOCS, REQUIRED_CONSENT_TYPES } = await import("@/lib/legal/consents");
+  await tdb.prisma.userConsent.createMany({
+    data: REQUIRED_CONSENT_TYPES.map((type) => ({ userId: "g", type, version: CONSENT_DOCS[type].version, agreed: true, source: "signup" })),
   });
   session = await import("@/lib/auth/session");
   ({ POST: SET } = await import("./route"));

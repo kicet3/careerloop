@@ -2,7 +2,7 @@ import Anthropic from "@anthropic-ai/sdk";
 import { afterAll, beforeAll, describe, expect, it, vi } from "vitest";
 import { createTestDb, type TestDb } from "@/test/db";
 import { CHAT_TAGS, type ChatMessage, type GraphChatOutput } from "@/lib/domain/chat";
-import { type CareerGraph, type GraphOp, type LlmGraphOp } from "@/lib/domain/graph";
+import { type CareerGraph, type GraphOp, type LlmGraphOp, STORY_TAGS } from "@/lib/domain/graph";
 import { GraphOpError } from "@/lib/graph/errors";
 import { FakeLlmClient } from "@/test/fake-llm";
 import { splitUserPrompt } from "@/lib/panel/prompts";
@@ -70,6 +70,19 @@ describe("프롬프트 조립", () => {
     expect(conv).not.toContain("새 이야기");
     // 태그 탈출 방지: 사용자 메시지 안의 닫는 태그는 무력화되어 실제 닫는 태그는 하나뿐이다.
     expect(user.match(/<\/latest_message>/g)).toHaveLength(1);
+  });
+
+  it("경험 체크리스트는 그래프 뒤·구분자 앞에 두고, 시스템 프롬프트에 소재 분류 id를 모두 적는다", () => {
+    const { system, user } = gc.buildGraphChatPrompt({ graph: graphWith([payLab]), messages: [], latestMessage: "안녕" });
+    const [shared] = splitUserPrompt(user);
+    const g = shared.indexOf(`</${CHAT_TAGS.careerGraph}>`);
+    const c = shared.indexOf(`<${CHAT_TAGS.experienceChecklist}>`);
+    expect(g).toBeGreaterThan(0);
+    expect(c).toBeGreaterThan(g);
+    expect(shared).toContain("quantified-result");
+    for (const t of STORY_TAGS) expect(system).toContain(t);
+    expect(system).toContain(`<${CHAT_TAGS.experienceChecklist}>`);
+    expect(system).toContain("WORKED_ON->으로 잇는다");
   });
 
   it("이전 대화: 변경안 처리 결과를 붙이고, 답변 실패 쌍은 뺀다", () => {
@@ -145,6 +158,76 @@ describe("변경안 정리", () => {
     expect(chat.status).toBeNull();
     expect(chat.data.summary).toBe("");
     expect(chat.content).toBe("알겠습니다.");
+  });
+
+  it("소재 분류: LLM updateNode·dedupe fill은 기존 태그와 합집합", () => {
+    const exp: CareerGraph["nodes"][number] = { id: "e1", label: "Experience", props: { title: "동아리", categories: ["values"] }, createdAt: 1, updatedAt: 1 };
+    const graph = graphWith([exp]);
+    expect(gc.mergeCategoryUpdates([{ op: "updateNode", id: "e1", label: "Experience", props: { categories: ["collaboration"] } }], graph).ops).toEqual([
+      { op: "updateNode", id: "e1", label: "Experience", props: { categories: ["collaboration", "values"] } },
+    ]);
+    // 이미 있는 태그만이면 그 속성을 빼고, 남은 것이 없으면 연산째 빼며 알린다. 삭제(null)는 그대로.
+    const same = gc.mergeCategoryUpdates([{ op: "updateNode", id: "e1", label: "Experience", props: { categories: ["values"] } }], graph);
+    expect(same.ops).toEqual([]);
+    expect(same.notes).toEqual(["'동아리'의 소재 분류는 이미 그대로라 바꿀 것이 없습니다"]);
+    expect(gc.mergeCategoryUpdates([{ op: "updateNode", id: "e1", label: "Experience", props: { categories: null } }], graph).ops).toEqual([
+      { op: "updateNode", id: "e1", label: "Experience", props: { categories: null } },
+    ]);
+
+    const p = gc.proposalFromOutput(
+      {
+        reply: "정리했어요",
+        ops: [{ ...blank, op: "updateNode", id: "e1", label: "Experience", props: [{ key: "categories", value: "협업" }, { key: "myRole", value: "회장" }] }],
+        summary: "보강",
+        followUpQuestions: [],
+      },
+      graph,
+    );
+    expect(p.data.ops).toEqual([{ op: "updateNode", id: "e1", label: "Experience", props: { categories: ["collaboration", "values"], myRole: "회장" } }]);
+
+    const deduped = gc.dedupeAgainstGraph([{ op: "addNode", ref: "new:e", label: "Experience", props: { title: "동아리", categories: ["leadership"] } }], graph);
+    expect(deduped.ops).toEqual([{ op: "updateNode", id: "e1", label: "Experience", props: { categories: ["leadership", "values"] } }]);
+  });
+
+  it("소재 분류: 기존 태그의 진부분집합이면 교체(태그 빼기), 같은 변경안의 뒤 연산은 앞 결과를 기준으로", () => {
+    const exp: CareerGraph["nodes"][number] = {
+      id: "e1",
+      label: "Experience",
+      props: { title: "해커톤", categories: ["problem-solving", "leadership"] },
+      createdAt: 1,
+      updatedAt: 1,
+    };
+    const graph = graphWith([exp]);
+    expect(gc.mergeCategoryUpdates([{ op: "updateNode", id: "e1", label: "Experience", props: { categories: ["problem-solving"] } }], graph)).toEqual({
+      ops: [{ op: "updateNode", id: "e1", label: "Experience", props: { categories: ["problem-solving"] } }],
+      notes: [],
+    });
+    const two = gc.mergeCategoryUpdates(
+      [
+        { op: "updateNode", id: "e1", label: "Experience", props: { categories: ["problem-solving"] } },
+        { op: "updateNode", id: "e1", label: "Experience", props: { categories: ["values"] } },
+      ],
+      graph,
+    );
+    expect(two.ops.map((o) => (o as { props: { categories?: unknown } }).props.categories)).toEqual([["problem-solving"], ["problem-solving", "values"]]);
+  });
+
+  it("소재 분류: 상한을 넘으면 기존 태그를 지키고 넘친 새 태그를 알린다", () => {
+    const exp: CareerGraph["nodes"][number] = {
+      id: "e1",
+      label: "Experience",
+      props: { title: "해커톤", categories: ["problem-solving", "collaboration", "leadership"] },
+      createdAt: 1,
+      updatedAt: 1,
+    };
+    const graph = graphWith([exp]);
+    const r = gc.mergeCategoryUpdates([{ op: "updateNode", id: "e1", label: "Experience", props: { categories: ["values"], learned: "끝까지 해 보는 습관" } }], graph);
+    expect(r.ops).toEqual([{ op: "updateNode", id: "e1", label: "Experience", props: { learned: "끝까지 해 보는 습관" } }]);
+    expect(r.notes).toHaveLength(1);
+    expect(r.notes[0]).toContain("성장과정·가치관");
+    const deduped = gc.dedupeAgainstGraph([{ op: "addNode", ref: "new:e", label: "Experience", props: { title: "해커톤", categories: ["values"] } }], graph);
+    expect(deduped.ops).toEqual([]);
+    expect(deduped.merged.some((m) => m.includes("최대 3개"))).toBe(true);
   });
 
   it("대기 상태: 마지막이 사용자 메시지면 pending, 오래되면 stale, 답변 실패면 retry 가능", () => {

@@ -21,14 +21,13 @@ import {
   describeGraphOp,
   type GraphOp,
   MAX_OPS_PER_BATCH,
+  MAX_STORY_TAGS,
+  normalizeStoryTags,
+  STORY_TAGS,
+  type StoryTag,
   NODE_LABEL_META,
-  NODE_LABELS,
   NODE_TITLE_KEY,
-  allowedPropKeys,
   type NodeLabel,
-  PERSON_ID,
-  REL_RULES,
-  REL_TYPES,
   toGraphOps,
   edgeId,
 } from "@/lib/domain/graph";
@@ -36,12 +35,16 @@ import {
   CHAT_TAGS,
   type ChatMessage,
   type ChatThread,
+  type ChatThreadKind,
+  type DocumentImportData,
   type GraphChatOutput,
   GraphChatOutputSchema,
+  GraphImportOutputSchema,
   type GraphProposalData,
+  MAX_IMPORT_OPS,
 } from "@/lib/domain/chat";
 import { FeatureError } from "@/lib/api/errors";
-import { GRAPH_CHAT_LIMIT, hitDbLimit } from "@/lib/auth/db-rate-limit";
+import { type DbRateLimit, GRAPH_CHAT_LIMIT, GRAPH_IMPORT_LIMIT, hitDbLimit } from "@/lib/auth/db-rate-limit";
 import { BodyTooLargeError, readBodyLimited } from "@/lib/diagnoses/body";
 import {
   addMessage,
@@ -57,6 +60,20 @@ import {
 import { field, historyToPrompt, INJECTION_RULE, wrapData } from "@/lib/chat/prompt";
 import { applyGraphOps, getCareerGraph, graphEnabled, GraphOpError, GraphUnavailableError, graphToText } from "@/lib/graph/service";
 import { planGraphOps } from "@/lib/graph/plan";
+import { assessExperienceChecklist, checklistToPromptText } from "@/lib/graph/completeness";
+import { storyTagName } from "@/lib/domain/experience-categories";
+import { skillKey } from "@/lib/skills/dictionary";
+import { modelGuide } from "./graph-guide";
+import {
+  buildGraphImportPrompt,
+  companyKey,
+  DOC_KIND_NAMES,
+  dropDeletes,
+  guardImportUpdates,
+  importMessage,
+  type ParsedImport,
+  verifyAgainstDocument,
+} from "./graph-import";
 import { createLlmClient, LlmPermanentError, type LlmClient } from "@/lib/llm";
 import { STAGE_TASK_DELIMITER } from "@/lib/panel/prompts";
 import { stageErrorMessage } from "@/lib/panel/runner";
@@ -73,19 +90,13 @@ export const STALE_AFTER_MS = 330_000;
 export const DEFAULT_THREAD_TITLE = "새 대화";
 /** 프롬프트에 넣는 그래프 요약 상한(글자). */
 const GRAPH_TEXT_MAX_CHARS = 12_000;
+/** 이후 대화 프롬프트에 다시 넣는 최근 문서 글자 수 상한. */
+const FOLLOWUP_DOC_MAX_CHARS = 8000;
 
 
 // ---------------------------------------------------------------------------
 // 프롬프트 (순수)
 // ---------------------------------------------------------------------------
-
-function modelGuide(): string {
-  const labels = NODE_LABELS.map(
-    (l) => `- ${l}(${NODE_LABEL_META[l].name}): ${NODE_LABEL_META[l].description}. 속성: ${allowedPropKeys(l).join(", ")} (대표 이름: ${NODE_TITLE_KEY[l]})`,
-  ).join("\n");
-  const rels = REL_TYPES.map((t) => `- ${t}(${REL_RULES[t].name}): ${REL_RULES[t].from.join("|")} → ${REL_RULES[t].to.join("|")}`).join("\n");
-  return `노드 종류(본인은 Person, id "${PERSON_ID}"):\n${labels}\n\n관계(허용 방향만 쓸 수 있다):\n${rels}`;
-}
 
 export const GRAPH_CHAT_SYSTEM = `너는 한국어 경력 정리 도우미다. 사용자가 대화로 들려주는 경력·경험을 '경력 그래프'로 정리하는 변경안을 만든다.
 변경안은 사용자가 확인한 뒤에만 적용된다. reply에는 무엇을 정리했는지 짧게 설명하고, 변경할 것이 없으면 ops는 []로 둔다.
@@ -103,6 +114,11 @@ ${modelGuide()}
 8. 이전 대화에서 사용자가 거절한 변경안은 다시 제안하지 않는다. 이미 적용된 내용은 다시 추가하지 않는다.
 9. 사용자가 단순히 질문하거나 잡담하면 ops 없이 답한다. 그래프 밖의 일(이력서 작성 대행, 다른 사람 정보 등)은 정중히 범위를 알려 준다.
 10. 각 연산에서 해당 없는 필드는 "" 또는 []로 둔다. updateNode의 props에는 바꿀 속성만 넣는다(값 ""는 그 속성 삭제).
+11. Project·Experience는 자소서 소재 단위다. 사용자가 이야기한 경험은 situation(상황·목표), action(내 행동), result(결과), learned(배운 점), myRole(내 역할)로 나눠 넣는다. 사용자가 실제로 말한 내용이 뒷받침하는 categories(위 id, 쉼표로 구분, 최대 3개)만 단다. 기존 노드의 categories는 새로 달 태그만 보내면 기존 태그에 더해진다. 태그를 빼 달라고 하면 남길 태그 전체를 보내고(빼고 하나도 안 남으면 ""), 그 밖에는 기존 태그의 일부만 다시 보내지 않는다. 회사 안의 일화는 Role에 붙이지 않고 Project를 만들어 Role -WORKED_ON->으로 잇는다.
+12. 성과 수치는 Achievement(value에 수치)로 만들고, 그 경험(Role·Project·Experience)에서 -ACHIEVED->로 잇는다.
+13. <${CHAT_TAGS.experienceChecklist}>에 빠진 필수 항목이 있으면 followUpQuestions 중 하나 이상은 그 항목의 최소 정보를 묻는다. 한 번에 한 카테고리만 묻고, 사용자가 꺼낸 화제를 우선한다.
+14. 최소 정보를 지어내지 않는다. 비어 있으면 묻는다.
+15. <${CHAT_TAGS.resume}>·<${CHAT_TAGS.portfolio}>가 있으면 사용자가 이 대화에서 앞서 올린 문서다. 사용자가 그 문서의 내용을 넣어 달라고 하면 문서에 글자로 있는 사실만 쓴다.
 
 ${INJECTION_RULE}`;
 
@@ -113,6 +129,15 @@ export function conversationForPrompt(messages: readonly ChatMessage[]): Pick<Ch
     const m = messages[i]!;
     if (isReplyError(m)) continue;
     if (m.role === "user" && messages[i + 1] && isReplyError(messages[i + 1]!)) continue;
+    if (m.role === "user" && m.data?.kind === "document-import") {
+      // 문서 본문은 대화가 아니라 <resume>/<portfolio>로 따로 넣는다(buildGraphChatPrompt).
+      const tag = m.data.docKind === "portfolio" ? CHAT_TAGS.portfolio : CHAT_TAGS.resume;
+      out.push({
+        role: "user",
+        content: `(자료: ${DOC_KIND_NAMES[m.data.docKind]} ${m.data.fileName ?? "붙여넣은 글"}, ${m.data.chars.toLocaleString()}자 — 원문은 <${tag}>에)`,
+      });
+      continue;
+    }
     if (m.role === "assistant" && m.data?.kind === "graph-proposal" && m.data.ops.length > 0) {
       const note = { proposed: "확인 대기", applied: "적용됨", dismissed: "사용자가 거절", failed: "적용 실패" }[m.status ?? "proposed"];
       out.push({ role: "assistant", content: `${m.content}\n(변경안: ${m.data.summary || `${m.data.ops.length}개 변경`} — ${note})` });
@@ -123,6 +148,17 @@ export function conversationForPrompt(messages: readonly ChatMessage[]): Pick<Ch
   // 마지막 사용자 메시지는 latest_message로 따로 넣는다.
   if (out.at(-1)?.role === "user") out.pop();
   return out;
+}
+
+/** 스레드에서 가장 최근에 올린 문서(있으면): "아까 이력서의 X도 넣어줘" 같은 후속 요청이 되게 프롬프트에 함께 넣는다. */
+function latestDocumentBlock(messages: readonly ChatMessage[]): string[] {
+  const doc = [...messages].reverse().find((m) => m.role === "user" && m.data?.kind === "document-import")?.data as
+    | DocumentImportData
+    | undefined;
+  if (!doc?.text) return [];
+  const tag = doc.docKind === "portfolio" ? CHAT_TAGS.portfolio : CHAT_TAGS.resume;
+  const body = doc.text.length > FOLLOWUP_DOC_MAX_CHARS ? `${doc.text.slice(0, FOLLOWUP_DOC_MAX_CHARS)}\n…(생략)` : doc.text;
+  return ["", `이 대화에서 올린 ${DOC_KIND_NAMES[doc.docKind]}(${doc.fileName ?? "붙여넣은 글"}):`, wrapData(tag, body)];
 }
 
 export function buildGraphChatPrompt(input: {
@@ -139,6 +175,10 @@ export function buildGraphChatPrompt(input: {
     "",
     "현재 경력 그래프([id]로 기존 노드를 가리킨다):",
     wrapData(CHAT_TAGS.careerGraph, graphToText(input.graph, { maxChars: GRAPH_TEXT_MAX_CHARS })),
+    "",
+    "경험 체크리스트(빠진 필수 항목부터):",
+    wrapData(CHAT_TAGS.experienceChecklist, checklistToPromptText(assessExperienceChecklist(input.graph))),
+    ...latestDocumentBlock(input.messages),
     STAGE_TASK_DELIMITER,
     field("오늘 날짜", today),
     "",
@@ -157,6 +197,15 @@ export function buildGraphChatPrompt(input: {
 
 const norm = (s: string) => s.normalize("NFKC").toLowerCase().replace(/[\s.,·()\-_/]+/g, "");
 
+/** 중복 판정 키: 기술은 사전 정식 명칭("리액트" = "React"), 회사는 "(주)"·"주식회사"를 뗀 이름, 나머지는 정규화한 대표 이름. */
+function dedupeKey(label: NodeLabel, props: Record<string, unknown>): string {
+  const title = titleOf(label, props);
+  if (!norm(title)) return "";
+  if (label === "Skill") return `${label}:${norm(skillKey(title))}`;
+  if (label === "Company") return `${label}:${companyKey(title) || norm(title)}`;
+  return `${label}:${norm(title)}`;
+}
+
 function titleOf(label: NodeLabel, props: Record<string, unknown>): string {
   const v = props[NODE_TITLE_KEY[label]];
   return typeof v === "string" ? v : "";
@@ -168,7 +217,10 @@ function titleOf(label: NodeLabel, props: Record<string, unknown>): string {
  */
 export function dedupeAgainstGraph(ops: readonly GraphOp[], graph: CareerGraph): { ops: GraphOp[]; merged: string[] } {
   const byKey = new Map<string, CareerGraph["nodes"][number]>();
-  for (const n of graph.nodes) byKey.set(`${n.label}:${norm(titleOf(n.label, n.props as Record<string, unknown>))}`, n);
+  for (const n of graph.nodes) {
+    const key = dedupeKey(n.label, n.props as Record<string, unknown>);
+    if (key && !byKey.has(key)) byKey.set(key, n);
+  }
   const remap = new Map<string, string>();
   const merged: string[] = [];
   const out: GraphOp[] = [];
@@ -177,14 +229,22 @@ export function dedupeAgainstGraph(ops: readonly GraphOp[], graph: CareerGraph):
 
   for (const op of ops) {
     if (op.op === "addNode") {
-      const existing = byKey.get(`${op.label}:${norm(titleOf(op.label, op.props as Record<string, unknown>))}`);
-      if (existing && norm(titleOf(op.label, op.props as Record<string, unknown>))) {
+      const key = dedupeKey(op.label, op.props as Record<string, unknown>);
+      const existing = key ? byKey.get(key) : undefined;
+      if (existing) {
         remap.set(op.ref, existing.id);
         merged.push(`${NODE_LABEL_META[op.label].name} '${titleOf(op.label, op.props as Record<string, unknown>)}'은(는) 이미 있어 기존 항목에 합쳤습니다`);
         const cur = existing.props as Record<string, unknown>;
-        const fill = Object.fromEntries(
+        const fill: Record<string, unknown> = Object.fromEntries(
           Object.entries(op.props as Record<string, unknown>).filter(([k, v]) => k !== NODE_TITLE_KEY[op.label] && v !== undefined && (cur[k] === undefined || cur[k] === "")),
         );
+        // 소재 분류는 비어 있지 않아도 합친다(기존 태그 + 새 태그).
+        const next = (op.props as Record<string, unknown>).categories;
+        if (Array.isArray(next) && Array.isArray(cur.categories)) {
+          const { tags, overflow } = unionStoryTags(cur.categories, next);
+          if (!sameTags(tags, cur.categories)) fill.categories = tags;
+          if (overflow.length > 0) merged.push(overflowNote(existing, overflow));
+        }
         if (Object.keys(fill).length > 0) out.push({ op: "updateNode", id: existing.id, label: op.label, props: fill } as GraphOp);
         continue;
       }
@@ -210,18 +270,93 @@ export function dedupeAgainstGraph(ops: readonly GraphOp[], graph: CareerGraph):
   return { ops: out, merged };
 }
 
+const knownTags = (xs: readonly unknown[]) => normalizeStoryTags(xs.filter((t): t is StoryTag => (STORY_TAGS as readonly unknown[]).includes(t)));
+
+/**
+ * 기존 태그 + 새 태그(STORY_TAGS 순서). 상한(MAX_STORY_TAGS)을 넘으면 기존 태그를 지키고, 넣지 못한 새 태그는 overflow로 돌려준다
+ * (호출자가 사용자에게 알린다 — 기존 태그를 말없이 지우지 않는다).
+ */
+function unionStoryTags(current: readonly unknown[], next: readonly unknown[]): { tags: StoryTag[]; overflow: StoryTag[] } {
+  const cur = knownTags(current);
+  const added = knownTags(next).filter((t) => !cur.includes(t));
+  const room = Math.max(0, MAX_STORY_TAGS - cur.length);
+  return { tags: normalizeStoryTags([...cur, ...added.slice(0, room)]), overflow: added.slice(room) };
+}
+
+const sameTags = (a: readonly unknown[], b: readonly unknown[]) => a.length === b.length && a.every((x, i) => x === b[i]);
+
+const nodeTitle = (n: CareerGraph["nodes"][number]) => titleOf(n.label, n.props as Record<string, unknown>) || n.id;
+
+function overflowNote(node: CareerGraph["nodes"][number], overflow: readonly StoryTag[]): string {
+  return `'${nodeTitle(node)}'의 소재 분류는 최대 ${MAX_STORY_TAGS}개라 ${overflow.map(storyTagName).join(", ")}은(는) 넣지 않았습니다(기존 분류를 먼저 빼 주세요)`;
+}
+
+/**
+ * LLM의 updateNode categories를 기존 태그에 맞춘다. 직접 편집(NodeForm)에는 쓰지 않는다.
+ * - 보낸 태그가 기존 태그의 진부분집합이면 교체한다("리더십 태그 빼줘" → 남길 태그만 보냄). 변경안을 사용자가 확인하므로 드러난다.
+ * - 그 밖에는 기존 태그와 합친다(LLM이 기존 태그를 빠뜨려도 지워지지 않게). 상한을 넘는 새 태그는 넣지 않고 notes에 남긴다.
+ * - 결과가 기존과 같으면 그 속성을 빼고, 남은 속성이 없으면 연산째 빼며 notes에 남긴다. 삭제(null)는 그대로 둔다.
+ * 같은 변경안에서 같은 노드를 여러 번 고치면 앞 연산의 결과를 기준으로 본다.
+ */
+export function mergeCategoryUpdates(ops: readonly GraphOp[], graph: CareerGraph): { ops: GraphOp[]; notes: string[] } {
+  const byId = new Map(graph.nodes.map((n) => [n.id, n]));
+  const working = new Map<string, StoryTag[]>();
+  const out: GraphOp[] = [];
+  const notes: string[] = [];
+  for (const op of ops) {
+    if (op.op === "deleteNode") working.delete(op.id);
+    if (op.op !== "updateNode") {
+      out.push(op);
+      continue;
+    }
+    const props = op.props as Record<string, unknown>;
+    const node = byId.get(op.id);
+    const stored = (node?.props as Record<string, unknown> | undefined)?.categories;
+    const cur = working.get(op.id) ?? (Array.isArray(stored) ? knownTags(stored) : null);
+    if (props.categories === null) working.set(op.id, []);
+    if (!Array.isArray(props.categories) || !node || !cur || cur.length === 0) {
+      if (Array.isArray(props.categories)) working.set(op.id, knownTags(props.categories));
+      out.push(op);
+      continue;
+    }
+    const sent = knownTags(props.categories);
+    const isRemoval = sent.length > 0 && sent.length < cur.length && sent.every((t) => cur.includes(t));
+    const notesBefore = notes.length;
+    let next: StoryTag[];
+    if (isRemoval) next = sent;
+    else {
+      const { tags, overflow } = unionStoryTags(cur, sent);
+      next = tags;
+      if (overflow.length > 0) notes.push(overflowNote(node, overflow));
+    }
+    working.set(op.id, next);
+    const nextProps: Record<string, unknown> = { ...props, categories: next };
+    if (sameTags(next, cur)) delete nextProps.categories;
+    if (Object.keys(nextProps).length === 0) {
+      if (notes.length === notesBefore) notes.push(`'${nodeTitle(node)}'의 소재 분류는 이미 그대로라 바꿀 것이 없습니다`);
+      continue;
+    }
+    out.push({ ...op, props: nextProps } as GraphOp);
+  }
+  return { ops: out, notes };
+}
+
 /**
  * 현재 그래프 기준으로 연산을 하나씩 검사해(plan.ts — 적용 때와 같은 규칙) 통과하는 것만 남긴다.
  * 앞의 연산이 빠지면 그것을 참조하는 뒤 연산도 함께 빠진다. 버린 연산은 사유를 남긴다.
  */
-export function validateAgainstGraph(ops: readonly GraphOp[], graph: CareerGraph): { ops: GraphOp[]; dropped: string[] } {
+export function validateAgainstGraph(
+  ops: readonly GraphOp[],
+  graph: CareerGraph,
+  opts: { maxOps?: number } = {},
+): { ops: GraphOp[]; dropped: string[] } {
   const existing = new Map<string, NodeLabel>(graph.nodes.map((n) => [n.id, n.label]));
   const kept: GraphOp[] = [];
   const dropped: string[] = [];
   let seq = 0;
   for (const op of ops) {
     try {
-      planGraphOps(existing, [...kept, op], () => `__check${seq++}`);
+      planGraphOps(existing, [...kept, op], () => `__check${seq++}`, opts);
       kept.push(op);
     } catch (err) {
       if (!(err instanceof GraphOpError)) throw err;
@@ -232,23 +367,42 @@ export function validateAgainstGraph(ops: readonly GraphOp[], graph: CareerGraph
   return { ops: kept, dropped };
 }
 
+export interface ProposalOptions {
+  /** 연산 수 상한(기본 MAX_OPS_PER_BATCH, 문서 가져오기는 MAX_IMPORT_OPS). */
+  maxOps?: number;
+  /** 문서 가져오기: 문서 원문. 주면 삭제 연산을 빼고 문서에 없는 항목을 거른다(verifyAgainstDocument). */
+  sourceText?: string;
+}
+
 /** LLM 출력 → assistant 메시지(내용·data·상태). 남은 연산이 없으면 상태 null(일반 답변). */
 export function proposalFromOutput(
   output: GraphChatOutput,
   graph: CareerGraph,
+  opts: ProposalOptions = {},
 ): { content: string; data: GraphProposalData; status: "proposed" | null } {
-  const converted = toGraphOps(output.ops);
-  const deduped = dedupeAgainstGraph(converted.ops, graph);
-  const validated = validateAgainstGraph(deduped.ops.slice(0, MAX_OPS_PER_BATCH), graph);
-  const droppedOps = [...converted.errors, ...validated.dropped];
+  const maxOps = opts.maxOps ?? MAX_OPS_PER_BATCH;
+  const imported = opts.sourceText !== undefined;
+  const converted = toGraphOps(output.ops, { max: maxOps });
+  const noDeletes = imported ? dropDeletes(converted.ops, graph) : { ops: converted.ops, dropped: [] };
+  const verified = imported ? verifyAgainstDocument(noDeletes.ops, opts.sourceText!) : { ops: noDeletes.ops, dropped: [] };
+  const deduped = dedupeAgainstGraph(verified.ops, graph);
+  // 가져오기는 기존 값을 지우거나 덮어쓰지 않는다(비어 있던 속성만 보강, 소재 분류는 합친다).
+  const guarded = imported ? guardImportUpdates(deduped.ops, graph) : { ops: deduped.ops, dropped: [] };
+  const merged = mergeCategoryUpdates(guarded.ops, graph);
+  const validated = validateAgainstGraph(merged.ops.slice(0, maxOps), graph, { maxOps });
+  const droppedOps = [...noDeletes.dropped, ...verified.dropped, ...guarded.dropped, ...converted.errors, ...merged.notes, ...validated.dropped];
   const data: GraphProposalData = {
     kind: "graph-proposal",
+    ...(imported ? { source: "document-import" as const } : {}),
     ops: validated.ops,
     summary: validated.ops.length > 0 ? output.summary.trim().slice(0, 300) || `${validated.ops.length}개 변경` : "",
     followUpQuestions: output.followUpQuestions.map((q) => q.trim()).filter(Boolean).slice(0, 3),
-    ...(droppedOps.length > 0 || deduped.merged.length > 0 ? { droppedOps: [...deduped.merged, ...droppedOps].slice(0, 20) } : {}),
+    ...(droppedOps.length > 0 || deduped.merged.length > 0
+      ? { droppedOps: [...deduped.merged, ...droppedOps].slice(0, imported ? 40 : 20) }
+      : {}),
   };
-  const content = output.reply.trim() || (validated.ops.length > 0 ? "말씀하신 내용으로 변경안을 만들었어요. 확인 후 적용해 주세요." : "알겠습니다.");
+  const emptyReply = imported ? "문서에서 그래프에 넣을 항목을 찾지 못했습니다." : "알겠습니다.";
+  const content = output.reply.trim() || (validated.ops.length > 0 ? "말씀하신 내용으로 변경안을 만들었어요. 확인 후 적용해 주세요." : emptyReply);
   return { content: content.slice(0, 8000), data, status: validated.ops.length > 0 ? "proposed" : null };
 }
 
@@ -286,14 +440,14 @@ export function replyState(messages: readonly Pick<ChatMessage, "role" | "status
 
 export interface GraphChatDeps {
   getGraph(userId: string, personName: string | null): Promise<CareerGraph>;
-  applyOps(userId: string, ops: GraphOp[]): Promise<ApplyGraphOpsResult>;
+  applyOps(userId: string, ops: GraphOp[], opts?: { maxOps?: number }): Promise<ApplyGraphOpsResult>;
   createClient(provider: ProviderId): LlmClient;
   now(): number;
 }
 
 export const defaultGraphChatDeps: GraphChatDeps = {
   getGraph: (userId, personName) => getCareerGraph(userId, { personName }),
-  applyOps: (userId, ops) => applyGraphOps(userId, ops),
+  applyOps: (userId, ops, opts) => applyGraphOps(userId, ops, opts),
   createClient: (provider) => createLlmClient(provider),
   now: () => Date.now(),
 };
@@ -302,10 +456,15 @@ function assertGraphEnabled(): void {
   if (!graphEnabled()) throw new GraphUnavailableError();
 }
 
-async function requireGraphThread(userId: string, threadId: string): Promise<ChatThread> {
+/** 내 스레드이고 종류가 맞아야 한다(아니면 404). 그래프에 묻기(graph-qa.ts)도 쓴다. */
+export async function requireThread(userId: string, threadId: string, kind: ChatThreadKind): Promise<ChatThread> {
   const thread = await getThread(userId, threadId);
-  if (!thread || thread.kind !== "graph") throw new FeatureError("대화를 찾을 수 없습니다.", 404);
+  if (!thread || thread.kind !== kind) throw new FeatureError("대화를 찾을 수 없습니다.", 404);
   return thread;
+}
+
+function requireGraphThread(userId: string, threadId: string): Promise<ChatThread> {
+  return requireThread(userId, threadId, "graph");
 }
 
 export function listGraphThreads(userId: string): Promise<ChatThread[]> {
@@ -348,6 +507,8 @@ export async function getGraphThreadView(
     graph = await deps.getGraph(userId, personName).catch(() => null);
   }
   const view: GraphChatMessageView[] = messages.map((m) => {
+    // 읽어 낸 문서 글은 폴링마다 내려보내지 않는다(파일 이름·글자 수만).
+    if (m.data?.kind === "document-import") return { ...m, data: { ...m.data, text: "" } };
     if (m.data?.kind !== "graph-proposal" || m.data.ops.length === 0) return m;
     const ops = m.data.ops;
     return { ...m, opLines: ops.map((op) => describeGraphOp(op, graph, ops)) };
@@ -363,23 +524,62 @@ export async function startGraphChatMessage(
   deps: Pick<GraphChatDeps, "now"> = defaultGraphChatDeps,
 ): Promise<ChatMessage> {
   assertGraphEnabled();
-  const thread = await requireGraphThread(userId, threadId);
+  return startUserMessage(userId, threadId, { content: text, data: null, title: text, kind: "graph", limit: GRAPH_CHAT_LIMIT }, deps);
+}
+
+/**
+ * 이력서·포트폴리오 가져오기: 읽어 낸 글을 사용자 메시지(data.kind='document-import')로 저장한다(답변은 runGraphChatReply).
+ * 원본 파일은 저장하지 않는다. 답을 기다리는 중이면 409, 하루 상한(GRAPH_IMPORT_LIMIT)을 넘으면 429.
+ */
+export async function startGraphImportMessage(
+  userId: string,
+  threadId: string,
+  doc: ParsedImport,
+  deps: Pick<GraphChatDeps, "now"> = defaultGraphChatDeps,
+): Promise<ChatMessage> {
+  assertGraphEnabled();
+  const { content, data } = importMessage(doc);
+  const title = `자료 가져오기: ${doc.fileName ?? DOC_KIND_NAMES[doc.docKind]}`;
+  return startUserMessage(userId, threadId, { content, data, title, kind: "graph", limit: GRAPH_IMPORT_LIMIT }, deps);
+}
+
+/**
+ * 사용자 메시지 저장 공통: 스레드 확인 → 대기 중이면 409 → 레이트 리밋(429) → 마지막 메시지가 그대로일 때만 삽입(동시 전송 409)
+ * → 기본 제목이면 바꾼다. 그래프에 묻기(graph-qa.ts)도 쓴다.
+ */
+export async function startUserMessage(
+  userId: string,
+  threadId: string,
+  input: { content: string; data: DocumentImportData | null; title: string; kind: ChatThreadKind; limit: DbRateLimit; defaultTitle?: string },
+  deps: Pick<GraphChatDeps, "now">,
+): Promise<ChatMessage> {
+  const thread = await requireThread(userId, threadId, input.kind);
   const recent = (await listMessages(userId, threadId, { limit: 1 })) ?? [];
   if (replyState(recent, deps.now()).pending) {
     throw new FeatureError("이전 메시지의 답변을 만드는 중입니다. 잠시 후 다시 보내 주세요.", 409);
   }
   // 사용자당 전송 상한(DB 원장 — 인스턴스 사이에 공유된다).
-  const limit = await hitDbLimit(GRAPH_CHAT_LIMIT, userId);
-  if (!limit.ok) throw new FeatureError(`메시지를 너무 자주 보냈습니다. ${Math.ceil(limit.retryAfterSec / 60)}분 뒤 다시 시도해 주세요.`, 429);
+  await assertWithinLimit(input.limit, userId);
   // 대기 검사와 삽입을 한 문장으로: 읽은 뒤 다른 요청(다른 탭·두 번 클릭)이 먼저 메시지를 넣었으면 409.
-  const msg = await addMessage(userId, { threadId, role: "user", content: text }, { expectLastId: recent.at(-1)?.id ?? null }).catch(
-    rethrowConcurrent,
-  );
+  const msg = await addMessage(
+    userId,
+    { threadId, role: "user", content: input.content, data: input.data },
+    { expectLastId: recent.at(-1)?.id ?? null },
+  ).catch(rethrowConcurrent);
   if (!msg) throw new FeatureError("대화를 찾을 수 없습니다.", 404);
-  if (thread.title === DEFAULT_THREAD_TITLE) {
-    await renameThread(userId, threadId, text.replace(/\s+/g, " ").trim().slice(0, 40));
+  if (thread.title === (input.defaultTitle ?? DEFAULT_THREAD_TITLE)) {
+    await renameThread(userId, threadId, input.title.replace(/\s+/g, " ").trim().slice(0, 40));
   }
   return msg;
+}
+
+/** DB 레이트 리밋을 한 번 센다. 넘으면 429. */
+export async function assertWithinLimit(rule: DbRateLimit, userId: string): Promise<void> {
+  const limit = await hitDbLimit(rule, userId);
+  if (!limit.ok) {
+    const wait = limit.retryAfterSec >= 3600 ? `${Math.ceil(limit.retryAfterSec / 3600)}시간` : `${Math.ceil(limit.retryAfterSec / 60)}분`;
+    throw new FeatureError(`요청을 너무 자주 보냈습니다. ${wait} 뒤 다시 시도해 주세요.`, 429);
+  }
 }
 
 /** 답변 실패·무응답 뒤 다시 시도: 마지막 사용자 메시지를 다시 보낸다(이전 실패 쌍은 프롬프트에서 빠진다). */
@@ -395,9 +595,9 @@ export async function startGraphChatRetry(
   if (!state.canRetry) throw new FeatureError("다시 시도할 메시지가 없습니다.", 409);
   const lastUser = [...messages].reverse().find((m) => m.role === "user");
   if (!lastUser) throw new FeatureError("다시 시도할 메시지가 없습니다.", 409);
-  // 사용자당 전송 상한(DB 원장 — 인스턴스 사이에 공유된다).
-  const limit = await hitDbLimit(GRAPH_CHAT_LIMIT, userId);
-  if (!limit.ok) throw new FeatureError(`메시지를 너무 자주 보냈습니다. ${Math.ceil(limit.retryAfterSec / 60)}분 뒤 다시 시도해 주세요.`, 429);
+  // 사용자당 전송 상한(DB 원장 — 인스턴스 사이에 공유된다). 문서 가져오기 재시도는 가져오기 하루 상한도 센다.
+  if (lastUser.data?.kind === "document-import") await assertWithinLimit(GRAPH_IMPORT_LIMIT, userId);
+  await assertWithinLimit(GRAPH_CHAT_LIMIT, userId);
   let lastId = messages.at(-1)!.id;
   if (state.stale) {
     // 답이 오지 않은 메시지: 실패 표시를 남겨 기록을 맞춘 뒤 다시 보낸다(동시 재시도 중 하나만 통과).
@@ -409,14 +609,16 @@ export async function startGraphChatRetry(
     if (!marker) throw new FeatureError("대화를 찾을 수 없습니다.", 404);
     lastId = marker.id;
   }
-  const msg = await addMessage(userId, { threadId, role: "user", content: lastUser.content }, { expectLastId: lastId }).catch(
+  // 문서 가져오기 메시지는 읽어 낸 글(data)까지 다시 보낸다.
+  const data = lastUser.data?.kind === "document-import" ? lastUser.data : null;
+  const msg = await addMessage(userId, { threadId, role: "user", content: lastUser.content, data }, { expectLastId: lastId }).catch(
     rethrowConcurrent,
   );
   if (!msg) throw new FeatureError("대화를 찾을 수 없습니다.", 404);
   return msg;
 }
 
-function rethrowConcurrent(err: unknown): never {
+export function rethrowConcurrent(err: unknown): never {
   if (err instanceof ConcurrentMessageError) {
     throw new FeatureError("이전 메시지의 답변을 만드는 중입니다. 잠시 후 다시 보내 주세요.", 409);
   }
@@ -424,7 +626,7 @@ function rethrowConcurrent(err: unknown): never {
 }
 
 /** 사용자에게 보일 답변 실패 사유. */
-export function replyErrorMessage(err: unknown, opts: { timedOut?: boolean } = {}): string {
+export function replyErrorMessage(err: unknown, opts: { timedOut?: boolean; documentImport?: boolean } = {}): string {
   if (err instanceof LlmPermanentError) return `답변을 만들지 못했습니다. ${stageErrorMessage(err).replace("이 단계의 ", "")}`;
   if (err instanceof GraphUnavailableError) return `답변을 만들지 못했습니다. ${err.message}`;
   // Anthropic SDK는 중단을 APIUserAbortError(name은 'Error')로 던진다 — 이름 대신 클래스·넘긴 signal 상태로 판정한다.
@@ -433,7 +635,9 @@ export function replyErrorMessage(err: unknown, opts: { timedOut?: boolean } = {
     err instanceof Anthropic.APIUserAbortError ||
     (err instanceof Error && (err.name === "TimeoutError" || err.name === "AbortError"))
   ) {
-    return "답변 시간이 너무 오래 걸려 중단했습니다. 메시지를 짧게 나눠 다시 보내 주세요.";
+    return opts.documentImport
+      ? "문서를 정리하는 데 시간이 너무 오래 걸려 중단했습니다. 문서를 나눠 붙여넣어 주세요."
+      : "답변 시간이 너무 오래 걸려 중단했습니다. 메시지를 짧게 나눠 다시 보내 주세요.";
   }
   return "답변을 만들지 못했습니다. 잠시 후 다시 시도해 주세요.";
 }
@@ -456,19 +660,39 @@ export async function runGraphChatReply(
   // 요청 시작 시각(라우트 핸들러 진입)부터 REPLY_TIMEOUT_MS. 없으면 지금부터.
   const deadlineAt = (opts.startedAt ?? Date.now()) + REPLY_TIMEOUT_MS;
   const deadline = AbortSignal.timeout(Math.max(0, deadlineAt - Date.now()));
+  const doc = latest.data?.kind === "document-import" ? latest.data : null;
   try {
     deadline.throwIfAborted();
     const graph = await untilAborted(deps.getGraph(userId, personName), deadline);
-    const prompt = buildGraphChatPrompt({ graph, messages, latestMessage: latest.content, today: new Date(deps.now()) });
-    const { output, usage } = await deps.createClient(provider).generate({
-      task: "graph-chat",
-      system: prompt.system,
-      user: prompt.user,
-      schema: GraphChatOutputSchema,
-      effort: "medium",
-      signal: deadline,
-    });
-    const proposal = proposalFromOutput(output, graph);
+    const client = deps.createClient(provider);
+    let proposal: ReturnType<typeof proposalFromOutput>;
+    let usage;
+    if (doc) {
+      // 이력서·포트폴리오 가져오기: 문서 원문만 근거로, 연산 상한 MAX_IMPORT_OPS.
+      const prompt = buildGraphImportPrompt({ graph, doc, today: new Date(deps.now()) });
+      const res = await client.generate({
+        task: "graph-import",
+        system: prompt.system,
+        user: prompt.user,
+        schema: GraphImportOutputSchema,
+        effort: "medium",
+        signal: deadline,
+      });
+      usage = res.usage;
+      proposal = proposalFromOutput(res.output, graph, { maxOps: MAX_IMPORT_OPS, sourceText: doc.text });
+    } else {
+      const prompt = buildGraphChatPrompt({ graph, messages, latestMessage: latest.content, today: new Date(deps.now()) });
+      const res = await client.generate({
+        task: "graph-chat",
+        system: prompt.system,
+        user: prompt.user,
+        schema: GraphChatOutputSchema,
+        effort: "medium",
+        signal: deadline,
+      });
+      usage = res.usage;
+      proposal = proposalFromOutput(res.output, graph);
+    }
     // 저장 직전에도 마지막 메시지가 여전히 이 사용자 메시지일 때만 답을 단다(중복 실행·그 사이 새 메시지면 버린다).
     return await addMessage(
       userId,
@@ -481,14 +705,20 @@ export async function runGraphChatReply(
     else console.warn(`[graph-chat reply] ${threadId} LLM 실패: ${err.reason}`);
     return addMessage(
       userId,
-      { threadId, role: "assistant", content: replyErrorMessage(err, { timedOut: deadline.aborted }), status: "failed", data: null },
+      {
+        threadId,
+        role: "assistant",
+        content: replyErrorMessage(err, { timedOut: deadline.aborted, documentImport: doc !== null }),
+        status: "failed",
+        data: null,
+      },
       { expectLastId: latest.id },
     ).catch(() => null);
   }
 }
 
 /** promise가 끝나거나 signal이 중단될 때까지 기다린다(중단되면 signal.reason으로 거부 — 원래 작업은 취소하지 못한다). */
-function untilAborted<T>(promise: Promise<T>, signal: AbortSignal): Promise<T> {
+export function untilAborted<T>(promise: Promise<T>, signal: AbortSignal): Promise<T> {
   if (signal.aborted) return Promise.reject(signal.reason);
   return new Promise<T>((resolve, reject) => {
     const onAbort = () => reject(signal.reason);
@@ -547,7 +777,8 @@ export async function applyGraphProposal(
     // 제안 뒤에 다른 변경안이 같은 노드를 먼저 만들었을 수 있다: 적용 직전 그래프로 중복을 다시 합친다.
     const current = await deps.getGraph(userId, null);
     const deduped = dedupeAgainstGraph(msg.data.ops, current);
-    const result = await deps.applyOps(userId, deduped.ops);
+    const maxOps = msg.data.source === "document-import" ? MAX_IMPORT_OPS : undefined;
+    const result = await deps.applyOps(userId, deduped.ops, maxOps ? { maxOps } : undefined);
     const data: GraphProposalData = { ...msg.data, created: result.created };
     if (deduped.merged.length > 0) {
       data.ops = deduped.ops;

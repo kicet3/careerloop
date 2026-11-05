@@ -1,6 +1,5 @@
 /** 대조 화면 공용(클라이언트): API 호출·상태 색·그래프 채팅 링크. */
 import type { BadgeTone } from "@/components/ui";
-import { MAX_CHAT_MESSAGE_CHARS } from "@/lib/domain/chat";
 import type { MatchStatus, RequirementImportance } from "@/lib/graph/match";
 
 export class MatchApiError extends Error {
@@ -28,7 +27,4 @@ export const STATUS_STYLE: Record<MatchStatus, { chip: string; dot: string; bar:
 
 export const IMPORTANCE_TONE: Record<RequirementImportance, BadgeTone> = { must: "accent", nice: "info", keyword: "neutral" };
 
-/** 그래프 채팅을 미리 채운 입력으로 여는 주소. */
-export function graphChatHref(message: string): string {
-  return `/app/graph?ask=${encodeURIComponent(message.slice(0, MAX_CHAT_MESSAGE_CHARS))}#graph-chat`;
-}
+export { graphChatHref } from "@/components/graph/api";

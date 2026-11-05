@@ -1,7 +1,8 @@
 "use client";
 
+import Link from "next/link";
 import { useRouter } from "next/navigation";
-import { useEffect, useState } from "react";
+import { useCallback, useEffect, useState } from "react";
 import { formatDateTime } from "@/components/app/stages";
 import { SegmentedTabs } from "@/components/app/Tabs";
 import { Alert } from "@/components/ui/Alert";
@@ -10,7 +11,6 @@ import { Button, buttonClass } from "@/components/ui/Button";
 import { Card } from "@/components/ui/Card";
 import { cn } from "@/components/ui/cn";
 import {
-  RESUME_TEMPLATE_IDS,
   RESUME_TEMPLATES,
   ResumeDocumentSchema,
   type ResumeDocument,
@@ -23,11 +23,12 @@ import { PerformanceSheet } from "./PerformanceSheet";
 import { ResumeDocumentForm } from "./ResumeDocumentForm";
 import { ResumePreview } from "./ResumePreview";
 import { inputClass, textareaClass } from "./styles";
+import { TemplatePicker } from "./TemplatePicker";
 
 type Pane = "edit" | "preview";
 /** 성과 중심 양식의 편집 방식: 시트 위에서 바로 / 구조화 입력 폼. */
 type PerfPane = "sheet" | "form";
-type Busy = "save" | "template" | "meta" | "delete" | "restore" | "view" | null;
+type Busy = "save" | "meta" | "delete" | "restore" | "view" | null;
 
 const LEAVE_CONFIRM = "저장하지 않은 변경이 있습니다. 저장하지 않고 이 화면을 떠날까요? (변경 내용은 사라집니다)";
 
@@ -49,11 +50,15 @@ export function ResumeEditor({
   currentVersionId: string | null;
 }) {
   const router = useRouter();
+  // meta.templateId는 화면에서 고른 양식(저장 전일 수 있음), savedTemplateId는 서버에 저장된 양식.
   const [meta, setMeta] = useState(initialResume);
+  const [savedTemplateId, setSavedTemplateId] = useState<ResumeTemplateId>(initialResume.templateId);
   const [versions, setVersions] = useState(initialVersions);
   const [doc, setDoc] = useState(initialDocument);
   const [baseVersionId, setBaseVersionId] = useState(currentVersionId);
-  const [dirty, setDirty] = useState(false);
+  // 문서 변경 여부. 양식 변경은 저장된 양식과 비교해 따로 셈한다(원래 양식으로 되돌리면 깨끗해진다).
+  const [docDirty, setDirty] = useState(false);
+  const dirty = docDirty || meta.templateId !== savedTemplateId;
   const [note, setNote] = useState("");
   const [pane, setPane] = useState<Pane>("edit");
   const [perfPane, setPerfPane] = useState<PerfPane>("sheet");
@@ -71,6 +76,7 @@ export function ResumeEditor({
   });
 
   const template = RESUME_TEMPLATES[meta.templateId];
+  const isGeneral = meta.kind === "general";
   const current = versions.find((v) => v.id === baseVersionId) ?? null;
   const addCount = countAddMarkers(doc);
 
@@ -123,12 +129,19 @@ export function ResumeEditor({
       setError("입력한 내용 중 너무 긴 항목이 있습니다. 길이를 줄여 주세요.");
       return null;
     }
+    const templateId = meta.templateId;
     setBusy("save");
     try {
+      // 양식은 버전 저장과 함께 이력서에 반영한다(저장이 충돌로 취소되면 양식도 그대로).
       const res = await fetch(`/api/resumes/${meta.id}/versions`, {
         method: "POST",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ document: parsed.data, note: note.trim() || undefined, baseVersionId }),
+        body: JSON.stringify({
+          document: parsed.data,
+          note: note.trim() || undefined,
+          baseVersionId,
+          templateId: templateId !== savedTemplateId ? templateId : undefined,
+        }),
       });
       if (!res.ok) {
         setError(await readError(res, "저장하지 못했습니다."));
@@ -137,6 +150,7 @@ export function ResumeEditor({
       const { version } = (await res.json()) as { version: ResumeVersionMeta };
       setVersions((vs) => [version, ...vs]);
       setBaseVersionId(version.id);
+      setSavedTemplateId(templateId);
       setDirty(false);
       setNote("");
       setNotice(`v${version.versionNo}로 저장했습니다.`);
@@ -164,16 +178,22 @@ export function ResumeEditor({
     }
     // download 속성 링크로 받는다(페이지 이동이 아니라서 '떠나기' 확인이 뜨지 않는다).
     const a = document.createElement("a");
-    a.href = `/api/resumes/${meta.id}/pdf?version=${encodeURIComponent(versionId)}`;
+    a.href = pdfHref(versionId);
     a.download = "";
     document.body.append(a);
     a.click();
     a.remove();
   }
 
-  async function patchMeta(body: Record<string, unknown>, kind: "template" | "meta"): Promise<boolean> {
+  /** PDF 주소: 화면에서 고른 양식으로 만든다. */
+  function pdfHref(versionId: string) {
+    return `/api/resumes/${meta.id}/pdf?version=${encodeURIComponent(versionId)}&template=${encodeURIComponent(meta.templateId)}`;
+  }
+
+  /** 지원 정보(회사·직무·제목·JD) 수정. 양식은 여기서 바꾸지 않고 버전 저장과 함께 저장한다. */
+  async function patchMeta(body: Record<string, unknown>): Promise<boolean> {
     setError(null);
-    setBusy(kind);
+    setBusy("meta");
     try {
       const res = await fetch(`/api/resumes/${meta.id}`, {
         method: "PATCH",
@@ -185,7 +205,9 @@ export function ResumeEditor({
         return false;
       }
       const { resume } = (await res.json()) as { resume: ResumeMeta };
-      setMeta(resume);
+      // 저장하지 않은 양식 선택은 그대로 둔다.
+      setMeta((m) => ({ ...resume, templateId: m.templateId }));
+      setSavedTemplateId(resume.templateId);
       return true;
     } catch {
       setError("서버에 연결하지 못했습니다.");
@@ -195,27 +217,29 @@ export function ResumeEditor({
     }
   }
 
-  async function changeTemplate(id: ResumeTemplateId) {
-    if (id === meta.templateId) return;
-    const prev = meta.templateId;
-    setMeta((m) => ({ ...m, templateId: id })); // 미리보기는 바로 바꾸고, 실패하면 되돌린다.
-    if (!(await patchMeta({ templateId: id }, "template"))) setMeta((m) => ({ ...m, templateId: prev }));
-  }
+  /** 양식 바꾸기: 미리보기·편집 화면은 바로 바뀌고, 저장하지 않은 변경으로 표시해 다음 버전 저장 때 함께 저장한다. */
+  // 안정된 참조라 memo된 TemplatePicker가 글자 입력마다 다시 그려지지 않는다.
+  const changeTemplate = useCallback((id: ResumeTemplateId) => {
+    setMeta((m) => (m.templateId === id ? m : { ...m, templateId: id }));
+    setNotice(null);
+  }, []);
 
   async function saveMeta(e: React.FormEvent) {
     e.preventDefault();
+    // 공용 이력서는 회사·직무·JD가 없다(제목만 바꾼다).
     const ok = await patchMeta(
-      {
-        company: metaForm.company,
-        roleTitle: metaForm.roleTitle,
-        title: metaForm.title,
-        jdText: metaForm.jdText.trim() ? metaForm.jdText : null,
-      },
-      "meta",
+      isGeneral
+        ? { title: metaForm.title }
+        : {
+            company: metaForm.company,
+            roleTitle: metaForm.roleTitle,
+            title: metaForm.title,
+            jdText: metaForm.jdText.trim() ? metaForm.jdText : null,
+          },
     );
     if (ok) {
       setMetaOpen(false);
-      setNotice("지원 정보를 바꿨습니다.");
+      setNotice(isGeneral ? "제목을 바꿨습니다." : "지원 정보를 바꿨습니다.");
       router.refresh();
     }
   }
@@ -260,6 +284,7 @@ export function ResumeEditor({
       }
       setBaseVersionId(version.id);
       setDoc(data.document);
+      setMeta((m) => ({ ...m, templateId: savedTemplateId })); // 저장하지 않은 양식 선택도 버린다
       setDirty(false);
       setViewing(null);
       setNotice(`v${v.versionNo}을(를) v${version.versionNo}로 복원했습니다.`);
@@ -325,15 +350,27 @@ export function ResumeEditor({
         <div className="min-w-0">
           <h1 className="text-2xl font-bold tracking-tight break-words text-slate-900">{meta.title}</h1>
           <p className="mt-1 flex flex-wrap items-center gap-x-2 gap-y-1 text-sm text-slate-500">
-            <span>
-              {meta.company} · {meta.roleTitle}
-            </span>
+            {isGeneral ? (
+              <>
+                <Badge tone="accent">공용 이력서</Badge>
+                <span>회사 지정 없음</span>
+              </>
+            ) : (
+              <span>
+                {meta.company} · {meta.roleTitle}
+              </span>
+            )}
             {current && <Badge tone="neutral">v{current.versionNo}</Badge>}
             {dirty && <Badge tone="warning">저장 안 됨</Badge>}
             {addCount > 0 && <Badge tone="warning">채울 칸 {addCount}개</Badge>}
             <button type="button" onClick={() => setMetaOpen((o) => !o)} className="font-medium text-indigo-700 hover:underline">
-              지원 정보 {metaOpen ? "닫기" : "수정"}
+              {isGeneral ? "제목" : "지원 정보"} {metaOpen ? "닫기" : "수정"}
             </button>
+            {isGeneral && (
+              <Link href={`/app/resumes/new?from=${encodeURIComponent(meta.id)}`} className="font-medium text-indigo-700 hover:underline">
+                이 공고용으로 복제
+              </Link>
+            )}
           </p>
         </div>
         <div className="flex flex-wrap gap-2">
@@ -358,16 +395,30 @@ export function ResumeEditor({
         </div>
       </div>
 
+      {/* 양식 고르기: 가로로 스크롤되는 카드 */}
+      <section aria-labelledby="template-picker-title" className="min-w-0">
+        <div className="mb-2 flex flex-wrap items-baseline justify-between gap-x-3 gap-y-0.5">
+          <h2 id="template-picker-title" className="text-sm font-semibold text-slate-800">
+            양식 <span className="font-normal text-slate-500">· {template.name}</span>
+          </h2>
+          <p className="text-xs text-slate-500">
+            {meta.templateId !== savedTemplateId ? "바꾼 양식은 저장할 때 함께 저장됩니다." : "양식을 고르면 아래 화면이 바로 바뀝니다."}
+          </p>
+        </div>
+        <TemplatePicker value={meta.templateId} onChange={changeTemplate} disabled={busy === "save" || busy === "restore"} />
+      </section>
+
       {metaOpen && (
         <Card className="p-4 sm:p-5">
           <form onSubmit={saveMeta} className="space-y-4">
             <div className="grid gap-4 sm:grid-cols-3">
-              {(
-                [
-                  ["company", "회사명"],
-                  ["roleTitle", "직무"],
-                  ["title", "제목"],
-                ] as const
+              {(isGeneral
+                ? ([["title", "제목"]] as const)
+                : ([
+                    ["company", "회사명"],
+                    ["roleTitle", "직무"],
+                    ["title", "제목"],
+                  ] as const)
               ).map(([k, label]) => (
                 <label key={k} className="block">
                   <span className="block text-sm font-medium text-slate-800">{label}</span>
@@ -380,6 +431,7 @@ export function ResumeEditor({
                 </label>
               ))}
             </div>
+            {!isGeneral && (
             <label className="block">
               <span className="block text-sm font-medium text-slate-800">채용 공고(JD)</span>
               <textarea
@@ -390,12 +442,13 @@ export function ResumeEditor({
                 className={textareaClass}
               />
             </label>
+            )}
             <div className="flex justify-end gap-2">
               <Button variant="ghost" onClick={() => setMetaOpen(false)}>
                 취소
               </Button>
               <Button type="submit" loading={busy === "meta"} disabled={busy !== null}>
-                지원 정보 저장
+                {isGeneral ? "제목 저장" : "지원 정보 저장"}
               </Button>
             </div>
           </form>
@@ -430,37 +483,6 @@ export function ResumeEditor({
       )}
       {error && <Alert tone="error">{error}</Alert>}
       {notice && !error && <Alert tone="info">{notice}</Alert>}
-
-      {/* 양식 선택 */}
-      <div className="flex flex-wrap items-center gap-2">
-        <span className="text-sm font-medium text-slate-700">양식</span>
-        <div role="radiogroup" aria-label="이력서 양식" className="flex flex-wrap gap-1.5">
-          {RESUME_TEMPLATE_IDS.map((id) => {
-            const t = RESUME_TEMPLATES[id];
-            const active = id === meta.templateId;
-            return (
-              <button
-                key={id}
-                type="button"
-                role="radio"
-                aria-checked={active}
-                title={t.description}
-                disabled={busy === "template"}
-                onClick={() => changeTemplate(id)}
-                className={cn(
-                  "inline-flex items-center gap-1.5 rounded-full border px-3 py-1 text-sm transition-colors",
-                  active
-                    ? "border-indigo-500 bg-indigo-50 font-medium text-indigo-800"
-                    : "border-slate-300 bg-white text-slate-700 hover:bg-slate-50",
-                )}
-              >
-                <span aria-hidden className="inline-block size-2 rounded-full" style={{ backgroundColor: t.style.accent }} />
-                {t.name}
-              </button>
-            );
-          })}
-        </div>
-      </div>
 
       {isPerformance ? (
         // 성과 중심 양식: 원본처럼 A4 시트 위에서 바로 고치거나, 구조화 폼으로 고친다(같은 문서 상태).
@@ -578,7 +600,7 @@ export function ResumeEditor({
                 <Button size="sm" variant="ghost" onClick={() => viewVersion(v)} disabled={busy !== null}>
                   보기
                 </Button>
-                <a href={`/api/resumes/${meta.id}/pdf?version=${encodeURIComponent(v.id)}`} download className={buttonClass("ghost", "sm")}>
+                <a href={pdfHref(v.id)} download className={buttonClass("ghost", "sm")}>
                   PDF
                 </a>
                 {v.id !== baseVersionId && (

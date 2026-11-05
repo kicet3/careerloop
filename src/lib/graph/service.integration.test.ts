@@ -59,6 +59,27 @@ describe.skipIf(!enabled)("graph service (Neo4j)", () => {
     ).rejects.toBeInstanceOf(GraphOpError);
     expect((await getCareerGraph(userA)).nodes).toHaveLength(3);
 
+    // 자소서 소재 분류(문자열 배열)와 STAR 필드는 저장 후 그대로 읽힌다
+    const story = await applyGraphOps(userA, [
+      {
+        op: "addNode",
+        ref: "new:p",
+        label: "Project",
+        props: { name: "정산 개선", situation: "정산이 매일 3시간 걸렸다", action: "배치를 다시 설계했다", result: "20분으로 줄었다", categories: ["problem-solving", "collaboration"] },
+      },
+    ]);
+    const pid = story.created["new:p"]!;
+    expect((await getCareerGraph(userA)).nodes.find((n) => n.id === pid)!.props).toEqual({
+      name: "정산 개선",
+      situation: "정산이 매일 3시간 걸렸다",
+      action: "배치를 다시 설계했다",
+      result: "20분으로 줄었다",
+      categories: ["problem-solving", "collaboration"],
+    });
+    await applyGraphOps(userA, [{ op: "updateNode", id: pid, label: "Project", props: { categories: ["values"] } }]);
+    expect((await getCareerGraph(userA)).nodes.find((n) => n.id === pid)!.props).toMatchObject({ categories: ["values"] });
+    expect(await deleteNode(userA, pid)).toBe(true);
+
     // 삭제하면 관계도 사라진다
     expect(await deleteNode(userA, created["new:s"]!)).toBe(true);
     const g3 = await getCareerGraph(userA);

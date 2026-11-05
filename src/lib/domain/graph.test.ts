@@ -1,7 +1,7 @@
 import { describe, expect, it } from "vitest";
 import { toStrictJsonSchema } from "@/lib/llm/anthropic";
 import { GraphChatOutputSchema, ReviewerChatOutputSchema } from "./chat";
-import { describeGraphOp, type GraphOp, GraphOpSchema, isAllowedEdge, type LlmGraphOp, toGraphOps } from "./graph";
+import { describeGraphOp, type GraphOp, GraphOpSchema, isAllowedEdge, type LlmGraphOp, parseStoryTags, toGraphOps } from "./graph";
 import { ResumeDraftOutputSchema } from "./resumes";
 
 const blank: LlmGraphOp = { op: "addNode", ref: "", id: "", label: "", props: [], type: "", from: "", to: "" };
@@ -95,5 +95,59 @@ describe("LLM 출력 스키마", () => {
       const json = JSON.stringify(toStrictJsonSchema(s));
       expect(json).toContain('"additionalProperties":false');
     }
+  });
+});
+
+describe("자소서 소재 분류(categories)·STAR 속성", () => {
+  const add = (props: { key: string; value: string }[]): LlmGraphOp => ({ ...blank, op: "addNode", ref: "new:p", label: "Project", props });
+
+  it("toGraphOps: id·별칭으로 바꾸고 모르는 값은 errors에 남긴다", () => {
+    const { ops, errors } = toGraphOps([add([{ key: "name", value: "대시보드" }, { key: "categories", value: "collaboration, 리더십, foo" }])]);
+    expect(ops).toHaveLength(1);
+    expect(ops[0]!.op === "addNode" && ops[0]!.props).toEqual({ name: "대시보드", categories: ["collaboration", "leadership"] });
+    expect(errors.join("\n")).toContain("foo");
+  });
+
+  it("toGraphOps: 4개 넘으면 STORY_TAGS 순서로 3개까지, 모두 모르면 그 속성만 뺀다", () => {
+    const four = toGraphOps([add([{ key: "name", value: "a" }, { key: "categories", value: "values|learning|협업|문제해결" }])]);
+    expect(four.ops[0]!.op === "addNode" && four.ops[0]!.props).toEqual({
+      name: "a",
+      categories: ["problem-solving", "collaboration", "values"],
+    });
+    const none = toGraphOps([add([{ key: "name", value: "a" }, { key: "categories", value: "foo bar" }])]);
+    expect(none.ops[0]!.op === "addNode" && none.ops[0]!.props).toEqual({ name: "a" });
+  });
+
+  it("toGraphOps: updateNode의 \"\"는 null, 공백이 든 별칭도 읽는다", () => {
+    const { ops } = toGraphOps([
+      { ...blank, op: "updateNode", id: "p1", label: "Experience", props: [{ key: "categories", value: "" }] },
+      { ...blank, op: "updateNode", id: "p2", label: "Experience", props: [{ key: "categories", value: "도전·실패 극복" }] },
+    ]);
+    expect(ops[0]!.op === "updateNode" && ops[0]!.props).toEqual({ categories: null });
+    expect(ops[1]!.op === "updateNode" && ops[1]!.props).toEqual({ categories: ["challenge-failure"] });
+  });
+
+  it("parseStoryTags: 쉼표 없이 공백으로 이어진 여러 분류는 가장 긴 별칭부터 맞춘다", () => {
+    expect(parseStoryTags("리더십 문제 해결")).toEqual({ tags: ["problem-solving", "leadership"], unknown: [] });
+    expect(parseStoryTags("협업 갈등 해결 지원 동기")).toEqual({ tags: ["collaboration", "motivation"], unknown: [] });
+    expect(parseStoryTags("리더십 foo")).toEqual({ tags: ["leadership"], unknown: ["foo"] });
+  });
+
+  it("기존 props만 있는 addNode는 그대로, STAR 1000자 초과는 그 속성만 빠진다", () => {
+    const old = toGraphOps([add([{ key: "name", value: "a" }, { key: "summary", value: "요약" }])]);
+    expect(old.errors).toEqual([]);
+    expect(old.ops[0]!.op === "addNode" && old.ops[0]!.props).toEqual({ name: "a", summary: "요약" });
+    const long = toGraphOps([add([{ key: "name", value: "a" }, { key: "action", value: "가".repeat(1001) }, { key: "result", value: "30% 감소" }])]);
+    expect(long.ops[0]!.op === "addNode" && long.ops[0]!.props).toEqual({ name: "a", result: "30% 감소" });
+    expect(long.errors).toHaveLength(1);
+  });
+
+  it("GraphOpSchema는 모르는 태그와 빈 배열을 거부하고, Experience.myRole을 받는다", () => {
+    const p = (categories: unknown) => ({ op: "addNode", ref: "new:1", label: "Project", props: { name: "a", categories } });
+    expect(GraphOpSchema.safeParse(p(["collaboration"])).success).toBe(true);
+    expect(GraphOpSchema.safeParse(p(["foo"])).success).toBe(false);
+    expect(GraphOpSchema.safeParse(p([])).success).toBe(false);
+    expect(GraphOpSchema.safeParse(p(["values", "learning", "leadership", "motivation"])).success).toBe(false);
+    expect(GraphOpSchema.safeParse({ op: "addNode", ref: "new:1", label: "Experience", props: { title: "동아리", myRole: "회장" } }).success).toBe(true);
   });
 });

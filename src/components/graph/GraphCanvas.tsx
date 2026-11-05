@@ -11,18 +11,22 @@ const shorten = (s: string, max = 9) => (s.length > max ? `${s.slice(0, max - 1)
 /**
  * 방사형 관계도(SVG). 노드를 누르면 onSelect. 선택한 노드의 관계는 진하게, 관계 이름도 함께 보인다.
  * zoom 1은 상자 폭에 맞춤, 그보다 크면 가로·세로 스크롤로 본다(좁은 화면에서 확대해 보기).
+ * highlightIds: 강조할 경로(그래프에 묻기의 출처 경로). 주면 그 노드와 그 사이 관계를 강조하고 나머지는 흐리게 한다.
  */
 export function GraphCanvas({
   graph,
   selectedId,
   onSelect,
   zoom,
+  highlightIds,
 }: {
   graph: CareerGraph;
   selectedId: string | null;
   onSelect: (id: string) => void;
   zoom: number;
+  highlightIds?: ReadonlySet<string>;
 }) {
+  const hl = highlightIds && highlightIds.size > 0 ? highlightIds : null;
   const layout = useMemo(() => layoutGraph(graph), [graph]);
   const vb = layout.viewBox;
   const personLabel = graph.person.name ? shorten(graph.person.name, 6) : "나";
@@ -60,7 +64,8 @@ export function GraphCanvas({
           const a = layout.positions.get(e.from);
           const b = layout.positions.get(e.to);
           if (!a || !b) return null;
-          const active = selectedId !== null && (e.from === selectedId || e.to === selectedId);
+          const onPath = hl !== null && hl.has(e.from) && hl.has(e.to);
+          const active = onPath || (hl === null && selectedId !== null && (e.from === selectedId || e.to === selectedId));
           // 관계 이름은 선 가운데에서 수직으로 조금 비켜 노드 이름과 덜 겹치게 둔다.
           const len = Math.hypot(b.x - a.x, b.y - a.y) || 1;
           const lx = (a.x + b.x) / 2 + ((a.y - b.y) / len) * 10;
@@ -72,8 +77,11 @@ export function GraphCanvas({
                 y1={a.y}
                 x2={b.x}
                 y2={b.y}
-                className={cn(active ? "stroke-indigo-500" : "stroke-slate-300", selectedId && !active && "opacity-40")}
-                strokeWidth={active ? 2 : 1.2}
+                className={cn(
+                  onPath ? "stroke-amber-500" : active ? "stroke-indigo-500" : "stroke-slate-300",
+                  (selectedId || hl) && !active && "opacity-40",
+                )}
+                strokeWidth={onPath ? 3 : active ? 2 : 1.2}
               />
               {active && (
                 <text
@@ -114,7 +122,8 @@ export function GraphCanvas({
           if (!p) return null;
           const name = nodeDisplayName(n);
           const selected = n.id === selectedId;
-          const dim = selectedId !== null && !selected && !connected.has(n.id);
+          const highlighted = hl?.has(n.id) ?? false;
+          const dim = hl ? !highlighted && !selected : selectedId !== null && !selected && !connected.has(n.id);
           return (
             <g
               key={n.id}
@@ -128,6 +137,7 @@ export function GraphCanvas({
               className={cn("cursor-pointer outline-none focus-visible:[&>circle]:stroke-[4px]", dim && "opacity-45")}
             >
               <title>{`${NODE_LABEL_META[n.label].name}: ${name}`}</title>
+              {highlighted && <circle r={NODE_RADIUS + 5} className="fill-none stroke-amber-400" strokeWidth={3} aria-hidden />}
               <circle r={NODE_RADIUS} className={LABEL_STYLE[n.label].node} strokeWidth={selected ? 4 : 1.5} />
               <text textAnchor="middle" dy="0.35em" className="fill-slate-600 text-[10px] font-semibold">
                 {NODE_LABEL_META[n.label].name.slice(0, 2)}

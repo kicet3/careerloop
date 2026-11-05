@@ -88,6 +88,8 @@ describe("스키마(PGlite에 prisma/migrations 적용)", () => {
       "rate_events",
       "resume_versions",
       "sessions",
+      "shared_postings",
+      "user_consents",
       "users",
     ]);
     expect(rows.every((r) => r.relrowsecurity)).toBe(true);

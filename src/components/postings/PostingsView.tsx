@@ -1,6 +1,7 @@
 "use client";
 /**
- * 공고 보관함 목록: URL 가져오기, 직접 추가, 검색·상태·정렬·마감 임박 필터, 공고 카드(마감 배지).
+ * 공고 보관함 목록: URL 가져오기(진행 중 카드 → 끝나면 새로고침 없이 공고 카드), 직접 추가, 검색·상태·정렬·마감 임박 필터,
+ * 공고 카드(마감 배지). 위쪽 탭으로 '공고 찾기'(공용 공고)로 간다.
  */
 import Link from "next/link";
 import { useRouter } from "next/navigation";
@@ -14,6 +15,7 @@ import {
   POSTING_STATUS_LABELS,
   POSTING_STATUSES,
   WORK_TYPE_LABELS,
+  isPostingImportActive,
   type JobPostingSummary,
   type PostingImportJob,
 } from "@/lib/domain/postings";
@@ -21,17 +23,21 @@ import { formatPostingDeadline } from "@/lib/postings/deadline";
 import { EMPTY_POSTING_FILTERS, filterPostings, POSTING_SORT_LABELS, type PostingFilters, type PostingSort } from "@/lib/postings/filter";
 import { platformLabel } from "@/lib/postings/url";
 import { PostingForm } from "./PostingForm";
-import { PostingImportBar } from "./PostingImportBar";
+import { usePostingImports } from "./import-jobs";
+import { ImportingCard, PostingImportBar } from "./PostingImportBar";
+import { PostingsTabs } from "./PostingsTabs";
 import { DeadlineBadge, inputClass, PostingStatusBadge, useNow } from "./shared";
 
 export function PostingsView({
   initialItems,
   initialImports,
   serverNow,
+  aiAvailable = false,
 }: {
   initialItems: JobPostingSummary[];
   initialImports: PostingImportJob[];
   serverNow: number;
+  aiAvailable?: boolean;
 }) {
   const router = useRouter();
   const now = useNow(serverNow);
@@ -48,6 +54,10 @@ export function PostingsView({
       // 다음 새로고침 때 다시 읽는다.
     }
   }, []);
+  // 진행 중 작업만 이어서 보여 준다(지난 완료·실패는 숨김). 작업이 끝나면 목록을 다시 읽어 카드를 바로 넣는다.
+  const [initialActive] = useState(() => initialImports.filter((j) => isPostingImportActive(j.status)));
+  const imports = usePostingImports({ initialJobs: initialActive, onCompleted: () => void reload() });
+  const importing = imports.jobs.filter((j) => isPostingImportActive(j.status));
 
   const shown = useMemo(() => filterPostings(items, filters, sort, now), [items, filters, sort, now]);
   // 기본 필터(진행 중)가 숨기는 마감·보류 공고 수. 모두 마감·보류면 기본 필터로 '초기화'해도 목록이 비므로 '모두'로 연다.
@@ -61,7 +71,8 @@ export function PostingsView({
     <div className="space-y-6">
       <div className="flex flex-wrap items-end justify-between gap-3">
         <div>
-          <h1 className="text-2xl font-bold tracking-tight text-slate-900">공고 보관함</h1>
+          <PostingsTabs active="library" />
+          <h1 className="mt-3 text-2xl font-bold tracking-tight text-slate-900">공고 보관함</h1>
           <p className="mt-1 text-sm text-slate-500">관심 있는 채용 공고를 모아 두고 마감일·지원 상태를 관리합니다. {items.length}개</p>
         </div>
         <Button variant={adding ? "secondary" : "primary"} onClick={() => setAdding((a) => !a)} aria-expanded={adding}>
@@ -70,13 +81,17 @@ export function PostingsView({
       </div>
 
       <Card className="p-4 sm:p-5">
-        <PostingImportBar initialJobs={initialImports} onCompleted={reload} />
+        <PostingImportBar jobs={imports.jobs} start={imports.start} dismiss={imports.dismiss} />
       </Card>
 
       {adding && (
         <Card className="p-5 sm:p-6">
           <h2 className="mb-4 text-base font-semibold text-slate-900">공고 직접 추가</h2>
-          <PostingForm onCancel={() => setAdding(false)} onSaved={(p) => router.push(`/app/postings/${p.id}`)} />
+          <PostingForm
+            aiAvailable={aiAvailable}
+            onCancel={() => setAdding(false)}
+            onSaved={(p, opts) => router.push(`/app/postings/${p.id}${opts.structure ? "?structure=1" : ""}`)}
+          />
         </Card>
       )}
 
@@ -134,13 +149,28 @@ export function PostingsView({
         </div>
       )}
 
+      {importing.length > 0 && (items.length === 0 || shown.length === 0) && (
+        <ul className="grid gap-3 md:grid-cols-2 xl:grid-cols-3 min-[1920px]:grid-cols-4">
+          {importing.map((j) => (
+            <li key={j.id}>
+              <ImportingCard job={j} />
+            </li>
+          ))}
+        </ul>
+      )}
+
       {items.length === 0 ? (
+        importing.length > 0 ? null : (
         <Card className="px-6 py-14 text-center">
           <p className="text-lg font-semibold text-slate-900">아직 보관한 공고가 없습니다</p>
           <p className="mx-auto mt-2 max-w-md text-sm text-slate-500">
-            위 칸에 공고 링크를 붙여넣거나 &lsquo;직접 추가&rsquo;로 회사·직무·마감일을 적어 두세요. 보관한 공고로 바로 진단하고 맞춤 이력서를 만들 수 있습니다.
+            위 칸에 공고 링크를 붙여넣거나 &lsquo;직접 추가&rsquo;로 회사·직무·마감일을 적어 두세요. 다른 사람이 가져온 공고는 &lsquo;공고 찾기&rsquo;에서 바로 담을 수 있습니다.
           </p>
+          <Link href="/app/postings/explore" className="mt-4 inline-block text-sm font-medium text-indigo-700 hover:underline">
+            공고 찾기 열기 →
+          </Link>
         </Card>
+        )
       ) : shown.length === 0 ? (
         <Card className="px-6 py-10 text-center">
           {isDefaultFilter && hiddenByDefault > 0 ? (
@@ -163,6 +193,11 @@ export function PostingsView({
         </Card>
       ) : (
         <ul className="grid gap-3 md:grid-cols-2 xl:grid-cols-3 min-[1920px]:grid-cols-4">
+          {importing.map((j) => (
+            <li key={j.id}>
+              <ImportingCard job={j} />
+            </li>
+          ))}
           {shown.map((p) => (
             <li key={p.id}>
               <PostingCard posting={p} now={now} />
@@ -181,6 +216,8 @@ function PostingCard({ posting: p, now }: { posting: JobPostingSummary; now: num
     p.workType !== "unknown" ? WORK_TYPE_LABELS[p.workType] : null,
     p.location || null,
   ].filter((t): t is string => !!t);
+  const tech = p.highlights?.techStack ?? [];
+  const salary = p.highlights?.salary ?? "";
   return (
     <Link
       href={`/app/postings/${p.id}`}
@@ -200,13 +237,30 @@ function PostingCard({ posting: p, now }: { posting: JobPostingSummary; now: num
         <DeadlineBadge posting={p} now={now} />
         {p.deadline && <span className="text-slate-500">{formatPostingDeadline(p)}</span>}
       </div>
-      {(tags.length > 0 || !p.hasJd) && (
+      {(tags.length > 0 || !p.hasJd || tech.length > 0 || salary) && (
         <div className="mt-3 flex flex-wrap gap-1.5">
           {tags.map((t) => (
-            <Badge key={t} className="max-w-full truncate">
-              {t}
+            <Badge key={t} className="max-w-full">
+              <span className="min-w-0 truncate" title={t}>
+                {t}
+              </span>
             </Badge>
           ))}
+          {salary && (
+            <Badge tone="positive" className="max-w-full">
+              <span className="min-w-0 truncate" title={salary}>
+                {salary}
+              </span>
+            </Badge>
+          )}
+          {tech.slice(0, 3).map((t) => (
+            <Badge key={`tech-${t}`} tone="accent" className="max-w-full">
+              <span className="min-w-0 truncate" title={t}>
+                {t}
+              </span>
+            </Badge>
+          ))}
+          {tech.length > 3 && <Badge tone="accent">+{tech.length - 3}</Badge>}
           {!p.hasJd && <Badge tone="warning">JD 없음</Badge>}
         </div>
       )}

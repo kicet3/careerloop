@@ -2,13 +2,17 @@
 
 import Link from "next/link";
 import { useRouter } from "next/navigation";
-import { useState } from "react";
+import { useEffect, useState } from "react";
+import { ConsentChecklist } from "@/components/legal/ConsentChecklist";
+import { EMPTY_CONSENT_CHECKS, requiredConsentsChecked, type ConsentChecks } from "@/lib/legal/consents";
 
 type Mode = "login" | "signup";
 type FieldErrors = Partial<Record<"email" | "password", string>>;
 
 /**
- * 가입은 Google로만(처음 Google 로그인하면 자동 가입). 로그인은 Google 또는 이메일·비밀번호
+ * 가입은 Google로만. 가입 화면은 동의 목록(필수 체크 전에는 버튼 비활성)을 폼으로 POST /api/auth/google에 보내고,
+ * 서버가 동의를 서명 쿠키에 담아 Google로 보낸다(콜백이 동의 기록을 남긴다). 로그인 화면의 Google 버튼은 GET 링크 —
+ * 동의 기록이 없는 새 사용자는 로그인 뒤 /consent 화면을 거친다. 로그인은 Google 또는 이메일·비밀번호
  * (Google로 가입한 뒤 계정 설정에서 비밀번호를 정한 사용자).
  * `next`는 서버 페이지에서 safeNextPath()로 검증된 값만 받는다. `googleEnabled`·`error`도 서버 페이지가 정한다.
  */
@@ -27,6 +31,16 @@ export function AuthForm({
   const [pending, setPending] = useState(false);
   const [formError, setFormError] = useState<string | null>(error);
   const [fieldErrors, setFieldErrors] = useState<FieldErrors>({});
+  const [consents, setConsents] = useState<ConsentChecks>(EMPTY_CONSENT_CHECKS);
+  const [redirecting, setRedirecting] = useState(false);
+  // Google 화면에서 뒤로 오면(bfcache 복원) '이동 중' 상태를 풀어 다시 누를 수 있게 한다.
+  useEffect(() => {
+    const onShow = (e: PageTransitionEvent) => {
+      if (e.persisted) setRedirecting(false);
+    };
+    window.addEventListener("pageshow", onShow);
+    return () => window.removeEventListener("pageshow", onShow);
+  }, []);
 
   const googleHref =
     next === "/app"
@@ -86,21 +100,39 @@ export function AuthForm({
           {formError}
         </div>
       )}
-      <GoogleButton
-        href={googleHref}
-        enabled={googleEnabled}
-        label={mode === "signup" ? "Google로 가입하기" : "Google로 로그인"}
-      />
       {mode === "signup" ? (
-        <p className="text-center text-xs text-slate-500">
-          {googleEnabled
-            ? "회원가입은 Google 계정으로만 할 수 있습니다. 가입 후 계정 설정에서 비밀번호를 정하면 이메일로도 로그인할 수 있습니다."
-            : "Google 로그인이 설정되지 않아 지금은 가입할 수 없습니다. 관리자에게 문의해 주세요."}
-        </p>
+        <form
+          method="post"
+          action="/api/auth/google"
+          className="space-y-4"
+          onSubmit={(e) => {
+            if (!googleEnabled || !requiredConsentsChecked(consents) || redirecting) {
+              e.preventDefault();
+              return;
+            }
+            setRedirecting(true);
+          }}
+        >
+          <input type="hidden" name="next" value={next} />
+          <ConsentChecklist checks={consents} onChange={setConsents} />
+          <GoogleSubmitButton
+            enabled={googleEnabled && requiredConsentsChecked(consents)}
+            pending={redirecting}
+            label="Google로 가입하기"
+          />
+          <p className="text-center text-xs text-slate-500">
+            {!googleEnabled
+              ? "Google 로그인이 설정되지 않아 지금은 가입할 수 없습니다. 관리자에게 문의해 주세요."
+              : requiredConsentsChecked(consents)
+                ? "가입하면 관리자 승인 후 이용할 수 있습니다. 가입 후 계정 설정에서 비밀번호를 정하면 이메일로도 로그인할 수 있습니다."
+                : "필수 항목을 모두 체크하면 Google로 가입할 수 있습니다."}
+          </p>
+        </form>
       ) : (
         <>
+          <GoogleButton href={googleHref} enabled={googleEnabled} label="Google로 로그인" />
           {!googleEnabled && (
-            <p className="-mt-3 text-center text-xs text-slate-500">
+            <p className="text-center text-xs text-slate-500">
               Google 로그인이 설정되지 않았습니다.
             </p>
           )}
@@ -192,6 +224,21 @@ function GoogleButton({
     >
       {content}
     </a>
+  );
+}
+
+/** 가입 폼 제출 버튼(필수 동의 전에는 비활성). */
+function GoogleSubmitButton({ enabled, pending, label }: { enabled: boolean; pending: boolean; label: string }) {
+  return (
+    <button
+      type="submit"
+      disabled={!enabled || pending}
+      aria-busy={pending || undefined}
+      className="flex w-full items-center justify-center gap-2.5 rounded-lg border border-slate-300 bg-white px-4 py-2.5 text-sm font-semibold text-slate-800 shadow-sm transition hover:bg-slate-50 focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-indigo-600 disabled:cursor-not-allowed disabled:opacity-50"
+    >
+      <GoogleMark />
+      {pending ? "Google로 이동 중…" : label}
+    </button>
   );
 }
 

@@ -13,7 +13,15 @@ import { FeatureError } from "@/lib/api/errors";
 import { prisma, type Prisma, type Tx } from "@/lib/db/client";
 import { isUniqueViolation, stripNul } from "@/lib/db/errors";
 import type { CompanyResume, ResumeVersion } from "@/lib/db/types";
-import { parseResumeDocument, ResumeDocumentSchema, type ResumeDocument, type ResumeTemplateId, type ResumeVersionSource } from "@/lib/domain/resumes";
+import {
+  GENERAL_RESUME_DEFAULT_TITLE,
+  parseResumeDocument,
+  ResumeDocumentSchema,
+  type ResumeDocument,
+  type ResumeKind,
+  type ResumeTemplateId,
+  type ResumeVersionSource,
+} from "@/lib/domain/resumes";
 import { deleteObject, getJson, listByPrefix, putJson, userKey, userPrefix } from "@/lib/storage";
 import {
   MAX_RESUMES_PER_USER,
@@ -33,12 +41,15 @@ export const RESUME_NOT_FOUND = "이력서를 찾을 수 없습니다.";
 export function toResumeMeta(row: CompanyResume): ResumeMeta {
   return {
     id: row.id,
+    kind: row.kind === "general" ? "general" : "company",
     company: row.company,
     roleTitle: row.roleTitle,
     jdText: row.jdText,
     templateId: row.templateId,
     title: row.title,
     currentVersionId: row.currentVersionId,
+    postingId: row.postingId ?? null,
+    sourceResumeId: row.sourceResumeId ?? null,
     createdAt: row.createdAt.getTime(),
     updatedAt: row.updatedAt.getTime(),
   };
@@ -65,9 +76,10 @@ export function defaultResumeTitle(company: string, roleTitle: string): string {
 // 조회
 // ---------------------------------------------------------------------------
 
-export async function listResumes(userId: string): Promise<ResumeListItem[]> {
+/** 이력서 목록(최근 수정 순). kind를 주면 그 종류만(이력서 화면은 공용·지원처별을 나눠 보여 준다). */
+export async function listResumes(userId: string, opts: { kind?: ResumeKind } = {}): Promise<ResumeListItem[]> {
   const rows = (await prisma.companyResume.findMany({
-    where: { userId },
+    where: { userId, ...(opts.kind ? { kind: opts.kind } : {}) },
     orderBy: [{ updatedAt: "desc" }, { id: "desc" }],
     take: MAX_RESUMES_PER_USER,
   })) as CompanyResume[];
@@ -160,6 +172,8 @@ export interface SaveVersionOptions {
   note?: string | null;
   /** 지정하면 현재 버전이 이것과 같을 때만 저장(다른 탭의 저장을 덮어쓰지 않게). */
   baseVersionId?: string | null;
+  /** 이 저장으로 함께 바꿀 양식. 현재 버전 포인터를 옮기는 트랜잭션에서 같이 바꾼다(저장이 취소되면 양식도 그대로). */
+  templateId?: ResumeTemplateId;
 }
 
 /**
@@ -240,7 +254,7 @@ export async function saveVersion(
     }
     const { count } = await tx.companyResume.updateMany({
       where: { id: resumeId, userId },
-      data: { currentVersionId: reserved.id, updatedAt: new Date() },
+      data: { currentVersionId: reserved.id, updatedAt: new Date(), ...(opts.templateId ? { templateId: opts.templateId } : {}) },
     });
     return count > 0;
   });
@@ -254,6 +268,8 @@ export async function saveVersion(
 }
 
 export interface CreateResumeParams {
+  /** 기본 'company'. 'general'이면 company·roleTitle·postingId를 무시하고 ''·null로 저장한다(jdText도 null). */
+  kind?: ResumeKind;
   company: string;
   roleTitle: string;
   jdText?: string | null;
@@ -264,6 +280,8 @@ export interface CreateResumeParams {
   note?: string | null;
   /** 이 이력서를 만든 보관 공고(호출자가 소유권을 확인한 id). */
   postingId?: string | null;
+  /** 복제·'공용 이력서 내용으로 시작'의 원본(호출자가 소유권을 확인한 id). */
+  sourceResumeId?: string | null;
 }
 
 /** 메타 + 첫 버전(v1). 본문 저장이 실패하면 메타도 지운다. */
@@ -273,18 +291,22 @@ export async function createResume(userId: string, p: CreateResumeParams): Promi
     throw new FeatureError(`이력서는 ${MAX_RESUMES_PER_USER}개까지 만들 수 있습니다. 쓰지 않는 이력서를 지워 주세요.`, 409);
   }
   const id = newId();
-  const company = stripNul(p.company.trim());
-  const roleTitle = stripNul(p.roleTitle.trim());
+  const kind: ResumeKind = p.kind ?? "company";
+  const general = kind === "general";
+  const company = general ? "" : stripNul(p.company.trim());
+  const roleTitle = general ? "" : stripNul(p.roleTitle.trim());
   await prisma.companyResume.create({
     data: {
       id,
       userId,
+      kind,
       company,
       roleTitle,
-      jdText: stripNul(p.jdText?.trim() || null),
+      jdText: general ? null : stripNul(p.jdText?.trim() || null),
       templateId: p.templateId,
-      title: stripNul(p.title?.trim() || null) || defaultResumeTitle(company, roleTitle),
-      postingId: p.postingId ?? null,
+      title: stripNul(p.title?.trim() || null) || (general ? GENERAL_RESUME_DEFAULT_TITLE : defaultResumeTitle(company, roleTitle)),
+      postingId: general ? null : (p.postingId ?? null),
+      sourceResumeId: p.sourceResumeId ?? null,
     },
   });
   try {
@@ -295,6 +317,45 @@ export async function createResume(userId: string, p: CreateResumeParams): Promi
     await prisma.companyResume.deleteMany({ where: { id } });
     throw err;
   }
+}
+
+export interface CopyResumeTarget {
+  kind: ResumeKind;
+  /** kind 'company'면 필수(1자 이상). */
+  company?: string;
+  roleTitle?: string;
+  jdText?: string | null;
+  postingId?: string | null;
+  title?: string | null;
+  /** 생략하면 원본 양식. */
+  templateId?: ResumeTemplateId;
+}
+
+/**
+ * 원본 이력서의 현재 버전 본문으로 새 이력서를 만든다('이 공고용으로 복제'·'공용 이력서 내용으로 시작').
+ * 새 이력서의 v1은 source 'manual', 메모 "<원본 제목> vN에서 복제". 원본이 남의 것이거나 없으면 null.
+ */
+export async function copyResume(
+  userId: string,
+  sourceResumeId: string,
+  target: CopyResumeTarget,
+): Promise<{ resume: ResumeMeta; version: ResumeVersionMeta } | null> {
+  const found = await getVersionDocument(userId, sourceResumeId);
+  if (!found) return null;
+  if (target.kind === "company" && !target.company?.trim()) throw new FeatureError("회사명을 입력해 주세요.", 400);
+  return createResume(userId, {
+    kind: target.kind,
+    company: target.company ?? "",
+    roleTitle: target.roleTitle ?? "",
+    jdText: target.jdText ?? null,
+    postingId: target.postingId ?? null,
+    title: target.title ?? null,
+    templateId: target.templateId ?? found.resume.templateId,
+    document: found.document,
+    source: "manual",
+    note: `${found.resume.title} v${found.version.versionNo}에서 복제`.slice(0, 200),
+    sourceResumeId,
+  });
 }
 
 /** 메타 수정(양식 전환 포함). 남의 이력서면 null. */

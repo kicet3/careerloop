@@ -11,6 +11,7 @@ import {
   type GraphOp,
   GraphOpSchema,
   isAllowedEdge,
+  MAX_STORY_TAGS,
   NODE_PROP_SCHEMAS,
   NODE_TITLE_KEY,
   type NodeLabel,
@@ -20,13 +21,15 @@ import {
   REL_TYPES,
   type RelType,
   SKILL_CATEGORIES,
+  STORY_TAGS,
 } from "@/lib/domain/graph";
+import { storyTagName } from "@/lib/domain/experience-categories";
 
 // ---------------------------------------------------------------------------
 // 입력 필드
 // ---------------------------------------------------------------------------
 
-export type FieldKind = "text" | "textarea" | "date" | "number" | "boolean" | "select" | "url";
+export type FieldKind = "text" | "textarea" | "date" | "number" | "boolean" | "select" | "url" | "tags";
 
 export interface FieldSpec {
   key: string;
@@ -35,6 +38,10 @@ export interface FieldSpec {
   required: boolean;
   options?: { value: string; label: string }[];
   placeholder?: string;
+  /** "story": 자소서 소재(STAR) 소제목 아래로 모아 보인다. */
+  group?: "story";
+  /** tags: 고를 수 있는 최대 개수. */
+  maxItems?: number;
 }
 
 const PROP_LABELS: Record<string, string> = {
@@ -65,7 +72,15 @@ const PROP_LABELS: Record<string, string> = {
   status: "상태",
   issuer: "발급 기관",
   score: "점수·등급",
+  situation: "상황·목표(S·T)",
+  action: "내 행동(A)",
+  result: "결과(R)",
+  learned: "배운 점",
+  categories: "자소서 소재 분류",
 };
+
+/** 자소서 소재(STAR) 묶음에 들어가는 키. */
+const STORY_KEYS = new Set(["situation", "action", "result", "learned", "categories"]);
 
 /** 라벨마다 뜻이 달라지는 키(대표 키 위주). */
 const PROP_LABEL_OVERRIDES: Partial<Record<NodeLabel, Record<string, string>>> = {
@@ -87,7 +102,19 @@ const SKILL_CATEGORY_LABELS: Record<(typeof SKILL_CATEGORIES)[number], string> =
   other: "기타",
 };
 
-const TEXTAREA_KEYS = new Set(["description", "summary"]);
+const TEXTAREA_KEYS = new Set(["description", "summary", "situation", "action", "result", "learned"]);
+
+/** tags 값(폼): STORY_TAGS 순서로 정렬한 id를 쉼표로 이은 문자열. */
+function joinTags(v: unknown): string {
+  if (!Array.isArray(v)) return "";
+  const set = new Set(v.map(String));
+  return STORY_TAGS.filter((t) => set.has(t)).join(",");
+}
+
+/** 폼의 tags 문자열 → id 배열(정렬, 중복 제거). */
+export function splitTags(s: string): string[] {
+  return joinTags(s.split(",").map((x) => x.trim()).filter(Boolean)).split(",").filter(Boolean);
+}
 
 export function propLabel(label: NodeLabel, key: string): string {
   return PROP_LABEL_OVERRIDES[label]?.[key] ?? PROP_LABELS[key] ?? key;
@@ -103,7 +130,13 @@ export function fieldsFor(label: NodeLabel): FieldSpec[] {
     const required = !(schema instanceof z.ZodOptional);
     const inner = schema instanceof z.ZodOptional ? (schema.unwrap() as z.ZodType) : schema;
     const spec: FieldSpec = { key, label: propLabel(label, key), kind: "text", required };
-    if (inner instanceof z.ZodBoolean) spec.kind = "boolean";
+    if (STORY_KEYS.has(key)) spec.group = "story";
+    if (inner instanceof z.ZodArray) {
+      spec.kind = "tags";
+      const el = inner.element as z.ZodType;
+      spec.options = el instanceof z.ZodEnum ? (el.options as string[]).map((v) => ({ value: v, label: storyTagName(v) })) : [];
+      spec.maxItems = MAX_STORY_TAGS;
+    } else if (inner instanceof z.ZodBoolean) spec.kind = "boolean";
     else if (inner instanceof z.ZodNumber) spec.kind = "number";
     else if (inner instanceof z.ZodEnum) {
       spec.kind = "select";
@@ -119,7 +152,7 @@ export function fieldsFor(label: NodeLabel): FieldSpec[] {
       spec.placeholder = "https://";
     } else if (TEXTAREA_KEYS.has(key)) spec.kind = "textarea";
     const desc = inner.description;
-    if (!spec.placeholder && desc && spec.kind === "text") spec.placeholder = desc;
+    if (!spec.placeholder && desc && (spec.kind === "text" || spec.kind === "textarea")) spec.placeholder = desc;
     return spec;
   });
 }
@@ -131,7 +164,7 @@ export function formValuesFrom(label: NodeLabel, props: Record<string, unknown> 
   const values: FormValues = {};
   for (const f of fieldsFor(label)) {
     const v = props[f.key];
-    values[f.key] = f.kind === "boolean" ? v === true : v === undefined || v === null ? "" : String(v);
+    values[f.key] = f.kind === "boolean" ? v === true : f.kind === "tags" ? joinTags(v) : v === undefined || v === null ? "" : String(v);
   }
   return values;
 }
@@ -139,6 +172,7 @@ export function formValuesFrom(label: NodeLabel, props: Record<string, unknown> 
 function toPropValue(f: FieldSpec, raw: string | boolean): unknown {
   if (f.kind === "boolean") return raw === true;
   const s = String(raw).trim();
+  if (f.kind === "tags") return splitTags(s);
   if (f.kind === "number") {
     const n = Number(s);
     return Number.isFinite(n) ? n : s;
@@ -147,7 +181,8 @@ function toPropValue(f: FieldSpec, raw: string | boolean): unknown {
 }
 
 const isEmpty = (f: FieldSpec, raw: string | boolean | undefined) =>
-  raw === undefined || (f.kind === "boolean" ? raw !== true : String(raw).trim() === "");
+  raw === undefined ||
+  (f.kind === "boolean" ? raw !== true : f.kind === "tags" ? splitTags(String(raw)).length === 0 : String(raw).trim() === "");
 
 /** zod 이슈를 필드 이름이 들어간 한 줄로. */
 function issueMessage(label: NodeLabel, err: z.ZodError): string {
@@ -202,7 +237,12 @@ export function buildUpdateNodeOps(node: GraphNode, values: FormValues): OpsResu
   for (const f of fieldsFor(node.label)) {
     const next = values[f.key];
     if (next === undefined) continue;
-    const same = f.kind === "boolean" ? (next === true) === (before[f.key] === true) : String(next).trim() === String(before[f.key]).trim();
+    const same =
+      f.kind === "boolean"
+        ? (next === true) === (before[f.key] === true)
+        : f.kind === "tags"
+          ? splitTags(String(next)).join(",") === String(before[f.key])
+          : String(next).trim() === String(before[f.key]).trim();
     if (same) continue;
     if (isEmpty(f, next)) {
       if (f.required) return { ok: false, error: `${f.label}은(는) 비울 수 없습니다.` };
@@ -325,15 +365,18 @@ export function sortNodesForList(nodes: readonly GraphNode[]): GraphNode[] {
   });
 }
 
+/** 속성 값 → 표시 문구. 배열(소재 분류)은 카테고리 이름을 ·로 잇는다. */
+export function formatPropValue(label: NodeLabel, key: string, v: unknown): string {
+  if (Array.isArray(v)) return v.map((x) => storyTagName(String(x))).join(" · ");
+  if (typeof v === "boolean") return v ? "예" : "아니오";
+  const f = fieldsFor(label).find((x) => x.key === key);
+  return f?.options?.find((o) => o.value === v)?.label ?? String(v);
+}
+
 /** 상세 패널에 보일 속성 목록(대표 키 제외, 값 있는 것만). */
-export function displayProps(node: GraphNode): { key: string; label: string; value: string }[] {
+export function displayProps(node: GraphNode): { key: string; label: string; value: string; group?: "story" }[] {
   const p = node.props as Record<string, unknown>;
   return fieldsFor(node.label)
     .filter((f) => f.key !== NODE_TITLE_KEY[node.label] && p[f.key] !== undefined && p[f.key] !== null && p[f.key] !== "")
-    .map((f) => {
-      const v = p[f.key];
-      const value =
-        f.kind === "boolean" ? (v === true ? "예" : "아니오") : (f.options?.find((o) => o.value === v)?.label ?? String(v));
-      return { key: f.key, label: f.label, value };
-    });
+    .map((f) => ({ key: f.key, label: f.label, value: formatPropValue(node.label, f.key, p[f.key]), group: f.group }));
 }

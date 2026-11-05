@@ -248,6 +248,14 @@ export const ResumeDraftOutputSchema = z.object({
 });
 export type ResumeDraftOutput = z.infer<typeof ResumeDraftOutputSchema>;
 
+/** company: 지원처(공고)별 이력서 · general: 회사 지정 없는 공용(마스터) 이력서(company·roleTitle '', postingId null). */
+export const RESUME_KINDS = ["company", "general"] as const;
+export type ResumeKind = (typeof RESUME_KINDS)[number];
+export const RESUME_KIND_LABELS: Record<ResumeKind, string> = { company: "지원처별 이력서", general: "공용 이력서" };
+export const ResumeKindSchema = z.enum(RESUME_KINDS);
+/** 공용 이력서의 기본 제목. */
+export const GENERAL_RESUME_DEFAULT_TITLE = "공용 이력서";
+
 export const RESUME_VERSION_SOURCES = ["ai", "manual"] as const;
 export type ResumeVersionSource = (typeof RESUME_VERSION_SOURCES)[number];
 

@@ -17,9 +17,18 @@ import type {
   StageOutputs,
   SynthesisResult,
 } from "@/lib/domain/schemas";
-import { CHAT_TAGS, type GraphChatOutput, type ReviewerChatOutput } from "@/lib/domain/chat";
+import {
+  CHAT_TAGS,
+  type GraphChatOutput,
+  type GraphImportOutput,
+  type GraphQaOutput,
+  type GraphQaRerankOutput,
+  type ReviewerChatOutput,
+} from "@/lib/domain/chat";
+import { extractKeywords } from "@/lib/skills/dictionary";
 import { emptyResumeDocument, type ResumeDraftOutput } from "@/lib/domain/resumes";
-import type { PostingFacts } from "@/lib/domain/postings";
+import type { PostingSectionsLlm } from "@/lib/domain/posting-structure";
+import type { PostingExtract } from "@/lib/domain/postings";
 import { computeMatchScore } from "@/lib/panel/fit-score";
 import { extractField, extractJson, extractTag, TAGS } from "@/lib/panel/prompts";
 import {
@@ -561,12 +570,68 @@ function fakeResumeDraft(user: string): ResumeDraftOutput {
   };
 }
 
+/** 가짜 구역 추출: "주요 업무"·"자격 요건"·"우대 사항"·"복리후생"·"채용 절차" 제목 아래 줄을 그대로 복사한다. */
+const FAKE_SECTION_HEADINGS: [RegExp, keyof PostingSectionsLlm][] = [
+  [/^(?:주요|담당)\s*업무/, "duties"],
+  [/^(?:자격\s*요건|필수\s*(?:요건|사항)|지원\s*자격)/, "requirements"],
+  [/^우대/, "preferred"],
+  [/^(?:복리\s*후생|복지|혜택)/, "benefits"],
+  [/^(?:전형\s*절차|채용\s*절차)/, "process"],
+  [/^(?:회사\s*소개|기업\s*소개)/, "companyIntro"],
+];
+
+function fakeSections(lines: string[], summary: string): PostingSectionsLlm {
+  const out: PostingSectionsLlm = {
+    companyIndustry: "",
+    companySize: "",
+    companyIntro: [],
+    summary,
+    duties: [],
+    requirements: [],
+    preferred: [],
+    techStack: [],
+    salary: "",
+    workHours: "",
+    conditionsOther: [],
+    benefits: [],
+    process: [],
+    documents: [],
+    applyMethod: [],
+    notes: [],
+  };
+  type ListKey = "companyIntro" | "duties" | "requirements" | "preferred" | "benefits" | "process";
+  let current: ListKey | null = null;
+  for (const raw of lines) {
+    const line = raw.replace(/^[-•·*\s]+/, "").trim();
+    const heading = FAKE_SECTION_HEADINGS.find(([re]) => re.test(line));
+    if (heading && line.length <= 20) {
+      current = heading[1] as ListKey;
+      continue;
+    }
+    const salary = /^(?:연봉|급여)\s*[:：]\s*(.+)$/.exec(line);
+    if (salary) {
+      out.salary = salary[1]!.slice(0, 120);
+      current = null;
+      continue;
+    }
+    if (/[:：]$/.test(line)) {
+      current = null;
+      continue;
+    }
+    if (current && line) (out[current] as string[]).push(line.slice(0, 300));
+  }
+  const listed = [...out.duties, ...out.requirements, ...out.preferred].join("\n");
+  out.techStack = [...new Set((listed.match(TECH_RE) ?? []).map((t) => t.trim()).filter((t) => t.length >= 2))].slice(0, 30);
+  return out;
+}
+
 /**
  * 공고 페이지 본문(<posting_page>)에서 "회사: …", "직무: …"(모집 직무·포지션·모집 분야), 마감/접수 줄의 날짜·시각을 읽는다.
  * 근거(*Evidence)는 본문 줄을 그대로 쓴다. 회사·직무 줄이 없으면 isJobPosting=false(목록·로그인 페이지 흉내).
  * 근거 검증 실패를 시험하려면 본문에 "[가짜:근거없음]"을 넣는다 — 근거 문구를 본문에 없는 말로 바꾼다.
+ * 구역(sections)은 fakeSections — 구역만 다시 정리하는 요청(PostingSectionsOnlySchema)도 같은 출력에서 sections만 읽힌다.
  */
-function fakePostingExtract(user: string): PostingFacts {
+function fakePostingExtract(user: string): PostingExtract {
   const page = extractTag(user, CHAT_TAGS.postingPage) ?? "";
   const lines = page.split(/\r?\n/).map((l) => l.trim()).filter(Boolean);
   const find = (re: RegExp) => {
@@ -583,7 +648,7 @@ function fakePostingExtract(user: string): PostingFacts {
   const time = /(\d{1,2}):(\d{2})/.exec(deadlineLine);
   const pad = (v: string) => v.padStart(2, "0");
   const fakeEvidence = page.includes("[가짜:근거없음]");
-  const blank: PostingFacts = {
+  const blank: PostingExtract = {
     isJobPosting: false,
     company: "",
     companyEvidence: "",
@@ -597,7 +662,7 @@ function fakePostingExtract(user: string): PostingFacts {
     deadlineTime: "",
     deadlineEvidence: "",
     rolling: false,
-    note: "공고 본문을 찾지 못했습니다.",
+    sections: fakeSections(lines, ""),
   };
   if (!company || !role) return blank;
   const has = (re: RegExp) => re.test(page);
@@ -616,8 +681,112 @@ function fakePostingExtract(user: string): PostingFacts {
     deadlineTime: date && time ? `${pad(time[1]!)}:${time[2]}` : "",
     deadlineEvidence: date ? deadlineLine.slice(0, 500) : "",
     rolling: has(/상시\s*채용|채용\s*시\s*마감/),
-    note: lines.slice(0, 5).join("\n").slice(0, 2000),
+    sections: fakeSections(lines, `${company.value} ${role.value} 포지션입니다.`.replace(/\d+/g, "").slice(0, 300)),
   };
+}
+
+/**
+ * 가짜 문서 가져오기: <resume>/<portfolio>에서 "회사: …", "직무: …", "프로젝트: …", "성과: …" 줄과 사전 기술을 읽어 변경안을 만든다.
+ * 문서에 "[가짜:지어냄]"이 있으면 문서에 없는 회사·수치를, "[가짜:삭제]"가 있으면 deleteNode를 섞는다(서버 검증 시험용).
+ */
+function fakeGraphImport(user: string): GraphImportOutput {
+  const doc = extractTag(user, CHAT_TAGS.resume) ?? extractTag(user, CHAT_TAGS.portfolio) ?? "";
+  const lines = doc.split(/\r?\n/).map((l) => l.replace(BULLET_RE, "").trim());
+  const value = (re: RegExp) => lines.map((l) => re.exec(l)?.[1]?.trim()).filter((v): v is string => Boolean(v));
+  const blank = { ref: "", id: "", label: "" as const, props: [], type: "" as const, from: "", to: "" };
+  const ops: GraphImportOutput["ops"] = [];
+  const company = value(/^(?:회사|회사명)\s*[:：]\s*(.+)$/)[0];
+  const role = value(/^(?:직무|직함)\s*[:：]\s*(.+)$/)[0];
+  const projects = value(/^프로젝트\s*[:：]\s*(.+)$/).slice(0, 5);
+  const achievements = value(/^성과\s*[:：]\s*(.+)$/).slice(0, 5);
+  if (company) {
+    ops.push({ ...blank, op: "addNode", ref: "new:company", label: "Company", props: [{ key: "name", value: company.slice(0, 120) }] });
+    ops.push({ ...blank, op: "addEdge", type: "WORKED_AT", from: "me", to: "new:company" });
+  }
+  if (role) {
+    ops.push({ ...blank, op: "addNode", ref: "new:role", label: "Role", props: [{ key: "title", value: role.slice(0, 120) }] });
+    ops.push({ ...blank, op: "addEdge", type: "HAD_ROLE", from: "me", to: "new:role" });
+    if (company) ops.push({ ...blank, op: "addEdge", type: "AT_COMPANY", from: "new:role", to: "new:company" });
+  }
+  projects.forEach((name, i) => {
+    ops.push({ ...blank, op: "addNode", ref: `new:p${i}`, label: "Project", props: [{ key: "name", value: name.slice(0, 120) }] });
+    ops.push({ ...blank, op: "addEdge", type: "WORKED_ON", from: role ? "new:role" : "me", to: `new:p${i}` });
+  });
+  achievements.forEach((text, i) => {
+    ops.push({
+      ...blank,
+      op: "addNode",
+      ref: `new:a${i}`,
+      label: "Achievement",
+      props: [
+        { key: "summary", value: text.slice(0, 300) },
+        { key: "value", value: (text.match(/[\d.,]+\s*[%％배명건원시간분초]*(?:\s*(?:→|->|에서)\s*[\d.,]+\s*[%％배명건원시간분초]*)?/)?.[0] ?? text).slice(0, 80) },
+      ],
+    });
+    ops.push({ ...blank, op: "addEdge", type: "ACHIEVED", from: projects.length ? "new:p0" : "me", to: `new:a${i}` });
+  });
+  extractKeywords(doc)
+    .slice(0, 6)
+    .forEach((name, i) => {
+      ops.push({ ...blank, op: "addNode", ref: `new:s${i}`, label: "Skill", props: [{ key: "name", value: name }] });
+      ops.push(
+        projects.length
+          ? { ...blank, op: "addEdge", type: "USED_SKILL", from: "new:p0", to: `new:s${i}` }
+          : { ...blank, op: "addEdge", type: "HAS_SKILL", from: "me", to: `new:s${i}` },
+      );
+    });
+  if (doc.includes("[가짜:지어냄]")) {
+    ops.push({ ...blank, op: "addNode", ref: "new:fake", label: "Company", props: [{ key: "name", value: "지어낸주식회사" }] });
+    ops.push({ ...blank, op: "addEdge", type: "WORKED_AT", from: "me", to: "new:fake" });
+    ops.push({ ...blank, op: "addNode", ref: "new:fakea", label: "Achievement", props: [{ key: "summary", value: "매출 증가" }, { key: "value", value: "987%" }] });
+    ops.push({ ...blank, op: "addEdge", type: "ACHIEVED", from: "me", to: "new:fakea" });
+  }
+  if (doc.includes("[가짜:삭제]")) ops.push({ ...blank, op: "deleteNode", id: "n_any" });
+  return {
+    reply: `문서에서 ${[company && "회사", role && "직무", projects.length && "프로젝트", achievements.length && "성과"].filter(Boolean).join("·") || "기술"}을(를) 정리했어요. 확인 후 적용해 주세요.`,
+    ops,
+    summary: `문서에서 ${ops.filter((o) => o.op === "addNode").length}개 항목 추출`,
+    followUpQuestions: ["이 직무의 재직 기간은 언제부터 언제까지였나요?"],
+  };
+}
+
+/** 출처 표(<graph_sources>)의 "[n] 라벨 · 이름" 줄. */
+function sourceLines(user: string): { n: number; text: string }[] {
+  const body = extractTag(user, CHAT_TAGS.graphSources) ?? "";
+  return [...body.matchAll(/^\[(\d{1,2})\]\s+(.+)$/gm)].map((m) => ({ n: Number(m[1]), text: m[2]!.trim() }));
+}
+
+/**
+ * 가짜 그래프 답변: 출처 [1]·[2]를 인용한다. 출처가 없거나 "직접 맞는 항목을 찾지 못해" 안내가 있으면 insufficient.
+ * 질문에 "[가짜:잘못된인용]"이 있으면 없는 번호 [99]도 인용한다(서버 인용 검증 시험용).
+ */
+function fakeGraphQa(user: string): GraphQaOutput {
+  const sources = sourceLines(user);
+  const body = extractTag(user, CHAT_TAGS.graphSources) ?? "";
+  const question = extractTag(user, CHAT_TAGS.latestMessage) ?? "";
+  if (sources.length === 0 || body.includes("직접 맞는 항목을 찾지 못해")) {
+    return {
+      answer: "그래프에 아직 이 질문에 답할 정보가 없습니다.",
+      usedSources: [],
+      insufficient: true,
+      missingInfo: ["질문과 관련된 경험·프로젝트"],
+    };
+  }
+  const [a, b] = sources;
+  const bogus = question.includes("[가짜:잘못된인용]") ? " 그리고 다른 사실도 있습니다 [99]." : "";
+  return {
+    answer: `그래프에 따르면 ${a!.text}입니다 [${a!.n}].${b ? ` 관련해서 ${b.text}도 있습니다 [${b.n}].` : ""}${bogus}`,
+    usedSources: [a!.n, ...(b ? [b.n] : [])],
+    insufficient: false,
+    missingInfo: [],
+  };
+}
+
+/** 가짜 리랭크: 후보 순서를 관련도로(앞 3개 3, 다음 3개 2, 나머지 1). */
+function fakeGraphQaRerank(user: string): GraphQaRerankOutput {
+  const body = extractTag(user, CHAT_TAGS.graphSources) ?? "";
+  const ids = [...body.matchAll(/^\[(c\d{1,2})\]/gm)].map((m) => m[1]!);
+  return { ratings: ids.slice(0, 20).map((id, i) => ({ id, relevance: i < 3 ? 3 : i < 6 ? 2 : 1 })) };
 }
 
 function fakeTaskOutput(task: LlmTask, user: string): unknown {
@@ -630,6 +799,12 @@ function fakeTaskOutput(task: LlmTask, user: string): unknown {
       return fakeResumeDraft(user);
     case "posting-extract":
       return fakePostingExtract(user);
+    case "graph-import":
+      return fakeGraphImport(user);
+    case "graph-qa":
+      return fakeGraphQa(user);
+    case "graph-qa-rerank":
+      return fakeGraphQaRerank(user);
   }
 }
 

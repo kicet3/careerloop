@@ -4,9 +4,11 @@
  */
 import { z } from "zod";
 import {
+  ResumeKindSchema,
   ResumeTemplateIdSchema,
   StoredResumeDocumentSchema,
   type ResumeDocument,
+  type ResumeKind,
   type ResumeTemplateId,
   type ResumeVersionSource,
 } from "@/lib/domain/resumes";
@@ -48,20 +50,38 @@ export const ResumeDraftSourceSchema = z.discriminatedUnion("kind", [
 ]);
 export type ResumeDraftSource = z.infer<typeof ResumeDraftSourceSchema>;
 
-/** POST /api/resumes */
-export const CreateResumeInputSchema = z.object({
-  company: metaText("회사명"),
-  roleTitle: metaText("직무"),
-  jdText: jdText.optional().default(""),
-  templateId: ResumeTemplateIdSchema,
-  title: z.string().trim().max(MAX_RESUME_META_CHARS).optional().default(""),
-  source: ResumeDraftSourceSchema,
-  /** AI 초안 엔진(providers). 비우면 기본 엔진. 빈 문서면 무시. */
-  provider: z.string().max(40).nullable().optional(),
-  /** 보관 공고에서 시작했으면 그 공고 id. 라우트가 소유권을 확인하고, 비운 회사·직무·JD를 공고 값으로 채운다. */
-  postingId: z.string().trim().min(1).max(64).nullable().optional(),
-});
+const optionalMeta = z.string().trim().max(MAX_RESUME_META_CHARS, `${MAX_RESUME_META_CHARS}자 이내로 입력해 주세요.`).optional().default("");
+
+/**
+ * POST /api/resumes
+ * - kind 'company'(기본): 지원할 공고(postingId)의 회사·직무·JD로 만든다(라우트가 비운 값을 공고로 채운다). 회사·직무는 필수.
+ * - kind 'general': 회사 지정 없는 공용 이력서. company·roleTitle·jdText·postingId는 무시한다.
+ * - sourceResumeId: 그 이력서(보통 공용 이력서)의 현재 버전 내용으로 시작한다('공용 이력서 내용으로 시작'). 이때 source는 무시한다(AI 없음).
+ */
+export const CreateResumeInputSchema = z
+  .object({
+    kind: ResumeKindSchema.optional().default("company"),
+    company: optionalMeta,
+    roleTitle: optionalMeta,
+    jdText: jdText.optional().default(""),
+    templateId: ResumeTemplateIdSchema,
+    title: z.string().trim().max(MAX_RESUME_META_CHARS).optional().default(""),
+    source: ResumeDraftSourceSchema,
+    /** AI 초안 엔진(providers). 비우면 기본 엔진. 빈 문서면 무시. */
+    provider: z.string().max(40).nullable().optional(),
+    /** 보관 공고에서 시작했으면 그 공고 id. 라우트가 소유권을 확인하고, 비운 회사·직무·JD를 공고 값으로 채운다. */
+    postingId: z.string().trim().min(1).max(64).nullable().optional(),
+    /** 이 이력서의 현재 버전 내용으로 시작한다(서비스가 소유권을 확인). */
+    sourceResumeId: z.string().trim().min(1).max(64).nullable().optional(),
+  })
+  .superRefine((v, ctx) => {
+    if (v.kind !== "company") return;
+    if (!v.company) ctx.addIssue({ code: "custom", path: ["company"], message: "지원할 공고를 고르거나 회사명을 입력해 주세요." });
+    if (!v.roleTitle) ctx.addIssue({ code: "custom", path: ["roleTitle"], message: "직무를 입력해 주세요." });
+  });
 export type CreateResumeInput = z.infer<typeof CreateResumeInputSchema>;
+/** 화면이 보내는 본문(기본값 채우기 전). */
+export type CreateResumeRequest = z.input<typeof CreateResumeInputSchema>;
 
 /** PATCH /api/resumes/[id] — 메타만(본문은 버전 저장). 양식 전환도 여기서 한다. */
 export const UpdateResumeMetaSchema = z
@@ -83,6 +103,8 @@ export const SaveResumeVersionSchema = z.object({
   note: z.string().trim().max(MAX_RESUME_NOTE_CHARS).optional(),
   /** 편집을 시작한 버전. 그사이 다른 탭에서 저장했으면 409(덮어쓰기 방지). 생략하면 검사하지 않는다. */
   baseVersionId: z.string().max(64).nullable().optional(),
+  /** 편집 화면에서 바꾼 양식. 버전 저장과 함께 이력서의 양식으로 반영한다. 생략하면 그대로. */
+  templateId: ResumeTemplateIdSchema.optional(),
 });
 export type SaveResumeVersion = z.infer<typeof SaveResumeVersionSchema>;
 
@@ -92,12 +114,18 @@ export type SaveResumeVersion = z.infer<typeof SaveResumeVersionSchema>;
 
 export interface ResumeMeta {
   id: string;
+  /** 'general'이면 company·roleTitle은 ''이고 postingId는 null. */
+  kind: ResumeKind;
   company: string;
   roleTitle: string;
   jdText: string | null;
   templateId: ResumeTemplateId;
   title: string;
   currentVersionId: string | null;
+  /** 이 이력서를 만든 보관 공고(공고를 지우면 null). */
+  postingId: string | null;
+  /** 복제·'공용 이력서 내용으로 시작'의 원본 이력서. */
+  sourceResumeId: string | null;
   createdAt: number;
   updatedAt: number;
 }

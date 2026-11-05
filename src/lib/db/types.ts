@@ -15,7 +15,9 @@ import type {
   WorkType,
 } from "@/lib/domain/postings";
 import type { ProviderId } from "@/lib/domain/providers";
-import type { ResumeTemplateId, ResumeVersionSource } from "@/lib/domain/resumes";
+import type { ResumeKind, ResumeTemplateId, ResumeVersionSource } from "@/lib/domain/resumes";
+import type { ConsentSource, ConsentType } from "@/lib/legal/consents";
+import type { UserRole, UserStatus } from "@/lib/domain/users";
 import type { DiagnosisStatus, ReviewerId, Situation, StageKey, StageStatus } from "@/lib/domain/schemas";
 
 /** 누적 토큰 사용량(diagnoses.usage, chat_messages.usage JSON). */
@@ -28,7 +30,8 @@ export interface UsageTotals {
 
 type Narrow<T, N extends { [K in keyof T]?: unknown }> = Omit<T, keyof N> & N;
 
-export type User = P.User;
+export type User = Narrow<P.User, { role: UserRole; status: UserStatus }>;
+export type UserConsentRow = Narrow<P.UserConsent, { type: ConsentType; source: ConsentSource }>;
 export type Session = P.Session;
 export type RateEventRow = P.RateEvent;
 
@@ -41,6 +44,11 @@ export type JobPostingRow = Narrow<
     workType: WorkType;
     careerLevel: CareerLevel;
   }
+>;
+
+export type SharedPostingRow = Narrow<
+  P.SharedPosting,
+  { deadlineKind: DeadlineKind; employmentType: EmploymentType; workType: WorkType; careerLevel: CareerLevel }
 >;
 
 export type PostingImportRow = Narrow<P.PostingImport, { status: PostingImportStatus }>;
@@ -61,7 +69,7 @@ export type ChatMessageRow = Narrow<
   { role: ChatRole; data: ChatMessageData | null; status: ChatMessageStatus | null; usage: UsageTotals | null }
 >;
 
-export type CompanyResume = Narrow<P.CompanyResume, { templateId: ResumeTemplateId }>;
+export type CompanyResume = Narrow<P.CompanyResume, { kind: ResumeKind; templateId: ResumeTemplateId }>;
 
 export type ResumeVersion = Narrow<P.ResumeVersion, { source: ResumeVersionSource }>;
 

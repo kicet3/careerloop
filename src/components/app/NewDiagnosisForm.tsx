@@ -183,7 +183,7 @@ export function NewDiagnosisForm({
 
   // 넓은 화면(xl~)은 1·2번, 3·4번 카드를 2열로 나란히 두고 나머지(엔진·안내·제출)는 전체 폭. data-half 카드만 반 칸.
   return (
-    <form onSubmit={onSubmit} className="grid gap-6 xl:grid-cols-2 xl:items-start [&>*]:col-span-full xl:[&>[data-half]]:col-span-1" noValidate>
+    <form onSubmit={onSubmit} className="grid gap-6 xl:grid-cols-2 xl:items-stretch [&>*]:col-span-full xl:[&>[data-half]]:col-span-1" noValidate>
       {prefilled && (
         <Alert tone="info">
           {posting
@@ -192,7 +192,7 @@ export function NewDiagnosisForm({
         </Alert>
       )}
       {/* 1. 이력서 */}
-      <Card data-half className="p-5 sm:p-6">
+      <Card data-half className="flex flex-col p-5 sm:p-6">
         <SectionTitle step={1} title="이력서" required />
         <div className="mt-4 space-y-3">
           <SegmentedTabs
@@ -231,7 +231,7 @@ export function NewDiagnosisForm({
       </Card>
 
       {/* 2. 지원 직무 + JD */}
-      <Card data-half className="p-5 sm:p-6">
+      <Card data-half className="flex flex-col p-5 sm:p-6">
         <SectionTitle step={2} title="지원할 자리" />
         <div className="mt-4 space-y-5">
           <div>
@@ -303,7 +303,7 @@ export function NewDiagnosisForm({
       </Card>
 
       {/* 3. 상황·메모 */}
-      <Card data-half className="p-5 sm:p-6">
+      <Card data-half className="flex flex-col p-5 sm:p-6">
         <SectionTitle step={3} title="상황과 메모" />
         <fieldset className="mt-4">
           <legend className="text-sm font-medium text-slate-800">지원 상황</legend>
@@ -347,7 +347,7 @@ export function NewDiagnosisForm({
       </Card>
 
       {/* 4. 포트폴리오(선택) */}
-      <Card data-half className="p-5 sm:p-6">
+      <Card data-half className="flex flex-col p-5 sm:p-6">
         <SectionTitle step={4} title="포트폴리오" optional />
         <p className="mt-2 text-sm text-slate-500">
           포트폴리오를 함께 내면 심사위원 7명과 적합도·재작성·개선 방향이 이력서와 <strong className="font-medium text-slate-700">별개 자료</strong>로

@@ -6,9 +6,10 @@ import { Button, buttonClass } from "@/components/ui/Button";
 import { Card } from "@/components/ui/Card";
 import { cn } from "@/components/ui/cn";
 import { Spinner } from "@/components/ui/Spinner";
-import { type CareerGraph, type GraphOp, NODE_LABEL_META, NODE_LABELS, PERSON_ID } from "@/lib/domain/graph";
-import { emitGraphChanged, fetchGraph, GRAPH_CHANGED_EVENT, postGraphOps } from "./api";
+import { type CareerGraph, type GraphOp, NODE_LABEL_META, NODE_LABELS, type NodeLabel, PERSON_ID } from "@/lib/domain/graph";
+import { emitGraphChanged, fetchGraph, GRAPH_CHANGED_EVENT, GRAPH_FOCUS_EVENT, type GraphFocusDetail, postGraphOps } from "./api";
 import { EdgeForm } from "./EdgeForm";
+import { ExperienceChecklist } from "./ExperienceChecklist";
 import { GraphCanvas } from "./GraphCanvas";
 import { GraphList } from "./GraphList";
 import { NEW_NODE_REF } from "./model";
@@ -16,13 +17,15 @@ import { NodeDetail } from "./NodeDetail";
 import { NodeForm } from "./NodeForm";
 import { LABEL_STYLE } from "./styles";
 
-type Panel = { kind: "none" } | { kind: "detail"; id: string } | { kind: "add" } | { kind: "edit"; id: string } | { kind: "link"; id: string };
+type Panel =
+  { kind: "none" } | { kind: "detail"; id: string } | { kind: "add" } | { kind: "edit"; id: string } | { kind: "link"; id: string; targetLabels?: NodeLabel[] };
 
 const ZOOMS = [1, 1.5, 2, 3];
 
 /**
  * 경력 그래프 보기·편집. 관계도(SVG)·목록 두 보기, 선택한 항목의 상세, 추가·수정·삭제·연결 폼.
  * 그래프 채팅이 변경안을 적용하면 window 이벤트(career-graph:changed)를 받아 다시 불러온다.
+ * 그래프에 묻기의 출처 칩은 window 이벤트(career-graph:focus)로 노드를 고르고 본인에서의 경로를 강조한다.
  */
 export function CareerGraphView({ initialGraph, initialError }: { initialGraph: CareerGraph | null; initialError: string | null }) {
   const [graph, setGraph] = useState<CareerGraph | null>(initialGraph);
@@ -32,6 +35,14 @@ export function CareerGraphView({ initialGraph, initialError }: { initialGraph: 
   const [view, setView] = useState<"graph" | "list">("graph");
   const [zoomIdx, setZoomIdx] = useState(0);
   const panelRef = useRef<HTMLDivElement>(null);
+  const canvasRef = useRef<HTMLDivElement>(null);
+  /** 그래프에 묻기 출처에서 온 강조 경로. 다른 항목을 고르면 지운다. */
+  const [highlight, setHighlight] = useState<{ id: string; ids: ReadonlySet<string> } | null>(null);
+  const [focusNotice, setFocusNotice] = useState<string | null>(null);
+  const graphRef = useRef(graph);
+  useEffect(() => {
+    graphRef.current = graph;
+  }, [graph]);
 
   const refresh = useCallback(async () => {
     setLoading(true);
@@ -56,6 +67,32 @@ export function CareerGraphView({ initialGraph, initialError }: { initialGraph: 
     window.addEventListener(GRAPH_CHANGED_EVENT, onChanged);
     return () => window.removeEventListener(GRAPH_CHANGED_EVENT, onChanged);
   }, [refresh]);
+
+  // 그래프에 묻기의 출처 칩: 그 노드를 고르고 본인에서의 경로를 강조한 뒤 관계도로 스크롤한다.
+  useEffect(() => {
+    const onFocus = (ev: Event) => {
+      const detail = (ev as CustomEvent<GraphFocusDetail | undefined>).detail;
+      if (!detail?.id) return;
+      ev.preventDefault();
+      if (!graphRef.current?.nodes.some((n) => n.id === detail.id)) {
+        setFocusNotice("그래프에서 찾을 수 없습니다. 삭제되었거나 아직 불러오지 않은 항목입니다.");
+        return;
+      }
+      setFocusNotice(null);
+      setView("graph");
+      setPanel({ kind: "detail", id: detail.id });
+      setHighlight({ id: detail.id, ids: new Set([...(detail.pathIds ?? []), detail.id]) });
+      canvasRef.current?.scrollIntoView({ block: "start", behavior: "smooth" });
+    };
+    window.addEventListener(GRAPH_FOCUS_EVENT, onFocus);
+    return () => window.removeEventListener(GRAPH_FOCUS_EVENT, onFocus);
+  }, []);
+
+  useEffect(() => {
+    if (!focusNotice) return;
+    const t = setTimeout(() => setFocusNotice(null), 4000);
+    return () => clearTimeout(t);
+  }, [focusNotice]);
 
   useEffect(() => {
     if (panel.kind !== "none") panelRef.current?.scrollIntoView({ block: "nearest", behavior: "smooth" });
@@ -88,134 +125,167 @@ export function CareerGraphView({ initialGraph, initialError }: { initialGraph: 
   }
 
   const selectedId = panel.kind === "none" || panel.kind === "add" ? null : panel.id;
-  const select = (id: string) => setPanel({ kind: "detail", id });
+  const select = (id: string) => {
+    if (highlight && highlight.id !== id) setHighlight(null);
+    setPanel({ kind: "detail", id });
+  };
+  const highlightIds = highlight && selectedId === highlight.id ? highlight.ids : undefined;
   const empty = graph.nodes.length === 0;
   const editing = panel.kind === "edit" ? graph.nodes.find((n) => n.id === panel.id) : undefined;
 
   return (
-    <Card className="overflow-hidden">
-      <div className="flex flex-wrap items-center justify-between gap-3 border-b border-slate-100 px-4 py-3 sm:px-5">
-        <div className="flex items-center gap-2 text-sm text-slate-500">
-          <span>
-            항목 {graph.nodes.length}개 · 연결 {graph.edges.length}개
-          </span>
-          {loading && <Spinner size="sm" />}
-        </div>
-        <div className="flex flex-wrap items-center gap-2">
-          {!empty && (
-            <div role="tablist" aria-label="보기" className="inline-flex rounded-lg bg-slate-100 p-0.5">
-              {(
-                [
-                  ["graph", "관계도"],
-                  ["list", "목록"],
-                ] as const
-              ).map(([key, text]) => (
-                <button
-                  key={key}
-                  type="button"
-                  role="tab"
-                  aria-selected={view === key}
-                  onClick={() => setView(key)}
-                  className={cn(
-                    "rounded-md px-3 py-1 text-sm font-medium",
-                    view === key ? "bg-white text-slate-900 shadow-sm" : "text-slate-600 hover:text-slate-900",
-                  )}
-                >
-                  {text}
-                </button>
-              ))}
+    <div className="min-w-0 space-y-6">
+      <ExperienceChecklist
+        graph={graph}
+        onFix={(b) => setPanel(b.fix === "link" ? { kind: "link", id: b.nodeId, targetLabels: b.linkTargets } : { kind: "edit", id: b.nodeId })}
+      />
+      <div ref={canvasRef} className="scroll-mt-20">
+        <Card className="overflow-hidden">
+          {focusNotice && (
+            <Alert tone="warning" className="m-4">
+              {focusNotice}
+            </Alert>
+          )}
+          <div className="flex flex-wrap items-center justify-between gap-3 border-b border-slate-100 px-4 py-3 sm:px-5">
+            <div className="flex items-center gap-2 text-sm text-slate-500">
+              <span>
+                항목 {graph.nodes.length}개 · 연결 {graph.edges.length}개
+              </span>
+              {loading && <Spinner size="sm" />}
+            </div>
+            <div className="flex flex-wrap items-center gap-2">
+              {!empty && (
+                <div role="tablist" aria-label="보기" className="inline-flex rounded-lg bg-slate-100 p-0.5">
+                  {(
+                    [
+                      ["graph", "관계도"],
+                      ["list", "목록"],
+                    ] as const
+                  ).map(([key, text]) => (
+                    <button
+                      key={key}
+                      type="button"
+                      role="tab"
+                      aria-selected={view === key}
+                      onClick={() => setView(key)}
+                      className={cn(
+                        "rounded-md px-3 py-1 text-sm font-medium",
+                        view === key ? "bg-white text-slate-900 shadow-sm" : "text-slate-600 hover:text-slate-900",
+                      )}
+                    >
+                      {text}
+                    </button>
+                  ))}
+                </div>
+              )}
+              <Button size="sm" onClick={() => setPanel({ kind: "add" })}>
+                항목 추가
+              </Button>
+            </div>
+          </div>
+
+          {loadError && (
+            <Alert tone="warning" className="m-4">
+              최신 그래프를 불러오지 못했습니다: {loadError}
+            </Alert>
+          )}
+
+          {empty && panel.kind === "none" ? (
+            <div className="px-6 py-12 text-center">
+              <p className="text-lg font-semibold text-slate-900">아직 정리된 경력이 없습니다</p>
+              <p className="mx-auto mt-2 max-w-md text-sm text-slate-500">
+                채팅에서 다닌 회사, 맡은 일, 프로젝트와 성과를 편하게 이야기하면 AI가 그래프로 정리할 변경안을 만들어 줍니다. 확인한 뒤
+                적용하면 여기에 나타납니다. 직접 하나씩 추가해도 됩니다.
+              </p>
+              <p className="mx-auto mt-2 max-w-md text-sm font-medium text-slate-700">
+                자소서와 이력서에 꼭 필요한 경험 6가지를 위 체크리스트로 채워 보세요.
+              </p>
+              <div className="mt-6 flex flex-wrap justify-center gap-2">
+                <a href="#graph-chat" className={buttonClass("primary", "md")}>
+                  채팅으로 시작하기
+                </a>
+                <Button variant="secondary" onClick={() => setPanel({ kind: "add" })}>
+                  직접 추가
+                </Button>
+              </div>
+            </div>
+          ) : (
+            !empty && (
+              <div className="p-3 sm:p-4">
+                {view === "graph" ? (
+                  <>
+                    <GraphCanvas graph={graph} selectedId={selectedId} onSelect={select} zoom={ZOOMS[zoomIdx]!} highlightIds={highlightIds} />
+                    <div className="mt-3 flex flex-wrap items-center justify-between gap-3">
+                      <ul className="flex flex-wrap gap-x-3 gap-y-1 text-xs text-slate-600" aria-label="범례">
+                        {NODE_LABELS.filter((l) => graph.nodes.some((n) => n.label === l)).map((l) => (
+                          <li key={l} className="inline-flex items-center gap-1">
+                            <span className={cn("size-2.5 rounded-full", LABEL_STYLE[l].dot)} aria-hidden />
+                            {NODE_LABEL_META[l].name}
+                          </li>
+                        ))}
+                      </ul>
+                      <div className="inline-flex items-center gap-1" aria-label="확대">
+                        <Button
+                          variant="secondary"
+                          size="sm"
+                          onClick={() => setZoomIdx((z) => Math.max(0, z - 1))}
+                          disabled={zoomIdx === 0}
+                          aria-label="축소"
+                        >
+                          −
+                        </Button>
+                        <span className="w-12 text-center text-xs text-slate-500">{Math.round(ZOOMS[zoomIdx]! * 100)}%</span>
+                        <Button
+                          variant="secondary"
+                          size="sm"
+                          onClick={() => setZoomIdx((z) => Math.min(ZOOMS.length - 1, z + 1))}
+                          disabled={zoomIdx === ZOOMS.length - 1}
+                          aria-label="확대"
+                        >
+                          +
+                        </Button>
+                      </div>
+                    </div>
+                  </>
+                ) : (
+                  <GraphList graph={graph} selectedId={selectedId} onSelect={select} />
+                )}
+              </div>
+            )
+          )}
+
+          {panel.kind !== "none" && (
+            <div ref={panelRef} className="scroll-mt-20 border-t border-slate-100 bg-slate-50/40 p-4 sm:p-5">
+              {panel.kind === "detail" && (
+                <NodeDetail
+                  key={panel.id}
+                  graph={graph}
+                  id={panel.id}
+                  onEdit={() => setPanel({ kind: "edit", id: panel.id })}
+                  onAddEdge={() => setPanel({ kind: "link", id: panel.id })}
+                  onApply={apply}
+                  onSelect={select}
+                  onClose={() => setPanel({ kind: "none" })}
+                />
+              )}
+              {panel.kind === "add" && <NodeForm graph={graph} onSubmit={apply} onCancel={() => setPanel({ kind: "none" })} />}
+              {panel.kind === "edit" && editing && (
+                <NodeForm key={editing.id} graph={graph} node={editing} onSubmit={apply} onCancel={() => select(editing.id)} />
+              )}
+              {panel.kind === "link" && (
+                <EdgeForm
+                  key={`${panel.id}:${panel.targetLabels?.join(",") ?? ""}`}
+                  graph={graph}
+                  sourceId={panel.id}
+                  targetLabels={panel.targetLabels}
+                  onSubmit={apply}
+                  onCancel={() => select(panel.id)}
+                />
+              )}
             </div>
           )}
-          <Button size="sm" onClick={() => setPanel({ kind: "add" })}>
-            항목 추가
-          </Button>
-        </div>
+        </Card>
       </div>
-
-      {loadError && (
-        <Alert tone="warning" className="m-4">
-          최신 그래프를 불러오지 못했습니다: {loadError}
-        </Alert>
-      )}
-
-      {empty && panel.kind === "none" ? (
-        <div className="px-6 py-12 text-center">
-          <p className="text-lg font-semibold text-slate-900">아직 정리된 경력이 없습니다</p>
-          <p className="mx-auto mt-2 max-w-md text-sm text-slate-500">
-            채팅에서 다닌 회사, 맡은 일, 프로젝트와 성과를 편하게 이야기하면 AI가 그래프로 정리할 변경안을 만들어 줍니다. 확인한 뒤
-            적용하면 여기에 나타납니다. 직접 하나씩 추가해도 됩니다.
-          </p>
-          <div className="mt-6 flex flex-wrap justify-center gap-2">
-            <a href="#graph-chat" className={buttonClass("primary", "md")}>
-              채팅으로 시작하기
-            </a>
-            <Button variant="secondary" onClick={() => setPanel({ kind: "add" })}>
-              직접 추가
-            </Button>
-          </div>
-        </div>
-      ) : (
-        !empty && (
-          <div className="p-3 sm:p-4">
-            {view === "graph" ? (
-              <>
-                <GraphCanvas graph={graph} selectedId={selectedId} onSelect={select} zoom={ZOOMS[zoomIdx]!} />
-                <div className="mt-3 flex flex-wrap items-center justify-between gap-3">
-                  <ul className="flex flex-wrap gap-x-3 gap-y-1 text-xs text-slate-600" aria-label="범례">
-                    {NODE_LABELS.filter((l) => graph.nodes.some((n) => n.label === l)).map((l) => (
-                      <li key={l} className="inline-flex items-center gap-1">
-                        <span className={cn("size-2.5 rounded-full", LABEL_STYLE[l].dot)} aria-hidden />
-                        {NODE_LABEL_META[l].name}
-                      </li>
-                    ))}
-                  </ul>
-                  <div className="inline-flex items-center gap-1" aria-label="확대">
-                    <Button variant="secondary" size="sm" onClick={() => setZoomIdx((z) => Math.max(0, z - 1))} disabled={zoomIdx === 0} aria-label="축소">
-                      −
-                    </Button>
-                    <span className="w-12 text-center text-xs text-slate-500">{Math.round(ZOOMS[zoomIdx]! * 100)}%</span>
-                    <Button
-                      variant="secondary"
-                      size="sm"
-                      onClick={() => setZoomIdx((z) => Math.min(ZOOMS.length - 1, z + 1))}
-                      disabled={zoomIdx === ZOOMS.length - 1}
-                      aria-label="확대"
-                    >
-                      +
-                    </Button>
-                  </div>
-                </div>
-              </>
-            ) : (
-              <GraphList graph={graph} selectedId={selectedId} onSelect={select} />
-            )}
-          </div>
-        )
-      )}
-
-      {panel.kind !== "none" && (
-        <div ref={panelRef} className="scroll-mt-20 border-t border-slate-100 bg-slate-50/40 p-4 sm:p-5">
-          {panel.kind === "detail" && (
-            <NodeDetail
-              key={panel.id}
-              graph={graph}
-              id={panel.id}
-              onEdit={() => setPanel({ kind: "edit", id: panel.id })}
-              onAddEdge={() => setPanel({ kind: "link", id: panel.id })}
-              onApply={apply}
-              onSelect={select}
-              onClose={() => setPanel({ kind: "none" })}
-            />
-          )}
-          {panel.kind === "add" && <NodeForm graph={graph} onSubmit={apply} onCancel={() => setPanel({ kind: "none" })} />}
-          {panel.kind === "edit" && editing && (
-            <NodeForm key={editing.id} graph={graph} node={editing} onSubmit={apply} onCancel={() => select(editing.id)} />
-          )}
-          {panel.kind === "link" && (
-            <EdgeForm key={panel.id} graph={graph} sourceId={panel.id} onSubmit={apply} onCancel={() => select(panel.id)} />
-          )}
-        </div>
-      )}
-    </Card>
+    </div>
   );
 }

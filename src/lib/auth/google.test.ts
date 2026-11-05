@@ -89,7 +89,9 @@ describe("OAuth state 쿠키", () => {
     const [payload, sig] = raw.split(".");
     const forged = Buffer.from(JSON.stringify({ ...s, next: "/evil" })).toString("base64url");
     expect(g.decodeOAuthCookie(`${forged}.${sig}`, SECRET, NOW)).toBeNull();
-    expect(g.decodeOAuthCookie(`${payload}.x${sig!.slice(1)}`, SECRET, NOW)).toBeNull();
+    // 첫 글자를 반드시 다른 글자로 바꾼다(원래 첫 글자가 'x'면 변조가 아니게 되어 가끔 실패했다).
+    const flipped = (sig![0] === "x" ? "y" : "x") + sig!.slice(1);
+    expect(g.decodeOAuthCookie(`${payload}.${flipped}`, SECRET, NOW)).toBeNull();
     expect(g.decodeOAuthCookie(raw, "other", NOW)).toBeNull();
     expect(g.decodeOAuthCookie(raw, SECRET, NOW + g.OAUTH_TTL_MS + 1)).toBeNull();
     expect(g.decodeOAuthCookie(undefined, SECRET, NOW)).toBeNull();

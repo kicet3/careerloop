@@ -19,9 +19,20 @@ export interface LlmUsage {
  * - graph-chat: 경력 그래프 채팅(GraphChatOutputSchema)
  * - reviewer-chat: 심사위원 채팅(ReviewerChatOutputSchema)
  * - resume-draft: 회사별 이력서 초안(ResumeDraftOutputSchema)
- * - posting-extract: 채용 공고 페이지 본문에서 회사·직무·마감 등 추출(PostingFactsSchema)
+ * - posting-extract: 채용 공고 페이지 본문에서 회사·직무·마감·구역별 항목 추출(PostingExtractSchema, 구역만이면 PostingSectionsOnlySchema)
+ * - graph-import: 이력서·포트폴리오 문서 → 그래프 변경안(GraphImportOutputSchema)
+ * - graph-qa: 그래프에 묻기 답변(GraphQaOutputSchema)
+ * - graph-qa-rerank: 그래프에 묻기 후보 관련도 매기기(GraphQaRerankSchema, 선택 단계)
  */
-export const LLM_TASKS = ["graph-chat", "reviewer-chat", "resume-draft", "posting-extract"] as const;
+export const LLM_TASKS = [
+  "graph-chat",
+  "reviewer-chat",
+  "resume-draft",
+  "posting-extract",
+  "graph-import",
+  "graph-qa",
+  "graph-qa-rerank",
+] as const;
 export type LlmTask = (typeof LLM_TASKS)[number];
 
 interface BaseRequest<T> {
