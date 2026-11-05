@@ -18,7 +18,7 @@ export function Logo({
   return (
     <Link
       href={href}
-      aria-label={hideText ? "이력서 심사위원단" : undefined}
+      aria-label={hideText ? "커리어루프" : undefined}
       className={cn("flex items-center gap-2 font-bold text-slate-900", hideText && "shrink-0")}
     >
       <span
@@ -29,7 +29,7 @@ export function Logo({
       </span>
       {!iconOnly && (
         <span className={cn("text-[15px] tracking-tight whitespace-nowrap", compact && "hidden sm:inline")}>
-          이력서 심사위원단
+          커리어루프
         </span>
       )}
     </Link>

@@ -30,6 +30,8 @@ const eslintConfig = defineConfig([
     "out/**",
     "build/**",
     "next-env.d.ts",
+    // 런타임 데이터(gitignore 대상: 업로드·DB·엔진 공급자 파일). 소스가 아니다.
+    "data/**",
   ]),
 ]);
 

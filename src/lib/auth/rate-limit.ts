@@ -59,6 +59,7 @@ const globalForLimits = globalThis as unknown as {
   __signupLimiter?: ReturnType<typeof createRateLimiter>;
   __diagnosisIpLimiter?: ReturnType<typeof createRateLimiter>;
   __shareLimiter?: ReturnType<typeof createRateLimiter>;
+  __googleAuthLimiter?: ReturnType<typeof createRateLimiter>;
 };
 
 /** 로그인: 이메일+IP당 15분에 10회. */
@@ -95,4 +96,10 @@ export const diagnosisIpLimiter = (globalForLimits.__diagnosisIpLimiter ??= crea
 export const shareLimiter = (globalForLimits.__shareLimiter ??= createRateLimiter({
   limit: 30,
   windowMs: 60_000,
+}));
+
+/** Google 로그인 시작·콜백: IP당 15분에 각각 30회(키에 단계 접두사를 붙여 따로 센다). */
+export const googleAuthLimiter = (globalForLimits.__googleAuthLimiter ??= createRateLimiter({
+  limit: 30,
+  windowMs: 15 * 60_000,
 }));

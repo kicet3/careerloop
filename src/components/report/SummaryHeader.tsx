@@ -64,7 +64,7 @@ export function SummaryHeader({ report, actions }: { report: ReportModel; action
       {/* 버튼이 많아도 제목 폭을 빼앗지 않도록 제목과 액션을 위아래로 둔다. */}
       <div className="flex flex-col gap-4">
         <div className="min-w-0">
-          <p className="text-xs font-semibold tracking-widest text-indigo-600">이력서 심사위원단 보고서</p>
+          <p className="text-xs font-semibold tracking-widest text-indigo-600">커리어루프 보고서</p>
           <h1 className="mt-2 break-words text-2xl font-bold tracking-tight text-slate-900 sm:text-3xl">{meta.title}</h1>
           <dl className="mt-3 flex flex-wrap gap-x-5 gap-y-1 text-sm text-slate-500">
             <div className="flex gap-1.5">

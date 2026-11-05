@@ -36,6 +36,13 @@
       "when": 1793870672392,
       "tag": "0004_career_postings_applications",
       "breakpoints": true
+    },
+    {
+      "idx": 5,
+      "version": "6",
+      "when": 1793887620234,
+      "tag": "0005_google_login",
+      "breakpoints": true
     }
   ]
 }

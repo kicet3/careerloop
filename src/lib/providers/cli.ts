@@ -56,7 +56,7 @@ const gp = globalThis as unknown as { __cliWorkDir?: string; __cliChildren?: Set
  * 다른 로컬 사용자가 미리 심어 둔 설정·심볼릭 링크가 끼어들 수 없다.
  */
 export function cliWorkDir(): string {
-  gp.__cliWorkDir ??= mkdtempSync(path.join(os.tmpdir(), "resume-panel-cli-"));
+  gp.__cliWorkDir ??= mkdtempSync(path.join(os.tmpdir(), "careerloop-cli-"));
   return gp.__cliWorkDir;
 }
 

@@ -9,6 +9,7 @@
 import type { ReactNode } from "react";
 import { Document, Page, StyleSheet, Text, View, type Styles } from "@react-pdf/renderer";
 import type { ResumeDocument } from "@/lib/domain/resumes";
+import { SERVICE_CREDIT } from "@/lib/brand";
 import { isExperienceEmpty, isProjectEmpty, performanceHeading, splitAddMarkers } from "./layout";
 import { NO_HYPHEN, PDF_FONT } from "./pdf-fonts";
 
@@ -357,8 +358,8 @@ export function PerformancePdfDocument({ doc }: { doc: ResumeDocument }) {
     <Document
       title={`${b.name.trim() || "이력서"} 이력서`}
       author={b.name.trim() || undefined}
-      creator="이력서 심사위원단"
-      producer="이력서 심사위원단"
+      creator={SERVICE_CREDIT}
+      producer={SERVICE_CREDIT}
     >
       <Page size="A4" style={st.page} wrap>
         <View style={st.header} wrap={false}>

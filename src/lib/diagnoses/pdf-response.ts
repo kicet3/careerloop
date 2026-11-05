@@ -103,7 +103,7 @@ export async function reportPdfResponse(
         "Content-Length": String(pdf.byteLength),
         "Content-Disposition": contentDisposition(
           `${reportFileBase(found.diagnosis.title)}${avail.partial ? " (부분)" : ""}.pdf`,
-          "resume-panel-report.pdf",
+          "careerloop-report.pdf",
         ),
       },
     });

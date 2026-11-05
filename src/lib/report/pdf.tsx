@@ -16,6 +16,7 @@ import {
 } from "@react-pdf/renderer";
 import type { VerdictTone } from "@/lib/domain/reviewers";
 import type { AtsResult, Requirement } from "@/lib/domain/schemas";
+import { SERVICE_CREDIT } from "@/lib/brand";
 import { keywordStatus } from "./model";
 import type { CheckedQuote, ReportModel, ReviewerCard, VerdictView } from "./types";
 
@@ -452,7 +453,7 @@ function Cover({ r }: { r: ReportModel }) {
   return (
     <View>
       <View style={s.coverBand}>
-        <T style={s.coverKicker}>이력서 심사위원단 · 진단 보고서</T>
+        <T style={s.coverKicker}>커리어루프 · 진단 보고서</T>
         <T style={s.coverTitle}>{meta.title}</T>
         <T style={s.coverMeta}>
           지원 직무 {meta.targetRole} · {meta.situationLabel} · {formatDate(meta.completedAt ?? meta.createdAt)}
@@ -996,10 +997,10 @@ function ReportDocument({ r }: { r: ReportModel }) {
   return (
     <Document
       title={`${r.meta.title} — 이력서 진단 보고서`}
-      author="이력서 심사위원단"
+      author={SERVICE_CREDIT}
       subject={`${r.meta.targetRole} 지원 이력서 진단`}
-      creator="이력서 심사위원단"
-      producer="이력서 심사위원단"
+      creator={SERVICE_CREDIT}
+      producer={SERVICE_CREDIT}
       language="ko-KR"
     >
       <Page size="A4" style={s.page} wrap>
@@ -1018,7 +1019,7 @@ function ReportDocument({ r }: { r: ReportModel }) {
         </Section>
         <Disclaimer r={r} />
         <View style={s.footer} fixed>
-          <Text>이력서 심사위원단 · {formatDate(r.meta.completedAt ?? r.meta.createdAt)}</Text>
+          <Text>커리어루프 · {formatDate(r.meta.completedAt ?? r.meta.createdAt)}</Text>
           <Text render={({ pageNumber, totalPages }) => `${pageNumber} / ${totalPages}`} />
         </View>
       </Page>
@@ -1030,7 +1031,7 @@ function HeaderContent({ r }: { r: ReportModel }) {
   return (
     <View style={s.header}>
       <Text style={{ maxWidth: "65%" }}>{truncate(r.meta.title, 40)}</Text>
-      <Text>이력서 심사위원단 진단 보고서</Text>
+      <Text>커리어루프 진단 보고서</Text>
     </View>
   );
 }

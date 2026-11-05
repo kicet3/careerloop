@@ -5,6 +5,7 @@
  */
 import type { ReactNode } from "react";
 import { Document, Page, StyleSheet, Text, View, renderToBuffer, type Styles } from "@react-pdf/renderer";
+import { SERVICE_CREDIT } from "@/lib/brand";
 import {
   RESUME_TEMPLATES,
   type ResumeDocument,
@@ -315,7 +316,7 @@ function ResumePdfDocument({ doc, templateId }: { doc: ResumeDocument; templateI
   ));
 
   return (
-    <Document title={`${b.name || "이력서"} 이력서`} author={b.name || undefined} creator="이력서 심사위원단" producer="이력서 심사위원단">
+    <Document title={`${b.name || "이력서"} 이력서`} author={b.name || undefined} creator={SERVICE_CREDIT} producer={SERVICE_CREDIT}>
       <Page size="A4" style={s.page} wrap>
         {header}
         {layout.side.length > 0 ? (

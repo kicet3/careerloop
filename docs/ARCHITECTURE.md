@@ -1,4 +1,4 @@
-# 이력서 심사위원단 (Resume Panel) — 설계
+# 커리어루프 (CareerLoop) — 설계
 
 원본: [hiring-panel-skill](https://github.com/alexyc9381/hiring-panel-skill) (MIT, Alex Chen). Claude Code 스킬 하나(`SKILL.md`)로
 동작하던 "클로드 7명이 이력서를 떨어뜨리려고 덤비는" 심사를 웹 서비스로 옮긴다. 원본에 없던 것: **JD 분석·적합도 매트릭스**,

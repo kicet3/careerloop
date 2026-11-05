@@ -4,14 +4,17 @@ import { verifyAgainstDummy, verifyPassword } from "@/lib/auth/password";
 import { clientIp, loginAccountLimiter, loginIpLimiter, loginLimiter } from "@/lib/auth/rate-limit";
 import { assertSameOrigin, createSession } from "@/lib/auth/session";
 import { LoginInputSchema, toFieldErrors } from "@/lib/auth/validation";
+import { passwordLoginEnabled } from "@/lib/config/env";
 import { db, schema } from "@/lib/db/client";
 import { ensureDatabase } from "@/lib/db/migrate";
 
 const INVALID = "이메일 또는 비밀번호가 올바르지 않습니다.";
+const PASSWORD_LOGIN_DISABLED = "이메일 로그인은 사용할 수 없습니다. Google로 로그인해 주세요.";
 
 export async function POST(req: Request) {
   const bad = assertSameOrigin(req);
   if (bad) return bad;
+  if (!passwordLoginEnabled()) return authError(403, PASSWORD_LOGIN_DISABLED);
 
   const parsed = LoginInputSchema.safeParse(await readJson(req));
   if (!parsed.success) return authError(400, "입력값을 확인해 주세요.", toFieldErrors(parsed.error));
@@ -30,7 +33,8 @@ export async function POST(req: Request) {
 
   await ensureDatabase();
   const [user] = await db.select().from(schema.users).where(eq(schema.users.email, email)).limit(1);
-  const ok = user ? await verifyPassword(password, user.passwordHash) : await verifyAgainstDummy(password);
+  // Google로만 가입한 계정(password_hash null)도 없는 계정과 같은 시간·같은 응답으로 거절한다.
+  const ok = user?.passwordHash ? await verifyPassword(password, user.passwordHash) : await verifyAgainstDummy(password);
   if (!user || !ok) return authError(401, INVALID);
 
   loginLimiter.reset(limitKey);

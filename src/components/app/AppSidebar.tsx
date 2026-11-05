@@ -9,6 +9,7 @@ import { usePathname, useRouter } from "next/navigation";
 import { useEffect, useId, useRef, useState, useSyncExternalStore, type ReactNode } from "react";
 import { cn } from "@/components/ui/cn";
 import { Spinner } from "@/components/ui/Spinner";
+import { BusinessInfo } from "./BusinessInfo";
 import { EnvBadge } from "./EnvBadge";
 import { Logo } from "./Logo";
 
@@ -160,6 +161,8 @@ export function AppSidebar({
               {!collapsed && <span>메뉴 접기</span>}
             </button>
             <Account email={email} collapsed={collapsed} />
+            {/* 접힌 모드(w-16)는 폭이 좁아 사업자 정보를 숨긴다. */}
+            {!collapsed && <BusinessInfo compact className="mt-3 px-1" />}
           </div>
         </aside>
       </div>
@@ -176,6 +179,7 @@ export function AppSidebar({
           <NavList groups={groups} pathname={pathname} collapsed={false} className="flex-1 overflow-y-auto" onNavigate={closeDrawer} />
           <div className="border-t border-slate-100 px-3 py-3">
             <Account email={email} collapsed={false} />
+            <BusinessInfo compact className="mt-3 px-1" />
           </div>
         </Drawer>
       )}

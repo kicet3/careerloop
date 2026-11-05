@@ -1,8 +1,8 @@
-import { mkdtempSync, rmSync } from "node:fs";
+import { cpSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from "node:fs";
 import os from "node:os";
 import path from "node:path";
 import { afterAll, describe, expect, it } from "vitest";
-import { sqliteFilePath } from "./migrate";
+import { migrationsFolder, sqliteFilePath } from "./migrate";
 
 const dir = mkdtempSync(path.join(os.tmpdir(), "rp-migrate-"));
 afterAll(() => rmSync(dir, { recursive: true, force: true }));
@@ -76,5 +76,57 @@ describe("ensureDatabase", () => {
 
     await db.delete(schema.applications).where(eq(schema.applications.id, "a1"));
     expect(await db.select().from(schema.applicationEvents)).toEqual([]);
+  });
+});
+
+describe("0005_google_login (users 테이블 재생성)", () => {
+  it("기존 사용자·자식 행을 보존하고, 이후 FK cascade와 nullable password_hash·unique google_sub가 동작한다", async () => {
+    const { createClient } = await import("@libsql/client");
+    const { drizzle } = await import("drizzle-orm/libsql");
+    const { migrate } = await import("drizzle-orm/libsql/migrator");
+
+    // 0004까지만 담은 마이그레이션 폴더
+    const partial = path.join(dir, "drizzle-0004");
+    cpSync(migrationsFolder(), partial, { recursive: true });
+    const journalPath = path.join(partial, "meta", "_journal.json");
+    const journal = JSON.parse(readFileSync(journalPath, "utf8")) as { entries: { tag: string }[] };
+    const idx = journal.entries.findIndex((e) => e.tag.startsWith("0005_"));
+    expect(idx).toBeGreaterThan(0);
+    journal.entries = journal.entries.slice(0, idx);
+    writeFileSync(journalPath, JSON.stringify(journal));
+
+    const client = createClient({ url: `file:${path.join(dir, "upgrade.db")}` });
+    const db = drizzle(client);
+    try {
+      await migrate(db, { migrationsFolder: partial });
+      await client.execute("PRAGMA foreign_keys = ON");
+      await client.execute("INSERT INTO users (id, email, name, password_hash) VALUES ('old', 'old@x.co', '옛 사용자', 'hash')");
+      await client.execute("INSERT INTO sessions (id, user_id, expires_at) VALUES ('s1', 'old', 9999999999999)");
+      await client.execute(
+        "INSERT INTO diagnoses (id, user_id, title, target_role, situation, resume_text, model) VALUES ('d1', 'old', 't', 'r', 'general', 'x', 'm')",
+      );
+
+      await migrate(db, { migrationsFolder: migrationsFolder() });
+      await client.execute("PRAGMA foreign_keys = ON");
+
+      // 재생성 중 DROP TABLE이 자식 행을 cascade 삭제하지 않았다.
+      const u = await client.execute("SELECT id, email, name, password_hash, google_sub FROM users");
+      expect(u.rows.map((r) => ({ ...r }))).toEqual([
+        { id: "old", email: "old@x.co", name: "옛 사용자", password_hash: "hash", google_sub: null },
+      ]);
+      expect((await client.execute("SELECT count(*) AS n FROM sessions")).rows[0]!.n).toBe(1);
+      expect((await client.execute("SELECT count(*) AS n FROM diagnoses")).rows[0]!.n).toBe(1);
+      expect((await client.execute("PRAGMA foreign_key_check")).rows).toEqual([]);
+
+      await client.execute("INSERT INTO users (id, email, google_sub) VALUES ('g1', 'g@x.co', 'sub-1')");
+      await expect(client.execute("INSERT INTO users (id, email, google_sub) VALUES ('g2', 'g2@x.co', 'sub-1')")).rejects.toThrow();
+      await expect(client.execute("INSERT INTO users (id, email) VALUES ('g3', 'old@x.co')")).rejects.toThrow();
+
+      await client.execute("DELETE FROM users WHERE id = 'old'");
+      expect((await client.execute("SELECT count(*) AS n FROM sessions")).rows[0]!.n).toBe(0);
+      expect((await client.execute("SELECT count(*) AS n FROM diagnoses")).rows[0]!.n).toBe(0);
+    } finally {
+      client.close();
+    }
   });
 });

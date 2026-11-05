@@ -5,6 +5,7 @@ import { hashPassword } from "@/lib/auth/password";
 import { clientIp, signupLimiter } from "@/lib/auth/rate-limit";
 import { assertSameOrigin, createSession } from "@/lib/auth/session";
 import { SignupInputSchema, toFieldErrors } from "@/lib/auth/validation";
+import { passwordLoginEnabled } from "@/lib/config/env";
 import { db, schema } from "@/lib/db/client";
 import { ensureDatabase } from "@/lib/db/migrate";
 
@@ -14,6 +15,7 @@ const CANNOT_SIGNUP = "이 이메일로는 가입할 수 없습니다. 이미 �
 export async function POST(req: Request) {
   const bad = assertSameOrigin(req);
   if (bad) return bad;
+  if (!passwordLoginEnabled()) return authError(403, "이메일 가입은 사용할 수 없습니다. Google로 계속해 주세요.");
 
   const limit = signupLimiter.hit(clientIp(req));
   if (!limit.ok) {

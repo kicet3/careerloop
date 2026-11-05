@@ -1,4 +1,4 @@
-# 이력서 심사위원단 (Resume Panel)
+# 커리어루프 (CareerLoop)
 
 이력서를 올리면 AI 심사위원 7명(서류 자동 필터, 채용 담당자, 현업 매니저, 경쟁 지원자, 대표, 헤드헌터, 동료)이
 각자 떨어뜨릴 이유를 찾고, 그 결과를 하나의 보고서로 묶어 주는 웹 서비스입니다.
@@ -104,6 +104,32 @@ docker compose --env-file .env.local -p resume-career up -d neo4j
 - 직접: `http://<tailnet IP>:3000` — 이 경우 `.env.local`의 `DEV_ALLOWED_ORIGINS`에 그 IP를 넣는다(`*.ts.net`은 기본 허용).
 
 계정 로그인 엔진(CLI_PROVIDERS)을 켠 채 열면 tailnet에서 가입한 모든 사용자가 그 구독 계정으로 진단한다.
+
+### Google 로그인
+
+Google 계정 로그인(OpenID Connect 인가 코드 + PKCE)은 별도 라이브러리 없이 `/api/auth/google`(시작)·`/api/auth/google/callback`(콜백)으로 동작합니다.
+처음 로그인하면 계정이 만들어지고, 같은 이메일(인증된 Google 이메일)의 기존 이메일 계정이 있으면 그 계정에 연결합니다.
+
+1. [Google Cloud Console](https://console.cloud.google.com/) → API 및 서비스 → **OAuth 동의 화면**에서 앱 이름·지원 이메일을 넣고 범위 `openid`·`email`·`profile`을 씁니다(테스트 단계면 테스트 사용자에 본인 계정 추가).
+2. **사용자 인증 정보 → 사용자 인증 정보 만들기 → OAuth 클라이언트 ID**, 유형 **웹 애플리케이션**.
+3. **승인된 리디렉션 URI**에 접속할 주소마다 추가합니다.
+   - `http://localhost:3000/api/auth/google/callback` (로컬)
+   - `https://dev-machine.example-tailnet.ts.net:9470/api/auth/google/callback` (Tailscale `tailscale serve` https)
+   - 배포: `https://<APP_URL 호스트>/api/auth/google/callback`
+4. 발급된 클라이언트 ID·보안 비밀을 `.env.local`(배포는 환경 변수)의 `GOOGLE_CLIENT_ID`·`GOOGLE_CLIENT_SECRET`에 넣고 서버를 다시 띄웁니다.
+
+> Google은 `http://100.101.102.103:3000` 같은 IP 주소 리디렉션 URI를 허용하지 않습니다(localhost 제외). tailnet IP로 직접 열었다면 Google 로그인은 Tailscale https 주소(`*.ts.net`)나 localhost로 접속해서 사용하세요.
+
+redirect URI의 origin 결정:
+
+- PRODUCTION: `APP_URL`만 씁니다(요청의 Host 헤더는 믿지 않음).
+- DEV: `GOOGLE_REDIRECT_ORIGIN` → `APP_URL` → 요청 origin 순. 요청 origin은 `X-Forwarded-Host`·`X-Forwarded-Proto`(tailscale serve)를 따르며
+  localhost·`*.ts.net`·`DEV_ALLOWED_ORIGINS` 호스트만 허용합니다. 콜백은 시작한 주소와 같은 origin으로 돌아와야 하므로 보통은 비워 두고,
+  특정 주소로 고정하고 싶을 때만 `GOOGLE_REDIRECT_ORIGIN=https://dev-machine.example-tailnet.ts.net:9470`처럼 지정합니다.
+
+이메일·비밀번호 로그인은 `PASSWORD_LOGIN`으로 켜고 끕니다(`1` 켬, `0` 끔). 비우면 DEV는 켜고 PRODUCTION은 끕니다.
+끄면 로그인·가입 화면에서 이메일 양식이 사라지고 `/api/auth/login`·`/api/auth/signup`은 403입니다.
+PRODUCTION은 `GOOGLE_CLIENT_ID`·`GOOGLE_CLIENT_SECRET`이 필수이고, DEV에서 비어 있으면 시작 시 안내하고 Google 버튼을 비활성화합니다.
 
 ### 배포 모드(APP_ENV)
 

@@ -55,7 +55,7 @@ function header(r: ReportModel, kind: string): string[] {
 
 export function renderPanelMarkdown(r: ReportModel): string {
   const s = r.summary;
-  const out: string[] = [...header(r, "이력서 심사위원단 결과")];
+  const out: string[] = [...header(r, "커리어루프 결과")];
 
   out.push("## 요약", "", s.headline, "");
   out.push(`- 심사위원 ${s.totalReviewers}명 중 **${s.positiveCount}명 통과**`);

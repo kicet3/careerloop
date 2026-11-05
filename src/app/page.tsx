@@ -6,6 +6,7 @@ import { Card } from "@/components/ui/Card";
 import { getCurrentUser } from "@/lib/auth/session";
 import { REVIEWERS, verdictLabel, type VerdictTone } from "@/lib/domain/reviewers";
 import { REVIEWER_IDS, type ReviewerId } from "@/lib/domain/schemas";
+import { BusinessInfo } from "@/components/app/BusinessInfo";
 
 const TONE_TO_BADGE: Record<VerdictTone, BadgeTone> = {
   positive: "positive",
@@ -301,6 +302,7 @@ export default async function Home() {
             (MIT 라이선스)을 바탕으로, JD 분석·적합도 매트릭스·개선 방향성·웹 보고서를 더해 만들었습니다.
           </p>
           <p className="mt-2">이 서비스는 커리어·법률 자문이 아닙니다.</p>
+          <BusinessInfo className="mt-6 border-t border-slate-100 pt-4" />
         </div>
       </footer>
     </>
