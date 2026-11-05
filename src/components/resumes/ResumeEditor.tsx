@@ -16,12 +16,25 @@ import {
   type ResumeDocument,
   type ResumeTemplateId,
 } from "@/lib/domain/resumes";
+import { SourceLink } from "@/components/postings/SourceLink";
+import { POSTING_STATUS_LABELS } from "@/lib/domain/postings";
+import { SELF_HOSTED_UPLOAD_LIMITS, VERCEL_UPLOAD_LIMITS, type UploadLimits } from "@/lib/ingest/upload-limits";
 import { countAddMarkers, resumeToText } from "@/lib/resumes/layout";
-import { saveDiagnosisPrefill, takeDraftNotes, type DraftNotes } from "@/lib/resumes/prefill";
-import { MAX_RESUME_JD_CHARS, MAX_RESUME_META_CHARS, type ResumeMeta, type ResumeVersionMeta } from "@/lib/resumes/types";
+import { saveDiagnosisPrefill, takeDraftNotes, type DiagnosisPrefill, type DraftNotes } from "@/lib/resumes/prefill";
+import {
+  MAX_RESUME_JD_CHARS,
+  MAX_RESUME_META_CHARS,
+  type ChangeResumeStatusResult,
+  type ResumeMeta,
+  type ResumePostingLink,
+  type ResumeVersionMeta,
+} from "@/lib/resumes/types";
 import { PerformanceSheet } from "./PerformanceSheet";
 import { ResumeDocumentForm } from "./ResumeDocumentForm";
+import { ResumePortfolioCard } from "./ResumePortfolioCard";
 import { ResumePreview } from "./ResumePreview";
+import { ResumeStatusControl } from "./ResumeStatusControl";
+import { ResumeWritingTips } from "./ResumeWritingTips";
 import { inputClass, textareaClass } from "./styles";
 import { TemplatePicker } from "./TemplatePicker";
 
@@ -43,17 +56,24 @@ export function ResumeEditor({
   versions: initialVersions,
   initialDocument,
   currentVersionId,
+  posting: initialPosting = null,
+  uploadLimits = SELF_HOSTED_UPLOAD_LIMITS,
 }: {
   resume: ResumeMeta;
   versions: ResumeVersionMeta[];
   initialDocument: ResumeDocument;
   currentVersionId: string | null;
+  /** 연결 공고(원문 링크·상태 동기화 표시). */
+  posting?: ResumePostingLink | null;
+  /** 서버가 정한 업로드 상한(포트폴리오 파일은 이것과 4MB 중 작은 값). */
+  uploadLimits?: UploadLimits;
 }) {
   const router = useRouter();
   // meta.templateId는 화면에서 고른 양식(저장 전일 수 있음), savedTemplateId는 서버에 저장된 양식.
   const [meta, setMeta] = useState(initialResume);
   const [savedTemplateId, setSavedTemplateId] = useState<ResumeTemplateId>(initialResume.templateId);
   const [versions, setVersions] = useState(initialVersions);
+  const [posting, setPosting] = useState(initialPosting);
   const [doc, setDoc] = useState(initialDocument);
   const [baseVersionId, setBaseVersionId] = useState(currentVersionId);
   // 문서 변경 여부. 양식 변경은 저장된 양식과 비교해 따로 셈한다(원래 양식으로 되돌리면 깨끗해진다).
@@ -162,6 +182,20 @@ export function ResumeEditor({
     } finally {
       setBusy(null);
     }
+  }
+
+  /**
+   * '지원 완료'는 마지막으로 저장한 버전을 제출본으로 고정한다. 저장하지 않은 변경이 있으면 먼저 저장할지 묻고,
+   * 저장하지 않겠다면 상태를 바꾸지 않는다(옛 버전이 말없이 제출본이 되지 않게).
+   */
+  async function confirmSavedBeforeSubmit(): Promise<boolean> {
+    if (!dirty) return true;
+    if (busy !== null) return false;
+    const ok = window.confirm(
+      "저장하지 않은 변경이 있습니다. '지원 완료'는 저장된 버전을 제출본으로 고정합니다.\n지금 내용을 새 버전으로 저장한 뒤 지원 완료로 바꿀까요? (취소하면 상태를 바꾸지 않습니다)",
+    );
+    if (!ok) return false;
+    return (await save()) !== null;
   }
 
   /** PDF 내려받기: 저장하지 않은 변경이 있으면 먼저 새 버전으로 저장하고 그 버전으로 만든다. */
@@ -315,16 +349,34 @@ export function ResumeEditor({
     }
   }
 
-  function startDiagnosis() {
+  async function startDiagnosis() {
     // 진단에는 지금 내용이 넘어가지만, 이 이력서에는 저장되지 않은 채 화면을 떠난다.
     if (dirty && !window.confirm("저장하지 않은 변경이 있습니다. 저장하지 않고 진단 화면으로 이동할까요? (진단에는 지금 내용이 들어가지만 이 이력서에는 남지 않습니다)")) {
       return;
     }
-    const ok = saveDiagnosisPrefill({
+    const prefill: DiagnosisPrefill = {
       resumeText: resumeToText(doc, meta.templateId),
       targetRole: meta.roleTitle,
       jdText: meta.jdText ?? "",
-    });
+    };
+    // 첨부 포트폴리오도 함께 넘긴다(파일은 뽑아 둔 글, 링크는 주소). 못 읽으면 포트폴리오 없이 진행한다.
+    if (meta.portfolio?.kind === "url" && meta.portfolio.url) prefill.portfolioUrl = meta.portfolio.url;
+    if (meta.portfolio?.kind === "file") {
+      setBusy("view");
+      try {
+        const res = await fetch(`/api/resumes/${meta.id}/portfolio?include=text`);
+        const data = res.ok ? ((await res.json().catch(() => null)) as { text?: string } | null) : null;
+        if (data?.text) {
+          prefill.portfolioText = data.text;
+          prefill.portfolioFileName = meta.portfolio.fileName ?? undefined;
+        }
+      } catch {
+        // 포트폴리오 없이 진행
+      } finally {
+        setBusy(null);
+      }
+    }
+    const ok = saveDiagnosisPrefill(prefill);
     if (!ok) {
       setError("브라우저 저장소를 쓸 수 없어 내용을 넘기지 못했습니다. '텍스트 복사'로 복사해 붙여넣어 주세요.");
       return;
@@ -343,6 +395,14 @@ export function ResumeEditor({
 
   const isPerformance = meta.templateId === "performance";
 
+  function statusChanged(result: ChangeResumeStatusResult, message: string) {
+    // 저장하지 않은 양식 선택은 그대로 둔다.
+    setMeta((m) => ({ ...result.resume, templateId: m.templateId }));
+    if (result.postingStatus) setPosting((p) => (p ? { ...p, status: result.postingStatus! } : p));
+    setError(null);
+    setNotice(message);
+  }
+
   return (
     <div className="space-y-5">
       {/* 머리글 */}
@@ -360,6 +420,18 @@ export function ResumeEditor({
                 {meta.company} · {meta.roleTitle}
               </span>
             )}
+            {!isGeneral && (
+              <ResumeStatusControl
+                resumeId={meta.id}
+                kind={meta.kind}
+                status={meta.applyStatus}
+                hasPosting={!!posting}
+                hasApplication={!!meta.submittedApplicationId}
+                onChanged={statusChanged}
+                beforeSubmit={confirmSavedBeforeSubmit}
+                size="sm"
+              />
+            )}
             {current && <Badge tone="neutral">v{current.versionNo}</Badge>}
             {dirty && <Badge tone="warning">저장 안 됨</Badge>}
             {addCount > 0 && <Badge tone="warning">채울 칸 {addCount}개</Badge>}
@@ -372,6 +444,24 @@ export function ResumeEditor({
               </Link>
             )}
           </p>
+          {posting && (
+            <p className="mt-1.5 flex flex-wrap items-center gap-x-2 gap-y-1 text-sm text-slate-500">
+              <span>연결 공고</span>
+              <Link href={`/app/postings/${posting.id}`} className="font-medium text-slate-800 hover:text-indigo-700 hover:underline">
+                {posting.company} · {posting.roleTitle}
+              </Link>
+              <Badge tone={posting.status === "applied" ? "positive" : "neutral"}>{POSTING_STATUS_LABELS[posting.status]}</Badge>
+              <SourceLink url={posting.url} />
+              {meta.submittedApplicationId && (
+                <Link
+                  href={`/app/applications?open=${encodeURIComponent(meta.submittedApplicationId)}`}
+                  className="font-medium text-indigo-700 hover:underline"
+                >
+                  지원 기록 보기
+                </Link>
+              )}
+            </p>
+          )}
         </div>
         <div className="flex flex-wrap gap-2">
           <Button
@@ -386,7 +476,7 @@ export function ResumeEditor({
           <Button variant="secondary" onClick={copyText}>
             텍스트 복사
           </Button>
-          <Button variant="secondary" onClick={startDiagnosis}>
+          <Button variant="secondary" onClick={startDiagnosis} disabled={busy !== null}>
             이 이력서로 진단
           </Button>
           <Button onClick={save} loading={busy === "save"} disabled={!dirty || busy !== null}>
@@ -483,6 +573,15 @@ export function ResumeEditor({
       )}
       {error && <Alert tone="error">{error}</Alert>}
       {notice && !error && <Alert tone="info">{notice}</Alert>}
+
+      <ResumePortfolioCard
+        resumeId={meta.id}
+        portfolio={meta.portfolio}
+        maxBytes={Math.min(uploadLimits.perFileBytes, VERCEL_UPLOAD_LIMITS.perFileBytes)}
+        onChange={(resume) => setMeta((m) => ({ ...resume, templateId: m.templateId }))}
+      />
+
+      <ResumeWritingTips resumeId={meta.id} kind={meta.kind} document={doc} />
 
       {isPerformance ? (
         // 성과 중심 양식: 원본처럼 A4 시트 위에서 바로 고치거나, 구조화 폼으로 고친다(같은 문서 상태).

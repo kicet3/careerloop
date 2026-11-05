@@ -6,7 +6,8 @@ import { Alert } from "@/components/ui/Alert";
 import { requireUser } from "@/lib/auth/session";
 import { FeatureError } from "@/lib/api/errors";
 import { emptyResumeDocument } from "@/lib/domain/resumes";
-import { getResumeDetail, getResumeMeta, listVersions } from "@/lib/resumes/service";
+import { uploadLimitsFor } from "@/lib/ingest/upload-limits";
+import { getResumeDetail, getResumeMeta, getResumePostingLink, listVersions } from "@/lib/resumes/service";
 import type { ResumeDetail } from "@/lib/resumes/types";
 
 type Props = { params: Promise<{ id: string }> };
@@ -33,7 +34,7 @@ export default async function ResumePage({ params }: Props) {
     if (!(err instanceof FeatureError)) throw err;
     const meta = await getResumeMeta(user.id, id);
     const versions = meta ? await listVersions(user.id, id) : null;
-    detail = meta && versions ? { resume: meta, versions, current: null } : null;
+    detail = meta && versions ? { resume: meta, versions, current: null, posting: await getResumePostingLink(user.id, meta.postingId) } : null;
     loadError = err.message;
   }
   if (!detail) notFound();
@@ -49,6 +50,8 @@ export default async function ResumePage({ params }: Props) {
         versions={detail.versions}
         initialDocument={detail.current?.document ?? emptyResumeDocument()}
         currentVersionId={detail.current?.versionId ?? detail.resume.currentVersionId}
+        posting={detail.posting}
+        uploadLimits={uploadLimitsFor()}
       />
     </div>
   );

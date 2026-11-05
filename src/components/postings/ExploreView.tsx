@@ -22,6 +22,7 @@ import { formatPostingDeadline } from "@/lib/postings/deadline";
 import { platformLabel } from "@/lib/postings/url";
 import { PostingsTabs } from "./PostingsTabs";
 import { DeadlineBadge, inputClass, readApiError, useNow } from "./shared";
+import { SourceLink } from "./SourceLink";
 
 export interface ExploreFilters {
   q: string;
@@ -301,7 +302,10 @@ function SharedPostingCard({
         </div>
       )}
       <div className="mt-auto flex flex-wrap items-center justify-between gap-2 pt-4">
-        <span className="text-xs text-slate-500">{p.importerCount > 0 ? `${p.importerCount}명이 담음` : "새 공고"}</span>
+        <span className="flex items-center gap-1 text-xs text-slate-500">
+          <SourceLink url={p.url} variant="icon" className="-ml-1.5" />
+          {p.importerCount > 0 ? `${p.importerCount}명이 담음` : "새 공고"}
+        </span>
         {p.hidden ? null : p.myPostingId ? (
           <Link href={`/app/postings/${p.myPostingId}`} className={buttonClass("secondary", "sm")}>
             보관함에서 열기

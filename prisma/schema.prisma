@@ -31,16 +31,18 @@ model User {
   lastLoginAt     DateTime? @map("last_login_at") @db.Timestamptz(3)
   createdAt       DateTime  @default(now()) @map("created_at") @db.Timestamptz(3)
 
-  sessions       Session[]
-  consents       UserConsent[]
-  sharedPostings SharedPosting[]
-  jobPostings    JobPosting[]
-  postingImports PostingImport[]
-  diagnoses      Diagnosis[]
-  diagnosisRuns  DiagnosisRun[]
-  chatThreads    ChatThread[]
-  companyResumes CompanyResume[]
-  applications   Application[]
+  sessions          Session[]
+  consents          UserConsent[]
+  sharedPostings    SharedPosting[]
+  jobPostings       JobPosting[]
+  postingImports    PostingImport[]
+  diagnoses         Diagnosis[]
+  diagnosisRuns     DiagnosisRun[]
+  chatThreads       ChatThread[]
+  companyResumes    CompanyResume[]
+  applications      Application[]
+  interviewSessions InterviewSession[]
+  interviewAnswers  InterviewAnswer[]
 
   @@index([status, createdAt], map: "users_status_idx")
   @@map("users")
@@ -124,12 +126,13 @@ model JobPosting {
   createdAt         DateTime @default(now()) @map("created_at") @db.Timestamptz(3)
   updatedAt         DateTime @default(now()) @map("updated_at") @db.Timestamptz(3)
 
-  user           User            @relation(fields: [userId], references: [id], onDelete: Cascade, map: "job_postings_user_id_fkey")
-  sharedPosting  SharedPosting?  @relation(fields: [sharedPostingId], references: [id], onDelete: SetNull, map: "job_postings_shared_posting_id_fkey")
-  postingImports PostingImport[]
-  diagnoses      Diagnosis[]
-  companyResumes CompanyResume[]
-  applications   Application[]
+  user              User               @relation(fields: [userId], references: [id], onDelete: Cascade, map: "job_postings_user_id_fkey")
+  sharedPosting     SharedPosting?     @relation(fields: [sharedPostingId], references: [id], onDelete: SetNull, map: "job_postings_shared_posting_id_fkey")
+  postingImports    PostingImport[]
+  diagnoses         Diagnosis[]
+  companyResumes    CompanyResume[]
+  applications      Application[]
+  interviewSessions InterviewSession[]
 
   @@unique([userId, urlKey], map: "job_postings_url_uq")
   @@index([userId, updatedAt], map: "job_postings_user_idx")
@@ -175,6 +178,25 @@ model SharedPosting {
   fetchedAt         DateTime  @map("fetched_at") @db.Timestamptz(3)
   createdAt         DateTime  @default(now()) @map("created_at") @db.Timestamptz(3)
   updatedAt         DateTime  @default(now()) @map("updated_at") @db.Timestamptz(3)
+
+  // 원문 페이지 전체 캡처(src/lib/postings/capture-store.ts, domain/posting-capture.ts). 가져오기와 따로(after()) 찍는다.
+  /// PostingCaptureStatus('pending' | 'running' | 'done' | 'failed'). null이면 아직 요청한 적 없음(예전 행).
+  captureStatus    String?   @map("capture_status")
+  /// 저장소 키 shared-postings/<id>/capture.webp(또는 .jpg). 성공했을 때만.
+  captureKey       String?   @map("capture_key")
+  /// 'image/webp' | 'image/jpeg'
+  captureMime      String?   @map("capture_mime")
+  captureBytes     Int?      @map("capture_bytes")
+  captureWidth     Int?      @map("capture_width")
+  captureHeight    Int?      @map("capture_height")
+  /// 마지막으로 성공한 캡처 시각.
+  capturedAt       DateTime? @map("captured_at") @db.Timestamptz(3)
+  /// 사용자에게 보여도 되는 한국어 실패 문구(내부 주소·스택 없음).
+  captureError     String?   @map("capture_error")
+  /// 지금까지 시도한 횟수(성공하면 0으로).
+  captureAttempts  Int       @default(0) @map("capture_attempts")
+  /// 마지막으로 pending/running이 된 시각(멈춘 작업 판별).
+  captureStartedAt DateTime? @map("capture_started_at") @db.Timestamptz(3)
 
   creator        User?           @relation(fields: [createdBy], references: [id], onDelete: SetNull, map: "shared_postings_created_by_fkey")
   jobPostings    JobPosting[]
@@ -356,13 +378,34 @@ model CompanyResume {
   createdAt        DateTime @default(now()) @map("created_at") @db.Timestamptz(3)
   updatedAt        DateTime @default(now()) @map("updated_at") @db.Timestamptz(3)
 
-  user         User            @relation(fields: [userId], references: [id], onDelete: Cascade, map: "company_resumes_user_id_fkey")
-  posting      JobPosting?     @relation(fields: [postingId], references: [id], onDelete: SetNull, map: "company_resumes_posting_id_fkey")
-  sourceResume CompanyResume?  @relation("ResumeCopies", fields: [sourceResumeId], references: [id], onDelete: SetNull, map: "company_resumes_source_resume_id_fkey")
-  copies       CompanyResume[] @relation("ResumeCopies")
-  versions     ResumeVersion[]
-  applications Application[]
+  /// ResumeApplyStatus('draft' 지원 전 | 'applying' 지원 중 | 'submitted' 지원 완료). 공용 이력서(kind='general')는 null.
+  applyStatus            String?   @map("apply_status")
+  applyStatusChangedAt   DateTime? @map("apply_status_changed_at") @db.Timestamptz(3)
+  /// '지원 완료'로 바꿀 때 만들거나 연결한 지원 기록. 되돌리기·화면 링크용. 지원을 지우면 null.
+  submittedApplicationId String?   @map("submitted_application_id")
 
+  /// 첨부 포트폴리오(이력서당 하나). ResumePortfolioKind('file' | 'url'). null이면 없음.
+  portfolioKind      String?   @map("portfolio_kind")
+  /// 올린 파일 이름(kind='file').
+  portfolioFileName  String?   @map("portfolio_file_name")
+  /// 포트폴리오 주소(kind='url', http/https만).
+  portfolioUrl       String?   @map("portfolio_url")
+  /// 파일에서 뽑은 텍스트의 저장소 키 users/<u>/resumes/<id>/portfolio.txt(kind='file'). 원본 파일은 보관하지 않는다.
+  portfolioTextKey   String?   @map("portfolio_text_key")
+  /// 뽑은 텍스트 글자 수(화면 표시·프롬프트 예산).
+  portfolioChars     Int?      @map("portfolio_chars")
+  portfolioUpdatedAt DateTime? @map("portfolio_updated_at") @db.Timestamptz(3)
+
+  user                 User               @relation(fields: [userId], references: [id], onDelete: Cascade, map: "company_resumes_user_id_fkey")
+  posting              JobPosting?        @relation(fields: [postingId], references: [id], onDelete: SetNull, map: "company_resumes_posting_id_fkey")
+  sourceResume         CompanyResume?     @relation("ResumeCopies", fields: [sourceResumeId], references: [id], onDelete: SetNull, map: "company_resumes_source_resume_id_fkey")
+  copies               CompanyResume[]    @relation("ResumeCopies")
+  versions             ResumeVersion[]
+  applications         Application[]      @relation("ApplicationResume")
+  submittedApplication Application?       @relation("ResumeSubmittedApplication", fields: [submittedApplicationId], references: [id], onDelete: SetNull, map: "company_resumes_submitted_application_id_fkey")
+  interviewSessions    InterviewSession[]
+
+  @@index([userId, applyStatus, updatedAt], map: "company_resumes_user_status_idx")
   @@index([userId, kind, updatedAt], map: "company_resumes_user_kind_idx")
   @@index([userId, updatedAt], map: "company_resumes_user_idx")
   @@index([postingId], map: "company_resumes_posting_idx")
@@ -413,11 +456,13 @@ model Application {
   createdAt       DateTime @default(now()) @map("created_at") @db.Timestamptz(3)
   updatedAt       DateTime @default(now()) @map("updated_at") @db.Timestamptz(3)
 
-  user      User               @relation(fields: [userId], references: [id], onDelete: Cascade, map: "applications_user_id_fkey")
-  posting   JobPosting?        @relation(fields: [postingId], references: [id], onDelete: SetNull, map: "applications_posting_id_fkey")
-  resume    CompanyResume?     @relation(fields: [resumeId], references: [id], onDelete: SetNull, map: "applications_resume_id_fkey")
-  diagnosis Diagnosis?         @relation(fields: [diagnosisId], references: [id], onDelete: SetNull, map: "applications_diagnosis_id_fkey")
-  events    ApplicationEvent[]
+  user         User               @relation(fields: [userId], references: [id], onDelete: Cascade, map: "applications_user_id_fkey")
+  posting      JobPosting?        @relation(fields: [postingId], references: [id], onDelete: SetNull, map: "applications_posting_id_fkey")
+  resume       CompanyResume?     @relation("ApplicationResume", fields: [resumeId], references: [id], onDelete: SetNull, map: "applications_resume_id_fkey")
+  diagnosis    Diagnosis?         @relation(fields: [diagnosisId], references: [id], onDelete: SetNull, map: "applications_diagnosis_id_fkey")
+  events       ApplicationEvent[]
+  /// 이 지원을 '지원 완료' 기록으로 가리키는 이력서(보통 0~1개).
+  submittedFor CompanyResume[]    @relation("ResumeSubmittedApplication")
 
   @@index([userId, updatedAt], map: "applications_user_idx")
   @@index([postingId], map: "applications_posting_idx")
@@ -439,6 +484,119 @@ model ApplicationEvent {
 
   @@index([applicationId, at], map: "application_events_app_idx")
   @@map("application_events")
+}
+
+/// 면접 연습 세션: 이력서 하나(+ 첨부 포트폴리오, + 연결 공고)로 만든 예상 질문 묶음. src/lib/interview/*.
+/// 생성에 쓴 자료(이력서 줄·포트폴리오·JD)는 저장소 스냅숏(sourceKey)에 고정한다 — 원본 이력서를 고치거나 지워도 인용이 유지된다.
+model InterviewSession {
+  id              String    @id
+  userId          String    @map("user_id")
+  /// 원본 이력서. 지우면 null(세션·스냅숏은 남는다).
+  resumeId        String?   @map("resume_id")
+  /// 생성에 쓴 이력서 버전(resume_versions.id). FK 없음.
+  resumeVersionId String?   @map("resume_version_id")
+  /// 생성에 쓴 보관 공고. 지우면 null.
+  postingId       String?   @map("posting_id")
+  title           String
+  /// 생성 당시 이력서 표시 이름(예: "토스 백엔드 · v3").
+  resumeLabel     String    @map("resume_label")
+  /// 생성 당시 "회사 · 직무"(공고·지원처 이력서). 공용 이력서에 공고가 없으면 null(직무 일반 질문).
+  targetLabel     String?   @map("target_label")
+  hasPortfolio    Boolean   @default(false) @map("has_portfolio")
+  hasPosting      Boolean   @default(false) @map("has_posting")
+  /// InterviewSessionStatus('generating' | 'ready' | 'failed')
+  status          String    @default("generating")
+  error           String?
+  /// 현재 생성 실행 식별자(재시도 경쟁 방지 — 이 값이 같을 때만 결과를 쓴다).
+  runId           String?   @map("run_id")
+  /// ProviderId
+  provider        String?
+  model           String?
+  /// 스냅숏 저장소 키 users/<u>/interview/<id>/source.json(InterviewSourceSnapshot).
+  sourceKey       String?   @map("source_key")
+  questionCount   Int       @default(0) @map("question_count")
+  /// 답변을 한 번 이상 한 질문 수(진행률).
+  answeredCount   Int       @default(0) @map("answered_count")
+  /// UsageTotals(생성 + 피드백 누적)
+  usage           Json?
+  createdAt       DateTime  @default(now()) @map("created_at") @db.Timestamptz(3)
+  updatedAt       DateTime  @default(now()) @map("updated_at") @db.Timestamptz(3)
+  generatedAt     DateTime? @map("generated_at") @db.Timestamptz(3)
+
+  user      User                @relation(fields: [userId], references: [id], onDelete: Cascade, map: "interview_sessions_user_id_fkey")
+  resume    CompanyResume?      @relation(fields: [resumeId], references: [id], onDelete: SetNull, map: "interview_sessions_resume_id_fkey")
+  posting   JobPosting?         @relation(fields: [postingId], references: [id], onDelete: SetNull, map: "interview_sessions_posting_id_fkey")
+  questions InterviewQuestion[]
+  answers   InterviewAnswer[]
+
+  @@index([userId, updatedAt], map: "interview_sessions_user_idx")
+  @@index([resumeId], map: "interview_sessions_resume_idx")
+  @@map("interview_sessions")
+}
+
+/// 예상 질문 한 개. 근거(citations)는 스냅숏의 줄 id(InterviewCitation.ref)를 가리킨다.
+model InterviewQuestion {
+  id             String    @id
+  sessionId      String    @map("session_id")
+  /// 세션 안 순서(0부터).
+  ord            Int
+  /// InterviewQuestionCategory('line' | 'project' | 'pivot' | 'tough' | 'motivation' | 'job')
+  category       String
+  /// 세부 분류: project → 5단계 키, pivot → P/I/V/O/T, line → 질문 묶음 번호 등(InterviewQuestionFacet). 없으면 null.
+  facet          String?
+  question       String
+  /// 이 질문이 확인하려는 것(화면 안내).
+  intent         String
+  /// InterviewCitation[](jsonb)
+  citations      Json
+  /// 꼬리 질문(string[], jsonb)
+  followUps      Json      @map("follow_ups")
+  /// InterviewQuestionStatus('new' | 'practiced' | 'skipped')
+  status         String    @default("new")
+  starred        Boolean   @default(false)
+  attemptCount   Int       @default(0) @map("attempt_count")
+  /// 완료된 피드백 중 가장 높은 종합 점수(0~100).
+  bestScore      Int?      @map("best_score")
+  lastAnsweredAt DateTime? @map("last_answered_at") @db.Timestamptz(3)
+  createdAt      DateTime  @default(now()) @map("created_at") @db.Timestamptz(3)
+
+  session InterviewSession  @relation(fields: [sessionId], references: [id], onDelete: Cascade, map: "interview_questions_session_id_fkey")
+  answers InterviewAnswer[]
+
+  @@unique([sessionId, ord], map: "interview_questions_ord_uq")
+  @@map("interview_questions")
+}
+
+/// 연습 답변 1회와 그 피드백. 하루 제한은 rate_events로 센다(이 표를 지워도 줄지 않게).
+model InterviewAnswer {
+  id          String    @id
+  questionId  String    @map("question_id")
+  sessionId   String    @map("session_id")
+  userId      String    @map("user_id")
+  answer      String
+  /// 사용자가 잰 답변 시간(초, 선택).
+  durationSec Int?      @map("duration_sec")
+  /// InterviewAnswerStatus('pending' | 'done' | 'failed')
+  status      String    @default("pending")
+  /// InterviewFeedback(jsonb). done일 때만.
+  feedback    Json?
+  /// 종합 점수 0~100(feedback.overall). done일 때만.
+  score       Int?
+  error       String?
+  provider    String?
+  model       String?
+  usage       Json?
+  createdAt   DateTime  @default(now()) @map("created_at") @db.Timestamptz(3)
+  completedAt DateTime? @map("completed_at") @db.Timestamptz(3)
+
+  question InterviewQuestion @relation(fields: [questionId], references: [id], onDelete: Cascade, map: "interview_answers_question_id_fkey")
+  session  InterviewSession  @relation(fields: [sessionId], references: [id], onDelete: Cascade, map: "interview_answers_session_id_fkey")
+  user     User              @relation(fields: [userId], references: [id], onDelete: Cascade, map: "interview_answers_user_id_fkey")
+
+  @@index([questionId, createdAt], map: "interview_answers_question_idx")
+  @@index([sessionId, createdAt], map: "interview_answers_session_idx")
+  @@index([userId, createdAt], map: "interview_answers_user_idx")
+  @@map("interview_answers")
 }
 
 /// 비용이 드는 기능의 요청 제한 원장(인스턴스 사이에 공유되는 레이트 리밋). src/lib/auth/db-rate-limit.ts.

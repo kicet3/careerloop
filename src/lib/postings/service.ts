@@ -26,6 +26,7 @@ import {
   type PostingStatus,
   type PostingUpdateInput,
 } from "@/lib/domain/postings";
+import { CAPTURE_SELECT, toCaptureInfo } from "./capture-store";
 import { composeJdText, isThin, sourceHash, structureFromText, structureInputText } from "./structure";
 import { inferPlatform, isValidUrl, normalizeUrl, withScheme } from "./url";
 
@@ -175,8 +176,12 @@ export async function listPostings(userId: string, opts: { status?: PostingStatu
 }
 
 export async function getPosting(userId: string, id: string): Promise<JobPosting | null> {
-  const row = await prisma.jobPosting.findFirst({ where: { id, userId } });
-  return row ? toJobPosting(row as JobPostingRow) : null;
+  const row = await prisma.jobPosting.findFirst({ where: { id, userId }, include: { sharedPosting: { select: CAPTURE_SELECT } } });
+  if (!row) return null;
+  const { sharedPosting, ...rest } = row;
+  const posting = toJobPosting(rest as JobPostingRow);
+  // URL 가져오기·공고 찾기에서 담은 공고: 공용 공고의 원문 캡처 상태를 싣는다.
+  return sharedPosting ? { ...posting, capture: toCaptureInfo(sharedPosting as Parameters<typeof toCaptureInfo>[0]) } : posting;
 }
 
 /**

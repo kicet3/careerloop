@@ -1,7 +1,8 @@
 import "server-only";
 /**
  * 오브젝트 저장소. R2_ACCOUNT_ID·R2_ACCESS_KEY_ID·R2_SECRET_ACCESS_KEY·R2_BUCKET이 모두 있으면 Cloudflare R2(S3 호환),
- * 없으면 로컬 파일(STORAGE_DIR, 기본 ./data/storage). 키는 users/<userId>/... 형식만 받는다(userKey로 만든다).
+ * 없으면 로컬 파일(STORAGE_DIR, 기본 ./data/storage). 키는 users/<userId>/...(userKey) 또는 공용 공고 자료
+ * shared-postings/<sharedPostingId>/...(sharedPostingKey — 원문 캡처처럼 사용자 사이에 공유하는 객체) 형식만 받는다.
  * APP_ENV=PRODUCTION이면 R2만 쓴다 — R2 설정이 없으면 로컬로 내려가지 않고 StorageConfigError를 던진다.
  *
  * - 키 검사: 영문·숫자·._- 와 / 만, 빈 조각·'.'·'..' 금지 → 로컬 경로 탈출과 다른 사용자 접두사 침범을 막는다.
@@ -40,13 +41,19 @@ export class StorageConfigError extends Error {
 const SEGMENT_RE = /^[A-Za-z0-9_-][A-Za-z0-9._-]{0,127}$/;
 const MAX_KEY_LENGTH = 512;
 
-/** 키 형식 검사. users/<userId>/<...> 이고 각 조각이 안전한 문자만 쓴다. */
+/** 키의 첫 조각(최상위 '폴더'). users: 사용자별 자료, shared-postings: 공용 공고별 공유 자료(원문 캡처). */
+export const STORAGE_ROOTS = ["users", "shared-postings"] as const;
+export type StorageRoot = (typeof STORAGE_ROOTS)[number];
+
+/** 키 형식 검사. <root>/<id>/<...>(root는 STORAGE_ROOTS) 이고 각 조각이 안전한 문자만 쓴다. */
 export function assertValidKey(key: string, opts: { prefix?: boolean } = {}): void {
   if (typeof key !== "string" || key.length === 0 || key.length > MAX_KEY_LENGTH) throw new StorageKeyError();
   const parts = key.split("/");
   // 접두사(listByPrefix)는 끝이 '/'일 수 있다.
   if (opts.prefix && parts[parts.length - 1] === "") parts.pop();
-  if (parts[0] !== "users" || parts.length < (opts.prefix ? 2 : 3)) throw new StorageKeyError("키는 users/<userId>/... 형식이어야 합니다.");
+  if (!(STORAGE_ROOTS as readonly string[]).includes(parts[0]!) || parts.length < (opts.prefix ? 2 : 3)) {
+    throw new StorageKeyError("키는 users/<userId>/... 또는 shared-postings/<id>/... 형식이어야 합니다.");
+  }
   for (const p of parts) {
     if (!SEGMENT_RE.test(p) || p === "." || p === ".." || p.includes("..")) throw new StorageKeyError();
   }
@@ -62,6 +69,20 @@ export function userKey(userId: string, ...parts: string[]): string {
 /** 사용자 접두사(users/<userId>/). listByPrefix에 쓴다. */
 export function userPrefix(userId: string, ...parts: string[]): string {
   const key = ["users", userId, ...parts].join("/") + "/";
+  assertValidKey(key, { prefix: true });
+  return key;
+}
+
+/** shared-postings/<sharedPostingId>/<parts...> 키(공용 공고의 공유 자료). */
+export function sharedPostingKey(sharedPostingId: string, ...parts: string[]): string {
+  const key = ["shared-postings", sharedPostingId, ...parts].join("/");
+  assertValidKey(key);
+  return key;
+}
+
+/** 공용 공고 접두사(shared-postings/<id>/). */
+export function sharedPostingPrefix(sharedPostingId: string): string {
+  const key = `shared-postings/${sharedPostingId}/`;
   assertValidKey(key, { prefix: true });
   return key;
 }
@@ -160,8 +181,8 @@ class LocalBackend implements StorageBackend {
   async delete(key: string) {
     const f = this.file(key);
     await rm(f, { force: true });
-    // 비게 된 상위 폴더를 users/ 아래까지만 정리한다(R2처럼 빈 '폴더'가 남지 않게). 비어 있지 않으면 거기서 멈춘다.
-    const stop = path.join(this.root, "users");
+    // 비게 된 상위 폴더를 최상위 폴더(users/·shared-postings/) 아래까지만 정리한다(R2처럼 빈 '폴더'가 남지 않게). 비어 있지 않으면 거기서 멈춘다.
+    const stop = path.join(this.root, key.split("/")[0]!);
     for (let dir = path.dirname(f); dir.startsWith(stop + path.sep); dir = path.dirname(dir)) {
       try {
         await rmdir(dir);
@@ -245,7 +266,7 @@ export async function deleteObject(key: string): Promise<void> {
   await backend().delete(key);
 }
 
-/** 접두사(users/<userId>/...) 아래 키 목록(정렬). */
+/** 접두사(users/<userId>/... 또는 shared-postings/<id>/...) 아래 키 목록(정렬). */
 export async function listByPrefix(prefix: string): Promise<string[]> {
   assertValidKey(prefix, { prefix: true });
   return backend().list(prefix);

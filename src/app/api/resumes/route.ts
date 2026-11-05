@@ -6,18 +6,20 @@ import { jsonError } from "@/lib/diagnoses/http";
 import { withResumePostingDefaults } from "@/lib/postings/defaults";
 import { getPosting, POSTING_NOT_FOUND } from "@/lib/postings/service";
 import { parseJsonInput, readJsonBody } from "@/lib/resumes/http";
-import { listResumes } from "@/lib/resumes/service";
+import { listResumes, parseResumeStatusFilter } from "@/lib/resumes/service";
 import { CreateResumeInputSchema, type CreateResumeResponse } from "@/lib/resumes/types";
 
 export const runtime = "nodejs";
 // AI 초안(LLM 1회)이 요청 안에서 끝나야 한다. 계정 로그인(CLI) 엔진은 느릴 수 있다.
 export const maxDuration = 300;
 
-export async function GET() {
+/** 목록. ?status=all|draft|applying|submitted|general(모르는 값은 all). */
+export async function GET(req: Request) {
   const user = await requireApiUser();
   if (user instanceof Response) return user;
   try {
-    return Response.json({ items: await listResumes(user.id) }, { headers: { "Cache-Control": "no-store" } });
+    const status = parseResumeStatusFilter(new URL(req.url).searchParams.get("status"));
+    return Response.json({ items: await listResumes(user.id, { status }) }, { headers: { "Cache-Control": "no-store" } });
   } catch (err) {
     return featureErrorResponse(err, "GET /api/resumes");
   }

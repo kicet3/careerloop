@@ -49,6 +49,12 @@ export const CHAT_TAGS = {
   experienceChecklist: "experience_checklist",
   /** 그래프에 묻기: 번호를 붙인 근거 노드 표(qa-context.ts buildContext), LLM 리랭크 후보 표 */
   graphSources: "graph_sources",
+  /** 면접 연습: id를 붙인 근거 줄 표(`[r1] (이력서 · 위치) 본문` 한 줄씩, domain/interview.ts InterviewSourceLine) */
+  interviewSources: "interview_sources",
+  /** 면접 연습: 연습 중인 질문(분류·의도·꼬리 질문 포함) */
+  interviewQuestion: "interview_question",
+  /** 면접 연습: 사용자의 답변 원문 */
+  interviewAnswer: "interview_answer",
 } as const;
 
 /** 이력서·포트폴리오 가져오기: 한 번에 다루는 문서 글자 수, 변경안 연산 수 상한(직접 편집·채팅은 MAX_OPS_PER_BATCH). */

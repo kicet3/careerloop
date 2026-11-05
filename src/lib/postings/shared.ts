@@ -21,6 +21,7 @@ import {
   type SharedPostingSummary,
 } from "@/lib/domain/shared-postings";
 import { kstDate } from "@/lib/time/kst";
+import { toCaptureInfo } from "./capture-store";
 import { DuplicatePostingError, getPosting, highlightsOf, MAX_POSTINGS_PER_USER, parseStoredStructure, toJobPosting } from "./service";
 import { inferPlatform, isValidUrl, normalizeUrl, withScheme } from "./url";
 
@@ -72,6 +73,7 @@ function toSummary(row: SharedPostingRow, myPostingId: string | null): SharedPos
     fetchedAt: row.fetchedAt.getTime(),
     myPostingId,
     ...(row.hiddenAt ? { hidden: true } : {}),
+    capture: toCaptureInfo(row),
   };
 }
 

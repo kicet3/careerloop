@@ -27,6 +27,7 @@ import {
 } from "@/lib/domain/chat";
 import { extractKeywords } from "@/lib/skills/dictionary";
 import { emptyResumeDocument, type ResumeDraftOutput } from "@/lib/domain/resumes";
+import type { InterviewFeedbackOutput, InterviewQuestionsOutput } from "@/lib/domain/interview";
 import type { PostingSectionsLlm } from "@/lib/domain/posting-structure";
 import type { PostingExtract } from "@/lib/domain/postings";
 import { computeMatchScore } from "@/lib/panel/fit-score";
@@ -789,6 +790,65 @@ function fakeGraphQaRerank(user: string): GraphQaRerankOutput {
   return { ratings: ids.slice(0, 20).map((id, i) => ({ id, relevance: i < 3 ? 3 : i < 6 ? 2 : 1 })) };
 }
 
+/** `[r1] (라벨) 본문` 줄 → { id, text }. */
+function interviewLines(user: string): { id: string; text: string }[] {
+  const body = extractTag(user, CHAT_TAGS.interviewSources) ?? "";
+  return [...body.matchAll(/^\[([rpj]\d{1,4})\](?: \([^)]*\))? (.+)$/gm)].map((m) => ({ id: m[1]!, text: m[2]!.trim() }));
+}
+
+/** 가짜 면접 질문: 근거 줄 앞 3개에 서류 한 줄 질문, 첫 줄에 PIVOT O 질문, 지원 동기 1개. 인용은 줄 앞 20자. */
+function fakeInterviewQuestions(user: string): InterviewQuestionsOutput {
+  const lines = interviewLines(user).filter((l) => l.id.startsWith("r") || l.id.startsWith("p"));
+  const cite = (l: { id: string; text: string }) => [{ ref: l.id, quote: l.text.slice(0, 20) }];
+  const questions: InterviewQuestionsOutput["questions"] = lines.slice(0, 3).map((l) => ({
+    category: "line",
+    facet: "why",
+    question: `"${l.text.slice(0, 30)}" — 왜 이 일이 필요했나요?`,
+    intent: "필요성과 배경을 설명할 수 있는지",
+    citations: cite(l),
+    followUps: ["목표와 지표는 누가 정했나요?"],
+  }));
+  if (lines[0]) {
+    questions.push({
+      category: "pivot",
+      facet: "O",
+      question: "이 중 본인이 직접 결정·실행한 부분은 어디까지인가요?",
+      intent: "본인 역할과 팀 역할의 경계",
+      citations: cite(lines[0]),
+      followUps: [],
+    });
+  }
+  questions.push({ category: "motivation", facet: "motivation", question: "왜 이 직무에 지원했나요?", intent: "경험과 지원 직무의 연결", citations: [], followUps: [] });
+  return { questions, notes: lines.length ? [] : ["근거로 쓸 서류 내용이 없습니다."] };
+}
+
+/** 가짜 답변 피드백: 답변 길이로 점수를 정하고, 첫 근거 줄을 모범 답변 근거로 쓴다. */
+function fakeInterviewFeedback(user: string): InterviewFeedbackOutput {
+  const answer = extractTag(user, CHAT_TAGS.interviewAnswer) ?? "";
+  const first = interviewLines(user)[0];
+  const hasNumber = /\d/.test(answer);
+  const c = (score: number, comment: string) => ({ score, comment });
+  return {
+    overall: Math.min(100, 40 + Math.round(answer.length / 10)),
+    criteria: {
+      evidence: c(answer.length > 80 ? 4 : 2, "근거를 하나 이상 들었는지"),
+      numbers: c(hasNumber ? 4 : 2, hasNumber ? "수치가 있습니다." : "수치가 없습니다."),
+      ownership: c(/제가|저는|직접/.test(answer) ? 4 : 2, "본인 역할 표현"),
+      length: c(answer.length > 400 ? 2 : 4, "길이"),
+      structure: c(3, "결론 → 근거 → 한계"),
+    },
+    strengths: ["질문에 바로 답했습니다."],
+    improvements: hasNumber ? [] : ["측정 기간·대상과 전후 값을 더하세요."],
+    unsupportedClaims: [],
+    modelAnswer: {
+      conclusion: "[ADD: 질문에 바로 답하는 한 문장]",
+      points: first ? [{ text: first.text.slice(0, 60), ref: first.id }] : [{ text: "[ADD: 가장 직접적인 근거]", ref: null }],
+      limitation: "",
+    },
+    followUp: "그 결과는 어떻게 측정했나요?",
+  };
+}
+
 function fakeTaskOutput(task: LlmTask, user: string): unknown {
   switch (task) {
     case "graph-chat":
@@ -805,6 +865,10 @@ function fakeTaskOutput(task: LlmTask, user: string): unknown {
       return fakeGraphQa(user);
     case "graph-qa-rerank":
       return fakeGraphQaRerank(user);
+    case "interview-questions":
+      return fakeInterviewQuestions(user);
+    case "interview-feedback":
+      return fakeInterviewFeedback(user);
   }
 }
 

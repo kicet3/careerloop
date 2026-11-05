@@ -23,6 +23,7 @@ import {
 } from "@/lib/domain/applications";
 import { POSTING_STATUS_LABELS } from "@/lib/domain/postings";
 import { formatKstDate, kstDate } from "@/lib/time/kst";
+import { SourceLink } from "@/components/postings/SourceLink";
 import { STAGE_TONE } from "./stage-style";
 
 export type PanelTarget = { mode: "new"; postingId: string | null } | { mode: "edit"; id: string };
@@ -217,7 +218,7 @@ export function ApplicationPanel({
           ) : (
             <div className="space-y-6">
               <StageSection detail={detail} onSaved={saved} />
-              <SubmittedSection detail={detail} />
+              <SubmittedSection detail={detail} postingUrl={options.postings.find((p) => p.id === detail.postingId)?.url ?? null} />
               {/* 저장·단계 변경 뒤(제출본 고정으로 버전이 바뀔 수 있다) 폼을 서버 값으로 다시 맞춘다. */}
               <ApplicationForm key={`${detail.id}-${detail.updatedAt}`} initial={fromApplication(detail)} options={options} existing={detail} onSaved={saved} />
               <EventTimeline detail={detail} />
@@ -539,7 +540,7 @@ function StageSection({ detail, onSaved }: { detail: ApplicationDetail; onSaved:
   );
 }
 
-function SubmittedSection({ detail }: { detail: ApplicationDetail }) {
+function SubmittedSection({ detail, postingUrl }: { detail: ApplicationDetail; postingUrl: string | null }) {
   return (
     <section className="space-y-2">
       <h3 className="text-sm font-semibold text-slate-900">제출본</h3>
@@ -561,9 +562,12 @@ function SubmittedSection({ detail }: { detail: ApplicationDetail }) {
         </p>
       )}
       {detail.postingId && (
-        <Link href={`/app/postings/${detail.postingId}`} className="inline-block text-sm text-indigo-700 hover:underline">
-          연결된 공고 보기
-        </Link>
+        <p className="flex flex-wrap items-center gap-x-3 gap-y-1">
+          <Link href={`/app/postings/${detail.postingId}`} className="inline-block text-sm text-indigo-700 hover:underline">
+            연결된 공고 보기
+          </Link>
+          <SourceLink url={postingUrl} />
+        </p>
       )}
     </section>
   );

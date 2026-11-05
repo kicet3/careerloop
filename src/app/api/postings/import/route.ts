@@ -2,13 +2,15 @@ import { after } from "next/server";
 import { assertSameOrigin, requireApiUser } from "@/lib/auth/session";
 import { PostingImportInputSchema } from "@/lib/domain/postings";
 import { postingErrorResponse, postingImportBurstLimiter, tooManyRequests } from "@/lib/postings/http";
-import { createImport, listRecentImports, runImport } from "@/lib/postings/imports";
+import { runPostingCapture } from "@/lib/postings/capture";
+import { createImport, listRecentImports, queueCaptureForShared, runImportThenCapture } from "@/lib/postings/imports";
 import { findSharedPostingByUrl } from "@/lib/postings/shared";
 import { resolveRequestedProvider } from "@/lib/providers/options";
 import { readJsonInput } from "@/lib/resumes/http";
 
 export const runtime = "nodejs";
-// after()로 이어지는 가져오기(페이지 읽기 20초 + AI 분석, 전체 180초 상한)가 이 시간 안에 끝나야 한다. 리터럴이어야 한다.
+// after()로 이어지는 가져오기(페이지 읽기 20초 + AI 분석, 전체 180초 상한)와 이어지는 원문 캡처(75초 상한)가
+// 이 시간 안에 끝나야 한다. 리터럴이어야 한다.
 export const maxDuration = 300;
 
 /** 최근 24시간의 가져오기 작업(목록 화면이 진행 상황을 이어 보여 준다). */
@@ -41,15 +43,15 @@ export async function POST(req: Request) {
     const cached = !refresh && (await findSharedPostingByUrl(url)) !== null;
     const provider = cached ? null : await resolveRequestedProvider(null);
     const { job, reused, fromShared } = await createImport(user.id, url, { refresh });
-    if (fromShared) return Response.json({ jobId: job.id, job, fromShared: true }, { status: 200 });
+    if (fromShared) {
+      // 공고 찾기에 있던 공고: 원문 캡처가 아직 없거나 실패했으면 백그라운드로 찍는다(응답을 막지 않는다).
+      const sharedId = job.sharedPostingId;
+      if (sharedId && (await queueCaptureForShared(sharedId))) after(() => runPostingCapture(sharedId));
+      return Response.json({ jobId: job.id, job, fromShared: true }, { status: 200 });
+    }
     if (!reused) {
-      after(async () => {
-        try {
-          await runImport(job.id, provider ? { provider } : {});
-        } catch (err) {
-          console.error("[runImport]", job.id, err);
-        }
-      });
+      // 가져오기가 끝나면 같은 백그라운드 작업에서 원문 캡처를 이어서 한다(가져오기 결과를 기다리게 하지 않는다).
+      after(() => runImportThenCapture(job.id, provider ? { provider } : {}));
     }
     return Response.json({ jobId: job.id, job }, { status: 202 });
   } catch (err) {

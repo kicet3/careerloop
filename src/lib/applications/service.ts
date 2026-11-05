@@ -387,6 +387,26 @@ export async function changeStage(userId: string, id: string, input: Application
   return getApplication(userId, id);
 }
 
+/**
+ * 이미 있는 지원 기록에 이력서 버전(생략하면 현재 버전)을 제출 사본으로 고정한다(이력서 '지원 완료' 동기화 — resumes/apply-status.ts).
+ * 이력서 연결도 그 이력서로 바꾼다. 지원서를 낸 단계면 연결 공고를 '지원함'으로(마감 공고는 그대로). 남의 지원이면 null.
+ */
+export async function freezeSubmittedCopy(
+  userId: string,
+  id: string,
+  resumeId: string,
+  versionId: string | null,
+): Promise<ApplicationDetail | null> {
+  const row = await ownedRow(userId, id);
+  if (!row) return null;
+  const snap = await copySubmitted(userId, id, resumeId, versionId);
+  await prisma.$transaction(async (tx) => {
+    await tx.application.updateMany({ where: { id, userId }, data: { resumeId, ...snap, updatedAt: new Date() } });
+    if (row.postingId && isSubmitted(row.stage)) await markPostingApplied(tx, userId, row.postingId);
+  });
+  return getApplication(userId, id);
+}
+
 /** 지원 삭제(이벤트는 cascade) + 제출 사본 삭제 + 연결된 공고 상태 복원. 남의 지원이면 false. */
 export async function deleteApplication(userId: string, id: string): Promise<boolean> {
   const row = await ownedRow(userId, id);

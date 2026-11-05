@@ -23,6 +23,8 @@ export interface LlmUsage {
  * - graph-import: 이력서·포트폴리오 문서 → 그래프 변경안(GraphImportOutputSchema)
  * - graph-qa: 그래프에 묻기 답변(GraphQaOutputSchema)
  * - graph-qa-rerank: 그래프에 묻기 후보 관련도 매기기(GraphQaRerankSchema, 선택 단계)
+ * - interview-questions: 이력서·포트폴리오·공고 근거 줄 → 면접 예상 질문(InterviewQuestionsOutputSchema)
+ * - interview-feedback: 연습 답변 피드백·모범 답변 개요·꼬리 질문(InterviewFeedbackOutputSchema)
  */
 export const LLM_TASKS = [
   "graph-chat",
@@ -32,6 +34,8 @@ export const LLM_TASKS = [
   "graph-import",
   "graph-qa",
   "graph-qa-rerank",
+  "interview-questions",
+  "interview-feedback",
 ] as const;
 export type LlmTask = (typeof LLM_TASKS)[number];
 

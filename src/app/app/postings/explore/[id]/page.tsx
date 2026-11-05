@@ -1,8 +1,10 @@
 import type { Metadata } from "next";
 import Link from "next/link";
 import { notFound } from "next/navigation";
+import { PostingCaptureButton } from "@/components/postings/PostingCapture";
 import { KeyFacts, PostingSections } from "@/components/postings/PostingSections";
 import { SharedPostingActions } from "@/components/postings/SharedPostingActions";
+import { SourceLink } from "@/components/postings/SourceLink";
 import { Card, CardBody, CardHeader } from "@/components/ui/Card";
 import { requireUser } from "@/lib/auth/session";
 import { hasStructureContent } from "@/lib/postings/structure";
@@ -44,9 +46,13 @@ export default async function SharedPostingPage({ params }: { params: Promise<{ 
             {posting.platform && <span>{platformLabel(posting.platform)}</span>}
             <span>{formatKstDate(kstDate(posting.fetchedAt), { withYear: true })} 기준</span>
             {posting.importerCount > 0 && <span>{posting.importerCount}명이 담음</span>}
-            <a href={posting.url} target="_blank" rel="noopener noreferrer nofollow" className="text-indigo-700 hover:underline">
-              원문 공고 열기 ↗
-            </a>
+            <SourceLink url={posting.url} />
+            <PostingCaptureButton
+              apiBase={`/api/shared-postings/${encodeURIComponent(posting.id)}`}
+              initial={posting.capture}
+              sourceUrl={posting.url}
+              title={`${posting.company} · ${posting.roleTitle}`}
+            />
           </p>
         </div>
         <SharedPostingActions

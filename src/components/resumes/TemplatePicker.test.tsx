@@ -65,6 +65,10 @@ describe("TemplatePicker", () => {
       currentVersionId: "v1",
       postingId: null,
       sourceResumeId: null,
+      applyStatus: "draft",
+      applyStatusChangedAt: null,
+      submittedApplicationId: null,
+      portfolio: null,
       createdAt: 0,
       updatedAt: 0,
     };

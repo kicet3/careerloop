@@ -11,6 +11,8 @@ const PREFILL_KEY = "rp:new-diagnosis-prefill";
 const DRAFT_NOTES_PREFIX = "rp:resume-draft-notes:";
 /** 진단 이력서 텍스트 한도(diagnoses/summary MAX_RESUME_CHARS와 같다). */
 const MAX_PREFILL_RESUME_CHARS = 40_000;
+/** 프리필 포트폴리오 텍스트 한도(diagnoses/form MAX_PORTFOLIO_CHARS와 같다). */
+export const MAX_PREFILL_PORTFOLIO_CHARS = 20_000;
 /** 프리필은 잠깐만 유효하다(다른 날 /app/new를 열었을 때 옛 값이 채워지지 않게). */
 const PREFILL_TTL_MS = 10 * 60_000;
 
@@ -32,6 +34,30 @@ export interface DiagnosisPrefill {
   postingId?: string;
   /** 화면 안내용 "회사 · 직무". */
   postingLabel?: string;
+  /** 이력서에 붙인 포트폴리오 파일에서 뽑은 글(진단 폼이 .txt 파일로 바꿔 올린다). */
+  portfolioText?: string;
+  /** 그 포트폴리오의 원래 파일 이름. */
+  portfolioFileName?: string;
+  /** 이력서에 붙인 포트폴리오 링크(진단 폼의 '링크·설명' 칸에 채운다). */
+  portfolioUrl?: string;
+}
+
+/** 프리필 포트폴리오 글 → 진단 폼에 올릴 .txt 파일 이름("포트폴리오.pdf" → "포트폴리오.pdf.txt"). */
+export function prefillPortfolioFileName(name: string | undefined): string {
+  const base = (name ?? "").replace(/[\\/\u0000-\u001f]+/g, " ").trim().slice(0, 120) || "portfolio";
+  return base.toLowerCase().endsWith(".txt") ? base : `${base}.txt`;
+}
+
+/** http/https 주소만(아니면 null). */
+function safeHttpUrl(raw: string | undefined): string | null {
+  const v = raw?.trim();
+  if (!v || v.length > 2048) return null;
+  try {
+    const u = new URL(v);
+    return u.protocol === "http:" || u.protocol === "https:" ? u.toString() : null;
+  } catch {
+    return null;
+  }
 }
 
 export function saveDiagnosisPrefill(p: DiagnosisPrefill, store: StorageLike | null = storage(), now = Date.now()): boolean {
@@ -45,6 +71,9 @@ export function saveDiagnosisPrefill(p: DiagnosisPrefill, store: StorageLike | n
         jdText: p.jdText.slice(0, MAX_RESUME_JD_CHARS),
         postingId: p.postingId?.slice(0, 64) || undefined,
         postingLabel: p.postingLabel?.slice(0, 200) || undefined,
+        portfolioText: p.portfolioText?.slice(0, MAX_PREFILL_PORTFOLIO_CHARS) || undefined,
+        portfolioFileName: p.portfolioFileName?.slice(0, 200) || undefined,
+        portfolioUrl: safeHttpUrl(p.portfolioUrl) ?? undefined,
         at: now,
       }),
     );
@@ -74,6 +103,14 @@ export function takeDiagnosisPrefill(store: StorageLike | null = storage(), now 
       out.postingId = postingId;
       out.postingLabel = str(v.postingLabel, 200);
     }
+    const portfolioText = str(v.portfolioText, MAX_PREFILL_PORTFOLIO_CHARS);
+    if (portfolioText.trim()) {
+      out.portfolioText = portfolioText;
+      const name = str(v.portfolioFileName, 200).trim();
+      if (name) out.portfolioFileName = name;
+    }
+    const portfolioUrl = safeHttpUrl(str(v.portfolioUrl, 2048));
+    if (portfolioUrl) out.portfolioUrl = portfolioUrl;
     return out.resumeText.trim() || out.postingId ? out : null;
   } catch {
     return null;

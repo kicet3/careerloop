@@ -15,6 +15,7 @@ import { getCareerGraph, graphEnabled, graphToText } from "@/lib/graph/service";
 import type { LlmClient } from "@/lib/llm";
 import { TAGS } from "@/lib/panel/prompts";
 import type { ResumeDraftSource } from "./types";
+import { RESUME_WRITING_CRITERIA_PROMPT } from "./writing-guide";
 
 /** 초안 자료: 그래프 텍스트 또는 진단 재작성본(Markdown). */
 export type DraftMaterial =
@@ -49,6 +50,8 @@ const SYSTEM = [
   "   - skills: category는 역량·분류, detail은 '실제로 할 수 있는 일과 적용 경험' 한 줄, items는 관련 기술명.",
   "   - basics.totalExperience는 자료의 재직 기간으로 계산할 수 있을 때만(예: \"5년 3개월\"), basics.portfolioUrl은 자료에 있을 때만. headings는 모두 빈 문자열(기본 제목).",
   "   - 모르는 칸을 그럴듯한 값으로 채우지 않는다. 필요한 칸은 `[ADD: ...]`, 필요 없으면 빈 문자열.",
+  "9. 아래 작성 기준을 따른다(규칙 1이 우선한다).",
+  RESUME_WRITING_CRITERIA_PROMPT,
   "",
   `보안: ${INJECTION_RULE}`,
 ].join("\n");

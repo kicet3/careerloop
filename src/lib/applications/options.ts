@@ -13,6 +13,8 @@ export interface PostingOption {
   company: string;
   roleTitle: string;
   status: PostingStatus;
+  /** 원문 주소(직접 입력 공고는 null). 화면의 '원문 공고 열기'. */
+  url: string | null;
 }
 export interface ResumeOption {
   id: string;
@@ -34,7 +36,7 @@ export interface ApplicationFormOptions {
 export async function listApplicationFormOptions(userId: string): Promise<ApplicationFormOptions> {
   const [postings, resumes, diagnoses] = await Promise.all([
     prisma.jobPosting.findMany({
-      select: { id: true, company: true, roleTitle: true, status: true },
+      select: { id: true, company: true, roleTitle: true, status: true, url: true },
       where: { userId },
       orderBy: [{ updatedAt: "desc" }, { id: "desc" }],
       take: 500,

@@ -36,6 +36,7 @@ import { MAX_PORTFOLIO_CHARS } from "@/lib/diagnoses/form";
 import { buildStagePrompt, splitUserPrompt, STAGE_TASK_DELIMITER, STAGE_TASK_HEADING } from "@/lib/panel/prompts";
 import { verifyQuote } from "@/lib/panel/quotes";
 import { listProviderOptions, resolveRequestedProvider } from "@/lib/providers/options";
+import { RESUME_WRITING_CRITERIA_PROMPT } from "@/lib/resumes/writing-guide";
 import { field, historyToPrompt, INJECTION_RULE, wrapData } from "./prompt";
 
 /** 스레드 하나에서 사용자가 보낼 수 있는 메시지 수. 넘으면 새 대화를 시작하게 한다. */
@@ -164,6 +165,10 @@ export function buildReviewerChatSystem(reviewer: ReviewerId, criteria: string):
 - "어떻게 고치죠?"처럼 물으면: 당신이 지적한 줄에서 출발해 구체적인 수정안(before/after/reason)을 1~3개 낸다. 막연한 조언("성과를 강조하세요")은 금지.
 - 지원자가 피드백에 반론하면: 근거가 타당하면 인정하고, 아니면 당신의 기준으로 왜 여전히 문제인지 설명한다.
 - reply는 600자 이내. suggestedEdits는 정말 필요한 것만(최대 5개), followUpQuestions는 최대 3개.
+- 수정안(after)을 낼 때는 아래 작성 기준을 참고한다. 다만 판단은 당신의 심사 기준이 먼저이고, 절대 규칙 2(지어내지 않기)가 우선한다.
+
+## 이력서 작성 기준
+${RESUME_WRITING_CRITERIA_PROMPT}
 
 ## 당신의 심사 기준 (진단 때 받은 역할 지시문. 판정 값·출력 필드 설명은 진단 때의 형식이며, 이번 대화의 출력 형식은 위 규칙과 JSON 스키마를 따른다)
 ${criteria}`;

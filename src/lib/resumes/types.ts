@@ -3,12 +3,16 @@
  * 문서 구조·양식은 src/lib/domain/resumes.ts, 저장은 service.ts(메타 PostgreSQL + 본문 저장소).
  */
 import { z } from "zod";
+import type { PostingStatus } from "@/lib/domain/postings";
 import {
+  ResumeApplyStatusSchema,
   ResumeKindSchema,
   ResumeTemplateIdSchema,
   StoredResumeDocumentSchema,
+  type ResumeApplyStatus,
   type ResumeDocument,
   type ResumeKind,
+  type ResumePortfolioInfo,
   type ResumeTemplateId,
   type ResumeVersionSource,
 } from "@/lib/domain/resumes";
@@ -108,6 +112,41 @@ export const SaveResumeVersionSchema = z.object({
 });
 export type SaveResumeVersion = z.infer<typeof SaveResumeVersionSchema>;
 
+/**
+ * PATCH /api/resumes/[id]/status — 지원 상태 바꾸기(지원처별 이력서만, 공용은 400).
+ * - 'submitted'로: 연결 공고가 있으면 공고를 '지원함'으로, 지원 기록을 만들거나(그 공고·이 이력서의 기존 기록이 있으면 잇는다)
+ *   현재 버전 본문을 제출 사본으로 고정한다. 연결 공고가 없으면 상태만 바꾼다(지원 기록은 만들지 않는다).
+ * - 'submitted'에서 다른 상태로(되돌리기): 화면이 먼저 확인을 받는다. revertPosting이면 공고를 '지원 예정'으로(지금 '지원함'일 때만),
+ *   revertApplication이 'withdraw'면 연결된 지원 기록을 '지원 취소' 단계로, 'delete'면 지운다(이 상태 변경이 만든 기록만), 'keep'이면 그대로.
+ */
+export const ChangeResumeStatusSchema = z.object({
+  status: ResumeApplyStatusSchema,
+  revertPosting: z.boolean().optional().default(false),
+  revertApplication: z.enum(["keep", "withdraw", "delete"]).optional().default("keep"),
+});
+export type ChangeResumeStatusInput = z.infer<typeof ChangeResumeStatusSchema>;
+
+/** PUT /api/resumes/[id]/portfolio (JSON) — URL 첨부. 파일은 같은 경로에 multipart(file 필드)로. */
+export const ResumePortfolioUrlSchema = z.object({
+  url: z
+    .string()
+    .trim()
+    .max(2048)
+    .refine((v) => {
+      try {
+        const u = new URL(v);
+        return u.protocol === "https:" || u.protocol === "http:";
+      } catch {
+        return false;
+      }
+    }, "http:// 또는 https:// 로 시작하는 주소를 입력해 주세요."),
+});
+export type ResumePortfolioUrlInput = z.infer<typeof ResumePortfolioUrlSchema>;
+
+/** GET /api/resumes?status= 목록 필터. 'general'은 공용 이력서만. */
+export const RESUME_LIST_STATUS_FILTERS = ["all", "draft", "applying", "submitted", "general"] as const;
+export type ResumeListStatusFilter = (typeof RESUME_LIST_STATUS_FILTERS)[number];
+
 // ---------------------------------------------------------------------------
 // 응답
 // ---------------------------------------------------------------------------
@@ -126,8 +165,35 @@ export interface ResumeMeta {
   postingId: string | null;
   /** 복제·'공용 이력서 내용으로 시작'의 원본 이력서. */
   sourceResumeId: string | null;
+  /** 지원 상태. 공용 이력서는 null(화면에는 '공용'). */
+  applyStatus: ResumeApplyStatus | null;
+  applyStatusChangedAt: number | null;
+  /** '지원 완료'로 바꿀 때 만들거나 연결한 지원 기록. */
+  submittedApplicationId: string | null;
+  /** 첨부 포트폴리오(없으면 null). 본문 텍스트는 싣지 않는다(getPortfolioText). */
+  portfolio: ResumePortfolioInfo | null;
   createdAt: number;
   updatedAt: number;
+}
+
+/** 이력서에 연결된 공고 요약(편집기·목록의 '원문 공고 열기'·상태 동기화 표시용). */
+export interface ResumePostingLink {
+  id: string;
+  company: string;
+  roleTitle: string;
+  /** 원문 주소. 직접 입력 공고면 ""(링크를 그리지 않는다). */
+  url: string;
+  status: PostingStatus;
+  sharedPostingId: string | null;
+}
+
+/** PATCH /api/resumes/[id]/status 응답. */
+export interface ChangeResumeStatusResult {
+  resume: ResumeMeta;
+  /** 연결된 지원 기록(만들었거나 이어 붙인 것). 없으면 null. */
+  application: { id: string; created: boolean; stage: string } | null;
+  /** 바뀐 뒤의 연결 공고 상태(공고가 없으면 null). */
+  postingStatus: PostingStatus | null;
 }
 
 export interface ResumeListItem extends ResumeMeta {
@@ -148,6 +214,8 @@ export interface ResumeDetail {
   /** 최신 버전부터. */
   versions: ResumeVersionMeta[];
   current: { versionId: string; versionNo: number; document: ResumeDocument } | null;
+  /** 연결 공고(없거나 지워졌으면 null). */
+  posting: ResumePostingLink | null;
 }
 
 export interface CreateResumeResponse {

@@ -256,6 +256,46 @@ export const ResumeKindSchema = z.enum(RESUME_KINDS);
 /** 공용 이력서의 기본 제목. */
 export const GENERAL_RESUME_DEFAULT_TITLE = "공용 이력서";
 
+/**
+ * 지원처별 이력서의 지원 상태(company_resumes.apply_status). 공용 이력서는 상태가 없다(null — 화면에는 '공용').
+ * '지원 완료'로 바꾸면 연결 공고가 있을 때 공고를 '지원함'으로 두고 지원 기록(제출 사본 고정)을 만들거나 잇는다(src/lib/resumes/apply-status.ts).
+ */
+export const RESUME_APPLY_STATUSES = ["draft", "applying", "submitted"] as const;
+export type ResumeApplyStatus = (typeof RESUME_APPLY_STATUSES)[number];
+export const ResumeApplyStatusSchema = z.enum(RESUME_APPLY_STATUSES);
+export const RESUME_APPLY_STATUS_LABELS: Record<ResumeApplyStatus, string> = {
+  draft: "지원 전",
+  applying: "지원 중",
+  submitted: "지원 완료",
+};
+/** 공용 이력서 배지 문구(상태 대신). */
+export const GENERAL_RESUME_STATUS_LABEL = "공용";
+/** 지원처별 이력서의 기본 상태(예전 행이 null이면 이것으로 본다). */
+export const DEFAULT_RESUME_APPLY_STATUS: ResumeApplyStatus = "draft";
+
+/** 행 값 → 화면 상태. 공용 이력서는 늘 null, 지원처별 이력서의 null·모르는 값은 'draft'. */
+export function resumeApplyStatusOf(kind: ResumeKind, raw: string | null | undefined): ResumeApplyStatus | null {
+  if (kind === "general") return null;
+  return (RESUME_APPLY_STATUSES as readonly string[]).includes(raw ?? "") ? (raw as ResumeApplyStatus) : DEFAULT_RESUME_APPLY_STATUS;
+}
+
+/** 이력서 첨부 포트폴리오(이력서당 하나): 올린 파일에서 뽑은 텍스트 또는 URL. */
+export const RESUME_PORTFOLIO_KINDS = ["file", "url"] as const;
+export type ResumePortfolioKind = (typeof RESUME_PORTFOLIO_KINDS)[number];
+/** 저장하는 포트폴리오 텍스트 상한(글자). 넘으면 앞부분만 저장하고 truncated로 알린다. */
+export const MAX_RESUME_PORTFOLIO_CHARS = 60_000;
+
+export interface ResumePortfolioInfo {
+  kind: ResumePortfolioKind;
+  /** kind 'file'의 원래 파일 이름. */
+  fileName: string | null;
+  /** kind 'url'의 주소(http/https). */
+  url: string | null;
+  /** 저장한 텍스트 글자 수(kind 'file'). */
+  chars: number | null;
+  updatedAt: number | null;
+}
+
 export const RESUME_VERSION_SOURCES = ["ai", "manual"] as const;
 export type ResumeVersionSource = (typeof RESUME_VERSION_SOURCES)[number];
 

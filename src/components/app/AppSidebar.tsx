@@ -1,7 +1,7 @@
 "use client";
 
 /**
- * 앱 주 메뉴(진단·경력·서류·지원 그룹) + 하단 계정 메뉴(계정 설정·AI 연결·로그아웃). 넓은 화면(lg 이상, 1024px~)은 왼쪽 고정 사이드바(아이콘만 보이는 접힌 모드 지원),
+ * 앱 주 메뉴(진단·경력·서류·지원·면접 그룹) + 하단 계정 메뉴(계정 설정·AI 연결·로그아웃). 넓은 화면(lg 이상, 1024px~)은 왼쪽 고정 사이드바(아이콘만 보이는 접힌 모드 지원),
  * 좁은 화면은 상단 얇은 바 + 햄버거 → 왼쪽 서랍(오버레이). 인쇄할 때는 둘 다 숨긴다.
  */
 import Link from "next/link";
@@ -49,6 +49,7 @@ const GROUPS: NavGroup[] = [
       { href: "/app/applications", label: "지원 현황", icon: <BoardIcon />, match: under("/app/applications") },
     ],
   },
+  { label: "면접", items: [{ href: "/app/interview", label: "면접 연습", icon: <MicIcon />, match: under("/app/interview") }] },
 ];
 
 /** 관리자 메뉴(role=admin만). pendingCount는 승인 대기 회원 수. */
@@ -471,6 +472,15 @@ function BoardIcon() {
     <Svg>
       <rect x="3.5" y="4" width="17" height="16" rx="2" />
       <path d="M9.2 4v16M14.8 4v16M5.8 8h1.4M11.3 8h1.4M11.3 11.5h1.4M16.8 8h1.4" />
+    </Svg>
+  );
+}
+
+function MicIcon() {
+  return (
+    <Svg>
+      <rect x="9" y="3.5" width="6" height="11" rx="3" />
+      <path d="M5.5 11.5a6.5 6.5 0 0 0 13 0M12 18v2.5M9 20.5h6" />
     </Svg>
   );
 }

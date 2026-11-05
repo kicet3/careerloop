@@ -4,26 +4,53 @@ import { formatDateTime } from "@/components/app/stages";
 import { Badge } from "@/components/ui/Badge";
 import { buttonClass } from "@/components/ui/Button";
 import { Card } from "@/components/ui/Card";
+import { SourceLink } from "@/components/postings/SourceLink";
+import { ResumeListStatus } from "@/components/resumes/ResumeListStatus";
+import { ResumeStatusBadge } from "@/components/resumes/ResumeStatusControl";
+import { cn } from "@/components/ui/cn";
 import { requireUser } from "@/lib/auth/session";
-import { RESUME_TEMPLATES } from "@/lib/domain/resumes";
-import { listResumes } from "@/lib/resumes/service";
-import type { ResumeListItem } from "@/lib/resumes/types";
+import { RESUME_APPLY_STATUS_LABELS, RESUME_TEMPLATES } from "@/lib/domain/resumes";
+import { listResumePostingLinks, listResumes, parseResumeStatusFilter } from "@/lib/resumes/service";
+import type { ResumeListItem, ResumeListStatusFilter, ResumePostingLink } from "@/lib/resumes/types";
 
 export const metadata: Metadata = { title: "이력서" };
 export const dynamic = "force-dynamic";
 
-export default async function ResumesPage() {
+type Search = Promise<{ [key: string]: string | string[] | undefined }>;
+
+const FILTER_LABELS: Record<ResumeListStatusFilter, string> = {
+  all: "전체",
+  draft: RESUME_APPLY_STATUS_LABELS.draft,
+  applying: RESUME_APPLY_STATUS_LABELS.applying,
+  submitted: RESUME_APPLY_STATUS_LABELS.submitted,
+  general: "공용",
+};
+
+function matches(item: ResumeListItem, f: ResumeListStatusFilter): boolean {
+  if (f === "all") return true;
+  if (f === "general") return item.kind === "general";
+  return item.kind !== "general" && item.applyStatus === f;
+}
+
+export default async function ResumesPage({ searchParams }: { searchParams: Search }) {
   const user = await requireUser("/app/resumes");
-  const items = await listResumes(user.id);
+  const sp = await searchParams;
+  const filter = parseResumeStatusFilter(Array.isArray(sp.status) ? sp.status[0] : sp.status);
+  // 개수를 함께 보여 주려고 한 번에 읽고 화면에서 거른다(사용자당 이력서 상한이 작다).
+  const all = await listResumes(user.id);
+  const postings = await listResumePostingLinks(user.id, all.map((i) => i.postingId));
+  const items = all.filter((i) => matches(i, filter));
   const generals = items.filter((i) => i.kind === "general");
   const companies = items.filter((i) => i.kind !== "general");
+  const showGeneral = filter === "all" || filter === "general";
+  const showCompany = filter !== "general";
 
   return (
     <div className="space-y-8">
       <div className="flex flex-wrap items-end justify-between gap-3">
         <div>
           <h1 className="text-2xl font-bold tracking-tight text-slate-900">이력서</h1>
-          <p className="mt-1 text-sm text-slate-500">공용 이력서를 다듬어 두고, 지원하는 공고마다 맞춘 이력서를 만들어 버전을 관리합니다. {items.length}개</p>
+          <p className="mt-1 text-sm text-slate-500">공용 이력서를 다듬어 두고, 지원하는 공고마다 맞춘 이력서를 만들어 버전을 관리합니다. {all.length}개</p>
         </div>
         <div className="flex flex-wrap gap-2">
           <Link href="/app/resumes/new?target=general" className={buttonClass("secondary", "md")}>
@@ -35,7 +62,29 @@ export default async function ResumesPage() {
         </div>
       </div>
 
-      {items.length === 0 ? (
+      {all.length > 0 && (
+        <nav aria-label="지원 상태로 거르기" className="flex flex-wrap gap-1.5">
+          {(Object.keys(FILTER_LABELS) as ResumeListStatusFilter[]).map((f) => {
+            const active = f === filter;
+            const n = all.filter((i) => matches(i, f)).length;
+            return (
+              <Link
+                key={f}
+                href={f === "all" ? "/app/resumes" : `/app/resumes?status=${f}`}
+                aria-current={active ? "page" : undefined}
+                className={cn(
+                  "rounded-full border px-3 py-1 text-sm font-medium transition-colors",
+                  active ? "border-indigo-600 bg-indigo-600 text-white" : "border-slate-300 bg-white text-slate-700 hover:bg-slate-50",
+                )}
+              >
+                {FILTER_LABELS[f]} <span className={active ? "text-indigo-100" : "text-slate-400"}>{n}</span>
+              </Link>
+            );
+          })}
+        </nav>
+      )}
+
+      {all.length === 0 ? (
         <Card className="px-6 py-14 text-center">
           <p className="text-lg font-semibold text-slate-900">아직 만든 이력서가 없습니다</p>
           <p className="mx-auto mt-2 max-w-md text-sm text-slate-500">
@@ -52,6 +101,7 @@ export default async function ResumesPage() {
         </Card>
       ) : (
         <>
+          {showGeneral && (
           <section aria-labelledby="general-resumes" className="space-y-3">
             <div>
               <h2 id="general-resumes" className="text-base font-semibold text-slate-900">
@@ -76,28 +126,40 @@ export default async function ResumesPage() {
               </ul>
             )}
           </section>
+          )}
 
+          {showCompany && (
           <section aria-labelledby="company-resumes" className="space-y-3">
             <h2 id="company-resumes" className="text-base font-semibold text-slate-900">
               지원처별 이력서 <span className="font-normal text-slate-500">{companies.length}개</span>
             </h2>
             {companies.length === 0 ? (
-              <Card className="px-5 py-6 text-sm text-slate-500">
-                아직 지원처별 이력서가 없습니다.{" "}
-                <Link href="/app/resumes/new" className="font-medium text-indigo-700 hover:underline">
-                  공고를 골라 만들기
-                </Link>
-              </Card>
+              filter === "all" ? (
+                <Card className="px-5 py-6 text-sm text-slate-500">
+                  아직 지원처별 이력서가 없습니다.{" "}
+                  <Link href="/app/resumes/new" className="font-medium text-indigo-700 hover:underline">
+                    공고를 골라 만들기
+                  </Link>
+                </Card>
+              ) : (
+                <Card className="px-5 py-6 text-sm text-slate-500">
+                  &lsquo;{FILTER_LABELS[filter]}&rsquo; 상태인 이력서가 없습니다.{" "}
+                  <Link href="/app/resumes" className="font-medium text-indigo-700 hover:underline">
+                    전체 보기
+                  </Link>
+                </Card>
+              )
             ) : (
               <ul className="grid gap-3 md:grid-cols-2 xl:grid-cols-3 min-[1920px]:grid-cols-4">
                 {companies.map((item) => (
                   <li key={item.id}>
-                    <ResumeRow item={item} />
+                    <ResumeRow item={item} posting={item.postingId ? (postings.get(item.postingId) ?? null) : null} />
                   </li>
                 ))}
               </ul>
             )}
           </section>
+          )}
         </>
       )}
     </div>
@@ -132,7 +194,10 @@ function GeneralResumeCard({ item }: { item: ResumeListItem }) {
       <Link href={`/app/resumes/${item.id}`} className="group block min-w-0">
         <div className="flex flex-wrap items-start justify-between gap-x-4 gap-y-2">
           <p className="min-w-0 flex-1 truncate font-semibold text-slate-900 group-hover:text-indigo-700">{item.title}</p>
-          <Badge tone="accent">{template?.name ?? item.templateId}</Badge>
+          <span className="flex gap-1">
+            <ResumeStatusBadge kind="general" status={null} />
+            <Badge tone="neutral">{template?.name ?? item.templateId}</Badge>
+          </span>
         </div>
         <p className="mt-0.5 text-sm text-slate-500">공용 · 회사 지정 없음</p>
         <VersionMeta item={item} />
@@ -146,21 +211,31 @@ function GeneralResumeCard({ item }: { item: ResumeListItem }) {
   );
 }
 
-function ResumeRow({ item }: { item: ResumeListItem }) {
+/** 지원처별 이력서 카드: 본문은 편집 화면 링크, 아래 줄에 지원 상태 빠른 변경·원문 공고 링크(링크 밖 형제라 카드 이동과 겹치지 않는다). */
+function ResumeRow({ item, posting }: { item: ResumeListItem; posting: ResumePostingLink | null }) {
   const template = RESUME_TEMPLATES[item.templateId];
   return (
-    <Link
-      href={`/app/resumes/${item.id}`}
-      className="block h-full rounded-xl border border-slate-200 bg-white p-4 shadow-sm transition-colors hover:border-indigo-300 hover:bg-indigo-50/30 sm:p-5"
-    >
-      <div className="flex flex-wrap items-start justify-between gap-x-4 gap-y-2">
-        <div className="min-w-0 flex-1">
-          <p className="truncate font-semibold text-slate-900">{item.company}</p>
-          <p className="mt-0.5 truncate text-sm text-slate-500">{item.roleTitle}</p>
+    <div className="flex h-full flex-col rounded-xl border border-slate-200 bg-white p-4 shadow-sm transition-colors hover:border-indigo-300 sm:p-5">
+      <Link href={`/app/resumes/${item.id}`} className="group block min-w-0">
+        <div className="flex flex-wrap items-start justify-between gap-x-4 gap-y-2">
+          <div className="min-w-0 flex-1">
+            <p className="truncate font-semibold text-slate-900 group-hover:text-indigo-700">{item.company}</p>
+            <p className="mt-0.5 truncate text-sm text-slate-500">{item.roleTitle}</p>
+          </div>
+          <Badge tone="neutral">{template?.name ?? item.templateId}</Badge>
         </div>
-        <Badge tone="accent">{template?.name ?? item.templateId}</Badge>
+        <VersionMeta item={item} />
+      </Link>
+      <div className="mt-auto flex flex-wrap items-center justify-between gap-2 pt-3">
+        <ResumeListStatus
+          resumeId={item.id}
+          kind={item.kind}
+          status={item.applyStatus}
+          hasPosting={!!posting}
+          hasApplication={!!item.submittedApplicationId}
+        />
+        {posting && <SourceLink url={posting.url} variant="icon" />}
       </div>
-      <VersionMeta item={item} />
-    </Link>
+    </div>
   );
 }

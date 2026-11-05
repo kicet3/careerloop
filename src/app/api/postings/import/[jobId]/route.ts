@@ -1,7 +1,7 @@
 import { after } from "next/server";
 import { requireApiUser } from "@/lib/auth/session";
 import { postingErrorResponse } from "@/lib/postings/http";
-import { getImport, isImportStale, runImport } from "@/lib/postings/imports";
+import { getImport, isImportStale, runImportThenCapture } from "@/lib/postings/imports";
 import { jsonError } from "@/lib/diagnoses/http";
 
 export const runtime = "nodejs";
@@ -19,13 +19,7 @@ export async function GET(_req: Request, { params }: Ctx) {
     const job = await getImport(user.id, jobId);
     if (!job) return jsonError("가져오기 작업을 찾을 수 없습니다.", 404);
     if (isImportStale(job)) {
-      after(async () => {
-        try {
-          await runImport(job.id);
-        } catch (err) {
-          console.error("[runImport]", job.id, err);
-        }
-      });
+      after(() => runImportThenCapture(job.id));
     }
     return Response.json({ job }, { headers: { "Cache-Control": "no-store" } });
   } catch (err) {

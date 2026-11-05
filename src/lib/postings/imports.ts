@@ -17,8 +17,11 @@ import { stripNul } from "@/lib/db/errors";
 import type { PostingImportRow, SharedPostingRow } from "@/lib/db/types";
 import { DAILY_POSTING_IMPORT_LIMIT, type PostingImportJob, type PostingImportStatus } from "@/lib/domain/postings";
 import type { ProviderId } from "@/lib/domain/providers";
+import { hitDbLimit, POSTING_CAPTURE_TARGET_LIMIT } from "@/lib/auth/db-rate-limit";
 import { createLlmClient, type LlmClient } from "@/lib/llm";
 import { resolveRequestedProvider } from "@/lib/providers/options";
+import { runPostingCapture, type CaptureDeps } from "./capture";
+import { requestCapture } from "./capture-store";
 import { extractPosting } from "./extract";
 import { fetchPostingPage, type FetchDeps } from "./fetch";
 import { safePostingAiError } from "./http";
@@ -305,4 +308,49 @@ export async function runImport(importId: string, deps: RunImportDeps = {}): Pro
   } finally {
     clearTimeout(timer);
   }
+}
+
+// ---------------------------------------------------------------------------
+// 원문 캡처 예약(가져오기를 막지 않는다 — 가져오기가 끝난 뒤 같은 after() 안에서 이어서 찍는다)
+// ---------------------------------------------------------------------------
+
+/**
+ * 끝난 가져오기의 공용 공고에 원문 캡처를 예약한다. 예약했으면 공용 공고 id, 아니면 null.
+ * - 다시 가져오기(refresh)는 이미 찍은 캡처도 다시 찍는다(force) — 공용 공고당 1시간 3회(POSTING_CAPTURE_TARGET_LIMIT).
+ * - 그 밖에는 요청한 적 없음·실패(시도 상한 전)·멈춘 작업일 때만 예약된다(requestCapture 규칙). 예외를 던지지 않는다.
+ */
+export async function queueCaptureForImport(importId: string, now: number = Date.now()): Promise<string | null> {
+  try {
+    const row = await prisma.postingImport.findUnique({ where: { id: importId }, select: { status: true, sharedPostingId: true, refresh: true } });
+    if (!row || row.status !== "completed" || !row.sharedPostingId) return null;
+    const sharedId = row.sharedPostingId;
+    let force = row.refresh;
+    if (force && !(await hitDbLimit(POSTING_CAPTURE_TARGET_LIMIT, sharedId, now)).ok) force = false;
+    return (await requestCapture(sharedId, { force, now })) ? sharedId : null;
+  } catch (err) {
+    console.error("[queueCaptureForImport]", importId, err);
+    return null;
+  }
+}
+
+/** 공용 공고를 바로 담은 경우(fromShared): 캡처가 아직 없거나 실패했으면 예약한다(기존 공고의 백필). */
+export async function queueCaptureForShared(sharedId: string, now: number = Date.now()): Promise<boolean> {
+  try {
+    return await requestCapture(sharedId, { now });
+  } catch (err) {
+    console.error("[queueCaptureForShared]", sharedId, err);
+    return false;
+  }
+}
+
+/** after()용: 가져오기를 실행하고, 끝나면 원문 캡처까지 이어서 한다(가져오기 180초 + 캡처 75초 < maxDuration 300). 던지지 않는다. */
+export async function runImportThenCapture(importId: string, deps: RunImportDeps & { capture?: CaptureDeps } = {}): Promise<void> {
+  try {
+    await runImport(importId, deps);
+  } catch (err) {
+    console.error("[runImport]", importId, err);
+    return;
+  }
+  const sharedId = await queueCaptureForImport(importId);
+  if (sharedId) await runPostingCapture(sharedId, deps.capture);
 }

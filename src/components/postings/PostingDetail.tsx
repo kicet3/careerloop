@@ -30,11 +30,13 @@ import { hasStructureContent, isStructureStale, postingJdForPrompt } from "@/lib
 import { platformLabel } from "@/lib/postings/url";
 import { saveDiagnosisPrefill } from "@/lib/resumes/prefill";
 import { formatKstDate } from "@/lib/time/kst";
+import { PostingCaptureButton } from "./PostingCapture";
 import { PostingForm } from "./PostingForm";
 import { KeyFacts, PostingSections } from "./PostingSections";
 import { PostingSectionsEditor } from "./PostingSectionsEditor";
 import { usePostingImports } from "./import-jobs";
 import { inputClass, PostingStatusBadge, readApiError, useNow } from "./shared";
+import { SourceLink } from "./SourceLink";
 
 export interface PostingLinksView {
   diagnoses: { id: string; title: string; status: string; createdAt: number }[];
@@ -193,15 +195,15 @@ export function PostingDetail({
           <h1 className="mt-0.5 text-2xl font-bold tracking-tight break-words text-slate-900">{posting.roleTitle}</h1>
           <div className="mt-2 flex flex-wrap items-center gap-2">
             <PostingStatusBadge status={posting.status} />
-            {posting.url && (
-              <a
-                href={posting.url}
-                target="_blank"
-                rel="noopener noreferrer nofollow"
-                className="max-w-full truncate text-sm text-indigo-700 hover:underline"
-              >
-                원문 공고 열기 ↗
-              </a>
+            <SourceLink url={posting.url} className="max-w-full" />
+            {posting.sharedPostingId && (
+              <PostingCaptureButton
+                key={posting.capture?.capturedAt ?? posting.capture?.status ?? "none"}
+                apiBase={`/api/postings/${encodeURIComponent(posting.id)}`}
+                initial={posting.capture}
+                sourceUrl={posting.url}
+                title={`${posting.company} · ${posting.roleTitle}`}
+              />
             )}
             {posting.url && posting.extractedBy !== "manual" && (
               <button

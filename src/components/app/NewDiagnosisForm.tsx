@@ -10,7 +10,7 @@ import { NO_ENGINE_MESSAGE, PROVIDER_DATA_DESTINATION, type ProviderId, type Pro
 import { SITUATION_LABELS } from "@/lib/domain/reviewers";
 import { SITUATIONS, type Situation } from "@/lib/domain/schemas";
 import { formatMb, SELF_HOSTED_UPLOAD_LIMITS, totalUploadError, uploadLimitMessage, type UploadLimits } from "@/lib/ingest/upload-limits";
-import { takeDiagnosisPrefill } from "@/lib/resumes/prefill";
+import { prefillPortfolioFileName, takeDiagnosisPrefill } from "@/lib/resumes/prefill";
 import { saveCreationWarnings } from "./creation-warnings";
 import { FileDrop, UPLOAD_ACCEPT, UPLOAD_FORMATS_LABEL } from "./FileDrop";
 import { SegmentedTabs } from "./Tabs";
@@ -90,6 +90,8 @@ export function NewDiagnosisForm({
   const [error, setError] = useState<string | null>(null);
   const [submitting, setSubmitting] = useState(false);
   const [prefilled, setPrefilled] = useState(false);
+  /** 이력서에 붙인 포트폴리오를 함께 가져왔으면 true(안내 문구용). */
+  const [prefilledPortfolio, setPrefilledPortfolio] = useState(false);
   /** 공고 보관함의 "이 공고로 진단"에서 왔으면 그 공고(진단이 공고에 연결된다). */
   const [posting, setPosting] = useState<{ id: string; label: string } | null>(null);
 
@@ -107,6 +109,15 @@ export function NewDiagnosisForm({
     if (p.jdText.trim()) {
       setJdMode("text");
       setJdText(p.jdText);
+    }
+    // 이력서에 붙인 포트폴리오: 뽑아 둔 글은 .txt 파일로 올리고(서버가 같은 추출기로 읽는다), 링크는 '링크·설명' 칸에 채운다.
+    if (p.portfolioText?.trim()) {
+      setPortfolioFile(new File([p.portfolioText], prefillPortfolioFileName(p.portfolioFileName), { type: "text/plain" }));
+      setPrefilledPortfolio(true);
+    }
+    if (p.portfolioUrl) {
+      setPortfolioText(p.portfolioUrl);
+      setPrefilledPortfolio(true);
     }
     setPrefilled(true);
     /* eslint-enable react-hooks/set-state-in-effect */
@@ -188,7 +199,7 @@ export function NewDiagnosisForm({
         <Alert tone="info">
           {posting
             ? `보관한 공고${posting.label ? `(${posting.label})` : ""}의 직무와 JD를 채웠습니다. 이력서를 넣고 진단을 시작하세요. 진단은 이 공고에 연결됩니다.`
-            : "이력서 화면에서 내용을 가져와 채웠습니다. 확인한 뒤 진단을 시작하세요."}
+            : `이력서 화면에서 내용${prefilledPortfolio ? "과 첨부 포트폴리오" : ""}를 가져와 채웠습니다. 확인한 뒤 진단을 시작하세요.`}
         </Alert>
       )}
       {/* 1. 이력서 */}

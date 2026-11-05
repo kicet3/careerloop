@@ -22,6 +22,19 @@ export const GRAPH_IMPORT_LIMIT: DbRateLimit = { bucket: "graph-import", limit: 
 /** 진단 생성: IP당 24시간 20건(계정을 여러 개 만들어 하루 제한을 우회하는 것을 늦춘다). */
 export const DIAGNOSIS_IP_LIMIT: DbRateLimit = { bucket: "diagnosis-ip", limit: 20, windowMs: 24 * 60 * 60_000 };
 
+/** 면접 예상 질문 만들기(세션 생성·재생성): 사용자당 24시간 10회(이력서·포트폴리오·JD 전체가 들어가는 큰 LLM 호출 1회). */
+export const INTERVIEW_GENERATE_LIMIT: DbRateLimit = { bucket: "interview-generate", limit: 10, windowMs: 24 * 60 * 60_000 };
+/** 면접 답변 피드백(제출·재시도): 사용자당 10분 20회(연타 방지). */
+export const INTERVIEW_FEEDBACK_LIMIT: DbRateLimit = { bucket: "interview-feedback", limit: 20, windowMs: 10 * 60_000 };
+/** 면접 답변 피드백: 사용자당 24시간 120회(하루 비용 상한). 위 10분 제한과 함께 센다. */
+export const INTERVIEW_FEEDBACK_DAILY_LIMIT: DbRateLimit = { bucket: "interview-feedback-day", limit: 120, windowMs: 24 * 60 * 60_000 };
+/** 이력서 포트폴리오 파일 올리기(텍스트 추출): 사용자당 24시간 30회. URL 첨부·삭제는 세지 않는다. */
+export const RESUME_PORTFOLIO_UPLOAD_LIMIT: DbRateLimit = { bucket: "resume-portfolio", limit: 30, windowMs: 24 * 60 * 60_000 };
+/** 공고 원문 캡처 '다시 시도': 사용자당 24시간 10회(헤드리스 브라우저 1회가 무겁다). */
+export const POSTING_CAPTURE_RETRY_LIMIT: DbRateLimit = { bucket: "posting-capture-retry", limit: 10, windowMs: 24 * 60 * 60_000 };
+/** 공고 원문 캡처: 공용 공고(key=sharedPostingId)당 1시간 3회(여러 사용자가 같은 공고를 연달아 다시 찍지 않게). 자동 캡처도 센다. */
+export const POSTING_CAPTURE_TARGET_LIMIT: DbRateLimit = { bucket: "posting-capture-target", limit: 3, windowMs: 60 * 60_000 };
+
 /** IP는 원문 대신 해시로 저장한다. */
 export function ipKey(ip: string): string {
   return createHash("sha256").update(`ip:${ip}`).digest("base64url").slice(0, 32);

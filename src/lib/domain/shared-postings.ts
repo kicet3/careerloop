@@ -3,6 +3,7 @@
  * URL 가져오기 결과만 공유한다 — 공고 페이지에서 뽑은 값만 있고 누가 가져왔는지·개인 메모·상태는 없다.
  */
 import { z } from "zod";
+import type { PostingCaptureInfo } from "./posting-capture";
 import type { PostingHighlights, PostingStructure } from "./posting-structure";
 import type { CareerLevel, DeadlineKind, EmploymentType, WorkType } from "./postings";
 
@@ -29,6 +30,8 @@ export interface SharedPostingSummary {
   myPostingId: string | null;
   /** 관리자가 숨긴 공고(관리자 화면에만 실린다). */
   hidden?: boolean;
+  /** 원문 페이지 캡처 상태(이미지는 GET /api/shared-postings/[id]/capture). */
+  capture?: PostingCaptureInfo;
 }
 
 export interface SharedPostingDetail extends SharedPostingSummary {

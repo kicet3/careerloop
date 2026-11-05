@@ -21,12 +21,14 @@ import {
 } from "@/lib/domain/postings";
 import { formatPostingDeadline } from "@/lib/postings/deadline";
 import { EMPTY_POSTING_FILTERS, filterPostings, POSTING_SORT_LABELS, type PostingFilters, type PostingSort } from "@/lib/postings/filter";
+import { safeSourceUrl } from "@/lib/postings/source-link";
 import { platformLabel } from "@/lib/postings/url";
 import { PostingForm } from "./PostingForm";
 import { usePostingImports } from "./import-jobs";
 import { ImportingCard, PostingImportBar } from "./PostingImportBar";
 import { PostingsTabs } from "./PostingsTabs";
 import { DeadlineBadge, inputClass, PostingStatusBadge, useNow } from "./shared";
+import { SourceLink } from "./SourceLink";
 
 export function PostingsView({
   initialItems,
@@ -218,52 +220,58 @@ function PostingCard({ posting: p, now }: { posting: JobPostingSummary; now: num
   ].filter((t): t is string => !!t);
   const tech = p.highlights?.techStack ?? [];
   const salary = p.highlights?.salary ?? "";
+  const hasSource = !!safeSourceUrl(p.url);
   return (
-    <Link
-      href={`/app/postings/${p.id}`}
-      className={cn(
-        "block h-full rounded-xl border border-slate-200 bg-white p-4 shadow-sm transition-colors hover:border-indigo-300 hover:bg-indigo-50/30 sm:p-5",
-        p.status === "closed" && "opacity-70",
-      )}
-    >
-      <div className="flex items-start justify-between gap-3">
-        <div className="min-w-0 flex-1">
-          <p className="truncate font-semibold text-slate-900">{p.company}</p>
-          <p className="mt-0.5 line-clamp-2 text-sm text-slate-600">{p.roleTitle}</p>
+    <div className="relative h-full">
+      <Link
+        href={`/app/postings/${p.id}`}
+        className={cn(
+          "block h-full rounded-xl border border-slate-200 bg-white p-4 shadow-sm transition-colors hover:border-indigo-300 hover:bg-indigo-50/30 sm:p-5",
+          p.status === "closed" && "opacity-70",
+          hasSource && "pb-11 sm:pb-12",
+        )}
+      >
+        <div className="flex items-start justify-between gap-3">
+          <div className="min-w-0 flex-1">
+            <p className="truncate font-semibold text-slate-900">{p.company}</p>
+            <p className="mt-0.5 line-clamp-2 text-sm text-slate-600">{p.roleTitle}</p>
+          </div>
+          <PostingStatusBadge status={p.status} />
         </div>
-        <PostingStatusBadge status={p.status} />
-      </div>
-      <div className="mt-3 flex flex-wrap items-center gap-2 text-sm">
-        <DeadlineBadge posting={p} now={now} />
-        {p.deadline && <span className="text-slate-500">{formatPostingDeadline(p)}</span>}
-      </div>
-      {(tags.length > 0 || !p.hasJd || tech.length > 0 || salary) && (
-        <div className="mt-3 flex flex-wrap gap-1.5">
-          {tags.map((t) => (
-            <Badge key={t} className="max-w-full">
-              <span className="min-w-0 truncate" title={t}>
-                {t}
-              </span>
-            </Badge>
-          ))}
-          {salary && (
-            <Badge tone="positive" className="max-w-full">
-              <span className="min-w-0 truncate" title={salary}>
-                {salary}
-              </span>
-            </Badge>
-          )}
-          {tech.slice(0, 3).map((t) => (
-            <Badge key={`tech-${t}`} tone="accent" className="max-w-full">
-              <span className="min-w-0 truncate" title={t}>
-                {t}
-              </span>
-            </Badge>
-          ))}
-          {tech.length > 3 && <Badge tone="accent">+{tech.length - 3}</Badge>}
-          {!p.hasJd && <Badge tone="warning">JD 없음</Badge>}
+        <div className="mt-3 flex flex-wrap items-center gap-2 text-sm">
+          <DeadlineBadge posting={p} now={now} />
+          {p.deadline && <span className="text-slate-500">{formatPostingDeadline(p)}</span>}
         </div>
-      )}
-    </Link>
+        {(tags.length > 0 || !p.hasJd || tech.length > 0 || salary) && (
+          <div className="mt-3 flex flex-wrap gap-1.5">
+            {tags.map((t) => (
+              <Badge key={t} className="max-w-full">
+                <span className="min-w-0 truncate" title={t}>
+                  {t}
+                </span>
+              </Badge>
+            ))}
+            {salary && (
+              <Badge tone="positive" className="max-w-full">
+                <span className="min-w-0 truncate" title={salary}>
+                  {salary}
+                </span>
+              </Badge>
+            )}
+            {tech.slice(0, 3).map((t) => (
+              <Badge key={`tech-${t}`} tone="accent" className="max-w-full">
+                <span className="min-w-0 truncate" title={t}>
+                  {t}
+                </span>
+              </Badge>
+            ))}
+            {tech.length > 3 && <Badge tone="accent">+{tech.length - 3}</Badge>}
+            {!p.hasJd && <Badge tone="warning">JD 없음</Badge>}
+          </div>
+        )}
+      </Link>
+      {/* 카드 링크 밖(형제)에 둔다 — <a> 안에 <a>를 넣지 않고, 눌러도 카드 상세로 이동하지 않는다. */}
+      <SourceLink url={p.url} variant="icon" className="absolute right-2 bottom-2 sm:right-3 sm:bottom-3" />
+    </div>
   );
 }

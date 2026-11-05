@@ -137,7 +137,11 @@ describe("POST /api/postings/import와 공고 찾기", () => {
     expect(res.status).toBe(200);
     const body = (await res.json()) as { fromShared: boolean; job: { status: string; postingId: string } };
     expect(body).toMatchObject({ fromShared: true, job: { status: "completed" } });
-    expect(state.afterTasks).toHaveLength(0);
+    // 가져오기 실행은 없고, 원문 캡처가 없던 공용 공고라 캡처 1건만 예약한다.
+    expect(state.afterTasks).toHaveLength(1);
+    expect(await tdb.prisma.sharedPosting.findFirst({ select: { captureStatus: true }, where: { url: "https://jobs.example/s/2" } })).toEqual({
+      captureStatus: "pending",
+    });
     // 다시 가져오기는 엔진이 필요하다.
     const refresh = await importRoute.POST(json("/api/postings/import", "POST", { url: "https://jobs.example/s/2", refresh: true }));
     expect(refresh.status).toBe(409);
@@ -145,7 +149,7 @@ describe("POST /api/postings/import와 공고 찾기", () => {
     const ok = await importRoute.POST(json("/api/postings/import", "POST", { url: "https://jobs.example/s/2", refresh: true }));
     expect(ok.status).toBe(202);
     expect(await ok.json()).toMatchObject({ job: { status: "queued", refresh: true, postingId: body.job.postingId } });
-    expect(state.afterTasks).toHaveLength(1);
+    expect(state.afterTasks).toHaveLength(2);
   });
 });
 

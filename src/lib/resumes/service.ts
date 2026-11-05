@@ -14,19 +14,28 @@ import { prisma, type Prisma, type Tx } from "@/lib/db/client";
 import { isUniqueViolation, stripNul } from "@/lib/db/errors";
 import type { CompanyResume, ResumeVersion } from "@/lib/db/types";
 import {
+  DEFAULT_RESUME_APPLY_STATUS,
   GENERAL_RESUME_DEFAULT_TITLE,
   parseResumeDocument,
+  resumeApplyStatusOf,
+  RESUME_APPLY_STATUSES,
+  RESUME_PORTFOLIO_KINDS,
   ResumeDocumentSchema,
   type ResumeDocument,
   type ResumeKind,
+  type ResumePortfolioInfo,
   type ResumeTemplateId,
   type ResumeVersionSource,
 } from "@/lib/domain/resumes";
 import { deleteObject, getJson, listByPrefix, putJson, userKey, userPrefix } from "@/lib/storage";
+import { POSTING_STATUSES, type PostingStatus } from "@/lib/domain/postings";
 import {
   MAX_RESUMES_PER_USER,
   MAX_VERSIONS_PER_RESUME,
+  RESUME_LIST_STATUS_FILTERS,
   type ResumeDetail,
+  type ResumeListStatusFilter,
+  type ResumePostingLink,
   type ResumeListItem,
   type ResumeMeta,
   type ResumeVersionMeta,
@@ -38,10 +47,24 @@ const newId = customAlphabet("0123456789ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmn
 
 export const RESUME_NOT_FOUND = "이력서를 찾을 수 없습니다.";
 
+/** 행의 포트폴리오 컬럼 → 화면 정보. 종류가 비었거나 모르는 값이면 null. */
+export function toPortfolioInfo(row: CompanyResume): ResumePortfolioInfo | null {
+  const kind = RESUME_PORTFOLIO_KINDS.find((k) => k === row.portfolioKind);
+  if (!kind) return null;
+  return {
+    kind,
+    fileName: kind === "file" ? (row.portfolioFileName ?? null) : null,
+    url: kind === "url" ? (row.portfolioUrl ?? null) : null,
+    chars: kind === "file" ? (row.portfolioChars ?? null) : null,
+    updatedAt: row.portfolioUpdatedAt?.getTime() ?? null,
+  };
+}
+
 export function toResumeMeta(row: CompanyResume): ResumeMeta {
+  const kind: ResumeKind = row.kind === "general" ? "general" : "company";
   return {
     id: row.id,
-    kind: row.kind === "general" ? "general" : "company",
+    kind,
     company: row.company,
     roleTitle: row.roleTitle,
     jdText: row.jdText,
@@ -50,6 +73,10 @@ export function toResumeMeta(row: CompanyResume): ResumeMeta {
     currentVersionId: row.currentVersionId,
     postingId: row.postingId ?? null,
     sourceResumeId: row.sourceResumeId ?? null,
+    applyStatus: resumeApplyStatusOf(kind, row.applyStatus),
+    applyStatusChangedAt: row.applyStatusChangedAt?.getTime() ?? null,
+    submittedApplicationId: row.submittedApplicationId ?? null,
+    portfolio: toPortfolioInfo(row),
     createdAt: row.createdAt.getTime(),
     updatedAt: row.updatedAt.getTime(),
   };
@@ -76,10 +103,36 @@ export function defaultResumeTitle(company: string, roleTitle: string): string {
 // 조회
 // ---------------------------------------------------------------------------
 
-/** 이력서 목록(최근 수정 순). kind를 주면 그 종류만(이력서 화면은 공용·지원처별을 나눠 보여 준다). */
-export async function listResumes(userId: string, opts: { kind?: ResumeKind } = {}): Promise<ResumeListItem[]> {
+/**
+ * 목록 상태 필터 → where 조각. 'general'은 공용 이력서만, 'draft'는 상태가 비어 있는 예전 지원처별 행도 포함한다.
+ * 'all'·생략은 조건 없음.
+ */
+export function resumeStatusWhere(status: ResumeListStatusFilter | undefined): Prisma.CompanyResumeWhereInput {
+  switch (status) {
+    case "general":
+      return { kind: "general" };
+    case "draft":
+      return { kind: { not: "general" }, OR: [{ applyStatus: "draft" }, { applyStatus: null }, { applyStatus: { notIn: [...RESUME_APPLY_STATUSES] } }] };
+    case "applying":
+    case "submitted":
+      return { kind: { not: "general" }, applyStatus: status };
+    default:
+      return {};
+  }
+}
+
+/** 목록 쿼리 ?status= 해석. 모르는 값은 'all'. */
+export function parseResumeStatusFilter(raw: string | null | undefined): ResumeListStatusFilter {
+  return (RESUME_LIST_STATUS_FILTERS as readonly string[]).includes(raw ?? "") ? (raw as ResumeListStatusFilter) : "all";
+}
+
+/** 이력서 목록(최근 수정 순). kind를 주면 그 종류만(이력서 화면은 공용·지원처별을 나눠 보여 준다), status를 주면 그 지원 상태만. */
+export async function listResumes(
+  userId: string,
+  opts: { kind?: ResumeKind; status?: ResumeListStatusFilter } = {},
+): Promise<ResumeListItem[]> {
   const rows = (await prisma.companyResume.findMany({
-    where: { userId, ...(opts.kind ? { kind: opts.kind } : {}) },
+    where: { AND: [{ userId, ...(opts.kind ? { kind: opts.kind } : {}) }, resumeStatusWhere(opts.status)] },
     orderBy: [{ updatedAt: "desc" }, { id: "desc" }],
     take: MAX_RESUMES_PER_USER,
   })) as CompanyResume[];
@@ -136,7 +189,40 @@ export async function getResumeDetail(userId: string, resumeId: string): Promise
     resume: toResumeMeta(row),
     versions: versions.map(toVersionMeta),
     current: cur ? { versionId: cur.id, versionNo: cur.versionNo, document: await readDocument(cur.storageKey) } : null,
+    posting: await getResumePostingLink(userId, row.postingId),
   };
+}
+
+/** 여러 이력서의 연결 공고 요약(공고 id → 요약). 남의 공고는 빠진다. */
+export async function listResumePostingLinks(userId: string, postingIds: readonly (string | null)[]): Promise<Map<string, ResumePostingLink>> {
+  const ids = [...new Set(postingIds.filter((x): x is string => !!x))];
+  if (ids.length === 0) return new Map();
+  const rows = await prisma.jobPosting.findMany({
+    select: { id: true, company: true, roleTitle: true, url: true, status: true, sharedPostingId: true },
+    where: { userId, id: { in: ids } },
+  });
+  return new Map(rows.map((p) => [p.id, toPostingLink(p)]));
+}
+
+function toPostingLink(p: { id: string; company: string; roleTitle: string; url: string | null; status: string; sharedPostingId: string | null }): ResumePostingLink {
+  return {
+    id: p.id,
+    company: p.company,
+    roleTitle: p.roleTitle,
+    url: p.url ?? "",
+    status: (POSTING_STATUSES as readonly string[]).includes(p.status) ? (p.status as PostingStatus) : "saved",
+    sharedPostingId: p.sharedPostingId ?? null,
+  };
+}
+
+/** 이력서에 연결된 내 공고 요약(없거나 남의 것이면 null). */
+export async function getResumePostingLink(userId: string, postingId: string | null | undefined): Promise<ResumePostingLink | null> {
+  if (!postingId) return null;
+  const p = await prisma.jobPosting.findFirst({
+    select: { id: true, company: true, roleTitle: true, url: true, status: true, sharedPostingId: true },
+    where: { id: postingId, userId },
+  });
+  return p ? toPostingLink(p) : null;
 }
 
 /** 특정 버전(생략하면 현재 버전) 본문. 이력서가 남의 것이거나 버전이 없으면 null. */
@@ -307,6 +393,7 @@ export async function createResume(userId: string, p: CreateResumeParams): Promi
       title: stripNul(p.title?.trim() || null) || (general ? GENERAL_RESUME_DEFAULT_TITLE : defaultResumeTitle(company, roleTitle)),
       postingId: general ? null : (p.postingId ?? null),
       sourceResumeId: p.sourceResumeId ?? null,
+      applyStatus: general ? null : DEFAULT_RESUME_APPLY_STATUS,
     },
   });
   try {

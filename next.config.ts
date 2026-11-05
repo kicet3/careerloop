@@ -26,7 +26,19 @@ const nextConfig: NextConfig = {
   // DB: Prisma 7 생성 클라이언트(src/generated/prisma, 순수 TS — 번들에 포함)와 어댑터(@prisma/adapter-pg·pg)는
   // Node 런타임에서 그대로 불러온다(쿼리 컴파일러 WASM은 @prisma/client/runtime에 있다). @aws-sdk/client-s3는 Next 기본 외부 패키지 목록에 있다.
   // 테스트 전용 @electric-sql/pglite·pglite-prisma-adapter는 앱 코드에서 불러오지 않는다(ESLint로 src/test/** 사용을 막는다).
-  serverExternalPackages: ["@react-pdf/renderer", "unpdf", "mammoth", "neo4j-driver", "@prisma/client", "@prisma/adapter-pg", "pg"],
+  // 공고 원문 캡처(src/lib/postings/capture.ts): puppeteer-core와 @sparticuz/chromium(실행 시 bin/*.br을 /tmp에 풀어 쓰는 ESM 패키지)도
+  // 번들링하지 않는다. 함수 크기·시간 고려사항은 docs/POSTING-CAPTURE.md.
+  serverExternalPackages: [
+    "@react-pdf/renderer",
+    "unpdf",
+    "mammoth",
+    "neo4j-driver",
+    "@prisma/client",
+    "@prisma/adapter-pg",
+    "pg",
+    "@sparticuz/chromium",
+    "puppeteer-core",
+  ],
   // 런타임에 process.cwd() 기준으로 읽는 파일(PDF 한글 폰트, pdf.js CMap)을 서버 번들 추적에 포함한다.
   // 마이그레이션 SQL(prisma/migrations)은 런타임에 읽지 않는다(배포 빌드의 scripts/migrate.mjs가 적용).
   outputFileTracingIncludes: {
@@ -36,6 +48,12 @@ const nextConfig: NextConfig = {
     "/api/share/*/pdf": ["./src/lib/report/fonts/**/*"],
     // 이력서 PDF도 보고서와 같은 나눔고딕을 쓴다 (src/lib/resumes/pdf-fonts.ts)
     "/api/resumes/*/pdf": ["./src/lib/report/fonts/**/*"],
+    // 원문 캡처를 after()로 실행하는 라우트: @sparticuz/chromium의 압축된 Chromium(bin/*.br, 약 67MB)은 런타임에 경로로 읽으므로
+    // 추적에 직접 넣는다. 다른 라우트 함수에는 넣지 않는다(함수 크기 250MB 상한).
+    "/api/postings/import": ["./node_modules/@sparticuz/chromium/bin/**/*"],
+    "/api/postings/import/*": ["./node_modules/@sparticuz/chromium/bin/**/*"],
+    "/api/postings/*/capture": ["./node_modules/@sparticuz/chromium/bin/**/*"],
+    "/api/shared-postings/*/capture": ["./node_modules/@sparticuz/chromium/bin/**/*"],
   },
   turbopack: {
     rules: {

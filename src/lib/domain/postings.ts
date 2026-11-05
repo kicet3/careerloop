@@ -3,6 +3,7 @@
  * URL 가져오기 작업 상태, 공고 페이지 LLM 추출 출력(PostingExtractSchema). 구역별 구조는 ./posting-structure.ts.
  * 저장은 PostgreSQL job_postings·posting_imports(prisma/schema.prisma). 마감 날짜는 KST 'YYYY-MM-DD'(src/lib/time/kst.ts).
  */
+import type { PostingCaptureInfo } from "./posting-capture";
 import { z } from "zod";
 import { isValidKstDate, isValidKstTime } from "@/lib/time/kst";
 import {
@@ -206,6 +207,8 @@ export interface JobPosting {
   extractedBy: string;
   /** URL 가져오기(또는 공고 찾기에서 담기)로 만든 공고면 공용 공고 id. 직접 입력은 null. */
   sharedPostingId: string | null;
+  /** 공용 공고의 원문 페이지 캡처 상태(상세 조회에만 실린다 — 이미지는 GET /api/postings/[id]/capture). */
+  capture?: PostingCaptureInfo;
   createdAt: number;
   updatedAt: number;
 }

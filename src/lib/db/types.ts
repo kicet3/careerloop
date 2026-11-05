@@ -15,7 +15,14 @@ import type {
   WorkType,
 } from "@/lib/domain/postings";
 import type { ProviderId } from "@/lib/domain/providers";
-import type { ResumeKind, ResumeTemplateId, ResumeVersionSource } from "@/lib/domain/resumes";
+import type {
+  InterviewAnswerStatus,
+  InterviewQuestionCategory,
+  InterviewQuestionStatus,
+  InterviewSessionStatus,
+} from "@/lib/domain/interview";
+import type { PostingCaptureMime, PostingCaptureStatus } from "@/lib/domain/posting-capture";
+import type { ResumeApplyStatus, ResumeKind, ResumePortfolioKind, ResumeTemplateId, ResumeVersionSource } from "@/lib/domain/resumes";
 import type { ConsentSource, ConsentType } from "@/lib/legal/consents";
 import type { UserRole, UserStatus } from "@/lib/domain/users";
 import type { DiagnosisStatus, ReviewerId, Situation, StageKey, StageStatus } from "@/lib/domain/schemas";
@@ -48,7 +55,14 @@ export type JobPostingRow = Narrow<
 
 export type SharedPostingRow = Narrow<
   P.SharedPosting,
-  { deadlineKind: DeadlineKind; employmentType: EmploymentType; workType: WorkType; careerLevel: CareerLevel }
+  {
+    deadlineKind: DeadlineKind;
+    employmentType: EmploymentType;
+    workType: WorkType;
+    careerLevel: CareerLevel;
+    captureStatus: PostingCaptureStatus | null;
+    captureMime: PostingCaptureMime | null;
+  }
 >;
 
 export type PostingImportRow = Narrow<P.PostingImport, { status: PostingImportStatus }>;
@@ -69,10 +83,30 @@ export type ChatMessageRow = Narrow<
   { role: ChatRole; data: ChatMessageData | null; status: ChatMessageStatus | null; usage: UsageTotals | null }
 >;
 
-export type CompanyResume = Narrow<P.CompanyResume, { kind: ResumeKind; templateId: ResumeTemplateId }>;
+export type CompanyResume = Narrow<
+  P.CompanyResume,
+  { kind: ResumeKind; templateId: ResumeTemplateId; applyStatus: ResumeApplyStatus | null; portfolioKind: ResumePortfolioKind | null }
+>;
 
 export type ResumeVersion = Narrow<P.ResumeVersion, { source: ResumeVersionSource }>;
 
 export type ApplicationRow = Narrow<P.Application, { stage: ApplicationStage }>;
 
 export type ApplicationEventRow = Narrow<P.ApplicationEvent, { fromStage: ApplicationStage | null; toStage: ApplicationStage }>;
+
+export type InterviewSessionRow = Narrow<
+  P.InterviewSession,
+  { status: InterviewSessionStatus; provider: ProviderId | null; usage: UsageTotals | null }
+>;
+
+/** citations는 InterviewCitation[], followUps는 string[](jsonb). */
+export type InterviewQuestionRow = Narrow<
+  P.InterviewQuestion,
+  { category: InterviewQuestionCategory; status: InterviewQuestionStatus; citations: unknown; followUps: unknown }
+>;
+
+/** feedback은 InterviewFeedback | null(jsonb). */
+export type InterviewAnswerRow = Narrow<
+  P.InterviewAnswer,
+  { status: InterviewAnswerStatus; feedback: unknown; provider: ProviderId | null; usage: UsageTotals | null }
+>;
