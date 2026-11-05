@@ -1,10 +1,12 @@
 "use client";
 
+import Link from "next/link";
 import { useRouter } from "next/navigation";
 import { useState } from "react";
 import { Alert } from "@/components/ui/Alert";
 import { Button } from "@/components/ui/Button";
 import { Card } from "@/components/ui/Card";
+import { NO_ENGINE_MESSAGE, PROVIDER_DATA_DESTINATION, type ProviderId, type ProviderOption } from "@/lib/domain/providers";
 import { SITUATION_LABELS } from "@/lib/domain/reviewers";
 import { SITUATIONS, type Situation } from "@/lib/domain/schemas";
 import { saveCreationWarnings } from "./creation-warnings";
@@ -26,6 +28,7 @@ export const DIAGNOSIS_FORM_FIELDS = {
   jdFile: "jdFile",
   situation: "situation",
   notes: "notes",
+  provider: "provider",
 } as const;
 
 const SITUATION_HINTS: Record<Situation, string> = {
@@ -45,8 +48,19 @@ const STATUS_FALLBACK: Record<number, string> = {
 
 type Mode = "file" | "text";
 
-export function NewDiagnosisForm() {
+export function NewDiagnosisForm({
+  providers,
+  defaultProvider,
+}: {
+  providers: ProviderOption[];
+  defaultProvider: ProviderId | null;
+}) {
   const router = useRouter();
+  const [provider, setProvider] = useState<ProviderId | null>(defaultProvider);
+  const selected = providers.find((p) => p.id === provider);
+  const destination = provider ? PROVIDER_DATA_DESTINATION[provider] : null;
+  const isCli = provider === "claude-cli" || provider === "codex-cli";
+  const hasCliOptions = providers.some((p) => p.id === "claude-cli" || p.id === "codex-cli");
 
   const [resumeMode, setResumeMode] = useState<Mode>("file");
   const [resumeFile, setResumeFile] = useState<File | null>(null);
@@ -76,6 +90,10 @@ export function NewDiagnosisForm() {
       setError("지원 직무를 입력해 주세요.");
       return;
     }
+    if (!provider || !selected?.ready) {
+      setError(selected?.reason ?? (providers.some((p) => p.ready) ? "사용할 AI 엔진을 골라 주세요." : NO_ENGINE_MESSAGE));
+      return;
+    }
 
     const fd = new FormData();
     const F = DIAGNOSIS_FORM_FIELDS;
@@ -86,6 +104,7 @@ export function NewDiagnosisForm() {
     else if (jdText.trim()) fd.set(F.jdText, jdText);
     fd.set(F.situation, situation);
     if (notes.trim()) fd.set(F.notes, notes.trim());
+    fd.set(F.provider, provider);
 
     setSubmitting(true);
     try {
@@ -264,9 +283,63 @@ export function NewDiagnosisForm() {
         </div>
       </Card>
 
+      {/* 4. AI 엔진 */}
+      {(providers.length > 1 || hasCliOptions) && (
+        <Card className="p-5 sm:p-6">
+          <SectionTitle step={4} title="AI 엔진" />
+          <fieldset className="mt-4">
+            <legend className="sr-only">심사에 쓸 AI 엔진</legend>
+            <div className="grid gap-2 sm:grid-cols-2">
+              {providers.map((p) => (
+                <label
+                  key={p.id}
+                  className={`flex items-start gap-3 rounded-lg border border-slate-200 px-3 py-2.5 has-[:checked]:border-indigo-500 has-[:checked]:bg-indigo-50/60 ${p.ready ? "cursor-pointer" : "cursor-not-allowed opacity-60"}`}
+                >
+                  <input
+                    type="radio"
+                    name="provider"
+                    value={p.id}
+                    checked={provider === p.id}
+                    disabled={!p.ready}
+                    onChange={() => setProvider(p.id)}
+                    className="mt-1 accent-indigo-600"
+                  />
+                  <span className="min-w-0">
+                    <span className="block text-sm font-medium text-slate-900">{p.label}</span>
+                    <span className="block text-xs text-slate-500">
+                      {p.ready ? (p.account ? `${p.account} · ${p.description}` : p.description) : p.reason}
+                    </span>
+                  </span>
+                </label>
+              ))}
+            </div>
+          </fieldset>
+          {hasCliOptions && (
+            <p className="mt-3 text-sm text-slate-500">
+              계정 로그인은{" "}
+              <Link href="/app/connections" className="font-medium text-indigo-700 hover:underline">
+                AI 연결
+              </Link>
+              에서 합니다.
+            </p>
+          )}
+        </Card>
+      )}
+
+      {!providers.some((p) => p.ready) && (
+        <Alert tone="error" title="사용할 수 있는 AI 엔진이 없습니다">
+          {NO_ENGINE_MESSAGE}
+        </Alert>
+      )}
+
       <Alert tone="info" title="보내기 전에 확인해 주세요">
-        이력서와 JD는 분석을 위해 Anthropic의 Claude API로 전송됩니다. 주민등록번호, 집 주소, 전화번호 등 보내고 싶지 않은
-        정보는 미리 지워 주세요. 심사는 이력서에 있는 사실만 사용하며, 모르는 내용은 지어내지 않고 질문으로 남깁니다.
+        {destination
+          ? `이력서와 JD는 분석을 위해 ${destination}(으)로 전송됩니다. `
+          : provider === "mock"
+            ? "개발용 mock 모드라 샘플 결과를 만들며, 이력서는 외부로 전송되지 않습니다. "
+            : "이력서와 JD는 분석을 위해 선택한 AI 엔진으로 전송됩니다. "}
+        주민등록번호, 집 주소, 전화번호 등 보내고 싶지 않은 정보는 미리 지워 주세요. 심사는 이력서에 있는 사실만 사용하며,
+        모르는 내용은 지어내지 않고 질문으로 남깁니다.
       </Alert>
 
       {error && (
@@ -276,7 +349,9 @@ export function NewDiagnosisForm() {
       )}
 
       <div className="flex flex-col-reverse items-stretch gap-3 sm:flex-row sm:items-center sm:justify-end">
-        <p className="text-sm text-slate-500 sm:mr-auto">시작하면 약 3~5분 걸립니다. 창을 닫아도 진단은 계속됩니다.</p>
+        <p className="text-sm text-slate-500 sm:mr-auto">
+          시작하면 약 {isCli ? "5~15분" : "3~5분"} 걸립니다. 창을 닫아도 진단은 계속됩니다.
+        </p>
         <Button type="submit" size="lg" loading={submitting}>
           {submitting ? "업로드 중…" : "심사 시작"}
         </Button>

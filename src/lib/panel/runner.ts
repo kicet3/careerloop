@@ -15,7 +15,7 @@ import { diagnoses, diagnosisStages, type UsageTotals } from "@/lib/db/schema";
 import { STAGE_LABELS } from "@/lib/domain/reviewers";
 import { STAGE_KEYS, STAGE_SCHEMAS, type DiagnosisInput, type StageKey, type StageOutputs } from "@/lib/domain/schemas";
 import { HEARTBEAT_MS } from "@/lib/diagnoses/summary";
-import { createLlmClient } from "@/lib/llm";
+import { createLlmClient, legacyProvider } from "@/lib/llm";
 import { LlmPermanentError, usageOfError, type LlmClient, type LlmUsage } from "@/lib/llm/types";
 import { runPipeline } from "./pipeline";
 
@@ -42,6 +42,14 @@ export function stageErrorMessage(error: unknown): string {
         return "이력서와 공고를 합친 입력이 AI 모델이 한 번에 읽을 수 있는 양을 넘었습니다. 줄여서 다시 진단해 주세요.";
       case "bad_request":
         return "AI 서비스가 요청을 받아들이지 않았습니다(입력이 너무 길거나 형식 오류).";
+      case "auth":
+        return "AI 계정 로그인이 없거나 만료되었습니다. 'AI 연결' 화면에서 다시 로그인한 뒤 재시도해 주세요.";
+      case "usage_limit":
+        return "연결된 AI 계정의 사용량 한도에 걸렸습니다. 한도가 풀린 뒤 다시 시도해 주세요.";
+      case "unavailable":
+        return "선택한 AI 엔진을 지금 쓸 수 없습니다(CLI 미설치 또는 기능 꺼짐). 'AI 연결' 화면을 확인해 주세요.";
+      case "timeout":
+        return "AI 응답이 제한 시간 안에 오지 않았습니다. 다시 시도해 주세요.";
     }
   }
   const status = (error as { status?: unknown } | null)?.status;
@@ -170,7 +178,7 @@ export async function runDiagnosis(
     }
 
     const { ok } = await runPipeline(input, {
-      llm: opts?.llm ?? createLlmClient(),
+      llm: opts?.llm ?? createLlmClient(diagnosis.provider ?? legacyProvider(diagnosis.model)),
       existing,
       signal: controller.signal,
       async onStageStart(stage) {

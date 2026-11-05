@@ -42,13 +42,26 @@ export interface LlmClient {
  * 재시도해도 소용없는 실패(거절, 스키마 불일치 반복 등).
  * - max_tokens: 출력 한도(서버 설정)에서 끊김 — 한도를 올려 한 번 더 시도한 뒤에도 끊긴 경우.
  * - context_window: 입력이 모델 컨텍스트를 넘음 — 입력을 줄여야 한다.
+ * - auth: CLI 엔진의 계정 로그인이 없거나 만료됨 — 'AI 연결'에서 다시 로그인해야 한다.
+ * - usage_limit: 구독 계정의 사용량 한도에 걸림 — 한도가 풀린 뒤 재시도.
+ * - unavailable: CLI가 설치되어 있지 않거나 엔진이 꺼져 있음.
+ * - timeout: CLI 호출이 제한 시간 안에 끝나지 않음.
  */
 export class LlmPermanentError extends Error {
   /** 실패하기 전까지 이미 쓴 토큰. 실패한 단계의 비용도 진단 사용량에 더한다. */
   usage?: LlmUsage;
   constructor(
     message: string,
-    readonly reason: "refusal" | "invalid_output" | "max_tokens" | "context_window" | "bad_request",
+    readonly reason:
+      | "refusal"
+      | "invalid_output"
+      | "max_tokens"
+      | "context_window"
+      | "bad_request"
+      | "auth"
+      | "usage_limit"
+      | "unavailable"
+      | "timeout",
     usage?: LlmUsage,
   ) {
     super(message);

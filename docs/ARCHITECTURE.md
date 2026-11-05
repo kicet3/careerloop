@@ -74,7 +74,7 @@
   PDF는 50쪽 초과 413, 페이지 사이 15초 예산, 글자 수 상한을 넘으면 더 읽지 않는다.
 - 부분 보고서: `done`이면 전체 보고서. `failed`라도 jd·심사위원 7명·fit이 끝났으면 부분 보고서(빠진 섹션 안내 +
   재시도)를 웹·PDF·Markdown(소유자)으로 제공한다. 공유 링크는 `done`만.
-- `ANTHROPIC_API_KEY`가 없거나 `LLM_MOCK=1`이면 mock 클라이언트(결정적 가짜 출력, 실제 이력서 줄을 인용, 단계당 짧은 지연).
+- `LLM_MOCK=1`이면 mock 클라이언트(결정적 가짜 출력, 실제 이력서 줄을 인용, 단계당 짧은 지연).
 
 ## 5. LLM 호출 규칙 (src/lib/llm/anthropic.ts)
 
@@ -93,6 +93,34 @@
   user 메시지는 [공유 자료 블록(cache_control)] + [단계 역할 + 할 일 + 이전 결과] 순서다. system 캐시는 단계·진단을
   넘어 재사용된다. 자료 블록까지의 캐시는 effort와 출력 스키마가 같은 요청끼리만 맞을 수 있고, 동시에 출발한 요청은
   서로의 쓰기를 읽지 못하므로(팬아웃 8개) 단계 간 재사용은 보장하지 않는다. 실제 효과는 `diagnoses.usage.cacheReadTokens`로 확인한다.
+
+## 5-1. 계정 로그인 엔진 (src/lib/llm/cli.ts, src/lib/providers/*) — 임시·개인용
+
+- 엔진 id(`domain/providers.ts`): `anthropic`(API 키) · `claude-cli`(Claude 구독 로그인) · `codex-cli`(ChatGPT 로그인) · `mock`.
+  진단 행의 `provider` 컬럼에 저장하고 재시도도 같은 엔진으로 한다. 예전 행(null)은 `model`로 추정(`legacyProvider`).
+- `CLI_PROVIDERS=1`일 때만 CLI 엔진이 보인다. `LLM_MOCK=1`이면 모든 엔진이 mock. mock은 `LLM_MOCK=1`일 때만 선택지에 나오고, 준비된 엔진이 없으면 새 진단은 409로 막는다.
+- paperclip의 claude-local·codex-local 방식: 공식 CLI를 자식 프로세스로 실행한다. 토큰은 CLI가 자기 저장소에 두고 앱은 읽지 않는다.
+  - 로그인 격리: `CLAUDE_CONFIG_DIR=data/providers/claude`, `CODEX_HOME=data/providers/codex`. `system`이면 기본 로그인 사용(웹 로그인·로그아웃 차단).
+  - 로그인(`providers/service.ts`): Claude는 `claude auth login --claudeai` → 안내문의 인가 링크(허용 호스트·경로만) → 사용자가 받은
+    코드를 웹에 붙여넣으면 자식 stdin으로 전달. ChatGPT는 `codex login --device-auth` → 기기 인증 링크 + 1회용 코드 → CLI 종료로 완료 감지.
+    엔진별 1개, 15분 만료, 프로세스 전역 상태. 링크·코드는 메모리에만 두고 로그에 쓰지 않는다.
+  - 상태: `claude auth status`(JSON, `authMethod=claude.ai`만 연결로 인정), `codex login status`. 30초 캐시.
+  - 자식 환경에서 `ANTHROPIC_*`·`OPENAI_*`·`CLAUDE_CODE_*`·`CODEX_*`와 DB 비밀을 뺀다(API 키 과금·중첩 세션 표식 방지).
+- 호출: 프로세스마다 `mkdtemp`로 만든 0700 작업 폴더에서 실행해 프로젝트 지시 파일·심어 둔 설정을 읽지 않는다.
+  자식은 새 프로세스 그룹으로 띄우고(npm 래퍼 → 실제 바이너리) 취소·시간 초과·서버 종료 때 그룹 전체를 끝낸다.
+  - Claude: `claude -p --output-format json --model --effort --system-prompt --json-schema <toStrictJsonSchema> --tools "" --strict-mcp-config --setting-sources "" --no-session-persistence`, 자료는 stdin. `structured_output`을 zod로 재검증.
+  - Codex: `codex exec --json --sandbox read-only --ephemeral --skip-git-repo-check --output-schema <파일> -c model_reasoning_effort -c project_doc_max_bytes=0 -`
+    + 도구 기능 끔(`--disable shell_tool unified_exec code_mode_host apps plugins browser_use computer_use …`, `-c mcp_servers={}`, `-c web_search="disabled"`).
+    read-only 샌드박스는 쓰기만 막고 읽기는 막지 않으므로, 이력서에 심은 지시로 서버 파일(.env·로그인 토큰)을 읽지 못하게 하는 것이 목적이다.
+    응답 이벤트에 도구 사용 항목(command_execution 등)이 있으면 출력을 버리고 단계를 실패 처리한다.
+    stdin = 실행 규칙 + system + user. 마지막 `agent_message`를 JSON으로 읽어 zod 재검증. effort는 low/medium/high로 맞춘다.
+  - 실패 분류는 CLI 오류 채널(claude `is_error`, codex `turn.failed`/`error`)과 stderr로만 한다 — 모델이 쓴 글에 '401'·'한도'가 있어도 오판하지 않게.
+    로그인 → `LlmPermanentError("auth")`, 구독 한도 → `"usage_limit"`, 미설치 → `"unavailable"`, 시간 초과 → `"timeout"`.
+    과부하(429·529)·그 밖의 CLI 오류는 1회 재시도(과부하는 15초 뒤) 후 일반 오류(과부하면 status 529 → '일시적 장애' 문구).
+    모델이 JSON이 아닌 글을 내면 짧은 거절 문장은 `"refusal"`, 아니면 스키마 재요청 1회.
+  - 동시 CLI 프로세스 `CLI_MAX_CONCURRENCY`(기본 4), 호출당 `CLI_CALL_TIMEOUT_MS`(기본 15분). 자체 호스팅은 진단 전체 마감이 없다(§4).
+- 화면: `/app/connections`(AI 연결, CLI 엔진이 켜졌을 때만 메뉴 노출), 새 진단의 'AI 엔진' 선택(준비 안 된 엔진은 사유와 함께 비활성).
+- API: `GET /api/providers`(선택지+연결 상태), `GET /api/providers/[id]?fresh=1`, `POST /api/providers/[id]` `{action: login|code|cancel|logout}`.
 
 ## 6. 인증
 
@@ -113,6 +141,7 @@
 | `/signup`, `/login` | 인증 |
 | `/app` | 내 진단 이력(제목, 직무, 상태, 날짜, 7명 중 통과 수) |
 | `/app/new` | 새 진단: 이력서(PDF·DOCX·TXT·MD 업로드 또는 붙여넣기), 지원 직무(필수), JD(붙여넣기 또는 파일, 선택이지만 강력 권장), 상황, 메모 |
+| `/app/connections` | (CLI_PROVIDERS=1) Claude·ChatGPT 계정 로그인 연결/해제 |
 | `/app/d/[id]` | 진행 중이면 단계별 진행 화면, 완료되면 보고서, 실패했지만 부분 보고서가 가능하면 진행 화면(재시도) + 부분 보고서. 생성 직후 입력 경고는 URL이 아니라 sessionStorage로 넘겨 한 번 표시 |
 | `/share/[token]` | 읽기 전용 공유 보고서 |
 | `POST /api/auth/signup` `POST /api/auth/login` `POST /api/auth/logout` | |

@@ -362,6 +362,7 @@ export function makeSampleDiagnosis(overrides: Partial<Diagnosis> = {}): Diagnos
     shareToken: null,
     runId: null,
     model: "claude-opus-5-5",
+    provider: "anthropic",
     usage: null,
     createdAt: SAMPLE_CREATED_AT,
     updatedAt: new Date("2026-10-20T05:34:10.000Z"),

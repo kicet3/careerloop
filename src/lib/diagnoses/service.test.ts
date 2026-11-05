@@ -5,7 +5,7 @@ import { afterAll, beforeAll, describe, expect, it, vi } from "vitest";
 import type { DiagnosisInput } from "@/lib/domain/schemas";
 
 vi.mock("server-only", () => ({}));
-vi.mock("@/lib/llm", () => ({ currentModelName: () => "test-model" }));
+vi.mock("@/lib/llm", () => ({ defaultProvider: () => "mock", modelNameFor: () => "test-model" }));
 
 const dir = mkdtempSync(path.join(tmpdir(), "rp-diag-"));
 process.env.DATABASE_URL = `file:${path.join(dir, "test.db")}`;
@@ -31,7 +31,7 @@ beforeAll(async () => {
   await ensureDatabase();
   ({ db, schema } = await import("@/lib/db/client"));
   svc = await import("./service");
-  for (const id of ["u1", "u2", "u3", "u4", "u5"]) {
+  for (const id of ["u1", "u2", "u3", "u4", "u5", "u-provider"]) {
     await db.insert(schema.users).values({ id, email: `${id}@x.com`, passwordHash: "x" });
   }
 });
@@ -55,6 +55,13 @@ describe("diagnoses service", () => {
     expect(found?.stages).toHaveLength(13);
     expect(await svc.getDiagnosisForUser(id, "u2")).toBeNull();
     await expect(svc.createDiagnosis("u1", input)).rejects.toMatchObject({ status: 409 });
+    await setStatus(id, "done");
+  });
+
+  it("고른 엔진을 진단에 저장한다(재시도도 같은 엔진)", async () => {
+    const { id } = await svc.createDiagnosis("u-provider", input, "codex-cli");
+    const found = await svc.getDiagnosisForUser(id, "u-provider");
+    expect(found?.diagnosis.provider).toBe("codex-cli");
     await setStatus(id, "done");
   });
 

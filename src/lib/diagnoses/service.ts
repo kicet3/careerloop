@@ -4,7 +4,8 @@ import { nanoid } from "nanoid";
 import { db } from "@/lib/db/client";
 import { diagnoses, diagnosisRuns, diagnosisStages, type Diagnosis, type DiagnosisStage } from "@/lib/db/schema";
 import { REVIEWER_IDS, STAGE_KEYS, type DiagnosisInput, type StageKey } from "@/lib/domain/schemas";
-import { currentModelName } from "@/lib/llm";
+import type { ProviderId } from "@/lib/domain/providers";
+import { defaultProvider, modelNameFor } from "@/lib/llm";
 import {
   dailyDiagnosisLimit,
   diagnosisSubtitle,
@@ -126,8 +127,13 @@ export async function listDiagnoses(userId: string): Promise<DiagnosisListItem[]
  * 진단 행 + 13개 단계 행(pending)을 만든다. 실행(runDiagnosis)은 호출자가 after()로 예약한다.
  * 제한: 사용자당 진행 중(queued/running) 1건(409), 최근 24시간 DAILY_DIAGNOSIS_LIMIT건(429).
  * 하루 제한은 실행 원장(diagnosis_runs)으로 센다 — 진단을 지워도 횟수가 돌아오지 않는다.
+ * provider는 호출자가 검증한 엔진(providers/options.ts resolveRequestedProvider). 재시도도 이 엔진으로 한다.
  */
-export async function createDiagnosis(userId: string, input: DiagnosisInput): Promise<{ id: string }> {
+export async function createDiagnosis(
+  userId: string,
+  input: DiagnosisInput,
+  provider: ProviderId = defaultProvider(),
+): Promise<{ id: string }> {
   await markStaleRunsFailed(userId);
   const id = nanoid();
   const now = new Date();
@@ -173,7 +179,8 @@ export async function createDiagnosis(userId: string, input: DiagnosisInput): Pr
       resumeText: input.resumeText,
       resumeFileName: input.resumeFileName,
       status: "queued",
-      model: currentModelName(),
+      model: modelNameFor(provider),
+      provider,
       createdAt: now,
       updatedAt: now,
     });

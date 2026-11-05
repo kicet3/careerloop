@@ -1,5 +1,6 @@
 import { sql } from "drizzle-orm";
 import { index, integer, sqliteTable, text, uniqueIndex } from "drizzle-orm/sqlite-core";
+import type { ProviderId } from "@/lib/domain/providers";
 import type { DiagnosisStatus, Situation, StageKey, StageStatus } from "@/lib/domain/schemas";
 
 const now = sql`(unixepoch() * 1000)`;
@@ -45,6 +46,8 @@ export const diagnoses = sqliteTable(
     /** 공개 공유 링크 토큰. null이면 비공개. */
     shareToken: text("share_token").unique(),
     model: text("model").notNull(),
+    /** 진단을 돌리는 AI 엔진(domain/providers.ts). 재시도도 같은 엔진으로 한다. 예전 행은 null(model로 추정). */
+    provider: text("provider").$type<ProviderId>(),
     /**
      * 현재 실행(run)의 식별자. runDiagnosis가 진단을 차지할 때 새로 정하고, 실행 중 모든 쓰기를 이 값으로 조건 건다.
      * 멈춘 실행으로 판정된 뒤 재시도가 새 실행을 시작하면, 예전 실행의 늦은 쓰기는 아무 행에도 닿지 않는다.

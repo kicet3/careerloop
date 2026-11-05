@@ -2,6 +2,7 @@
  * 진단 라우트 핸들러 공용 응답 도우미.
  */
 import { IngestError } from "@/lib/ingest/extract";
+import { ProviderServiceError } from "@/lib/providers/errors";
 import { DiagnosisServiceError } from "./errors";
 
 export function jsonError(message: string, status: number): Response {
@@ -12,7 +13,7 @@ export const notFound = () => jsonError("진단을 찾을 수 없습니다.", 40
 
 /** 서비스·수집 오류는 메시지 그대로, 나머지는 로그 후 500. */
 export function errorResponse(err: unknown, context: string): Response {
-  if (err instanceof DiagnosisServiceError || err instanceof IngestError) {
+  if (err instanceof DiagnosisServiceError || err instanceof IngestError || err instanceof ProviderServiceError) {
     return jsonError(err.message, err.status);
   }
   console.error(`[${context}]`, err);

@@ -1,0 +1,1 @@
+ALTER TABLE `diagnoses` ADD `provider` text;

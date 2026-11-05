@@ -4,11 +4,12 @@ import { assertSameOrigin, requireApiUser } from "@/lib/auth/session";
 import { ensureDatabase } from "@/lib/db/migrate";
 import { BodyTooLargeError, readFormDataLimited } from "@/lib/diagnoses/body";
 import { runDeadline } from "@/lib/diagnoses/deadline";
-import { parseDiagnosisForm } from "@/lib/diagnoses/form";
+import { parseDiagnosisForm, requestedProvider } from "@/lib/diagnoses/form";
 import { errorResponse, jsonError } from "@/lib/diagnoses/http";
 import { createDiagnosis, listDiagnoses } from "@/lib/diagnoses/service";
 import type { CreateDiagnosisResponse } from "@/lib/diagnoses/types";
 import { runDiagnosis } from "@/lib/panel/runner";
+import { resolveRequestedProvider } from "@/lib/providers/options";
 
 export const runtime = "nodejs";
 // after()로 이어지는 진단 실행(LLM 13회, 직렬 경로 5회)이 이 시간 안에 끝나야 한다. Vercel Pro/Enterprise(fluid
@@ -58,8 +59,9 @@ export async function POST(req: Request) {
   }
 
   try {
+    const provider = await resolveRequestedProvider(requestedProvider(form));
     const { input, warnings } = await parseDiagnosisForm(form);
-    const { id } = await createDiagnosis(user.id, input);
+    const { id } = await createDiagnosis(user.id, input, provider);
     after(async () => {
       try {
         await runDiagnosis(id, { deadlineAt: runDeadline(startedAt, maxDuration) });

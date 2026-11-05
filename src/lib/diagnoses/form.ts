@@ -2,7 +2,7 @@
  * POST /api/diagnoses의 multipart 폼 → DiagnosisInput. 실패는 IngestError(한국어 메시지)로 던진다.
  *
  * 필드: resumeFile(File) | resumeText(string) 중 하나 필수, targetRole 필수,
- *       jdFile(File) | jdText(string) 선택, situation, notes.
+ *       jdFile(File) | jdText(string) 선택, situation, notes, provider(엔진 id, 선택 — 검증은 라우트가 한다).
  * 같은 항목에 파일과 붙여넣기가 모두 오면 붙여넣은 텍스트를 우선한다(사용자가 직접 고친 내용일 수 있으므로).
  */
 import { DiagnosisInputSchema, SITUATIONS, type DiagnosisInput, type Situation } from "@/lib/domain/schemas";
@@ -32,6 +32,11 @@ async function readFile(f: File, label: string, warnings: string[], maxChars: nu
     if (err instanceof IngestError) throw new IngestError(`${label} 파일: ${err.message}`, err.status);
     throw err;
   }
+}
+
+/** 요청한 엔진 id(비어 있으면 null). 값 검증은 providers/options.ts resolveRequestedProvider. */
+export function requestedProvider(form: FormData): string | null {
+  return str(form, "provider").trim() || null;
 }
 
 export async function parseDiagnosisForm(form: FormData): Promise<{ input: DiagnosisInput; warnings: string[] }> {
