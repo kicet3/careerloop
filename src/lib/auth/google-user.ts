@@ -21,7 +21,7 @@ export function googleOwnsEmail(claims: Pick<GoogleClaims, "email" | "hd">): boo
  * 1) google_sub가 같은 사용자 → 그대로.
  * 2) 같은 이메일(소문자)의 사용자가 있고 아직 Google을 연결하지 않았다면 연결한다. claims는 email_verified=true만 들어오지만
  *    (validateIdTokenClaims), Google이 그 주소의 소유를 보증할 때(googleOwnsEmail)만 연결한다 — 아니면 unverified_email.
- *    가입 시 이메일 소유를 확인하지 않으므로, 연결할 때 기존 비밀번호와 세션을 모두 없앤다(남이 먼저 같은 이메일로 가입해 둔
+ *    예전 이메일 가입은 이메일 소유를 확인하지 않았으므로, 연결할 때 기존 비밀번호와 세션을 모두 없앤다(남이 먼저 같은 이메일로 가입해 둔
  *    계정에 접근을 남기지 않는다). 이미 다른 Google 계정과 연결돼 있으면 conflict.
  * 3) 없으면 비밀번호 없는 사용자를 만든다.
  */

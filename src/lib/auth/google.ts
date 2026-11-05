@@ -289,7 +289,7 @@ export const GOOGLE_ERROR_MESSAGES: Record<string, string> = {
   google_email: "인증된 이메일이 있는 Google 계정만 사용할 수 있습니다.",
   google_conflict: "이 이메일은 다른 Google 계정과 이미 연결되어 있습니다.",
   google_link_unverified:
-    "이 이메일로 가입된 계정이 있지만 Google이 이 주소의 소유를 보증하지 않아 연결할 수 없습니다. 이메일과 비밀번호로 로그인해 주세요.",
+    "이 이메일로 가입된 계정이 있지만 Google이 이 주소의 소유를 보증하지 않아 연결할 수 없습니다. 관리자에게 문의해 주세요.",
   google_unavailable: "Google 로그인이 설정되지 않았습니다. 관리자에게 문의해 주세요.",
   rate_limited: "요청이 너무 많습니다. 잠시 후 다시 시도해 주세요.",
 };

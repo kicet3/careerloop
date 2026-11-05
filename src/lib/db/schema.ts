@@ -20,7 +20,7 @@ export const users = sqliteTable("users", {
   id: text("id").primaryKey(),
   email: text("email").notNull().unique(),
   name: text("name"),
-  /** 비밀번호 로그인용 해시. Google로만 가입한 계정은 null(비밀번호 로그인 불가). */
+  /** 예전 이메일·비밀번호 가입 계정의 해시(비밀번호 로그인은 없어졌다). Google 계정은 null. */
   passwordHash: text("password_hash"),
   /** Google 계정 고유 ID(id_token의 sub). Google 로그인을 연결하지 않았으면 null. */
   googleSub: text("google_sub").unique(),

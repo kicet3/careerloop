@@ -3,7 +3,7 @@ import { redirect } from "next/navigation";
 import { getCurrentUser } from "@/lib/auth/session";
 import { authErrorMessage } from "@/lib/auth/google";
 import { safeNextPath } from "@/lib/auth/validation";
-import { googleLoginConfigured, passwordLoginEnabled } from "@/lib/config/env";
+import { googleLoginConfigured } from "@/lib/config/env";
 import { AuthForm } from "../AuthForm";
 
 export const metadata: Metadata = { title: "로그인" };
@@ -25,8 +25,7 @@ export default async function LoginPage({
         mode="login"
         next={next}
         googleEnabled={googleLoginConfigured()}
-        passwordEnabled={passwordLoginEnabled()}
-        initialError={authErrorMessage(params.error)}
+        error={authErrorMessage(params.error)}
       />
     </>
   );

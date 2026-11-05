@@ -1,37 +1,5 @@
 import { z } from "zod";
 
-const email = z
-  .string({ error: "이메일을 입력해 주세요." })
-  .trim()
-  .toLowerCase()
-  .min(1, "이메일을 입력해 주세요.")
-  .max(254, "이메일이 너무 깁니다.")
-  .pipe(z.email({ error: "올바른 이메일 형식이 아닙니다." }));
-
-const password = z
-  .string({ error: "비밀번호를 입력해 주세요." })
-  .min(8, "비밀번호는 8자 이상이어야 합니다.")
-  .max(128, "비밀번호는 128자 이하여야 합니다.");
-
-export const SignupInputSchema = z.object({
-  email,
-  password,
-  name: z
-    .string()
-    .trim()
-    .max(50, "이름은 50자 이하여야 합니다.")
-    .nullish()
-    .transform((v) => (v ? v : null)),
-});
-export type SignupInput = z.infer<typeof SignupInputSchema>;
-
-// 로그인은 길이 규칙을 알려주지 않는다(형식 오류만 거른다).
-export const LoginInputSchema = z.object({
-  email,
-  password: z.string({ error: "비밀번호를 입력해 주세요." }).min(1, "비밀번호를 입력해 주세요.").max(1024),
-});
-export type LoginInput = z.infer<typeof LoginInputSchema>;
-
 export type FieldErrors = Partial<Record<string, string>>;
 
 /** zod 오류 → 필드별 첫 메시지. */

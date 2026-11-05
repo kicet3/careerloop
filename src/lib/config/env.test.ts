@@ -2,7 +2,7 @@ import { describe, expect, it, vi } from "vitest";
 
 vi.mock("server-only", () => ({}));
 
-const { AppEnvError, appEnv, googleLoginConfigured, isProduction, missingProductionEnv, passwordLoginEnabled, validateProductionEnv } =
+const { AppEnvError, appEnv, googleLoginConfigured, isProduction, missingProductionEnv, validateProductionEnv } =
   await import("./env");
 
 const FULL = {
@@ -97,7 +97,7 @@ describe("validateProductionEnv", () => {
   });
 });
 
-describe("Google 로그인·비밀번호 로그인 정책", () => {
+describe("Google 로그인 설정", () => {
   it("PRODUCTION은 Google 클라이언트 ID·비밀이 필수", () => {
     expect(missingProductionEnv({ ...FULL, GOOGLE_CLIENT_SECRET: " " })).toEqual(["GOOGLE_CLIENT_SECRET"]);
     expect(missingProductionEnv({ ...FULL, GOOGLE_CLIENT_ID: "" })).toEqual(["GOOGLE_CLIENT_ID"]);
@@ -109,20 +109,9 @@ describe("Google 로그인·비밀번호 로그인 정책", () => {
     expect(googleLoginConfigured({})).toBe(false);
   });
 
-  it("DEV에서 Google 설정이 없으면 안내한다", () => {
+  it("DEV에서 Google 설정이 없으면 로그인할 수 없다고 안내한다", () => {
     const w = validateProductionEnv({ ...FULL, APP_ENV: "DEV", GOOGLE_CLIENT_ID: "" }).warnings.join("\n");
-    expect(w).toMatch(/Google 로그인이 꺼집니다/);
-    const none = validateProductionEnv({ ...FULL, APP_ENV: "DEV", GOOGLE_CLIENT_ID: "", PASSWORD_LOGIN: "0" }).warnings.join("\n");
-    expect(none).toMatch(/로그인할 방법이 없습니다/);
-    expect(validateProductionEnv({ ...FULL, APP_ENV: "DEV", PASSWORD_LOGIN: "yes" }).warnings.join("\n")).toMatch(/PASSWORD_LOGIN/);
-  });
-
-  it("PASSWORD_LOGIN 기본값: DEV 켬, PRODUCTION 끔. 1/0이면 그대로", () => {
-    expect(passwordLoginEnabled({})).toBe(true);
-    expect(passwordLoginEnabled({ APP_ENV: "PRODUCTION" })).toBe(false);
-    expect(passwordLoginEnabled({ APP_ENV: "PRODUCTION", PASSWORD_LOGIN: "1" })).toBe(true);
-    expect(passwordLoginEnabled({ APP_ENV: "DEV", PASSWORD_LOGIN: "0" })).toBe(false);
-    expect(passwordLoginEnabled({ APP_ENV: "PRODUCTION", PASSWORD_LOGIN: "true" })).toBe(false);
-    expect(passwordLoginEnabled({ PASSWORD_LOGIN: " 0 " })).toBe(false);
+    expect(w).toMatch(/로그인할 수 없습니다/);
+    expect(validateProductionEnv({ ...FULL, APP_ENV: "DEV" }).warnings.join("\n")).not.toMatch(/GOOGLE_CLIENT_ID/);
   });
 });

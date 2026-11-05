@@ -5,7 +5,7 @@ import "server-only";
  * - DEV(기본): 빠진 설정이 있어도 뜬다. 로컬 저장소 폴백·CLI 엔진·Host 기반 Origin 검사를 허용한다.
  * - PRODUCTION: 필수 설정이 모두 있어야 뜬다(validateProductionEnv). 세션 쿠키 Secure 강제, 저장소는 R2만,
  *   CLI 엔진은 CLI_PROVIDERS_IN_PRODUCTION=1일 때만, same-origin 검사는 APP_URL 호스트만 믿는다.
- *   Google 로그인(GOOGLE_CLIENT_ID·GOOGLE_CLIENT_SECRET) 필수, 이메일 로그인은 PASSWORD_LOGIN=1일 때만.
+ *   Google 로그인(GOOGLE_CLIENT_ID·GOOGLE_CLIENT_SECRET) 필수(로그인·가입은 Google만 지원).
  *
  * NODE_ENV(빌드 종류)와는 별개다 — `next start`라도 APP_ENV를 주지 않으면 DEV다.
  * 모든 함수는 테스트를 위해 env를 인자로 받는다(기본 process.env).
@@ -59,17 +59,6 @@ export function googleLoginConfigured(env: Env = process.env): boolean {
   return GOOGLE_ENV_KEYS.every((k) => has(env, k));
 }
 
-/**
- * 이메일·비밀번호 로그인·가입 허용 여부. PASSWORD_LOGIN=1이면 켜고 0이면 끈다.
- * 비우거나 그 밖의 값이면 DEV는 켜고 PRODUCTION은 끈다(Google 로그인만).
- */
-export function passwordLoginEnabled(env: Env = process.env): boolean {
-  const raw = env.PASSWORD_LOGIN?.trim();
-  if (raw === "1") return true;
-  if (raw === "0") return false;
-  return !isProduction(env);
-}
-
 /** PRODUCTION에서 쓸 수 있는 AI 엔진이 하나라도 설정됐는가. CLI는 CLI_PROVIDERS_IN_PRODUCTION=1까지 있어야 켜진다(cliProvidersEnabled와 같은 규칙). */
 function hasProductionEngine(env: Env): boolean {
   return has(env, "ANTHROPIC_API_KEY") || (env.CLI_PROVIDERS === "1" && env.CLI_PROVIDERS_IN_PRODUCTION === "1");
@@ -105,14 +94,8 @@ function devWarnings(env: Env): string[] {
     warnings.push("ANTHROPIC_API_KEY·CLI_PROVIDERS가 모두 없어 쓸 수 있는 AI 엔진이 없습니다.");
   }
   if (!googleLoginConfigured(env)) {
-    warnings.push(
-      passwordLoginEnabled(env)
-        ? "GOOGLE_CLIENT_ID·GOOGLE_CLIENT_SECRET이 없어 Google 로그인이 꺼집니다(이메일 로그인만 사용)."
-        : "GOOGLE_CLIENT_ID·GOOGLE_CLIENT_SECRET이 없고 PASSWORD_LOGIN=0이라 로그인할 방법이 없습니다.",
-    );
+    warnings.push("GOOGLE_CLIENT_ID·GOOGLE_CLIENT_SECRET이 없어 로그인할 수 없습니다(Google 로그인만 지원).");
   }
-  const pw = env.PASSWORD_LOGIN?.trim();
-  if (pw && pw !== "1" && pw !== "0") warnings.push(`PASSWORD_LOGIN 값 "${pw}"는 무시합니다(1 또는 0만 사용).`);
   return warnings;
 }
 

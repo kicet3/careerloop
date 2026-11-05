@@ -8,7 +8,7 @@
 - **문제점 목록**(심각도순, 지적한 심사위원 표시), **개선 방향성**(포지셔닝·우선순위·퀵윈·역량 공백·지원 전략·면접 대비)
 - **개선된 이력서**: 같은 사실로 재작성하고, 모르는 내용은 지어내지 않고 `[ADD: 질문]`으로 남깁니다. 재작성본을 서류 필터에 다시 돌려 전/후 판정을 보여 줍니다.
 - 웹 보고서, **PDF 다운로드**(한글 폰트 내장), 원본 스킬 호환 Markdown(`PANEL.md`, `RESUME-IMPROVED.md`), 읽기 전용 공유 링크
-- 이메일·비밀번호 로그인, 진단 이력
+- Google 로그인·회원가입, 진단 이력
 - **포트폴리오 함께 평가**(선택): 포트폴리오 파일·링크/설명을 이력서와 별도 자료로 심사위원 7명과 적합도·종합·재작성·계획 단계에 넣습니다.
 - **심사위원과 대화**: 진단 보고서의 각 심사위원 카드에서 '이 심사위원과 대화'를 열어, 그 심사위원의 평가 기준으로
   피드백을 어떻게 고칠지 묻고 고친 문장을 다시 평가받습니다.
@@ -127,9 +127,8 @@ redirect URI의 origin 결정:
   localhost·`*.ts.net`·`DEV_ALLOWED_ORIGINS` 호스트만 허용합니다. 콜백은 시작한 주소와 같은 origin으로 돌아와야 하므로 보통은 비워 두고,
   특정 주소로 고정하고 싶을 때만 `GOOGLE_REDIRECT_ORIGIN=https://dev-machine.example-tailnet.ts.net:9470`처럼 지정합니다.
 
-이메일·비밀번호 로그인은 `PASSWORD_LOGIN`으로 켜고 끕니다(`1` 켬, `0` 끔). 비우면 DEV는 켜고 PRODUCTION은 끕니다.
-끄면 로그인·가입 화면에서 이메일 양식이 사라지고 `/api/auth/login`·`/api/auth/signup`은 403입니다.
-PRODUCTION은 `GOOGLE_CLIENT_ID`·`GOOGLE_CLIENT_SECRET`이 필수이고, DEV에서 비어 있으면 시작 시 안내하고 Google 버튼을 비활성화합니다.
+로그인·회원가입은 **Google 계정으로만** 합니다(이메일·비밀번호 가입/로그인 없음). 처음 로그인하면 자동으로 가입됩니다.
+`GOOGLE_CLIENT_ID`·`GOOGLE_CLIENT_SECRET`은 DEV·PRODUCTION 모두 사실상 필수입니다. PRODUCTION은 없으면 시작하지 않고, DEV는 시작 시 안내하고 Google 버튼을 비활성화합니다(로그인 불가).
 
 ### 배포 모드(APP_ENV)
 
