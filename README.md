@@ -71,7 +71,7 @@ API 키 없이 **Claude 구독 계정**(Pro·Max)이나 **ChatGPT 계정**으로
 
 1. 서버 PC에 [Claude Code](https://docs.claude.com/en/docs/claude-code)(`claude`)나 [Codex CLI](https://github.com/openai/codex)(`codex`)를 설치합니다.
 2. `.env.local`에 `CLI_PROVIDERS=1`을 넣고 서버를 다시 시작합니다.
-3. 왼쪽 메뉴 **AI 연결**에서 로그인합니다.
+3. 관리자 계정으로 왼쪽 메뉴 **AI 연결**에서 로그인합니다(공용 설정이라 관리자만 연결·해제할 수 있고, 일반 사용자는 상태만 봅니다).
    - Claude: [로그인 링크 열기] → 브라우저에서 승인 → 표시된 코드를 화면에 붙여넣기
    - ChatGPT: [인증 페이지 열기] → 화면의 1회용 코드 입력(ChatGPT 보안 설정에서 기기 코드 인증을 허용해야 할 수 있음)
 4. 새 진단의 **AI 엔진**에서 연결한 계정을 고릅니다. 재시도도 같은 엔진으로 돌아갑니다.
@@ -79,6 +79,7 @@ API 키 없이 **Claude 구독 계정**(Pro·Max)이나 **ChatGPT 계정**으로
 로그인 정보는 CLI가 앱 전용 폴더(`data/providers/claude`, `data/providers/codex` — git 제외)에 저장하므로, 이 PC의 개인
 Claude Code·Codex 로그인과 섞이지 않고 웹에서 연결 해제해도 개인 로그인은 그대로입니다. 이미 로그인된 개인 CLI를 그대로 쓰려면
 `CLAUDE_CLI_CONFIG_DIR=system`·`CODEX_CLI_HOME=system`으로 두세요(이때는 웹에서 로그인·로그아웃할 수 없습니다).
+CLI 프로세스에는 서버 환경 변수 전체가 아니라 실행에 필요한 것(PATH·HOME·로케일·임시 폴더·프록시 등)만 넘기므로 DB·OAuth·API 키 같은 비밀은 CLI에 보이지 않습니다.
 
 > 주의: 연결한 계정의 구독 사용량이 쓰이고, 이 서버에 가입한 모든 사용자가 그 계정으로 진단하게 됩니다. 본인 PC에서 혼자 쓸 때만
 > 켜 두세요. 구독 계정을 다른 사람에게 서비스로 제공하는 것은 Anthropic·OpenAI 약관에 어긋날 수 있습니다. Vercel 같은 서버리스
@@ -195,6 +196,7 @@ npm run build && npm run start:prod   # APP_ENV=PRODUCTION next start
 | `STORAGE_DIR` | 로컬 저장소 폴더(기본 `./data/storage`) |
 | `REVIEWER_CHAT_DAILY_LIMIT` | (선택) 사용자당 24시간 심사위원 대화 메시지 수(기본 100) |
 | `DIAGNOSIS_TIME_BUDGET_SEC` | (선택) 백그라운드 진단의 시간 예산(초). Vercel 기본은 `maxDuration - 30`(이보다 크게 줘도 이 값에서 멈춤), 자체 호스팅 기본은 제한 없음 |
+| `NOTIFICATIONS_SSE` | (선택, 기본 꺼짐) `1`이면 새 알림 SSE 라우트 `GET /api/notifications/stream`을 연다(아니면 404). 앱 화면은 이 스트림을 쓰지 않는다 — 아래 '앱 안 알림' 참고 |
 
 ### 명령
 
@@ -301,6 +303,10 @@ Preview를 쓰지 않으려면 Settings → Git에서 Preview 배포를 끄는 �
   `maxDuration = 300`인 라우트 때문에 배포가 거절됩니다.
 - 그래프 채팅(`maxDuration` 300)은 요청 시작부터 270초에, 심사위원 채팅·AI 이력서 초안(요청 안에서 대기)은 240초에 멈추고 실패를
   기록합니다. 함수가 강제로 끊긴 경우에도 진단은 하트비트가 끊긴 지 2분이면 '실패'로 바뀌고 재시도할 수 있습니다.
+- **앱 안 알림은 실시간으로 보내지 않습니다.** 오래 걸리는 작업(AI 초안·진단·공고 가져오기·면접 질문)이 끝나면 알림이 DB(`notifications`)에
+  쌓이고, 화면은 **새로고침·앱 밖에 갔다가 돌아올 때(앱 틀을 다시 그릴 때)와 알림 패널을 열 때만** `GET /api/notifications`로 받습니다(이때 서버가 끊긴 작업도
+  정리합니다). 배지의 첫 값은 앱 레이아웃이 서버에서 셉니다. 주기 폴링·SSE 연결이 없어 Hobby에서 함수 시간을 계속 쓰지 않습니다.
+  SSE 라우트(`/api/notifications/stream`)는 남아 있지만 `NOTIFICATIONS_SSE=1`이 아니면 404이고, 켜더라도 클라이언트가 열지 않습니다.
 
 ### 그 밖에 알아 둘 점
 

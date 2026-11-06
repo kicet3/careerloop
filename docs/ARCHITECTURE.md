@@ -127,7 +127,9 @@
     코드를 웹에 붙여넣으면 자식 stdin으로 전달. ChatGPT는 `codex login --device-auth` → 기기 인증 링크 + 1회용 코드 → CLI 종료로 완료 감지.
     엔진별 1개, 15분 만료, 프로세스 전역 상태. 링크·코드는 메모리에만 두고 로그에 쓰지 않는다.
   - 상태: `claude auth status`(JSON, `authMethod=claude.ai`만 연결로 인정), `codex login status`. 30초 캐시.
-  - 자식 환경에서 `ANTHROPIC_*`·`OPENAI_*`·`CLAUDE_CODE_*`·`CODEX_*`와 DB 비밀을 뺀다(API 키 과금·중첩 세션 표식 방지).
+  - 자식 환경은 허용 목록만 넘긴다(`providers/cli.ts` `cliEnv`): PATH·HOME·USER·LOGNAME·SHELL·LANG·LC_*·TZ·TERM·TMPDIR/TMP/TEMP, 프록시(HTTP(S)_PROXY·ALL_PROXY·NO_PROXY)·인증서(NODE_EXTRA_CA_CERTS·SSL_CERT_*),
+    XDG_*, Windows 시스템 변수. 여기에 앱이 전용 홈(`CLAUDE_CONFIG_DIR`/`CODEX_HOME`)·`NO_COLOR`·`BROWSER`를 더한다. DB·Neo4j·OAuth·GitHub·R2·세션 비밀,
+    `ANTHROPIC_*`/`OPENAI_*`(API 키 과금), `CLAUDE_CODE_*`(중첩 세션 표식), 부모의 `CLAUDE_CONFIG_DIR`/`CODEX_HOME`, `NODE_OPTIONS`는 넘기지 않는다. CLI 로그인은 설정 폴더(·macOS 키체인)에 있어 환경 변수가 필요 없다.
 - 호출: 프로세스마다 `mkdtemp`로 만든 0700 작업 폴더에서 실행해 프로젝트 지시 파일·심어 둔 설정을 읽지 않는다.
   자식은 새 프로세스 그룹으로 띄우고(npm 래퍼 → 실제 바이너리) 취소·시간 초과·서버 종료 때 그룹 전체를 끝낸다.
   - Claude: `claude -p --output-format json --model --effort --system-prompt --json-schema <toStrictJsonSchema> --tools "" --strict-mcp-config --setting-sources "" --no-session-persistence`, 자료는 stdin. `structured_output`을 zod로 재검증.
@@ -142,7 +144,9 @@
     모델이 JSON이 아닌 글을 내면 짧은 거절 문장은 `"refusal"`, 아니면 스키마 재요청 1회.
   - 동시 CLI 프로세스 `CLI_MAX_CONCURRENCY`(기본 4), 호출당 `CLI_CALL_TIMEOUT_MS`(기본 15분). 자체 호스팅은 진단 전체 마감이 없다(§4).
 - 화면: `/app/connections`(AI 연결, CLI 엔진이 켜졌을 때만 메뉴 노출), 새 진단의 'AI 엔진' 선택(준비 안 된 엔진은 사유와 함께 비활성).
-- API: `GET /api/providers`(선택지+연결 상태), `GET /api/providers/[id]?fresh=1`, `POST /api/providers/[id]` `{action: login|code|cancel|logout}`.
+  CLI 로그인은 서버의 모든 사용자가 함께 쓰므로 로그인·코드 제출·취소·연결 해제·상태 새로 확인은 관리자만 한다. 일반 사용자는 상태 배지만 보고(버튼·로그인 링크·코드 없음) 페이지 새로고침으로 최신 상태를 본다.
+- API: `GET /api/providers`(선택지+연결 상태, 승인된 모든 사용자 — 진행 중인 로그인 `login`은 관리자에게만, 일반 사용자는 null),
+  `GET /api/providers/[id]?fresh=1`·`POST /api/providers/[id]` `{action: login|code|cancel|logout}`(관리자만, 아니면 403 `admin_only`).
 
 ## 6. 인증
 
@@ -177,7 +181,7 @@
 | `/app/account` | 계정 정보, 이메일 로그인용 비밀번호 설정·변경 |
 | `/app` | 내 진단 이력(제목, 직무, 상태, 날짜, 7명 중 통과 수) |
 | `/app/new` | 새 진단: 이력서(PDF·DOCX·HWP·HWPX·HTML·TXT·MD 업로드 또는 붙여넣기), 지원 직무(필수), JD(붙여넣기 또는 파일, 선택이지만 강력 권장), 상황, 메모 |
-| `/app/connections` | (CLI_PROVIDERS=1) Claude·ChatGPT 계정 로그인 연결/해제 |
+| `/app/connections` | (CLI_PROVIDERS=1) Claude·ChatGPT 계정 로그인 연결/해제(관리자만, 일반 사용자는 상태만) |
 | `/app/d/[id]` | 진행 중이면 단계별 진행 화면, 완료되면 보고서, 실패했지만 부분 보고서가 가능하면 진행 화면(재시도) + 부분 보고서. 생성 직후 입력 경고는 URL이 아니라 sessionStorage로 넘겨 한 번 표시 |
 | `/share/[token]` | 읽기 전용 공유 보고서 |
 | `GET /api/auth/google` `GET /api/auth/google/callback` `POST /api/auth/login` `POST /api/auth/logout` `POST /api/account/password` | 가입은 Google OAuth만 |

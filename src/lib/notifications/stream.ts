@@ -1,6 +1,7 @@
 import "server-only";
 /**
- * 새 알림 SSE 스트림(GET /api/notifications/stream). 알림은 DB(notifications)가 기준이고, 이 스트림은 몇 초마다 DB를 보고
+ * 새 알림 SSE 스트림(GET /api/notifications/stream). **기본 꺼짐** — 라우트는 NOTIFICATIONS_SSE=1일 때만 열고(아니면 404),
+ * 클라이언트는 열지 않는다(알림은 새로고침·알림 패널 열기 때 목록 API로 받는다). 알림은 DB(notifications)가 기준이고, 이 스트림은 몇 초마다 DB를 보고
  * 커서 뒤에 생긴 내 알림과 읽지 않은 수만 보낸다(서버리스라 인스턴스 사이 공유 메모리·pub/sub 없이 DB를 본다).
  *
  * - 커서: 보낸 알림 중 가장 최근 createdAt(ms). 이벤트 id로 실어, EventSource가 다시 연결할 때 Last-Event-ID로 돌려준다.

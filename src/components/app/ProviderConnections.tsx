@@ -22,23 +22,27 @@ const STEPS: Record<ProviderConnection["id"], string[]> = {
   ],
 };
 
-export function ProviderConnections({ initial }: { initial: ProviderConnection[] }) {
+/**
+ * canManage: 관리자만 true. false면 상태만 보여 주고 로그인·해제·상태 새로고침 버튼과 로그인 진행 패널을 그리지 않는다
+ * (그 API는 관리자 전용이다). 일반 사용자는 페이지를 새로고침해 최신 상태를 본다.
+ */
+export function ProviderConnections({ initial, canManage }: { initial: ProviderConnection[]; canManage: boolean }) {
   return (
     <div className="grid gap-5 xl:grid-cols-2 xl:items-start">
       {initial.map((c) => (
-        <ProviderCard key={c.id} initial={c} />
+        <ProviderCard key={c.id} initial={c} canManage={canManage} />
       ))}
     </div>
   );
 }
 
-function ProviderCard({ initial }: { initial: ProviderConnection }) {
+function ProviderCard({ initial, canManage }: { initial: ProviderConnection; canManage: boolean }) {
   const [conn, setConn] = useState(initial);
   const [busy, setBusy] = useState<string | null>(null);
   const [error, setError] = useState<string | null>(null);
   const [code, setCode] = useState("");
 
-  const login = conn.login;
+  const login = canManage ? conn.login : null;
   const active = !!login && ACTIVE_PHASES.includes(login.phase);
 
   const failures = useRef(0);
@@ -127,48 +131,50 @@ function ProviderCard({ initial }: { initial: ProviderConnection }) {
             </p>
           )}
         </div>
-        <div className="flex shrink-0 gap-2">
-          {!conn.systemLogin && status.installed && !active && (
-            status.loggedIn ? (
-              <Button variant="danger" size="sm" loading={busy === "logout"} onClick={() => void act("logout")}>
-                연결 해제
+        {canManage && (
+          <div className="flex shrink-0 gap-2">
+            {!conn.systemLogin && status.installed && !active && (
+              status.loggedIn ? (
+                <Button variant="danger" size="sm" loading={busy === "logout"} onClick={() => void act("logout")}>
+                  연결 해제
+                </Button>
+              ) : (
+                <Button size="sm" loading={busy === "login"} onClick={() => void act("login")}>
+                  로그인
+                </Button>
+              )
+            )}
+            {(!active || pollStopped) && (
+              <Button
+                variant="ghost"
+                size="sm"
+                onClick={() => {
+                  setError(null);
+                  setPollStopped(false);
+                  failures.current = 0;
+                  void refresh(true);
+                }}
+              >
+                상태 새로고침
               </Button>
-            ) : (
-              <Button size="sm" loading={busy === "login"} onClick={() => void act("login")}>
-                로그인
-              </Button>
-            )
-          )}
-          {(!active || pollStopped) && (
-            <Button
-              variant="ghost"
-              size="sm"
-              onClick={() => {
-                setError(null);
-                setPollStopped(false);
-                failures.current = 0;
-                void refresh(true);
-              }}
-            >
-              상태 새로고침
-            </Button>
-          )}
-        </div>
+            )}
+          </div>
+        )}
       </div>
 
-      {conn.systemLogin && (
+      {canManage && conn.systemLogin && (
         <p className="mt-3 text-sm text-slate-500">
           서버 PC의 기본 CLI 로그인을 그대로 쓰는 설정입니다. 로그인·로그아웃은 서버 PC의 터미널에서 해 주세요.
         </p>
       )}
-      {!status.installed && (
+      {canManage && !status.installed && (
         <Alert tone="warning" className="mt-4">
           서버 PC에서 <code>{conn.id === "claude-cli" ? "claude" : "codex"}</code> 명령을 찾지 못했습니다.{" "}
           {conn.id === "claude-cli" ? "Claude Code" : "Codex CLI"}를 설치하거나 경로를{" "}
           <code>{conn.id === "claude-cli" ? "CLAUDE_CLI_PATH" : "CODEX_CLI_PATH"}</code>에 지정해 주세요.
         </Alert>
       )}
-      {status.installed && !status.loggedIn && status.error && !active && (
+      {canManage && status.installed && !status.loggedIn && status.error && !active && (
         <p className="mt-3 text-sm text-amber-700">{status.error}</p>
       )}
 

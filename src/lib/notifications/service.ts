@@ -1,7 +1,8 @@
 import "server-only";
 /**
  * 앱 안 알림 저장소(notifications). 오래 걸리는 백그라운드 작업(AI 이력서 초안·진단·공고 가져오기·면접 질문)이 끝나면
- * notify()로 만들고, 상단 알림 버튼(NotificationBell)이 GET /api/notifications로 목록을 받고 GET /api/notifications/stream(SSE)으로 새 알림을 받는다.
+ * notify()로 만들고, 상단 알림 버튼(NotificationBell)이 앱 틀을 불러올 때·패널을 열 때 GET /api/notifications로 목록을 받는다
+ * (실시간 수신 없음. 배지 첫 값은 앱 레이아웃이 countUnreadNotifications()로 센다. SSE 스트림은 NOTIFICATIONS_SSE=1일 때만).
  *
  * - 모든 조회·변경은 userId로 소유를 건다(남의 알림은 보이지도, 읽음 처리되지도 않는다).
  * - 새 알림을 넣을 때 사용자당 최근 MAX_NOTIFICATIONS_PER_USER개만 남기고 지운다.
@@ -90,7 +91,7 @@ export async function pruneNotifications(userId: string, keep: number = MAX_NOTI
 }
 
 /**
- * 최근 알림 + 읽지 않은 수. since(ms)를 주면 그 시각 뒤에 만든 알림만(폴링용 — 읽지 않은 수는 항상 전체).
+ * 최근 알림 + 읽지 않은 수. since(ms)를 주면 그 시각 뒤에 만든 알림만(이어 받기 — 읽지 않은 수는 항상 전체).
  */
 export async function listNotifications(
   userId: string,
@@ -121,7 +122,7 @@ export async function listNotificationsAfter(userId: string, after: number, limi
   return rows.map(toItem);
 }
 
-/** 읽지 않은 내 알림 수. */
+/** 읽지 않은 내 알림 수(앱 레이아웃의 배지 첫 값). */
 export async function countUnreadNotifications(userId: string): Promise<number> {
   return prisma.notification.count({ where: { userId, readAt: null } });
 }

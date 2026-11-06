@@ -4,13 +4,18 @@ import { Alert } from "@/components/ui/Alert";
 import { requireUser } from "@/lib/auth/session";
 import { onVercel } from "@/lib/config/env";
 import { cliProvidersEnabled } from "@/lib/providers/cli";
-import { listConnections } from "@/lib/providers/service";
+import { listConnections, publicConnection } from "@/lib/providers/service";
 
 export const metadata: Metadata = { title: "AI 연결" };
 export const dynamic = "force-dynamic";
 
+/**
+ * CLI 로그인은 서버의 모든 사용자가 함께 쓰는 계정이라 연결·해제는 관리자만 한다(API도 403).
+ * 일반 사용자에게는 연결 상태만 보여 준다(진행 중인 로그인 링크·코드는 빼고, 최신 상태는 페이지 새로고침으로).
+ */
 export default async function ConnectionsPage() {
-  await requireUser("/app/connections");
+  const user = await requireUser("/app/connections");
+  const isAdmin = user.role === "admin";
   const enabled = cliProvidersEnabled();
   return (
     <div>
@@ -21,7 +26,17 @@ export default async function ConnectionsPage() {
       </p>
       {enabled ? (
         <>
-          <ProviderConnections initial={await listConnections()} />
+          {isAdmin ? (
+            <ProviderConnections initial={await listConnections()} canManage />
+          ) : (
+            <>
+              <Alert tone="info" title="관리자만 연결할 수 있습니다" className="mb-5">
+                이 서버의 계정 로그인 엔진은 모든 사용자가 함께 쓰는 설정이라 관리자만 로그인·연결 해제할 수 있습니다. 연결된 엔진은
+                새 진단의 &lsquo;AI 엔진&rsquo;에서 고를 수 있고, 최신 상태는 이 페이지를 새로고침하면 볼 수 있습니다.
+              </Alert>
+              <ProviderConnections initial={(await listConnections()).map(publicConnection)} canManage={false} />
+            </>
+          )}
           <Alert tone="warning" title="임시·개인용 기능입니다" className="mt-6">
             연결한 계정의 구독 사용량으로 진단이 실행되고, 이 서버에 로그인한 모든 사용자가 그 계정을 쓰게 됩니다. 본인 PC에서
             혼자 쓸 때만 켜 두세요. 구독 계정을 다른 사람에게 서비스로 제공하는 것은 각 회사 약관에 어긋날 수 있습니다.

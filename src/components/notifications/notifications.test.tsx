@@ -2,7 +2,8 @@ import { renderToStaticMarkup } from "react-dom/server";
 import { describe, expect, it, vi } from "vitest";
 import { safeNotificationLink, timeAgo, type NotificationItem } from "@/lib/domain/notifications";
 import { applyRead, mergeNotifications, nextSince } from "./merge";
-import { badgeText, NotificationBell } from "./NotificationBell";
+import { badgeText, bellUnreadCount, NotificationBell } from "./NotificationBell";
+import { NotificationsProvider } from "./NotificationsProvider";
 
 vi.mock("next/navigation", () => ({ usePathname: () => "/app" }));
 
@@ -79,5 +80,38 @@ describe("NotificationBell", () => {
     expect(html).toContain('aria-label="알림"');
     expect(html).toContain('aria-expanded="false"');
     expect(html).not.toContain('role="dialog"');
+  });
+
+  it("첫 목록을 받기 전(서버 렌더)에는 레이아웃이 센 읽지 않은 수로 배지를 그린다 — 새로고침하면 맞는 값", () => {
+    const html = renderToStaticMarkup(
+      <NotificationsProvider initialUnread={3}>
+        <NotificationBell />
+      </NotificationsProvider>,
+    );
+    expect(html).toContain('aria-label="알림 (읽지 않은 알림 3개)"');
+    expect(html).toMatch(/>3<\/span>/);
+    for (const initialUnread of [0, null]) {
+      const none = renderToStaticMarkup(
+        <NotificationsProvider initialUnread={initialUnread}>
+          <NotificationBell />
+        </NotificationsProvider>,
+      );
+      expect(none).toContain('aria-label="알림"');
+      expect(none).not.toContain("rounded-full bg-rose-500");
+    }
+    const many = renderToStaticMarkup(
+      <NotificationsProvider initialUnread={150}>
+        <NotificationBell />
+      </NotificationsProvider>,
+    );
+    expect(many).toContain(">99+</span>");
+  });
+
+  it("배지 수: 목록을 받았거나 화면에서 읽음 처리를 했으면 저장소 값, 아니면 서버에서 센 값", () => {
+    expect(bellUnreadCount({ loaded: false, locallyChanged: false, unreadCount: 0 }, 5)).toBe(5);
+    expect(bellUnreadCount({ loaded: false, locallyChanged: false, unreadCount: 0 }, null)).toBe(0);
+    expect(bellUnreadCount({ loaded: true, locallyChanged: false, unreadCount: 2 }, 5)).toBe(2);
+    // 첫 요청이 실패한 뒤 '모두 읽음' — 서버 값 5에 머물지 않는다.
+    expect(bellUnreadCount({ loaded: false, locallyChanged: true, unreadCount: 0 }, 5)).toBe(0);
   });
 });

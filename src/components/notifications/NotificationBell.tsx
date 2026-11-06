@@ -2,7 +2,8 @@
 /**
  * 상단 알림 버튼(넓은 화면은 본문 위 얇은 바, 좁은 화면은 상단 바 오른쪽). 읽지 않은 수 배지, 누르면 최근 알림 패널(제목·한 줄·시각·링크).
  * 패널을 열면 최근 목록을 다시 받고 보이는 알림을 읽음으로 바꾼다(이번에 열린 동안은 '새 알림' 표시를 남긴다). '모두 읽음'도 있다.
- * Esc·바깥 클릭·경로 변경으로 닫는다. 새 알림 스트림(SSE)·상태는 ./store.ts(탭에 하나).
+ * Esc·바깥 클릭·경로 변경으로 닫는다. 실시간 수신은 없다 — 새 알림은 새로고침하거나 패널을 열 때 보인다. 상태는 ./store.ts(탭에 하나).
+ * 첫 목록을 받기 전(또는 첫 요청이 실패한 뒤 읽음 처리 전) 배지는 레이아웃이 서버에서 센 값(NotificationsProvider)이다.
  */
 import Link from "next/link";
 import { usePathname } from "next/navigation";
@@ -10,14 +11,31 @@ import { useEffect, useId, useRef, useState } from "react";
 import { cn } from "@/components/ui/cn";
 import { Spinner } from "@/components/ui/Spinner";
 import { isFailureNotification, timeAgo, type NotificationItem } from "@/lib/domain/notifications";
-import { getNotificationState, markAllNotificationsRead, markNotificationsRead, pollNotifications, useNotifications } from "./store";
+import { useInitialUnread } from "./NotificationsProvider";
+import {
+  markAllNotificationsRead,
+  markNotificationsRead,
+  refreshNotificationsForPanel,
+  useNotifications,
+  type NotificationState,
+} from "./store";
 
 export function badgeText(count: number): string {
   return count > 99 ? "99+" : String(count);
 }
 
+/** 배지 수: 목록을 받았거나 화면에서 읽음 처리를 했으면 저장소 값, 아니면(첫 요청 전·첫 요청 실패) 레이아웃이 서버에서 센 값. */
+export function bellUnreadCount(
+  st: Pick<NotificationState, "loaded" | "locallyChanged" | "unreadCount">,
+  initialUnread: number | null,
+): number {
+  return st.loaded || st.locallyChanged ? st.unreadCount : (initialUnread ?? 0);
+}
+
 export function NotificationBell({ align = "right" }: { align?: "right" | "left" }) {
-  const { items, unreadCount, loaded, error } = useNotifications();
+  const notifications = useNotifications();
+  const { items, loaded, error } = notifications;
+  const unreadCount = bellUnreadCount(notifications, useInitialUnread());
   const pathname = usePathname() ?? "";
   const [open, setOpen] = useState(false);
   const [refreshing, setRefreshing] = useState(false);
@@ -66,12 +84,12 @@ export function NotificationBell({ align = "right" }: { align?: "right" | "left"
     setOpen(true);
     setHighlight(new Set());
     setRefreshing(true);
-    await pollNotifications({ full: true });
+    // 패널을 열 때마다 최근 목록을 다시 받는다(실시간 수신이 없어 이때가 새 알림을 보는 때다).
+    const ids = await refreshNotificationsForPanel();
     setRefreshing(false);
     // 받는 사이 패널을 닫았으면 사용자가 보지 못한 것이므로 읽음으로 바꾸지 않는다.
     if (openToken.current !== token) return;
     // 열 때 보인 읽지 않은 알림을 읽음으로 바꾼다(이번에 열려 있는 동안은 강조 표시를 남긴다).
-    const ids = getNotificationState().items.filter((n) => n.readAt === null).map((n) => n.id);
     setHighlight(new Set(ids));
     void markNotificationsRead(ids);
   }

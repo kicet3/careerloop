@@ -1,30 +1,18 @@
 "use client";
 /**
- * 알림 상태(탭 하나에 하나). 상단 알림 버튼은 넓은 화면·좁은 화면에 하나씩 그려지지만 이 저장소를 함께 써서 연결은 하나만 한다.
- * - 알림은 DB가 기준이다. 처음에 GET /api/notifications로 최근 목록을 한 번 받고(state 맞추기), 그 뒤 새 알림은
- *   SSE(GET /api/notifications/stream)로 받는다. 탭이 보이는 동안만 연결하고, 숨겨지면 닫고, 다시 보이거나 포커스가 오면 연다.
- *   서버가 함수 시간 상한 전에 닫으면 EventSource가 Last-Event-ID로 다시 연결한다. 응답이 아예 실패하면(401 등) 간격을 늘려 다시 연다.
- * - EventSource가 없는 브라우저만 느린 폴링(FALLBACK_POLL_MS)으로 대신한다.
- * - 처음 불러온 뒤 새로 온 읽지 않은 알림은 토스트 후보(toasts)로 쌓는다.
- * - pokeNotifications(): 다른 화면이 작업이 끝난 걸 알았을 때 바로 새로 받게 한다.
+ * 알림 상태(탭 하나에 하나). 상단 알림 버튼은 넓은 화면·좁은 화면에 하나씩 그려지지만 이 저장소를 함께 써서 요청은 한 번만 한다.
+ * - 알림은 DB가 기준이다. 실시간으로 받지 않는다 — 주기 폴링·SSE·탭 표시/포커스 때 다시 받기는 없다.
+ *   새 알림은 사용자가 새로고침(앱 틀을 다시 불러오기)하거나 알림 패널을 열 때 보인다.
+ * - 받는 때: (1) 앱 틀이 그려질 때 한 번(새로고침, 또는 앱 밖에 갔다가 돌아와 틀이 다시 그려질 때 — GET /api/notifications, 서버가 끊긴 작업도 함께 정리한다),
+ *   (2) 알림 패널을 열 때(전체 다시 받기), (3) pokeNotifications()/markNotificationsReadByLink()를 부를 때(다른 화면이
+ *   작업이 끝난 걸 직접 확인했을 때 한 번).
+ * - 읽지 않은 수는 앱 레이아웃이 서버에서 세어 NotificationsProvider로 넘긴다(첫 목록을 받기 전 배지 — ./NotificationsProvider.tsx).
+ * - 처음 불러온 뒤 새로 받은 읽지 않은 알림은 토스트 후보(toasts)로 쌓는다(처음 불러온 것·패널 전체 다시 받기로 이미 아는 것은 띄우지 않는다).
  */
 import { useSyncExternalStore } from "react";
-import {
-  NOTIFICATION_STREAM_EVENTS,
-  parseStreamCursor,
-  type NotificationItem,
-  type NotificationListResponse,
-  type NotificationStreamItem,
-  type NotificationStreamUnread,
-} from "@/lib/domain/notifications";
-import { applyRead, mergeNotifications, mergeStreamNotifications, nextSince, streamSince } from "./merge";
+import type { NotificationItem, NotificationListResponse } from "@/lib/domain/notifications";
+import { applyRead, mergeNotifications, nextSince } from "./merge";
 
-/** EventSource가 없을 때의 폴링 간격. */
-export const FALLBACK_POLL_MS = 60_000;
-/** 포커스·표시 전환으로 부르는 폴링의 최소 간격(폴링 대체 모드). */
-const MIN_GAP_MS = 5_000;
-/** 스트림이 아예 실패했을 때(EventSource CLOSED) 다시 여는 대기. */
-const REOPEN_DELAYS_MS = [5_000, 15_000, 60_000, 300_000];
 const MAX_TOASTS = 3;
 
 export interface NotificationState {
@@ -33,23 +21,15 @@ export interface NotificationState {
   loaded: boolean;
   /** 마지막 요청이 실패했는가. */
   error: boolean;
+  /** 목록을 받기 전에 화면에서 읽지 않은 수를 바꿨는가(예: 첫 요청 실패 뒤 '모두 읽음'). 그러면 배지는 서버에서 센 첫 값 대신 저장소 값을 쓴다. */
+  locallyChanged: boolean;
   toasts: NotificationItem[];
 }
 
-const EMPTY: NotificationState = { items: [], unreadCount: 0, loaded: false, error: false, toasts: [] };
+const EMPTY: NotificationState = { items: [], unreadCount: 0, loaded: false, error: false, locallyChanged: false, toasts: [] };
 let state: NotificationState = EMPTY;
 const listeners = new Set<() => void>();
-let timer: ReturnType<typeof setInterval> | null = null;
 let inflight: Promise<void> | null = null;
-let lastPollAt = 0;
-let source: EventSource | null = null;
-let opening = false;
-/** 마지막으로 받은 스트림 이벤트 id(커서, ms). 다시 열 때 ?since=로 쓴다. */
-let lastEventId: number | null = null;
-let reopenTimer: ReturnType<typeof setTimeout> | null = null;
-let reopenAttempts = 0;
-/** 보내는 중인 읽음 요청 수(그동안 스트림의 읽지 않은 수는 화면 값을 되돌릴 수 있어 무시한다). */
-let pendingReads = 0;
 
 function set(next: Partial<NotificationState>) {
   state = { ...state, ...next };
@@ -69,7 +49,6 @@ async function fetchList(since: number | null): Promise<NotificationListResponse
 /** 새 알림 받기. full이면 since 없이 최근 목록 전체를 다시 받는다. 겹친 호출은 하나로 합친다. */
 export function pollNotifications(opts: { full?: boolean } = {}): Promise<void> {
   if (inflight) return inflight;
-  lastPollAt = Date.now();
   inflight = (async () => {
     const firstLoad = !state.loaded;
     const data = await fetchList(opts.full || firstLoad ? null : nextSince(state.items));
@@ -78,9 +57,9 @@ export function pollNotifications(opts: { full?: boolean } = {}): Promise<void> 
       return;
     }
     const { items, fresh } = mergeNotifications(opts.full ? [] : state.items, data.items);
-    // 전체 다시 받기는 토스트를 띄우지 않는다(이미 아는 알림이 'fresh'로 보인다). 처음 불러온 것도 띄우지 않는다.
+    // 전체 다시 받기는 이미 아는 알림을 토스트로 띄우지 않는다(이미 아는 알림이 'fresh'로 보인다). 처음 불러온 것도 띄우지 않는다.
     const known = new Set(state.items.map((n) => n.id));
-    const toastable = firstLoad ? [] : (opts.full ? fresh.filter((n) => !known.has(n.id)) : fresh);
+    const toastable = firstLoad ? [] : opts.full ? fresh.filter((n) => !known.has(n.id)) : fresh;
     set({
       items,
       unreadCount: data.unreadCount,
@@ -95,39 +74,24 @@ export function pollNotifications(opts: { full?: boolean } = {}): Promise<void> 
 }
 
 /**
- * 스트림으로 받은 새 알림을 합친다. 처음 보는 알림 중 읽지 않은 것만 토스트로 띄우고 읽지 않은 수를 그만큼 올린다
- * (곧 "unread" 이벤트가 맞춘다). 이미 읽은 알림은 목록에만 읽음 상태로 붙인다.
+ * 알림 패널을 열 때: 최근 목록 전체를 다시 받고(서버가 끊긴 작업도 정리한다) 그때 읽지 않은 알림 id를 돌려준다
+ * (패널이 강조 표시하고 읽음으로 바꾼다). 실패하면 아는 목록 기준.
  */
-export function receiveStreamNotifications(incoming: NotificationStreamItem[]): void {
-  const { items, fresh, added } = mergeStreamNotifications(state.items, incoming);
-  if (added === 0) return;
-  if (fresh.length === 0) return set({ items });
-  set({
-    items,
-    unreadCount: state.unreadCount + fresh.length,
-    toasts: [...fresh, ...state.toasts.filter((t) => !fresh.some((n) => n.id === t.id))].slice(0, MAX_TOASTS),
-  });
+export async function refreshNotificationsForPanel(): Promise<string[]> {
+  await pollNotifications({ full: true });
+  return state.items.filter((n) => n.readAt === null).map((n) => n.id);
 }
 
-/** 스트림의 읽지 않은 수(DB 값). 읽음 요청을 보내는 중이면 화면 값을 되돌리지 않게 무시한다. */
-export function receiveStreamUnread(unreadCount: number): void {
-  if (pendingReads > 0 || !Number.isFinite(unreadCount) || unreadCount < 0) return;
-  if (unreadCount !== state.unreadCount) set({ unreadCount });
-}
-
-/** 다른 화면이 백그라운드 작업이 끝난 걸 알았을 때(예: 초안 진행 화면) 바로 새 알림을 받는다. */
+/** 다른 화면이 백그라운드 작업이 끝난 걸 알았을 때(예: 초안 목록) 한 번 새 알림을 받는다(주기 폴링은 아니다). */
 export function pokeNotifications(): void {
   if (listeners.size > 0) void pollNotifications();
 }
 
 async function postRead(body: { ids: string[] } | { all: true }): Promise<void> {
-  pendingReads++;
   try {
     await fetch("/api/notifications/read", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify(body) });
   } catch {
-    // 다음 목록 요청·스트림의 읽지 않은 수가 서버 값으로 맞춘다.
-  } finally {
-    pendingReads--;
+    // 다음 목록 요청(패널 열기·새로고침)이 서버 값으로 맞춘다.
   }
 }
 
@@ -135,7 +99,7 @@ async function postRead(body: { ids: string[] } | { all: true }): Promise<void> 
 export async function markNotificationsRead(ids: string[]): Promise<void> {
   const unread = ids.filter((id) => state.items.some((n) => n.id === id && n.readAt === null));
   if (unread.length === 0) return;
-  set({ ...applyRead(state, unread, Date.now()), toasts: state.toasts.filter((t) => !unread.includes(t.id)) });
+  set({ ...applyRead(state, unread, Date.now()), locallyChanged: true, toasts: state.toasts.filter((t) => !unread.includes(t.id)) });
   await postRead({ ids: unread.slice(0, 100) });
 }
 
@@ -147,7 +111,7 @@ export async function markNotificationsReadByLink(links: string[]): Promise<void
 }
 
 export async function markAllNotificationsRead(): Promise<void> {
-  set({ ...applyRead(state, null, Date.now()), toasts: [] });
+  set({ ...applyRead(state, null, Date.now()), locallyChanged: true, toasts: [] });
   await postRead({ all: true });
 }
 
@@ -155,131 +119,15 @@ export function dismissToast(id: string): void {
   set({ toasts: state.toasts.filter((t) => t.id !== id) });
 }
 
-function canStream(): boolean {
-  return typeof EventSource !== "undefined";
-}
-
-function visible(): boolean {
-  return document.visibilityState === "visible";
-}
-
-function closeStream() {
-  source?.close();
-  source = null;
-  if (reopenTimer) clearTimeout(reopenTimer);
-  reopenTimer = null;
-}
-
-function scheduleReopen() {
-  if (reopenTimer || listeners.size === 0) return;
-  const delay = REOPEN_DELAYS_MS[Math.min(reopenAttempts, REOPEN_DELAYS_MS.length - 1)]!;
-  reopenAttempts++;
-  reopenTimer = setTimeout(() => {
-    reopenTimer = null;
-    void openStream();
-  }, delay);
-}
-
-function parseData<T>(e: Event): T | null {
-  try {
-    return JSON.parse((e as MessageEvent<string>).data) as T;
-  } catch {
-    return null;
-  }
-}
-
-function trackCursor(e: Event) {
-  const id = parseStreamCursor((e as MessageEvent).lastEventId);
-  if (id !== null) lastEventId = Math.max(lastEventId ?? 0, id);
-}
-
-/** 탭이 보이고 구독자가 있으면 스트림을 연다. 처음이면 목록을 먼저 한 번 받는다. */
-async function openStream(): Promise<void> {
-  if (source || opening || reopenTimer || listeners.size === 0 || !visible()) return;
-  opening = true;
-  try {
-    if (!state.loaded) await pollNotifications();
-  } finally {
-    opening = false;
-  }
-  if (source || listeners.size === 0 || !visible()) return;
-  if (!state.loaded) {
-    scheduleReopen();
-    return;
-  }
-  const since = streamSince(lastEventId, state.items);
-  const es = new EventSource(`/api/notifications/stream${since !== null ? `?since=${since}` : ""}`);
-  source = es;
-  es.addEventListener("open", () => {
-    reopenAttempts = 0;
-  });
-  es.addEventListener(NOTIFICATION_STREAM_EVENTS.notification, (e) => {
-    if (source !== es) return;
-    trackCursor(e);
-    const item = parseData<NotificationStreamItem>(e);
-    if (item && typeof item.id === "string") receiveStreamNotifications([item]);
-  });
-  es.addEventListener(NOTIFICATION_STREAM_EVENTS.unread, (e) => {
-    if (source !== es) return;
-    trackCursor(e);
-    const data = parseData<NotificationStreamUnread>(e);
-    if (data) receiveStreamUnread(data.unreadCount);
-  });
-  es.addEventListener("error", () => {
-    // CONNECTING이면 브라우저가 Last-Event-ID로 다시 연결한다. CLOSED(401·잘못된 응답)면 간격을 늘려 직접 다시 연다.
-    if (source !== es || es.readyState !== EventSource.CLOSED) return;
-    source = null;
-    es.close();
-    scheduleReopen();
-  });
-}
-
-function onVisibility() {
-  if (!canStream()) return onWakePoll();
-  if (visible()) void openStream();
-  else closeStream();
-}
-
-function onFocus() {
-  if (!canStream()) return onWakePoll();
-  void openStream();
-}
-
-function onWakePoll() {
-  if (!visible()) return;
-  if (Date.now() - lastPollAt < MIN_GAP_MS) return;
-  void pollNotifications();
-}
-
-function start() {
-  if (canStream()) {
-    if (visible()) void openStream();
-    else void pollNotifications();
-  } else {
-    void pollNotifications();
-    timer = setInterval(() => {
-      if (visible()) void pollNotifications();
-    }, FALLBACK_POLL_MS);
-  }
-  document.addEventListener("visibilitychange", onVisibility);
-  window.addEventListener("focus", onFocus);
-}
-
-function stop() {
-  if (timer) clearInterval(timer);
-  timer = null;
-  closeStream();
-  reopenAttempts = 0;
-  document.removeEventListener("visibilitychange", onVisibility);
-  window.removeEventListener("focus", onFocus);
-}
-
 function subscribe(listener: () => void) {
+  const first = listeners.size === 0;
   listeners.add(listener);
-  if (listeners.size === 1) start();
+  // 앱 틀이 그려질 때(구독자 0 → 1) 받는다. 앱 안 화면 이동은 틀을 다시 그리지 않아 다시 받지 않는다. 앱 밖(/terms 등)에 갔다가
+  // 링크·뒤로 가기로 돌아오면 틀이 다시 그려지므로 최근 목록 전체를 다시 받는다(서버가 끊긴 작업도 정리 — 새로고침과 같은 효과).
+  // 버튼 두 개가 함께 구독해도 첫 구독 때 한 번이고, 겹친 요청은 하나로 합친다.
+  if (first && !inflight) void pollNotifications({ full: state.loaded });
   return () => {
     listeners.delete(listener);
-    if (listeners.size === 0) stop();
   };
 }
 

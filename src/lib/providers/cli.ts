@@ -60,18 +60,80 @@ export function cliWorkDir(): string {
   return gp.__cliWorkDir;
 }
 
-// 자식 CLI에 넘기지 않을 환경 변수. API 키가 있으면 CLI가 구독 로그인 대신 키로 과금하고,
-// 이 서버가 Claude Code 안에서 실행됐다면 중첩 세션 표식이 자식 동작을 바꾼다.
-const STRIP_PREFIXES = ["ANTHROPIC_", "CLAUDE_CODE_", "CLAUDECODE", "OPENAI_", "CODEX_", "CLAUDE_CONFIG_DIR"];
-const APP_SECRETS = ["DATABASE_URL", "DIRECT_URL", "PGPASSWORD", "POSTGRES_PASSWORD"];
+/**
+ * 자식 CLI에 넘기는 환경 변수 허용 목록(대소문자 무시). 서버 환경을 통째로 물려주면 CLI와 CLI가 띄우는 모든 것에
+ * DB 접속 정보·OAuth 비밀·암호화 키·API 키가 보인다 — 그래서 실행에 필요한 것만 골라 넘긴다.
+ * - 실행·로케일: PATH(npm으로 설치한 CLI는 `#!/usr/bin/env node`), HOME·USER(로그인 저장소·macOS 키체인), LANG·LC_*, TZ, TERM, 임시 폴더.
+ * - 네트워크: 프록시·사내 인증서 변수(이 서버가 프록시 뒤에 있으면 CLI도 같은 경로로 나가야 한다).
+ * - XDG_*: 리눅스에서 CLI가 설정·캐시 위치를 찾는다.
+ * - Windows 실행에 필요한 시스템 변수.
+ * 넘기지 않는 것: ANTHROPIC_*·OPENAI_*(키가 있으면 구독 로그인 대신 키로 과금), CLAUDE_CODE_*·CLAUDECODE(중첩 세션 표식),
+ * 부모의 CLAUDE_CONFIG_DIR·CODEX_HOME(전용 홈은 아래에서 지정), NODE_OPTIONS(코드 주입 경로), 그 밖의 모든 앱 변수.
+ */
+const ENV_ALLOW = new Set(
+  [
+    "PATH",
+    "HOME",
+    "USER",
+    "LOGNAME",
+    "SHELL",
+    "LANG",
+    "LANGUAGE",
+    "TZ",
+    "TERM",
+    "TMPDIR",
+    "TMP",
+    "TEMP",
+    "HTTP_PROXY",
+    "HTTPS_PROXY",
+    "ALL_PROXY",
+    "NO_PROXY",
+    "NODE_EXTRA_CA_CERTS",
+    "SSL_CERT_FILE",
+    "SSL_CERT_DIR",
+    "XDG_CONFIG_HOME",
+    "XDG_DATA_HOME",
+    "XDG_CACHE_HOME",
+    "XDG_STATE_HOME",
+    "XDG_RUNTIME_DIR",
+    // Windows
+    "SYSTEMROOT",
+    "WINDIR",
+    "COMSPEC",
+    "PATHEXT",
+    "USERPROFILE",
+    "HOMEDRIVE",
+    "HOMEPATH",
+    "APPDATA",
+    "LOCALAPPDATA",
+    "PROGRAMDATA",
+    "PROGRAMFILES",
+    "PROGRAMFILES(X86)",
+    "SYSTEMDRIVE",
+    "USERNAME",
+    "OS",
+    "PROCESSOR_ARCHITECTURE",
+    "NUMBER_OF_PROCESSORS",
+  ].map((k) => k.toUpperCase()),
+);
 
-/** 자식 CLI 환경: 서버 환경에서 키·중첩 표식을 빼고 전용 홈을 지정한다. */
-export function cliEnv(provider: CliProviderId, extra: Record<string, string> = {}): Record<string, string> {
+function allowedEnvKey(key: string): boolean {
+  const k = key.toUpperCase();
+  return ENV_ALLOW.has(k) || k.startsWith("LC_");
+}
+
+/**
+ * 자식 CLI 환경: 허용 목록의 변수만 옮기고 전용 홈을 지정한다. source는 테스트용(기본 process.env).
+ * extra는 호출부가 명시적으로 더하는 값이다(허용 목록을 거치지 않는다).
+ */
+export function cliEnv(
+  provider: CliProviderId,
+  extra: Record<string, string> = {},
+  source: Record<string, string | undefined> = process.env,
+): Record<string, string> {
   const env: Record<string, string> = {};
-  for (const [k, v] of Object.entries(process.env)) {
-    if (v == null) continue;
-    if (STRIP_PREFIXES.some((p) => k.startsWith(p)) || APP_SECRETS.includes(k) || k.startsWith("POSTGRES_URL") || k === "POSTGRES_PRISMA_URL") continue;
-    env[k] = v;
+  for (const [k, v] of Object.entries(source)) {
+    if (v != null && allowedEnvKey(k)) env[k] = v;
   }
   const home = cliHome(provider);
   if (home) env[provider === "claude-cli" ? "CLAUDE_CONFIG_DIR" : "CODEX_HOME"] = home;

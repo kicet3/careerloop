@@ -118,6 +118,15 @@ export async function listConnections(): Promise<ProviderConnection[]> {
   return Promise.all(CLI_PROVIDER_IDS.map((p) => getConnection(p)));
 }
 
+/**
+ * 관리자가 아닌 사용자에게 보여 줄 연결 상태: 진행 중인 로그인(인가 링크·1회용 코드)과
+ * 오류 원문(CLI 경로 같은 서버 정보가 담길 수 있다)을 뺀다.
+ * CLI 로그인은 서버 전체가 함께 쓰는 계정이라 연결·해제는 관리자만 하고, 일반 사용자는 상태만 본다.
+ */
+export function publicConnection(c: ProviderConnection): ProviderConnection {
+  return { ...c, status: { ...c.status, error: null }, login: null };
+}
+
 function assertManageable(provider: CliProviderId) {
   if (!cliProvidersEnabled()) throw new ProviderServiceError("CLI 엔진이 꺼져 있습니다. 서버 환경 변수 CLI_PROVIDERS=1이 필요합니다.", 404);
   if (usesSystemLogin(provider)) {

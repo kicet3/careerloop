@@ -1,7 +1,7 @@
 /**
- * 새 알림 SSE 스트림(PGlite, 세션은 가짜): 커서 뒤 알림만·내 것만·읽지 않은 수·heartbeat·수명 끝에 닫기·정리 주기·인증·헤더.
+ * 새 알림 SSE 스트림(PGlite, 세션은 가짜, 라우트는 기본 꺼짐 404 — NOTIFICATIONS_SSE=1로 켜서 본다): 커서 뒤 알림만·내 것만·읽지 않은 수·heartbeat·수명 끝에 닫기·정리 주기·인증·헤더.
  */
-import { afterAll, beforeAll, beforeEach, describe, expect, it, vi } from "vitest";
+import { afterAll, afterEach, beforeAll, beforeEach, describe, expect, it, vi } from "vitest";
 import { createTestDb, type TestDb } from "@/test/db";
 
 vi.mock("server-only", () => ({}));
@@ -199,6 +199,25 @@ describe("createNotificationStream", () => {
 });
 
 describe("GET /api/notifications/stream", () => {
+  beforeEach(() => {
+    vi.stubEnv("NOTIFICATIONS_SSE", "1");
+  });
+  afterEach(() => {
+    vi.unstubAllEnvs();
+  });
+
+  it("기본(NOTIFICATIONS_SSE가 1이 아니면)은 404 — 인증·스트림 전에 끊는다", async () => {
+    for (const v of [undefined, "", "0", "true"]) {
+      vi.stubEnv("NOTIFICATIONS_SSE", v);
+      const res = await route.GET(new Request("http://localhost/api/notifications/stream"));
+      expect(res.status).toBe(404);
+      expect(res.headers.get("Content-Type")).not.toContain("text/event-stream");
+    }
+    state.user = null;
+    expect((await route.GET(new Request("http://localhost/api/notifications/stream"))).status).toBe(404);
+    expect(sweepMock.calls).toBe(0);
+  });
+
   it("text/event-stream·no-store·X-Accel-Buffering, Last-Event-ID가 ?since=보다 먼저", async () => {
     // 커서는 지금보다 미래일 수 없어(서버 시각으로 자른다) 실제 시각 기준으로 만든다.
     const t0 = Date.now() - 60_000;

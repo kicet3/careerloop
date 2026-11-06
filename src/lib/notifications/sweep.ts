@@ -1,6 +1,6 @@
 import "server-only";
 /**
- * 알림 목록(GET /api/notifications)·새 알림 스트림(GET /api/notifications/stream) 때 그 사용자의 끊긴 백그라운드 작업을 정리하고 결과를 알림으로 남긴다.
+ * 알림 목록(GET /api/notifications — 앱 틀을 불러올 때·알림 패널을 열 때)·(켰을 때만) 새 알림 스트림(GET /api/notifications/stream) 때 그 사용자의 끊긴 백그라운드 작업을 정리하고 결과를 알림으로 남긴다.
  * after()가 플랫폼 시간 초과·서버 재시작으로 catch까지 가지 못하면 작업이 '진행 중'으로 남는데, 진행 화면·목록을 다시 열지 않으면
  * 아무도 닫지 않는다 — 화면을 떠나도 알림으로 결과를 알 수 있게 여기서 닫는다.
  * 던지지 않는다(정리가 실패해도 알림 목록은 돌려준다).
