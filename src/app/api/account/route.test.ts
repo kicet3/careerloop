@@ -25,6 +25,7 @@ let tdb: TestDb;
 let consents: typeof import("../consents/route");
 let marketing: typeof import("./consents/route");
 let account: typeof import("./route");
+let profile: typeof import("./profile/route");
 let docs: typeof import("@/lib/legal/consents");
 
 const ORIGIN = "http://localhost:3000";
@@ -54,6 +55,7 @@ beforeAll(async () => {
   consents = await import("../consents/route");
   marketing = await import("./consents/route");
   account = await import("./route");
+  profile = await import("./profile/route");
 });
 afterAll(() => tdb.close());
 beforeEach(async () => {
@@ -142,5 +144,24 @@ describe("DELETE /api/account (회원 탈퇴)", () => {
   it("로그인하지 않으면 401, 다른 출처는 403", async () => {
     expect((await account.DELETE(json("/api/account", "DELETE", { confirm: "탈퇴합니다" }))).status).toBe(401);
     expect((await account.DELETE(json("/api/account", "DELETE", { confirm: "탈퇴합니다" }, "https://evil.example"))).status).toBe(403);
+  });
+});
+
+describe("PATCH /api/account/profile (이름 바꾸기)", () => {
+  it("로그인 401, 다른 출처 403, 빈 이름·41자 400", async () => {
+    expect((await profile.PATCH(json("/api/account/profile", "PATCH", { name: "새 이름" }))).status).toBe(401);
+    await seed("n", "pending", false);
+    expect((await profile.PATCH(json("/api/account/profile", "PATCH", { name: "새 이름" }, "https://evil.example"))).status).toBe(403);
+    expect((await profile.PATCH(json("/api/account/profile", "PATCH", { name: "   " }))).status).toBe(400);
+    expect((await profile.PATCH(json("/api/account/profile", "PATCH", { name: "가".repeat(41) }))).status).toBe(400);
+    expect((await tdb.prisma.user.findUnique({ where: { id: "n" } }))?.name).toBeNull();
+  });
+
+  it("공백·제어 문자를 정리해 저장한다(승인 대기 사용자도 가능)", async () => {
+    await seed("n", "pending", false);
+    const res = await profile.PATCH(json("/api/account/profile", "PATCH", { name: "  홍   길동\u0007 " }));
+    expect(res.status).toBe(200);
+    expect(await res.json()).toEqual({ ok: true, name: "홍 길동" });
+    expect((await tdb.prisma.user.findUnique({ where: { id: "n" } }))?.name).toBe("홍 길동");
   });
 });
