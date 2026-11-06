@@ -4,6 +4,7 @@
  */
 import { z } from "zod";
 import { parsePageParam } from "@/lib/pagination";
+import { appendCompanyParams, parseCompanyParam } from "./company";
 import { MILITARY_SERVICE_FILTERS, type MilitaryServiceFilter, type MilitaryServiceTag } from "./military-service";
 import type { PostingCaptureInfo } from "./posting-capture";
 import type { PostingHighlights, PostingStructure } from "./posting-structure";
@@ -80,7 +81,8 @@ export const SHARED_POSTING_PAGE_SIZE = 30;
 /** 공고 찾기 화면(/app/postings/explore)의 검색 조건. 주소의 쿼리와 1:1로 맞는다(exploreSearchParams·parseExploreSearchParams). */
 export interface ExploreFilters {
   q: string;
-  company: string;
+  /** 회사 키(companyKey) 목록 — 주소의 ?company=키&company=키(쉼표 목록·원래 이름도 받아 키로 바꾼다). */
+  companies: string[];
   role: string;
   tech: string;
   deadline: SharedDeadlineFilter;
@@ -89,7 +91,7 @@ export interface ExploreFilters {
   hiddenOnly?: boolean;
 }
 
-export const EMPTY_EXPLORE_FILTERS: ExploreFilters = { q: "", company: "", role: "", tech: "", deadline: "open", military: "all" };
+export const EMPTY_EXPLORE_FILTERS: ExploreFilters = { q: "", companies: [], role: "", tech: "", deadline: "open", military: "all" };
 
 type SearchParamsRecord = Record<string, string | string[] | undefined>;
 const first = (v: string | string[] | undefined) => (Array.isArray(v) ? v[0] : v) ?? "";
@@ -101,7 +103,7 @@ export function parseExploreSearchParams(sp: SearchParamsRecord): { filters: Exp
   return {
     filters: {
       q: text("q"),
-      company: text("company"),
+      companies: parseCompanyParam(sp.company),
       role: text("role"),
       tech: text("tech"),
       deadline: oneOf(SHARED_DEADLINE_FILTERS, first(sp.deadline), "open"),
@@ -115,7 +117,9 @@ export function parseExploreSearchParams(sp: SearchParamsRecord): { filters: Exp
 /** 조건·쪽 → 화면 주소 쿼리(기본값·1쪽은 싣지 않는다). parseExploreSearchParams와 짝. */
 export function exploreSearchParams(f: ExploreFilters, page = 1): string {
   const params = new URLSearchParams();
-  for (const k of ["q", "company", "role", "tech"] as const) if (f[k].trim()) params.set(k, f[k].trim());
+  if (f.q.trim()) params.set("q", f.q.trim());
+  appendCompanyParams(params, f.companies);
+  for (const k of ["role", "tech"] as const) if (f[k].trim()) params.set(k, f[k].trim());
   if (f.deadline !== EMPTY_EXPLORE_FILTERS.deadline) params.set("deadline", f.deadline);
   if (f.military !== "all") params.set("military", f.military);
   if (f.hiddenOnly) params.set("hidden", "only");

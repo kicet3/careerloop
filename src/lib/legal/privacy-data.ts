@@ -68,6 +68,13 @@ export const CONTRACT_PROCESSING: ProcessingRow[] = [
     basis: "계약 이행(법 제15조①4호)",
   },
   {
+    purpose: "GitHub 연동 — 이용자가 고른 저장소 정보로 경험 그래프 정리",
+    items:
+      "GitHub 계정 고유 식별자·아이디·프로필 사진 주소, GitHub 접근·갱신 토큰(암호화 저장), 이용자가 고른 저장소의 정보(이름·설명·주제·언어 비율·별/포크 수·생성·최근 반영 일시·README 앞부분·의존성 이름·최상위 파일 이름·이용자가 작성한 커밋 메시지·PR 제목 일부·기여 횟수). 비공개 저장소는 이용자가 GitHub에서 허용하고 서비스에서 켠 경우에만",
+    retention: "GitHub 연결 해제 또는 회원 탈퇴 시까지(경험 그래프에 적용한 내용은 이용자가 삭제하거나 탈퇴할 때까지)",
+    basis: "계약 이행(법 제15조①4호)",
+  },
+  {
     purpose: "보안·부정 이용 방지, 서비스 안정성 확보",
     items: "접속 일시, 로그인 세션 정보(쿠키), 접속 IP의 해시값, 브라우저 정보(User-Agent), 요청 횟수 기록",
     retention: "세션은 최대 30일(로그아웃 시 즉시 삭제), 요청 횟수 기록은 이용 제한 판단 기간(최대 24시간)이 지난 뒤 순차 삭제, 동의 기록은 회원 탈퇴 시까지",
@@ -114,7 +121,7 @@ export const OVERSEAS_TRANSFERS: TransferRow[] = [
     contact: "privacy@anthropic.com",
     country: "미국",
     when: `AI 분석·작성 요청 시 ${TRANSFER_TIMING}`,
-    items: "이력서·채용공고·경력 정보 등 AI 기능에 입력한 텍스트와 그 결과물",
+    items: "이력서·채용공고·경력 정보 등 AI 기능에 입력한 텍스트와 그 결과물, GitHub에서 가져온 저장소 정보",
     purpose: "AI 분석·작성 기능 처리(입력 정보는 AI 모델 학습에 쓰이지 않음)",
     retention: "처리 후 Anthropic 정책에 따라 최대 30일 보관 후 삭제(법령·정책 위반 대응 시 예외)",
   },

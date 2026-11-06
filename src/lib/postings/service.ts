@@ -11,6 +11,7 @@ import { prisma, type Db, type Prisma } from "@/lib/db/client";
 import { isUniqueViolation, stripNul, stripNulDeep } from "@/lib/db/errors";
 import { clampPage, LIST_PAGE_SIZE, pageCountOf, type PageInfo } from "@/lib/pagination";
 import type { JobPostingRow } from "@/lib/db/types";
+import { companyKey as toCompanyKey, groupCompanyNames, sortCompanyOptions, type CompanyOption } from "@/lib/domain/company";
 import {
   POSTING_STRUCTURE_VERSION,
   PostingStructureSchema,
@@ -96,6 +97,7 @@ type PublicPostingField =
 function publicSharedColumns(row: Pick<JobPostingRow, PublicPostingField>) {
   return {
     company: row.company,
+    companyKey: toCompanyKey(row.company) || null,
     roleTitle: row.roleTitle,
     jdText: row.jdText,
     structured: row.structured === null ? PrismaNs.DbNull : (row.structured as Prisma.InputJsonValue),
@@ -246,6 +248,11 @@ export interface PostingPage extends PageInfo {
   allCount: number;
   /** 기본 조건(진행 중 — 마감·보류 제외)에 맞는 수. 빈 목록 안내('마감·보류 공고까지 보기')에 쓴다. */
   activeCount: number;
+  /**
+   * 목록이 비었고 상태가 기본(진행 중)일 때만: 같은 조건(검색·회사·마감 임박)에서 상태만 '모두'로 바꾼 수.
+   * 빈 목록 안내('마감·보류 공고 N개까지 보기')에 쓴다 — 예: 마감·보류 공고뿐인 회사를 고른 경우.
+   */
+  allStatusCount?: number;
 }
 
 /**
@@ -297,6 +304,8 @@ export async function listPostingsPage(
   const shown = filterPostings(light, filters, opts.sort ?? "deadline", now);
   const activeCount = filterPostings(light, EMPTY_POSTING_FILTERS, "updated", now).length;
   const total = shown.length;
+  const allStatusCount =
+    total === 0 && filters.status === EMPTY_POSTING_FILTERS.status ? filterPostings(light, { ...filters, status: "all" }, "updated", now).length : undefined;
   const page = clampPage(opts.page ?? 1, total, pageSize);
   const ids = shown.slice((page - 1) * pageSize, page * pageSize).map((r) => r.id);
   const rows = ids.length ? await prisma.jobPosting.findMany({ select: { ...summarySelect, jdText: true }, where: { userId, id: { in: ids } } }) : [];
@@ -308,7 +317,39 @@ export async function listPostingsPage(
     const military = detectPostingMilitaryService({ roleTitle: row.roleTitle, jdText: row.jdText, structured: parseStoredStructure(row.structured) });
     return [{ ...toSummary(posting, !!row.jdText?.trim()), militaryService: military }];
   });
-  return { items, total, page, pageCount: pageCountOf(total, pageSize), pageSize, allCount: light.length, activeCount };
+  return { items, total, page, pageCount: pageCountOf(total, pageSize), pageSize, allCount: light.length, activeCount, ...(allStatusCount !== undefined ? { allStatusCount } : {}) };
+}
+
+export interface CompanyOptionsQuery {
+  /** 회사 이름 검색어(공백·법인 표기·대소문자를 무시한 부분 일치). */
+  q?: string;
+  /** 돌려줄 개수(공고 수 많은 순). */
+  limit?: number;
+  /** 지금 고른 회사 키 — 검색어·개수와 상관없이 늘 싣는다(칩 표기·공고 수). 공고가 없으면 싣지 않는다. */
+  include?: readonly string[];
+}
+
+/** 검색어·개수·고른 회사로 회사 목록을 고른다(공고 수 많은 순, 고른 회사는 개수 밖이어도 뒤에 붙인다). */
+export function pickCompanyOptions(all: Map<string, CompanyOption>, query: CompanyOptionsQuery & { limit: number }, searchKey: string): CompanyOption[] {
+  const q = (query.q ?? "").trim().toLowerCase();
+  const matches = sortCompanyOptions(
+    [...all.values()].filter((o) => !q || o.key.includes(searchKey) || o.label.toLowerCase().includes(q)),
+  ).slice(0, query.limit);
+  const extra = (query.include ?? []).flatMap((k) => {
+    const o = all.get(k);
+    return o && !matches.some((m) => m.key === k) ? [o] : [];
+  });
+  return [...matches, ...extra];
+}
+
+/**
+ * 보관함 '회사' 필터의 회사 목록: 내 공고(상태 무관 전체)를 회사 키로 묶어 공고 수와 가장 많이 쓴 표기를 싣는다.
+ * 회사 이름별 개수만 DB가 센다(groupBy 1번) — 공고가 많아도 회사 수만큼만 읽는다.
+ */
+export async function listLibraryCompanyOptions(userId: string, query: CompanyOptionsQuery & { limit: number }): Promise<CompanyOption[]> {
+  const rows = await prisma.jobPosting.groupBy({ by: ["company"], where: { userId }, _count: { _all: true } });
+  const all = groupCompanyNames(rows.map((r) => ({ company: r.company, count: r._count._all })));
+  return pickCompanyOptions(all, query, toCompanyKey((query.q ?? "").slice(0, 100)));
 }
 
 export async function getPosting(userId: string, id: string): Promise<JobPosting | null> {
@@ -386,6 +427,7 @@ export async function createPosting(
                 url: null,
                 urlKey: null,
                 company: stripNul(input.company),
+                companyKey: toCompanyKey(stripNul(input.company)) || null,
                 roleTitle: stripNul(input.roleTitle),
                 platform: publicPlatform(urls.platform),
                 jdText: orNull(input.jdText),

@@ -22,6 +22,7 @@ import {
   type GraphChatOutput,
   type GraphImportOutput,
   type GraphQaOutput,
+  type GraphRepoImportOutput,
   type GraphQaRerankOutput,
   type ReviewerChatOutput,
 } from "@/lib/domain/chat";
@@ -806,6 +807,55 @@ function fakeGraphImport(user: string): GraphImportOutput {
   };
 }
 
+/**
+ * 가짜 GitHub 저장소 가져오기: <focus_project>의 프로젝트 id에 <github_repo>의 설명(summary)·첫 커밋 메시지(action)·첫 커밋 달(startDate)을
+ * 채우고, 사전 기술을 이 프로젝트에 잇는다. 후속 질문 5개. 저장소 글에 "[가짜:지어냄]"이 있으면 저장소에 없는 기술·수치 성과를,
+ * "[가짜:삭제]"가 있으면 deleteNode를, "[가짜:범위밖:<id>]"가 있으면 그 노드의 updateNode를 섞는다(서버 검증 시험용).
+ */
+function fakeGraphRepoImport(user: string): GraphRepoImportOutput {
+  const brief = extractTag(user, CHAT_TAGS.githubRepo) ?? "";
+  const focus = extractTag(user, CHAT_TAGS.focusProject) ?? "";
+  const projectId = /구조화할 프로젝트: \[([^\]]+)\]/.exec(focus)?.[1] ?? extractField(user, "구조화할 프로젝트 id") ?? "";
+  const blank = { ref: "", id: "", label: "" as const, props: [], type: "" as const, from: "", to: "" };
+  const ops: GraphRepoImportOutput["ops"] = [];
+  const description = /^설명: (.+)$/m.exec(brief)?.[1];
+  const firstCommit = /^- (\d{4}-\d{2})-\d{2} (.+)$/m.exec(brief);
+  const started = /첫 커밋 (\d{4}-\d{2})/.exec(brief)?.[1] ?? firstCommit?.[1];
+  const props = [
+    ...(description ? [{ key: "summary", value: description.slice(0, 300) }] : []),
+    ...(firstCommit ? [{ key: "action", value: firstCommit[2]!.slice(0, 300) }] : []),
+    ...(started ? [{ key: "startDate", value: started }] : []),
+  ];
+  if (projectId && props.length) ops.push({ ...blank, op: "updateNode", id: projectId, label: "Project", props });
+  extractKeywords(brief)
+    .slice(0, 6)
+    .forEach((name, i) => {
+      ops.push({ ...blank, op: "addNode", ref: `new:s${i}`, label: "Skill", props: [{ key: "name", value: name }] });
+      ops.push({ ...blank, op: "addEdge", type: "USED_SKILL", from: projectId, to: `new:s${i}` });
+    });
+  if (brief.includes("[가짜:지어냄]")) {
+    ops.push({ ...blank, op: "addNode", ref: "new:fakeskill", label: "Skill", props: [{ key: "name", value: "Haskell" }] });
+    ops.push({ ...blank, op: "addEdge", type: "USED_SKILL", from: projectId, to: "new:fakeskill" });
+    ops.push({ ...blank, op: "addNode", ref: "new:fakea", label: "Achievement", props: [{ key: "summary", value: "매출 증가" }, { key: "value", value: "987%" }] });
+    ops.push({ ...blank, op: "addEdge", type: "ACHIEVED", from: projectId, to: "new:fakea" });
+  }
+  if (brief.includes("[가짜:삭제]")) ops.push({ ...blank, op: "deleteNode", id: projectId || "n_any" });
+  const outside = /\[가짜:범위밖:([A-Za-z0-9_-]+)\]/.exec(brief)?.[1];
+  if (outside) ops.push({ ...blank, op: "updateNode", id: outside, label: "Project", props: [{ key: "summary", value: "저장소에서 고침" }] });
+  return {
+    reply: "저장소 정보로 프로젝트 요약·한 일·기술을 정리했어요. 저장소만으로 알 수 없는 것을 몇 가지 여쭤볼게요.",
+    ops,
+    summary: `저장소에서 ${ops.filter((o) => o.op === "addNode").length}개 항목 추출`,
+    followUpQuestions: [
+      "이 프로젝트에서 맡은 역할과 기여 비중은 어느 정도였나요?",
+      "이 프로젝트를 시작한 배경이나 풀려던 문제는 무엇이었나요?",
+      "결과를 숫자로 말할 수 있나요? 예: 사용자 수, 처리 시간",
+      "팀 구성과 기간이 저장소 기록과 맞나요?",
+      "이 프로젝트에서 배운 점은 무엇인가요?",
+    ],
+  };
+}
+
 /** 출처 표(<graph_sources>)의 "[n] 라벨 · 이름" 줄. */
 function sourceLines(user: string): { n: number; text: string }[] {
   const body = extractTag(user, CHAT_TAGS.graphSources) ?? "";
@@ -918,6 +968,8 @@ function fakeTaskOutput(task: LlmTask, user: string): unknown {
       return fakePostingTranslate(user);
     case "graph-import":
       return fakeGraphImport(user);
+    case "graph-repo-import":
+      return fakeGraphRepoImport(user);
     case "graph-qa":
       return fakeGraphQa(user);
     case "graph-qa-rerank":

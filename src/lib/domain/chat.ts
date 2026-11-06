@@ -60,11 +60,16 @@ export const CHAT_TAGS = {
   interviewQuestion: "interview_question",
   /** 면접 연습: 사용자의 답변 원문 */
   interviewAnswer: "interview_answer",
+  /** GitHub 저장소에서 읽은 정보(src/lib/github/brief.ts buildRepoBrief 결과). README·커밋 메시지는 제3자가 쓴 글일 수 있다. */
+  githubRepo: "github_repo",
 } as const;
 
 /** 이력서·포트폴리오 가져오기: 한 번에 다루는 문서 글자 수, 변경안 연산 수 상한(직접 편집·채팅은 MAX_OPS_PER_BATCH). */
 export const MAX_IMPORT_CHARS = 20_000;
 export const MAX_IMPORT_OPS = 150;
+/** GitHub 저장소로 프로젝트 정리: 변경안 연산 수·후속 질문 수 상한. */
+export const MAX_REPO_IMPORT_OPS = 40;
+export const MAX_REPO_IMPORT_QUESTIONS = 5;
 /** 그래프에 묻기: 질문 길이 상한(글자). */
 export const MAX_QA_QUESTION_CHARS = 1000;
 export const DOC_KINDS = ["resume", "portfolio"] as const;
@@ -91,6 +96,18 @@ export const GraphImportOutputSchema = z.object({
   followUpQuestions: z.array(z.string()).max(3).describe("문서에 없어 비워 둔 기간·수치·역할 등을 묻는 질문(최대 3개)"),
 });
 export type GraphImportOutput = z.infer<typeof GraphImportOutputSchema>;
+
+/** GitHub 저장소로 프로젝트 정리 LLM 출력: 그래프 채팅과 같은 모양, 연산 40개·질문 5개까지. */
+export const GraphRepoImportOutputSchema = z.object({
+  reply: z.string().describe("저장소에서 무엇을 정리했는지 짧게(한국어)"),
+  ops: z.array(LlmGraphOpSchema).max(MAX_REPO_IMPORT_OPS).describe("그래프 변경안. <github_repo>에 글자로 있는 사실만, 이 프로젝트에 붙인다"),
+  summary: z.string().describe("변경안 한 줄 요약"),
+  followUpQuestions: z
+    .array(z.string())
+    .max(MAX_REPO_IMPORT_QUESTIONS)
+    .describe("저장소만으로 알 수 없는 것(역할·기여 비중, 배경·문제, 성과 수치, 팀·기간 확인, 배운 점)을 묻는 질문(최대 5개, 이 순서)"),
+});
+export type GraphRepoImportOutput = z.infer<typeof GraphRepoImportOutputSchema>;
 
 /** 그래프에 묻기 답변 LLM 출력. node id는 내지 않고 자료 번호만 낸다(번호→노드 표는 서버가 갖는다). */
 export const GraphQaOutputSchema = z.object({
@@ -136,8 +153,8 @@ export type ReviewerChatOutput = z.infer<typeof ReviewerChatOutputSchema>;
 
 export interface GraphProposalData {
   kind: "graph-proposal";
-  /** 이력서·포트폴리오 가져오기에서 나온 변경안이면 "document-import"(적용 상한이 MAX_IMPORT_OPS). */
-  source?: "chat" | "document-import";
+  /** 이력서·포트폴리오 가져오기에서 나온 변경안이면 "document-import"(적용 상한이 MAX_IMPORT_OPS), GitHub 저장소면 "repo-import"(MAX_REPO_IMPORT_OPS). */
+  source?: "chat" | "document-import" | "repo-import";
   /** toGraphOps로 검증을 통과한 연산(적용 대상). */
   ops: GraphOp[];
   summary: string;
@@ -171,6 +188,22 @@ export interface DocumentImportData {
   chars: number;
   truncated: boolean;
   warnings: string[];
+}
+
+/**
+ * GitHub 저장소로 프로젝트 정리 사용자 메시지. 저장소 요약(brief)은 여기 두지 않고 github_repo_snapshots에만 둔다
+ * (연결을 해제하면 저장소 정보가 함께 지워지게). briefSha256: 보낼 때의 요약 해시(나중에 바뀌었는지 알 수 있게).
+ */
+export interface RepoImportData {
+  kind: "repo-import";
+  repoId: string;
+  fullName: string;
+  htmlUrl: string;
+  private: boolean;
+  /** 저장소 정보를 읽은 시각(epoch ms). */
+  fetchedAt: number;
+  chars: number;
+  briefSha256: string;
 }
 
 /** 출처 경로 한 단계: 앞 단계에서 이 단계로 온 관계(rel, 첫 단계는 null). */
@@ -229,7 +262,13 @@ export interface GraphAnswerData {
   debug?: RetrievalDebug;
 }
 
-export type ChatMessageData = GraphProposalData | ReviewerFeedbackData | GraphAnswerData | DocumentImportData | FollowupAnswerData;
+export type ChatMessageData =
+  | GraphProposalData
+  | ReviewerFeedbackData
+  | GraphAnswerData
+  | DocumentImportData
+  | FollowupAnswerData
+  | RepoImportData;
 
 // ---------------------------------------------------------------------------
 // API 응답 형태 (날짜는 epoch ms)

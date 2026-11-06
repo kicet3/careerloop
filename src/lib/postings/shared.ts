@@ -16,6 +16,7 @@ import { FeatureError } from "@/lib/api/errors";
 import { prisma, type Db, type Prisma } from "@/lib/db/client";
 import { isUniqueViolation, stripNul, stripNulDeep } from "@/lib/db/errors";
 import type { JobPostingRow, SharedPostingRow } from "@/lib/db/types";
+import { companyKey as toCompanyKey, companySearchKey, sortCompanyOptions, type CompanyOption } from "@/lib/domain/company";
 import { normalizeMilitaryTags, type MilitaryServiceFilter, type MilitaryServiceTag } from "@/lib/domain/military-service";
 import { POSTING_STRUCTURE_VERSION, type PostingStructure } from "@/lib/domain/posting-structure";
 import { POSTING_LIMITS, type JobPosting, type PostingCreateInput, type PostingStatus } from "@/lib/domain/postings";
@@ -133,7 +134,10 @@ async function myPostingIds(viewerId: string, rows: Pick<SharedPostingRow, "id" 
 
 export interface SharedPostingListOptions {
   q?: string;
+  /** 회사 이름 부분 일치(GET /api/shared-postings?company= — 외부 호출용). */
   company?: string;
+  /** 회사 키(companyKey) 목록 — 하나라도 맞으면 남긴다(공고 찾기 화면의 회사 필터). */
+  companies?: readonly string[];
   role?: string;
   tech?: string;
   deadline?: SharedDeadlineFilter;
@@ -159,6 +163,7 @@ export function sharedPostingWhere(opts: SharedPostingListOptions): Prisma.Share
   if (q) and.push({ OR: [{ company: ci(q) }, { roleTitle: ci(q) }, { location: ci(q) }, { jdText: ci(q) }] });
   const company = clip(opts.company);
   if (company) and.push({ company: ci(company) });
+  if (opts.companies?.length) and.push({ companyKey: { in: [...opts.companies] } });
   const role = clip(opts.role);
   if (role) and.push({ roleTitle: ci(role) });
   const tech = clip(opts.tech);
@@ -180,7 +185,7 @@ export function sharedPostingWhere(opts: SharedPostingListOptions): Prisma.Share
  * viewerId를 주면 각 공고에 내 보관함 공고 id(myPostingId)를 싣는다.
  */
 export async function listSharedPostings(opts: SharedPostingListOptions = {}): Promise<{ items: SharedPostingSummary[]; total: number }> {
-  await ensureSharedMilitaryBackfill();
+  await Promise.all([ensureSharedMilitaryBackfill(), ensureSharedCompanyKeyBackfill()]);
   const where = sharedPostingWhere(opts);
   const size = Math.min(Math.max(opts.pageSize ?? SHARED_POSTING_PAGE_SIZE, 1), 100);
   const [rows, total] = await Promise.all([
@@ -203,7 +208,7 @@ export async function listSharedPostings(opts: SharedPostingListOptions = {}): P
 export async function listSharedPostingsPage(
   opts: Omit<SharedPostingListOptions, "page" | "pageSize"> & { page?: number; pageSize?: number } = {},
 ): Promise<{ items: SharedPostingSummary[] } & PageInfo> {
-  await ensureSharedMilitaryBackfill();
+  await Promise.all([ensureSharedMilitaryBackfill(), ensureSharedCompanyKeyBackfill()]);
   const pageSize = Math.min(Math.max(opts.pageSize ?? LIST_PAGE_SIZE, 1), 100);
   const where = sharedPostingWhere(opts);
   const total = await prisma.sharedPosting.count({ where });
@@ -291,6 +296,123 @@ export function resetSharedMilitaryBackfillForTests(): void {
   militaryBackfillDone = false;
 }
 
+// ---------------------------------------------------------------------------
+// 회사 키 지연 백필·회사 목록
+// ---------------------------------------------------------------------------
+
+/**
+ * company_key가 없는 행(마이그레이션 전 행)에 앱 규칙(companyKey)으로 회사 키를 채운다. 묶음마다 읽기 1번 + 갱신 1번(UPDATE … FROM unnest).
+ * 그 사이 공개 필드를 다시 쓴 행(이미 키가 있음)은 건드리지 않고 updated_at도 바꾸지 않는다. 회사 이름만 읽으므로 가볍다 —
+ * 한 번에 maxRows(기본 2000)까지 처리한다. 처리한 행 수와 남은 행이 있는지를 돌려준다.
+ */
+export async function backfillSharedCompanyKeys(opts: { batchSize?: number; maxRows?: number; db?: Db } = {}): Promise<{ updated: number; remaining: boolean }> {
+  const db = opts.db ?? prisma;
+  const batchSize = Math.max(opts.batchSize ?? 500, 1);
+  const maxRows = Math.max(opts.maxRows ?? 2000, 1);
+  let updated = 0;
+  let lastId = "";
+  while (updated < maxRows) {
+    const rows = await db.sharedPosting.findMany({
+      select: { id: true, company: true },
+      where: { companyKey: null, id: { gt: lastId } },
+      orderBy: { id: "asc" },
+      take: Math.min(batchSize, maxRows - updated),
+    });
+    if (rows.length === 0) return { updated, remaining: false };
+    const ids = rows.map((r) => r.id);
+    // 회사 이름이 비어 키가 ""인 행도 ""로 채워 다시 읽지 않는다(필터·목록은 빈 키를 쓰지 않는다).
+    const keys = rows.map((r) => toCompanyKey(r.company));
+    await db.$executeRaw`
+      UPDATE "shared_postings" AS s
+      SET "company_key" = v.key
+      FROM unnest(${ids}::text[], ${keys}::text[]) AS v(id, key)
+      WHERE s."id" = v.id AND s."company_key" IS NULL`;
+    updated += rows.length;
+    lastId = rows[rows.length - 1].id;
+  }
+  return { updated, remaining: (await db.sharedPosting.count({ where: { companyKey: null } })) > 0 };
+}
+
+let companyBackfillDone = false;
+let companyBackfillRunning: Promise<void> | null = null;
+
+/** 목록·회사 목록 조회 전에 부른다(병역특례 백필과 같은 방식: 이 인스턴스에서 끝났으면 바로 돌아오고, 실패해도 목록은 읽는다). */
+async function ensureSharedCompanyKeyBackfill(): Promise<void> {
+  if (companyBackfillDone) return;
+  companyBackfillRunning ??= backfillSharedCompanyKeys()
+    .then(({ remaining }) => {
+      if (!remaining) companyBackfillDone = true;
+    })
+    .catch((err) => console.error("[shared-postings] 회사 키 백필 실패", err))
+    .finally(() => {
+      companyBackfillRunning = null;
+    });
+  await companyBackfillRunning;
+}
+
+/** 테스트용: 이 인스턴스의 '회사 키 백필 끝남' 표시를 지운다. */
+export function resetSharedCompanyKeyBackfillForTests(): void {
+  companyBackfillDone = false;
+}
+
+/**
+ * 공고 찾기 '회사' 필터의 회사 목록: 숨기지 않은 공용 공고만 회사 키로 묶어 공고 수 많은 순으로 limit개(검색어가 있으면 회사 이름·키 부분 일치).
+ * include(지금 고른 회사 키)는 개수 밖이어도 싣는다 — 숨긴 공고뿐인 회사는 공고 수 0이라 싣지 않는다(숨긴 공고의 회사 이름을 내보내지 않는다).
+ * 쿼리: 키별 개수(groupBy, LIMIT) 1번 + 검색어가 있으면 맞은 키의 전체 개수 1번 + 고른 키 개수 1번(있을 때) + 표기 고르기(키·이름별 개수, 고른 키만) 1번.
+ */
+export async function listSharedCompanyOptions(query: { q?: string; limit: number; include?: readonly string[] }): Promise<CompanyOption[]> {
+  await ensureSharedCompanyKeyBackfill();
+  const q = clip(query.q);
+  const searchKey = companySearchKey(q);
+  const visible: Prisma.SharedPostingWhereInput = { hiddenAt: null, AND: [{ companyKey: { not: null } }, { NOT: { companyKey: "" } }] };
+  const where: Prisma.SharedPostingWhereInput = q
+    ? { ...visible, OR: [...(searchKey ? [{ companyKey: { contains: searchKey } }] : []), { company: ci(q) }] }
+    : visible;
+  const top = await prisma.sharedPosting.groupBy({
+    by: ["companyKey"],
+    where,
+    _count: { companyKey: true },
+    orderBy: [{ _count: { companyKey: "desc" } }, { companyKey: "asc" }],
+    take: query.limit,
+  });
+  const counts = new Map(top.map((r) => [r.companyKey as string, r._count.companyKey]));
+  // 검색어가 있으면 위 개수는 검색어에 맞은 행만 센 것이다(원래 이름에만 맞은 행 등) — 고른 키의 공고 수를 숨기지 않은 공고 전체로 다시 센다.
+  if (q && counts.size) {
+    const full = await prisma.sharedPosting.groupBy({
+      by: ["companyKey"],
+      where: { ...visible, companyKey: { in: [...counts.keys()] } },
+      _count: { companyKey: true },
+    });
+    for (const r of full) counts.set(r.companyKey as string, r._count.companyKey);
+  }
+  const missing = (query.include ?? []).filter((k) => k && !counts.has(k));
+  if (missing.length) {
+    const extra = await prisma.sharedPosting.groupBy({
+      by: ["companyKey"],
+      where: { ...visible, companyKey: { in: missing } },
+      _count: { companyKey: true },
+    });
+    for (const r of extra) counts.set(r.companyKey as string, r._count.companyKey);
+  }
+  if (counts.size === 0) return [];
+  // 표기: 키마다 가장 많이 쓰인 원래 이름(숨기지 않은 공고에서만).
+  const spellings = await prisma.sharedPosting.groupBy({
+    by: ["companyKey", "company"],
+    where: { ...visible, companyKey: { in: [...counts.keys()] } },
+    _count: { _all: true },
+  });
+  const best = new Map<string, { label: string; n: number }>();
+  for (const r of spellings) {
+    const key = r.companyKey as string;
+    const label = r.company.replace(/\s+/g, " ").trim();
+    const cur = best.get(key);
+    if (!cur || r._count._all > cur.n || (r._count._all === cur.n && label.localeCompare(cur.label, "ko") < 0)) best.set(key, { label, n: r._count._all });
+  }
+  const options = [...counts].map(([key, count]) => ({ key, label: best.get(key)?.label ?? key, count }));
+  const inTop = new Set(top.map((r) => r.companyKey as string));
+  return [...sortCompanyOptions(options.filter((o) => inTop.has(o.key))), ...options.filter((o) => !inTop.has(o.key))];
+}
+
 /** 공용 공고 하나(기본 숨김 제외). includeHidden은 관리자 화면에서만 — 숨긴 공고를 다시 공개할 수 있게 한다. */
 export async function getSharedPosting(
   id: string,
@@ -326,6 +448,7 @@ function sharedColumns(input: SharedPostingInput, now: Date) {
     url: stripNul(url),
     platform: orNull(inferPlatform(url)?.slice(0, POSTING_LIMITS.platform)),
     company: stripNul(p.company),
+    companyKey: toCompanyKey(stripNul(p.company)) || null,
     roleTitle: stripNul(p.roleTitle),
     jdText: orNull(p.jdText),
     structured: input.structure ? (stripNulDeep(input.structure) as unknown as Prisma.InputJsonValue) : PrismaNs.DbNull,

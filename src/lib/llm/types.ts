@@ -22,6 +22,7 @@ export interface LlmUsage {
  * - posting-extract: 채용 공고 페이지 본문에서 회사·직무·마감·구역별 항목 추출(PostingExtractSchema, 구역만이면 PostingSectionsOnlySchema)
  * - posting-translate: 근거 검증을 마친 외국어 공고 항목 → 한국어(PostingTranslationSchema, src/lib/postings/translate.ts)
  * - graph-import: 이력서·포트폴리오 문서 → 그래프 변경안(GraphImportOutputSchema)
+ * - graph-repo-import: GitHub 저장소 정보 → 프로젝트 하나의 변경안·후속 질문(GraphRepoImportOutputSchema, src/lib/chat/graph-repo-import.ts)
  * - graph-qa: 그래프에 묻기 답변(GraphQaOutputSchema)
  * - graph-qa-rerank: 그래프에 묻기 후보 관련도 매기기(GraphQaRerankSchema, 선택 단계)
  * - interview-questions: 이력서·포트폴리오·공고 근거 줄 → 면접 예상 질문(InterviewQuestionsOutputSchema)
@@ -34,6 +35,7 @@ export const LLM_TASKS = [
   "posting-extract",
   "posting-translate",
   "graph-import",
+  "graph-repo-import",
   "graph-qa",
   "graph-qa-rerank",
   "interview-questions",

@@ -3,7 +3,8 @@
  * 공고 보관함 목록: URL 가져오기(진행 중 카드 → 끝나면 지금 쪽을 서버에서 다시 읽어 공고 카드), 직접 추가(AI 엔진이 있으면 공고 원문을 붙여넣어
  * AI가 채워 바로 추가 — 링크 없는 본문 붙여넣기 가져오기 작업, 아래에 펼쳐 쓰는 직접 입력 폼), 검색·상태·정렬·마감 임박 필터,
  * 공고 카드(마감 배지·병역특례 태그). '공고 찾기'(공용 공고)는 사이드바의 별도 메뉴다. 직접 추가 입력은 공고 찾기의 '공고 추가'와 같은 PostingAddForms다.
- * 목록은 서버가 주소의 조건·쪽(?q=&status=&sort=&soon=1&page=)으로 한 쪽 12개를 읽어 준다(page.tsx → listPostingsPage).
+ * 목록은 서버가 주소의 조건·쪽(?q=&status=&company=키&company=키&sort=&soon=1&page=)으로 한 쪽 12개를 읽어 준다(page.tsx → listPostingsPage).
+ * '회사' 필터(CompanyFilter)는 내 공고의 회사(공백·법인 표기를 무시하고 묶은 회사 키)를 여러 개 고른다.
  * 조건을 바꾸면 1쪽 주소로 바꾸고(useUrlFilters), 쪽 이동 링크는 지금 조건을 그대로 싣는다.
  */
 import Link from "next/link";
@@ -23,6 +24,7 @@ import {
   type JobPostingSummary,
   type PostingImportJob,
 } from "@/lib/domain/postings";
+import type { CompanyOption } from "@/lib/domain/company";
 import type { PageInfo } from "@/lib/pagination";
 import { formatPostingDeadline } from "@/lib/postings/deadline";
 import {
@@ -38,6 +40,7 @@ import { platformLabel } from "@/lib/postings/url";
 import { usePostingImports } from "./import-jobs";
 import { MilitaryServiceBadges } from "./MilitaryServiceBadges";
 import { PostingAddForms } from "./PostingAddForms";
+import { CompanyFilter } from "./CompanyFilter";
 import { ImportingCard, PostingImportBar } from "./PostingImportBar";
 import { DeadlineBadge, inputClass, PostingStatusBadge, useNow } from "./shared";
 import { SourceLink } from "./SourceLink";
@@ -53,15 +56,18 @@ export function PostingsView({
   list,
   filters,
   sort = DEFAULT_POSTING_SORT,
+  companyOptions = [],
   initialImports,
   serverNow,
   aiAvailable = false,
 }: {
   /** 지금 쪽(서버가 조건·쪽으로 읽은 12개)과 쪽 정보·전체 수. */
-  list: { items: JobPostingSummary[]; allCount: number; activeCount: number } & PageInfo;
+  list: { items: JobPostingSummary[]; allCount: number; activeCount: number; allStatusCount?: number } & PageInfo;
   /** 주소의 조건(입력칸 초기값). */
   filters: PostingFilters;
   sort?: PostingSort;
+  /** '회사' 필터의 처음 목록(공고 수 많은 회사 + 고른 회사, 서버가 읽음). */
+  companyOptions?: CompanyOption[];
   initialImports: PostingImportJob[];
   serverNow: number;
   aiAvailable?: boolean;
@@ -80,10 +86,11 @@ export function PostingsView({
   const imports = usePostingImports({ initialJobs: initialActive, onCompleted: () => startTransition(() => router.refresh()) });
   const importing = imports.jobs.filter((j) => isPostingImportActive(j.status));
 
-  const { items: shown, allCount, activeCount, total, page, pageCount, pageSize } = list;
+  const { items: shown, allCount, activeCount, allStatusCount = 0, total, page, pageCount, pageSize } = list;
   // 기본 필터(진행 중)가 숨기는 마감·보류 공고 수. 모두 마감·보류면 기본 필터로 '초기화'해도 목록이 비므로 '모두'로 연다.
   const hiddenByDefault = allCount - activeCount;
-  const isDefaultFilter = !filters.query.trim() && filters.status === EMPTY_POSTING_FILTERS.status && !filters.onlyClosingSoon;
+  const isDefaultFilter =
+    !filters.query.trim() && filters.status === EMPTY_POSTING_FILTERS.status && !filters.onlyClosingSoon && !filters.companies?.length;
   const resetFilters: PostingFilters = activeCount > 0 ? EMPTY_POSTING_FILTERS : { ...EMPTY_POSTING_FILTERS, status: "all" };
   const hrefFor = (n: number) => {
     const qs = postingSearchParams(filters, sort, n);
@@ -137,6 +144,14 @@ export function PostingsView({
 
       {allCount > 0 && (
         <div className="grid gap-3 sm:grid-cols-2 lg:flex lg:flex-wrap lg:items-center">
+          <CompanyFilter
+            id="posting-company"
+            endpoint="/api/postings/companies"
+            value={draft.companies ?? []}
+            onChange={(keys) => setFilter("companies", keys)}
+            initialOptions={companyOptions}
+            className="sm:col-span-2 lg:w-full"
+          />
           <div className="sm:col-span-2 lg:min-w-64 lg:flex-1">
             <label htmlFor="posting-search" className="sr-only">
               검색
@@ -223,6 +238,14 @@ export function PostingsView({
                 마감·보류 공고까지 보기
               </Button>
             </>
+          ) : allStatusCount > 0 ? (
+            <>
+              {/* 진행 중 조건에서만 비었다(예: 마감·보류 공고뿐인 회사를 고름) — 다른 조건(회사 등)은 그대로 두고 상태만 넓힌다. */}
+              <p className="text-sm text-slate-500">조건에 맞는 진행 중 공고가 없습니다. 마감·보류한 공고는 {allStatusCount}개 있습니다.</p>
+              <Button variant="ghost" size="sm" className="mt-3" onClick={() => setFilter("status", "all")}>
+                마감·보류 공고 {allStatusCount}개까지 보기
+              </Button>
+            </>
           ) : (
             <>
               <p className="text-sm text-slate-500">조건에 맞는 공고가 없습니다.</p>
@@ -234,7 +257,7 @@ export function PostingsView({
         </Card>
       ) : (
         <>
-          <p className="-mb-3 text-xs text-slate-500" aria-live="polite">
+          <p className="relative z-10 text-sm text-slate-500" aria-live="polite">
             {total}개 중 {first}–{last}
             {pageCount > 1 ? ` · ${page}/${pageCount}쪽` : ""}
           </p>

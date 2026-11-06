@@ -71,21 +71,28 @@ function requestOrigin(req: HeaderReq): string | null {
 }
 
 /**
- * Google에 등록할 redirect_uri(`<origin>/api/auth/google/callback`). 못 정하면 null.
+ * OAuth 콜백 주소(`<origin><path>`)를 정한다. 못 정하면 null. Google·GitHub 연동이 함께 쓴다.
  * - PRODUCTION: 앱 주소(APP_URL, 없으면 Vercel 배포 주소 — env-rules appUrl)의 https만 쓴다. 요청의 Host 헤더는 믿지 않는다.
- * - DEV: GOOGLE_REDIRECT_ORIGIN → 앱 주소 → 요청 origin 순. 요청 origin은 localhost·*.ts.net·DEV_ALLOWED_ORIGINS 호스트만 허용.
- *   (예: Tailscale https 주소로 고정하려면 GOOGLE_REDIRECT_ORIGIN=https://<기기>.<tailnet>.ts.net:9470)
+ * - DEV: env[originEnvKey] → 앱 주소 → 요청 origin 순. 요청 origin은 localhost·*.ts.net·DEV_ALLOWED_ORIGINS 호스트만 허용.
  */
-export function resolveRedirectUri(req: HeaderReq, env: Env = process.env): string | null {
+export function resolveCallbackUri(req: HeaderReq, env: Env, opts: { path: string; originEnvKey: string }): string | null {
   if (isProduction(env)) {
     const host = httpsAppUrlHost(env);
-    return host ? `https://${host}${GOOGLE_CALLBACK_PATH}` : null;
+    return host ? `https://${host}${opts.path}` : null;
   }
-  const configured = originOf(env.GOOGLE_REDIRECT_ORIGIN) ?? originOf(appUrl(env) ?? undefined);
-  if (configured) return configured + GOOGLE_CALLBACK_PATH;
+  const configured = originOf(env[opts.originEnvKey]) ?? originOf(appUrl(env) ?? undefined);
+  if (configured) return configured + opts.path;
   const origin = requestOrigin(req);
   if (!origin || !devHostAllowed(new URL(origin).hostname, env)) return null;
-  return origin + GOOGLE_CALLBACK_PATH;
+  return origin + opts.path;
+}
+
+/**
+ * Google에 등록할 redirect_uri(`<origin>/api/auth/google/callback`). 못 정하면 null. 규칙은 resolveCallbackUri.
+ * (예: Tailscale https 주소로 고정하려면 GOOGLE_REDIRECT_ORIGIN=https://<기기>.<tailnet>.ts.net:9470)
+ */
+export function resolveRedirectUri(req: HeaderReq, env: Env = process.env): string | null {
+  return resolveCallbackUri(req, env, { path: GOOGLE_CALLBACK_PATH, originEnvKey: "GOOGLE_REDIRECT_ORIGIN" });
 }
 
 // ---------------------------------------------------------------------------

@@ -83,6 +83,8 @@ describe("스키마(PGlite에 prisma/migrations 적용)", () => {
       "diagnoses",
       "diagnosis_runs",
       "diagnosis_stages",
+      "github_accounts",
+      "github_repo_snapshots",
       "graph_followups",
       "interview_answers",
       "interview_questions",

@@ -109,6 +109,41 @@ export function googleLoginConfigured(env: Env = process.env): boolean {
   return GOOGLE_ENV_KEYS.every((k) => has(env, k));
 }
 
+export const GITHUB_ENV_KEYS = ["GITHUB_APP_CLIENT_ID", "GITHUB_APP_CLIENT_SECRET", "GITHUB_TOKEN_ENC_KEY"] as const;
+
+/** base64 32바이트 키면 그 바이트, 아니면 null(GITHUB_TOKEN_ENC_KEY·GITHUB_TOKEN_ENC_KEY_PREVIOUS). */
+export function decodeEncKey(raw: string | undefined): Buffer | null {
+  const v = raw?.trim();
+  if (!v || !/^[A-Za-z0-9+/_-]+={0,2}$/.test(v)) return null;
+  const buf = Buffer.from(v.replace(/-/g, "+").replace(/_/g, "/"), "base64");
+  return buf.length === 32 ? buf : null;
+}
+
+/** GitHub 토큰 암호화 키(GITHUB_TOKEN_ENC_KEY, base64 32바이트). 없거나 길이가 틀리면 null. */
+export function githubEncKey(env: Env = process.env): Buffer | null {
+  return decodeEncKey(env.GITHUB_TOKEN_ENC_KEY);
+}
+
+/**
+ * GitHub 연동(GitHub App 사용자 토큰)을 켤 수 있는가: 클라이언트 ID·비밀과 올바른 32바이트 암호화 키가 모두 있어야 한다.
+ * 없으면 연동 화면은 안내만 보이고 API는 503(github_unavailable). PRODUCTION 필수 설정은 아니다.
+ */
+export function githubConfigured(env: Env = process.env): boolean {
+  return has(env, "GITHUB_APP_CLIENT_ID") && has(env, "GITHUB_APP_CLIENT_SECRET") && githubEncKey(env) !== null;
+}
+
+/** GitHub 설정 중 일부만 있을 때의 안내(모두 없으면 null — 기능이 꺼진 것이 정상). */
+export function githubPartialConfigWarning(env: Env = process.env): string | null {
+  const present = GITHUB_ENV_KEYS.filter((k) => has(env, k));
+  if (present.length === 0) return null;
+  if (present.length < GITHUB_ENV_KEYS.length) {
+    const missing = GITHUB_ENV_KEYS.filter((k) => !has(env, k));
+    return `GitHub 연동 설정이 일부만 있습니다(빠짐: ${missing.join(", ")}). GitHub 연동이 꺼집니다.`;
+  }
+  if (!githubEncKey(env)) return "GITHUB_TOKEN_ENC_KEY가 base64 32바이트가 아니라 GitHub 연동이 꺼집니다(openssl rand -base64 32).";
+  return null;
+}
+
 /**
  * DB 주소(PostgreSQL). 런타임(url)은 DATABASE_URL, 없으면 Supabase Vercel 연동이 넣는 POSTGRES_PRISMA_URL·POSTGRES_URL
  * (Supabase는 Transaction pooler, 포트 6543). 마이그레이션용 직접 주소(directUrl)는 DIRECT_URL, 없으면 POSTGRES_URL_NON_POOLING
@@ -234,10 +269,12 @@ function devWarnings(env: Env): string[] {
  */
 export function validateProductionEnv(env: Env = process.env): { env: AppEnv; warnings: string[] } {
   const mode = appEnv(env);
-  if (mode === "DEV") return { env: mode, warnings: [...devWarnings(env), ...vercelWarnings(env)] };
+  const github = githubPartialConfigWarning(env);
+  const githubWarnings = github ? [github] : [];
+  if (mode === "DEV") return { env: mode, warnings: [...devWarnings(env), ...vercelWarnings(env), ...githubWarnings] };
   const missing = missingProductionEnv(env);
   if (missing.length > 0) {
     throw new AppEnvError(`APP_ENV=PRODUCTION 필수 설정이 빠졌습니다: ${missing.join(", ")}`);
   }
-  return { env: mode, warnings: vercelWarnings(env) };
+  return { env: mode, warnings: [...vercelWarnings(env), ...githubWarnings] };
 }

@@ -2,6 +2,7 @@ import type { Metadata } from "next";
 import { notFound } from "next/navigation";
 import Link from "next/link";
 import { DeleteAccountButton } from "@/components/account/DeleteAccount";
+import { GithubConnection } from "@/components/account/GithubConnection";
 import { MarketingConsent } from "@/components/account/MarketingConsent";
 import { formatDateTime } from "@/components/app/stages";
 import { Card, CardBody, CardHeader } from "@/components/ui";
@@ -9,6 +10,8 @@ import { getAccountInfo } from "@/lib/auth/account";
 import { requireUser } from "@/lib/auth/session";
 import { CONSENT_DOCS, marketingAgreed, type ConsentSource } from "@/lib/legal/consents";
 import { getLatestConsents, listConsentHistory } from "@/lib/legal/service";
+import { getGithubStatus } from "@/lib/github/account";
+import { githubErrorMessage } from "@/lib/github/types";
 
 const SOURCE_LABEL: Record<ConsentSource, string> = { signup: "가입", gate: "재확인", account: "계정 설정" };
 
@@ -22,14 +25,25 @@ const HISTORY_LABEL = {
 export const metadata: Metadata = { title: "계정" };
 export const dynamic = "force-dynamic";
 
-export default async function AccountPage() {
+export default async function AccountPage({ searchParams }: { searchParams: Promise<Record<string, string | string[] | undefined>> }) {
   const user = await requireUser("/app/account");
-  const [info, latest, history] = await Promise.all([
+  const [info, latest, history, github, sp] = await Promise.all([
     getAccountInfo(user.id),
     getLatestConsents(user.id),
     listConsentHistory(user.id, 20),
+    getGithubStatus(user.id),
+    searchParams,
   ]);
   if (!info) notFound();
+  // ?github_error=는 정해 둔 코드만 문구로 바꾼다(임의 문자열을 그대로 보여 주지 않는다).
+  const githubError = githubErrorMessage(sp.github_error);
+  const githubFlash = githubError
+    ? { tone: "error" as const, text: githubError }
+    : sp.github === "connected"
+      ? { tone: "ok" as const, text: "GitHub 계정을 연결했습니다." }
+      : sp.github === "installed"
+        ? { tone: "ok" as const, text: "GitHub에서 저장소 선택을 저장했습니다." }
+        : null;
 
   return (
     <div className="space-y-6">
@@ -99,6 +113,16 @@ export default async function AccountPage() {
         </CardBody>
       </Card>
 
+      <Card id="github" className="scroll-mt-6">
+        <CardHeader
+          title="연결된 서비스"
+          description="GitHub 계정을 연결하면 경험 그래프에서 저장소를 골라 프로젝트 단위로 AI와 정리할 수 있습니다."
+        />
+        <CardBody>
+          <GithubConnection initial={github} flash={githubFlash} />
+        </CardBody>
+      </Card>
+
       <Card>
         <CardHeader
           title="MCP 연결"
@@ -114,7 +138,7 @@ export default async function AccountPage() {
       <Card>
         <CardHeader
           title="회원 탈퇴"
-          description="탈퇴하면 계정과 진단·이력서·공고·지원 기록, 경험 그래프, MCP 연결 토큰, 올린 파일이 모두 삭제되며 되돌릴 수 없습니다."
+          description="탈퇴하면 계정과 진단·이력서·공고·지원 기록, 경험 그래프, MCP 연결 토큰, GitHub 연결과 가져온 저장소 정보, 올린 파일이 모두 삭제되며 되돌릴 수 없습니다."
         />
         <CardBody>
           <DeleteAccountButton />

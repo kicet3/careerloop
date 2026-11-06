@@ -47,6 +47,7 @@ model User {
   llmUsageEvents    LlmUsageEvent[]
   mcpTokens         McpToken[]
   graphFollowups    GraphFollowup[]
+  githubAccount     GithubAccount?
 
   @@index([status, createdAt], map: "users_status_idx")
   @@map("users")
@@ -184,6 +185,9 @@ model SharedPosting {
   militaryService        String[] @default([]) @map("military_service")
   /// military_service를 계산한 판정 규칙 버전. null이거나 MILITARY_SERVICE_DETECTOR_VERSION보다 낮으면 목록 조회가 다시 계산한다(지연 백필).
   militaryServiceVersion Int?     @map("military_service_version")
+  /// companyKey(company)(src/lib/domain/company.ts — 공백·법인 표기·대소문자를 무시한 회사 키). 공개 필드를 쓸 때마다 같이 쓴다.
+  /// 공고 찾기 '회사' 필터·회사 목록이 이 값으로 거르고 묶는다. null이면 아직 계산하지 않은 행(목록 조회가 지연 백필로 채운다).
+  companyKey             String?  @map("company_key")
   /// 페이지를 마지막으로 읽은 시각.
   fetchedAt         DateTime  @map("fetched_at") @db.Timestamptz(3)
   createdAt         DateTime  @default(now()) @map("created_at") @db.Timestamptz(3)
@@ -213,6 +217,7 @@ model SharedPosting {
   postingImports PostingImport[]
 
   @@index([fetchedAt], map: "shared_postings_fetched_idx")
+  @@index([companyKey], map: "shared_postings_company_key_idx")
   @@map("shared_postings")
 }
 
@@ -741,4 +746,59 @@ model GraphFollowup {
   @@index([sourceMessageId], map: "graph_followups_message_idx")
   @@index([threadId], map: "graph_followups_thread_idx")
   @@map("graph_followups")
+}
+
+/// GitHub 연동(GitHub App 사용자 토큰). 사용자당 1개. 토큰은 AES-256-GCM으로 암호화해 둔다(src/lib/crypto/secret-box.ts) — 원문은 저장·로그·응답하지 않는다.
+/// 연결을 해제하거나 탈퇴하면 이 행과 가져온 저장소 정보(github_repo_snapshots)가 함께 지워진다(FK CASCADE). docs/GITHUB.md.
+model GithubAccount {
+  id                    String    @id
+  userId                String    @unique(map: "github_accounts_user_unique") @map("user_id")
+  /// GitHub 사용자 고유 id(숫자, 문자열로 저장). 한 GitHub 계정은 한 사용자에게만 연결한다.
+  githubUserId          String    @unique(map: "github_accounts_github_user_unique") @map("github_user_id")
+  login                 String
+  avatarUrl             String?   @map("avatar_url")
+  /// 'active' | 'reauth_required'(토큰 갱신 실패·폐기 — 토큰 칸은 비우고 다시 연결을 안내한다)
+  status                String    @default("active")
+  accessTokenEnc        String?   @map("access_token_enc")
+  accessTokenExpiresAt  DateTime? @map("access_token_expires_at") @db.Timestamptz(3)
+  refreshTokenEnc       String?   @map("refresh_token_enc")
+  refreshTokenExpiresAt DateTime? @map("refresh_token_expires_at") @db.Timestamptz(3)
+  /// 비공개 저장소도 가져올지(사용자가 켠 경우만). 기본은 공개 저장소만.
+  includePrivate        Boolean   @default(false) @map("include_private")
+  connectedAt           DateTime  @default(now()) @map("connected_at") @db.Timestamptz(3)
+  updatedAt             DateTime  @default(now()) @map("updated_at") @db.Timestamptz(3)
+  lastSyncedAt          DateTime? @map("last_synced_at") @db.Timestamptz(3)
+
+  user      User                 @relation(fields: [userId], references: [id], onDelete: Cascade, map: "github_accounts_user_id_fkey")
+  snapshots GithubRepoSnapshot[]
+
+  @@map("github_accounts")
+}
+
+/// 사용자가 고른 GitHub 저장소에서 읽은 정보(RepoFacts)와 AI에 넣는 요약(brief, 12000자 이하). 저장소 원본은 복제하지 않는다.
+/// project_node_id는 경험 그래프 Project 노드 id(Neo4j — FK 없음). 한 프로젝트에는 저장소 하나만 잇는다(부분 유니크 인덱스, migration.sql).
+model GithubRepoSnapshot {
+  id             String    @id
+  userId         String    @map("user_id")
+  /// GitHub 저장소 고유 id(숫자, 문자열로 저장).
+  repoId         String    @map("repo_id")
+  fullName       String    @map("full_name")
+  htmlUrl        String    @map("html_url")
+  private        Boolean   @default(false)
+  /// RepoFacts(src/lib/github/types.ts)
+  data           Json
+  brief          String
+  /// brief를 만든 규칙 버전(BRIEF_BUILDER_VERSION). 다르면 data로 다시 만든다.
+  builderVersion Int       @map("builder_version")
+  etag           String?
+  pushedAt       DateTime? @map("pushed_at") @db.Timestamptz(3)
+  fetchedAt      DateTime  @map("fetched_at") @db.Timestamptz(3)
+  projectNodeId  String?   @map("project_node_id")
+  createdAt      DateTime  @default(now()) @map("created_at") @db.Timestamptz(3)
+
+  account GithubAccount @relation(fields: [userId], references: [userId], onDelete: Cascade, map: "github_repo_snapshots_user_id_fkey")
+
+  @@unique([userId, repoId], map: "github_repo_snapshots_repo_uq")
+  @@index([userId, projectNodeId], map: "github_repo_snapshots_project_idx")
+  @@map("github_repo_snapshots")
 }

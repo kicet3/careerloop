@@ -6,6 +6,7 @@ export const LLM_USAGE_TASK_LABELS: Record<string, string> = {
   diagnosis: "이력서 진단",
   "graph-chat": "경험 정리하기(채팅)",
   "graph-import": "경험 가져오기(문서)",
+  "graph-repo-import": "경험 가져오기(GitHub)",
   "graph-qa": "경험 질문하기",
   "graph-qa-rerank": "경험 질문하기(관련도)",
   "reviewer-chat": "심사위원 채팅",

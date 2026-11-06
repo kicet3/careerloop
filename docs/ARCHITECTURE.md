@@ -366,3 +366,12 @@ docker compose --env-file .env.local -p resume-career up -d neo4j
 - 인증은 개인 접근 토큰(`mcp_tokens`, SHA-256 해시 저장)으로 하고 쿠키는 보지 않는다. 사용자 상태와 필수 동의는 요청마다 다시 본다. 레이트 리밋은 사용자당 10분 300회(`MCP_REQUEST_LIMIT`)다.
 - 도구는 `get_profile_summary`·`list_nodes`·`get_node`·`search_graph`·`get_graph_text`·`get_experience_checklist` 6개다. 본문은 순수 함수(`src/lib/mcp/graph-tools.ts`)이고 LLM을 부르지 않는다. 리소스는 `careerloop://graph/schema`·`careerloop://graph/text` 두 개다.
 - OAuth(claude.ai 커넥터)는 2단계다. 테이블에 `kind`·`client_id` 자리만 있다.
+
+### 11-6. GitHub 연동 (저장소로 프로젝트 정리)
+
+자세한 내용은 [GITHUB.md](./GITHUB.md)에 있다. 요약하면 다음과 같다.
+
+- 사용자별 GitHub App 사용자 토큰(Contents·Metadata 읽기)을 `github_accounts`에 AES-256-GCM 암호문으로 둔다(`src/lib/crypto/secret-box.ts`). 8시간마다 갱신 토큰으로 바꾸고, 갱신은 사용자별 advisory lock 안에서 한다.
+- 고른 저장소의 메타데이터·README 앞부분·의존성 이름·본인 커밋 메시지·PR 제목만 읽어(`src/lib/github/api.ts`, 복제 없음) `github_repo_snapshots`에 저장하고 AI용 요약(`brief.ts`)을 만든다. 24시간 안에는 다시 쓴다.
+- `POST /api/graph/chat/github-import` → 프로젝트 고르기·만들기 → 프로젝트 대화(focusNodeId 스레드)에 `repo-import` 메시지 → `runGraphChatReply`가 `graph-repo-import` task로 변경안(문서 가져오기와 같은 검증 사슬)과 후속 질문 5개를 만든다. 이후 그 프로젝트 대화는 `<github_repo>`를 캐시 접두사에 함께 넣는다.
+- `GITHUB_APP_CLIENT_ID`·`GITHUB_APP_CLIENT_SECRET`·`GITHUB_TOKEN_ENC_KEY`가 없으면 기능이 꺼진다(API 503 `github_unavailable`, 화면 안내).

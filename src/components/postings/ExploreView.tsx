@@ -1,7 +1,8 @@
 "use client";
 /**
  * 공고 찾기(공용 공고 목록): 다른 사용자가 링크로 가져오거나 직접 입력한 공고를 회사·직무·기술·마감·병역특례로 거르고, AI 없이 내 보관함에 담는다.
- * 목록은 서버가 주소의 조건·쪽(?q=&company=&role=&tech=&deadline=&military=&page=)으로 한 쪽 12개를 읽어 준다(page.tsx).
+ * 목록은 서버가 주소의 조건·쪽(?q=&company=키&company=키&role=&tech=&deadline=&military=&page=)으로 한 쪽 12개를 읽어 준다(page.tsx).
+ * '회사' 필터(CompanyFilter)는 숨기지 않은 공용 공고의 회사(공백·법인 표기를 무시하고 묶은 회사 키)를 여러 개 고른다.
  * 조건을 바꾸면 1쪽 주소로 바꾸고(useUrlFilters), 아래 쪽 이동 링크는 지금 조건을 그대로 싣는다. 담기는 POST /api/shared-postings/[id]/save.
  * 개인 값(상태·메모·지원 기록)은 공유되지 않는다 — 이 화면에는 공고 페이지에서 뽑은 내용만 있다.
  * 오른쪽 위 '공고 추가'는 보관함과 같은 추가 입력(링크로 가져오기 PostingImportBar · 원문 붙여넣고 AI로 추가·직접 입력 PostingAddForms)을 이 화면에 펼친다.
@@ -32,10 +33,12 @@ import {
   type SharedDeadlineFilter,
   type SharedPostingSummary,
 } from "@/lib/domain/shared-postings";
+import type { CompanyOption } from "@/lib/domain/company";
 import type { PageInfo } from "@/lib/pagination";
 import { formatPostingDeadline } from "@/lib/postings/deadline";
 import { platformLabel } from "@/lib/postings/url";
 import { usePostingImports } from "./import-jobs";
+import { CompanyFilter } from "./CompanyFilter";
 import { MilitaryServiceBadges } from "./MilitaryServiceBadges";
 import { PostingAddForms } from "./PostingAddForms";
 import { ImportingCard, PostingImportBar } from "./PostingImportBar";
@@ -49,6 +52,7 @@ const filterQuery = (f: ExploreFilters) => exploreSearchParams(f, 1);
 export function ExploreView({
   list,
   filters,
+  companyOptions = [],
   serverNow,
   isAdmin = false,
   initialImports = [],
@@ -58,6 +62,8 @@ export function ExploreView({
   list: { items: SharedPostingSummary[] } & PageInfo;
   /** 주소의 조건(입력칸 초기값). */
   filters: ExploreFilters;
+  /** '회사' 필터의 처음 목록(공고 수 많은 회사 + 고른 회사, 서버가 읽음). */
+  companyOptions?: CompanyOption[];
   serverNow: number;
   isAdmin?: boolean;
   /** 최근 가져오기 작업(진행 중인 것만 이어서 보여 준다). */
@@ -143,9 +149,16 @@ export function ExploreView({
         />
       )}
 
-      <div className="grid gap-3 sm:grid-cols-2 lg:grid-cols-[minmax(0,2fr)_repeat(3,minmax(0,1fr))_auto_auto]">
+      <div className="grid gap-3 sm:grid-cols-2 lg:grid-cols-[minmax(0,2fr)_repeat(2,minmax(0,1fr))_auto_auto]">
+        <CompanyFilter
+          id="explore-company"
+          endpoint="/api/shared-postings/companies"
+          value={draft.companies}
+          onChange={(keys) => setFilter("companies", keys)}
+          initialOptions={companyOptions}
+          className="sm:col-span-2 lg:col-span-5"
+        />
         <FilterInput id="explore-q" label="검색" value={draft.q} onChange={(v) => setFilter("q", v)} placeholder="회사·직무·근무지·본문 검색" className="sm:col-span-2 lg:col-span-1" />
-        <FilterInput id="explore-company" label="회사" value={draft.company} onChange={(v) => setFilter("company", v)} placeholder="회사" />
         <FilterInput id="explore-role" label="직무" value={draft.role} onChange={(v) => setFilter("role", v)} placeholder="직무" />
         <FilterInput id="explore-tech" label="기술" value={draft.tech} onChange={(v) => setFilter("tech", v)} placeholder="기술 (예: React)" />
         <div>
@@ -200,7 +213,7 @@ export function ExploreView({
           <p className="text-lg font-semibold text-slate-900">{filtered ? "조건에 맞는 공고가 없습니다" : "아직 공유된 공고가 없습니다"}</p>
           <p className="mx-auto mt-2 max-w-md text-sm text-slate-500">
             {filtered ? (
-              `검색어를 줄이거나 마감 조건을 '마감 전체'로${filters.military !== "all" ? ", 병역특례 조건을 '병역특례 전체'로" : ""} 바꿔 보세요.`
+              `검색어를 줄이거나 ${filters.companies.length ? "고른 회사를 빼거나 " : ""}마감 조건을 '마감 전체'로${filters.military !== "all" ? ", 병역특례 조건을 '병역특례 전체'로" : ""} 바꿔 보세요.`
             ) : (
               <>
                 <Link href="/app/postings" className="font-medium text-indigo-700 hover:underline">
@@ -218,7 +231,7 @@ export function ExploreView({
         </Card>
       ) : (
         <>
-          <p className="-mb-3 text-xs text-slate-500" aria-live="polite">
+          <p className="relative z-10 text-sm text-slate-500" aria-live="polite">
             {total}개 중 {first}–{last}
             {pageCount > 1 ? ` · ${page}/${pageCount}쪽` : ""}
           </p>

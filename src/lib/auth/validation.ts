@@ -51,6 +51,8 @@ export function safeNextPath(next: unknown, fallback: string = DEFAULT_NEXT_PATH
     const base = "http://same.invalid";
     const url = new URL(next, base);
     if (url.origin !== base) return fallback;
+    // `/.//evil.com`, `/a/..//evil.com` 등은 정규화하면 `//evil.com`(프로토콜 상대 주소)이 된다.
+    if (url.pathname.startsWith("//")) return fallback;
     // 로그인·가입 화면으로 되돌아가는 루프 방지
     if (url.pathname === "/login" || url.pathname === "/signup") return fallback;
     return url.pathname + url.search + url.hash;

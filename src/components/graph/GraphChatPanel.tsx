@@ -14,6 +14,10 @@
  *   그 답으로 나온 변경안을 적용하면 질문이 답함으로 바뀐다. 기본 현재 질문은 AI가 방금 물은 질문(이 대화에서 이미 답으로 보낸 질문 제외)뿐이고,
  *   그 밖에는 사용자가 고른 질문(목록·다음·'이어서 답하기'·목록 탭 배지)만 연결한다.
  *   일반 대화에서는 프로젝트 미지정 질문을 접힌 목록으로 보이고(답하기·프로젝트 지정·건너뛰기), 질문이 바뀌면 FOLLOWUPS_CHANGED_EVENT를 보낸다.
+ * - [GitHub에서 가져오기]: 저장소를 골라 프로젝트를 고르거나 만들고, 그 프로젝트 대화에서 AI가 저장소 정보로 변경안·후속 질문을 만든다
+ *   (GithubRepoPicker → POST /api/graph/chat/github-import). ?github=pick이면 창을 다시 열고(GitHub 연결 뒤 돌아왔을 때),
+ *   ?github_error=는 정해 둔 코드만 문구로 보인다. 프로젝트 상세는 GITHUB_PICKER_EVENT로 그 저장소를 바로 연다.
+ *   저장소를 이은 프로젝트 대화는 머리에 저장소·동기화 시각과 [다시 동기화]·[새 정보로 다시 정리]를 보인다.
  */
 import { useCallback, useEffect, useRef, useState } from "react";
 import { Alert, Badge, Button, Card, Spinner, cn } from "@/components/ui";
@@ -36,6 +40,9 @@ import {
 import { chatApi as api, useElapsed } from "./chat-client";
 import { emitFollowupsChanged, FOLLOWUPS_CHANGED_EVENT, patchFollowup } from "./followups-client";
 import { GraphImportForm } from "./GraphImportForm";
+import { GITHUB_PICKER_EVENT, githubApi, GithubClientError, type GithubPickerEventDetail, relativeTime } from "@/components/github/client";
+import { GithubRepoPicker } from "@/components/github/GithubRepoPicker";
+import { GITHUB_UNAVAILABLE_MESSAGE, githubErrorMessage, type GithubThreadRepo } from "@/lib/github/types";
 
 const PROVIDER_STORAGE_KEY = "graph-chat:provider";
 /** 새 프로젝트 대화의 입력에 미리 채우는 문장(보내기는 사용자가 누른다). */
@@ -100,6 +107,10 @@ export function GraphChatPanel({
   const [generalPick, setGeneralPick] = useState<string | null>(null);
   const [unassigned, setUnassigned] = useState<GraphFollowup[]>([]);
   const [followupBusy, setFollowupBusy] = useState<string | null>(null);
+  // GitHub 가져오기: 창(열린 경우 처음 고를 저장소·프로젝트), 설정 여부(null = 확인 중), 저장소 동기화·다시 정리 진행.
+  const [githubPicker, setGithubPicker] = useState<GithubPickerEventDetail | null>(null);
+  const [githubConfigured, setGithubConfigured] = useState<boolean | null>(null);
+  const [repoBusy, setRepoBusy] = useState<"sync" | "reorganize" | null>(null);
   const listRef = useRef<HTMLDivElement>(null);
   const inputRef = useRef<HTMLTextAreaElement>(null);
   // 체크리스트·그래프에 묻기의 '채우기' 요청 번호(바뀔 때마다 입력란으로 포커스).
@@ -170,6 +181,33 @@ export function GraphChatPanel({
     window.addEventListener(GRAPH_CHAT_PROJECT_EVENT, onProject);
     return () => window.removeEventListener(GRAPH_CHAT_PROJECT_EVENT, onProject);
   }, [openProject]);
+
+  // GitHub: 설정 여부, 프로젝트 상세의 'GitHub 정보로 정리하기', 연결 뒤 돌아온 주소(?github=pick·?github_error=).
+  useEffect(() => {
+    githubApi.status().then(
+      (st) => setGithubConfigured(st.configured),
+      () => setGithubConfigured(null),
+    );
+    const onPicker = (ev: Event) => {
+      ev.preventDefault();
+      setGithubPicker((ev as CustomEvent<GithubPickerEventDetail | undefined>).detail ?? {});
+    };
+    window.addEventListener(GITHUB_PICKER_EVENT, onPicker);
+    const url = new URL(window.location.href);
+    const reopen = url.searchParams.get("github") === "pick";
+    const errorText = githubErrorMessage(url.searchParams.get("github_error"));
+    if (reopen || url.searchParams.has("github_error") || url.searchParams.has("github")) {
+      url.searchParams.delete("github");
+      url.searchParams.delete("github_error");
+      window.history.replaceState(null, "", `${url.pathname}${url.search}${url.hash}`);
+      // 주소에서 읽은 값으로 한 번만 연다(마운트 직후 — 외부 상태와 맞추는 effect).
+      queueMicrotask(() => {
+        if (reopen && !errorText) setGithubPicker({});
+        if (errorText) setError(errorText);
+      });
+    }
+    return () => window.removeEventListener(GITHUB_PICKER_EVENT, onPicker);
+  }, []);
 
   // 채우기 요청 뒤: 탭이 보이게 바뀐 커밋 다음에 입력란으로 스크롤·포커스한다(숨은 요소에는 포커스가 가지 않는다).
   useEffect(() => {
@@ -495,6 +533,38 @@ export function GraphChatPanel({
     }
   }
 
+  /** GitHub 가져오기가 시작되면(202): 그 프로젝트 대화로 바꾸고 폴링한다. 새 프로젝트·주소를 넣었을 수 있어 그래프도 다시 읽게 한다. */
+  function githubStarted(r: { thread: ChatThread; created: boolean }) {
+    setGithubPicker(null);
+    setThreads((ts) => [r.thread, ...(ts ?? []).filter((t) => t.id !== r.thread.id)]);
+    setThreadId(r.thread.id);
+    setFocusPick(null);
+    setInput("");
+    setError(null);
+    emitGraphChanged("github");
+    loadThread(r.thread.id).catch(() => {});
+  }
+
+  /** 저장소를 이은 프로젝트 대화: [다시 동기화](정보만 새로 읽기) / [새 정보로 다시 정리](새로 읽고 AI에 다시 정리 요청). */
+  async function repoAction(repo: GithubThreadRepo, action: "sync" | "reorganize") {
+    if (!threadId || !focusNodeId || repoBusy) return;
+    setRepoBusy(action);
+    setError(null);
+    try {
+      if (action === "sync") {
+        await githubApi.sync(repo.fullName);
+        await loadThread(threadId);
+      } else {
+        // 서버는 지금 대화에 이어 쓴다(그 프로젝트 대화가 아니면 다른 대화) — 응답의 대화로 옮겨 대기 표시와 변경안이 보이게 한다.
+        githubStarted(await githubApi.startImport({ fullName: repo.fullName, projectNodeId: focusNodeId, refresh: true, threadId, provider }));
+      }
+    } catch (e) {
+      setError(e instanceof GithubClientError ? e.message : (e as Error).message);
+    } finally {
+      setRepoBusy(null);
+    }
+  }
+
   async function removeThread() {
     if (!threadId || !window.confirm("이 대화를 지울까요? 이미 적용한 그래프 변경은 그대로 남습니다.")) return;
     setError(null);
@@ -578,12 +648,35 @@ export function GraphChatPanel({
         >
           프로젝트로 대화
         </Button>
+        <Button
+          size="sm"
+          variant="secondary"
+          onClick={() => setGithubPicker({})}
+          disabled={!graphOn || githubConfigured === false}
+          title={githubConfigured === false ? GITHUB_UNAVAILABLE_MESSAGE : "GitHub 저장소로 프로젝트 정리하기"}
+        >
+          GitHub에서 가져오기
+        </Button>
         {threadId && (
           <Button size="sm" variant="ghost" onClick={removeThread} aria-label="이 대화 삭제">
             삭제
           </Button>
         )}
       </div>
+
+      {githubConfigured === false && (
+        <p className="border-b border-slate-100 px-4 py-1.5 text-xs text-slate-500">GitHub에서 가져오기: {GITHUB_UNAVAILABLE_MESSAGE}</p>
+      )}
+
+      {githubPicker && (
+        <GithubRepoPicker
+          initialFullName={githubPicker.fullName}
+          initialProjectId={githubPicker.projectNodeId}
+          provider={provider}
+          onClose={() => setGithubPicker(null)}
+          onStarted={githubStarted}
+        />
+      )}
 
       {pickerOpen && (
         <div id="graph-chat-project-picker" className="flex flex-wrap items-center gap-2 border-b border-slate-100 bg-slate-50/60 px-4 py-2.5 text-sm">
@@ -637,6 +730,11 @@ export function GraphChatPanel({
             inputRef.current?.focus();
           }}
           onLeave={leaveProject}
+          repo={view?.repo ?? null}
+          repoBusy={repoBusy}
+          repoDisabled={disabled || pending}
+          githubConfigured={githubConfigured}
+          onRepoAction={(repo, action) => void repoAction(repo, action)}
         />
       )}
 
@@ -727,6 +825,16 @@ export function GraphChatPanel({
                   읽어 낸 글 {m.data.chars.toLocaleString()}자{m.data.truncated && " · 앞부분만 읽음"}
                 </p>
                 {m.data.warnings.length > 0 && <p className="mt-1 text-xs text-amber-700">{m.data.warnings.join(" ")}</p>}
+              </div>
+            </div>
+          ) : m.role === "user" && m.data?.kind === "repo-import" ? (
+            <div key={m.id} className="flex justify-end">
+              <div className="max-w-[85%] rounded-2xl rounded-br-sm border border-indigo-200 bg-indigo-50 px-3.5 py-2 text-sm text-indigo-900">
+                <p className="font-medium break-words">
+                  GitHub 저장소: {m.data.fullName}
+                  {m.data.private && " (비공개)"}
+                </p>
+                <p className="text-xs text-indigo-700">저장소 정보 {m.data.chars.toLocaleString()}자로 이 프로젝트 정리를 요청했습니다</p>
               </div>
             </div>
           ) : m.role === "user" ? (
@@ -854,12 +962,22 @@ function ProjectFocusBar({
   onShowInGraph,
   onPick,
   onLeave,
+  repo,
+  repoBusy,
+  repoDisabled,
+  githubConfigured,
+  onRepoAction,
 }: {
   focus: GraphThreadFocus | null;
   title: string;
   onShowInGraph: () => void;
   onPick: (itemName: string) => void;
   onLeave: () => void;
+  repo: GithubThreadRepo | null;
+  repoBusy: "sync" | "reorganize" | null;
+  repoDisabled: boolean;
+  githubConfigured: boolean | null;
+  onRepoAction: (repo: GithubThreadRepo, action: "sync" | "reorganize") => void;
 }) {
   const s = focus?.structure ?? null;
   const name = s?.projectName ?? title;
@@ -888,6 +1006,45 @@ function ProjectFocusBar({
           </Button>
         </span>
       </div>
+      {repo && (
+        <div className="flex flex-wrap items-center gap-x-2 gap-y-1 text-xs text-slate-600">
+          <span className="break-all">
+            GitHub · {repo.fullName}
+            {repo.private && " (비공개)"} · 동기화 {relativeTime(repo.fetchedAt)}
+            {repo.stale && " (오래됨)"}
+            {repo.aiExcluded && " · 비공개 저장소 허용이 꺼져 있어 AI에 보내지 않음"}
+          </span>
+          <span className="inline-flex flex-wrap gap-2">
+            <button
+              type="button"
+              className="underline disabled:opacity-50"
+              disabled={repoBusy !== null || repoDisabled || githubConfigured === false}
+              title={githubConfigured === false ? GITHUB_UNAVAILABLE_MESSAGE : undefined}
+              onClick={() => onRepoAction(repo, "sync")}
+            >
+              {repoBusy === "sync" ? "동기화 중…" : "다시 동기화"}
+            </button>
+            <button
+              type="button"
+              className="underline disabled:opacity-50"
+              disabled={repoBusy !== null || repoDisabled || githubConfigured === false || repo.aiExcluded}
+              title={
+                githubConfigured === false
+                  ? GITHUB_UNAVAILABLE_MESSAGE
+                  : repo.aiExcluded
+                    ? "계정 설정에서 '비공개 저장소도 가져오기'를 켜야 다시 정리할 수 있습니다."
+                    : undefined
+              }
+              onClick={() => onRepoAction(repo, "reorganize")}
+            >
+              {repoBusy === "reorganize" ? "요청 중…" : "새 정보로 다시 정리"}
+            </button>
+            <a href={repo.htmlUrl} target="_blank" rel="noreferrer" className="underline">
+              GitHub에서 보기
+            </a>
+          </span>
+        </div>
+      )}
       {focus?.exists === false && (
         <Alert tone="warning">구조화하던 프로젝트가 그래프에서 지워졌습니다. 일반 대화로 돌아가거나 다른 프로젝트를 골라 주세요.</Alert>
       )}

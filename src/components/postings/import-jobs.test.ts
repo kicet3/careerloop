@@ -56,7 +56,7 @@ describe("upsertImportJob", () => {
 describe("exploreSearchParams(공고 찾기 주소)", () => {
   it("빈 조건·기본 마감(마감 전)·병역특례 전체·1쪽은 싣지 않는다", () => {
     expect(exploreSearchParams(EMPTY_EXPLORE_FILTERS)).toBe("");
-    expect(exploreSearchParams({ ...EMPTY_EXPLORE_FILTERS, company: " 토스 ", tech: "React", deadline: "soon", military: "expert" }, 2)).toBe(
+    expect(exploreSearchParams({ ...EMPTY_EXPLORE_FILTERS, companies: ["토스"], tech: "React", deadline: "soon", military: "expert" }, 2)).toBe(
       "company=%ED%86%A0%EC%8A%A4&tech=React&deadline=soon&military=expert&page=2",
     );
     expect(exploreSearchParams({ ...EMPTY_EXPLORE_FILTERS, deadline: "all" }, 1)).toBe("deadline=all");

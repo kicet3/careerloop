@@ -5,6 +5,7 @@ import { Alert } from "@/components/ui/Alert";
 import { Button } from "@/components/ui/Button";
 import { cn } from "@/components/ui/cn";
 import { type CareerGraph, type GraphOp, NODE_LABEL_META, nodeDisplayName, PERSON_ID, REL_RULES } from "@/lib/domain/graph";
+import { openGithubPicker, repoFullNameFromUrl } from "@/components/github/client";
 import { openProjectChat } from "./api";
 import { displayProps, edgesOf, endpointLabel, endpointName, nodePeriod } from "./model";
 import { LABEL_STYLE } from "./styles";
@@ -42,6 +43,8 @@ export function NodeDetail({
   const basicProps = props.filter((p) => p.group !== "story");
   const storyProps = props.filter((p) => p.group === "story");
   const edges = edgesOf(graph, id);
+  // Project 주소가 GitHub 저장소면 그 저장소로 정리하기를 보인다.
+  const githubRepo = node?.label === "Project" ? repoFullNameFromUrl((node.props as { url?: string }).url) : null;
 
   async function run(key: string, ops: GraphOp[]) {
     setBusy(key);
@@ -138,6 +141,25 @@ export function NodeDetail({
           >
             이 프로젝트 대화로 구조화하기
           </Button>
+          {githubRepo && (
+            <div className="flex w-full flex-wrap items-center gap-2 border-t border-indigo-100 pt-2 text-xs">
+              <a href={(node.props as { url?: string }).url} target="_blank" rel="noreferrer" className="break-all text-indigo-700 underline underline-offset-2">
+                GitHub · {githubRepo}
+              </a>
+              <Button
+                size="sm"
+                variant="secondary"
+                className="ml-auto"
+                onClick={() => {
+                  if (!openGithubPicker({ fullName: githubRepo, projectNodeId: node.id })) {
+                    setError("이 화면에서는 GitHub 가져오기를 열 수 없습니다. 경험 그래프 화면에서 다시 시도해 주세요.");
+                  }
+                }}
+              >
+                GitHub 정보로 정리하기
+              </Button>
+            </div>
+          )}
         </div>
       )}
 

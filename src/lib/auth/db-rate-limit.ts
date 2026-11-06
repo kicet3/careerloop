@@ -41,6 +41,13 @@ export const POSTING_CAPTURE_TARGET_LIMIT: DbRateLimit = { bucket: "posting-capt
 /** MCP(외부 AI 앱의 경험 그래프 읽기) 요청: 사용자당 10분 300회(LLM 비용은 없지만 Neo4j 읽기·DB 조회를 막는다). */
 export const MCP_REQUEST_LIMIT: DbRateLimit = { bucket: "mcp", limit: 300, windowMs: 10 * 60_000 };
 
+/** GitHub 연결 시작: 사용자당 1시간 10회. */
+export const GITHUB_CONNECT_LIMIT: DbRateLimit = { bucket: "github-connect", limit: 10, windowMs: 60 * 60_000 };
+/** GitHub 저장소 정보 새로 읽기(실제로 GitHub을 부를 때만 센다 — 저장해 둔 정보 재사용은 세지 않는다): 사용자당 1시간 30회. */
+export const GITHUB_SYNC_LIMIT: DbRateLimit = { bucket: "github-sync", limit: 30, windowMs: 60 * 60_000 };
+/** GitHub 저장소로 프로젝트 정리 시작(LLM 호출 1회)·그 재시도: 사용자당 24시간 20회. */
+export const GITHUB_IMPORT_LIMIT: DbRateLimit = { bucket: "github-import", limit: 20, windowMs: 24 * 60 * 60_000 };
+
 /** IP는 원문 대신 해시로 저장한다. */
 export function ipKey(ip: string): string {
   return createHash("sha256").update(`ip:${ip}`).digest("base64url").slice(0, 32);

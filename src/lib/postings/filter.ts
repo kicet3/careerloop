@@ -2,6 +2,7 @@
  * 공고 목록 검색·필터·정렬(클라이언트·서버 공용, 순수).
  * CareerLoop(src/lib/postings.ts filterPostings)에서 가져옴 — 이 제품에 없는 분류(모음·카테고리·회사 유형)는 뺐다.
  */
+import { appendCompanyParams, companyKey, parseCompanyParam } from "@/lib/domain/company";
 import { POSTING_STATUSES, type JobPostingSummary, type PostingStatus } from "@/lib/domain/postings";
 import { parsePageParam } from "@/lib/pagination";
 import { deadlineInfo, isClosingSoon, postingDeadlineAt, type DeadlineInfo } from "./deadline";
@@ -19,9 +20,11 @@ export interface PostingFilters {
   /** "active"는 마감·보류를 뺀 진행 중 공고. */
   status: PostingStatus | "all" | "active";
   onlyClosingSoon: boolean;
+  /** 회사 키(companyKey) 목록 — 하나라도 맞으면 남긴다. 없거나 비면 거르지 않는다. */
+  companies?: string[];
 }
 
-export const EMPTY_POSTING_FILTERS: PostingFilters = { query: "", status: "active", onlyClosingSoon: false };
+export const EMPTY_POSTING_FILTERS: PostingFilters = { query: "", status: "active", onlyClosingSoon: false, companies: [] };
 
 type Row = Pick<
   JobPostingSummary,
@@ -30,7 +33,9 @@ type Row = Pick<
 
 export function filterPostings<T extends Row>(items: readonly T[], filters: PostingFilters, sort: PostingSort = "deadline", now: number = Date.now()): T[] {
   const query = filters.query.trim().toLowerCase();
+  const companies = filters.companies?.length ? new Set(filters.companies) : null;
   const filtered = items.filter((p) => {
+    if (companies && !companies.has(companyKey(p.company))) return false;
     if (filters.status === "active" && (p.status === "closed" || p.status === "on_hold")) return false;
     if (filters.status !== "all" && filters.status !== "active" && p.status !== filters.status) return false;
     if (query && ![p.company, p.roleTitle, p.location, p.note, p.url].join(" ").toLowerCase().includes(query)) return false;
@@ -56,7 +61,7 @@ export function filterPostings<T extends Row>(items: readonly T[], filters: Post
 }
 
 // ---------------------------------------------------------------------------
-// 공고 보관함 주소(/app/postings?q=&status=&sort=&soon=1&page=)
+// 공고 보관함 주소(/app/postings?q=&status=&company=&company=&sort=&soon=1&page=)
 // ---------------------------------------------------------------------------
 
 export const DEFAULT_POSTING_SORT: PostingSort = "deadline";
@@ -75,6 +80,7 @@ export function parsePostingSearchParams(sp: SearchParamsRecord): { filters: Pos
       query: first(sp.q).trim().slice(0, 100),
       status: (POSTING_STATUS_FILTERS as string[]).includes(status) ? (status as PostingFilters["status"]) : EMPTY_POSTING_FILTERS.status,
       onlyClosingSoon: first(sp.soon) === "1",
+      companies: parseCompanyParam(sp.company),
     },
     sort: (POSTING_SORTS as string[]).includes(sort) ? (sort as PostingSort) : DEFAULT_POSTING_SORT,
     page: parsePageParam(sp.page),
@@ -86,6 +92,7 @@ export function postingSearchParams(filters: PostingFilters, sort: PostingSort =
   const params = new URLSearchParams();
   if (filters.query.trim()) params.set("q", filters.query.trim());
   if (filters.status !== EMPTY_POSTING_FILTERS.status) params.set("status", filters.status);
+  appendCompanyParams(params, filters.companies);
   if (sort !== DEFAULT_POSTING_SORT) params.set("sort", sort);
   if (filters.onlyClosingSoon) params.set("soon", "1");
   if (page > 1) params.set("page", String(page));

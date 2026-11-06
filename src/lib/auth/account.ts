@@ -62,6 +62,8 @@ export interface DeleteAccountDeps {
   deleteGraph?: (userId: string) => Promise<void>;
   /** 테스트용: 저장소(users/<id>/ 접두사) 삭제를 바꾼다. */
   deleteStorage?: (userId: string) => Promise<void>;
+  /** 테스트용: GitHub 앱 권한 해지를 바꾼다. 기본은 revokeGithubGrant(최선 노력 — 실패해도 탈퇴는 진행). */
+  revokeGithub?: (userId: string) => Promise<unknown>;
 }
 
 async function deleteUserStorage(userId: string): Promise<void> {
@@ -71,7 +73,8 @@ async function deleteUserStorage(userId: string): Promise<void> {
 
 /**
  * 회원 탈퇴: 경험 그래프(Neo4j) → 저장소 객체(users/<id>/ 접두사, R2·로컬) → DB 사용자 행 순으로 지운다.
- * DB 행을 지우면 세션·보관 공고·진단·이력서·지원 기록·채팅·동의 기록·AI 토큰 사용량(llm_usage_events)·MCP 토큰(mcp_tokens)·경험 그래프 후속 질문(graph_followups)이 FK CASCADE로 함께 지워지고, 공용 공고(URL 가져오기·직접 입력 모두)의
+ * DB 행을 지우기 직전에 GitHub 연결이 있으면 GitHub에서 앱 권한을 해지한다(최선 노력 — 실패해도 로그만 남기고 진행).
+ * DB 행을 지우면 세션·보관 공고·진단·이력서·지원 기록·채팅·동의 기록·AI 토큰 사용량(llm_usage_events)·MCP 토큰(mcp_tokens)·경험 그래프 후속 질문(graph_followups)·GitHub 연결(github_accounts)과 가져온 저장소 정보(github_repo_snapshots)가 FK CASCADE로 함께 지워지고, 공용 공고(URL 가져오기·직접 입력 모두)의
  * created_by는 null이 된다(공용 공고 자체는 공고 페이지 내용이라 남는다). 그래프 삭제가 실패하면 아무것도 지우지 않고
  * graph_failed(다시 시도). 저장소 삭제가 실패해도 DB 행을 지우지 않고 storage_failed를 돌려준다 — 행이 남아 있어야 사용자가
  * 다시 탈퇴를 시도해 같은 접두사를 지울 수 있다(행을 먼저 지우면 남은 파일을 다시 찾을 길이 없다). 그래프는 이미 지워졌을 수 있지만
@@ -106,6 +109,10 @@ export async function deleteAccount(userId: string, deps: DeleteAccountDeps = {}
     where: { userId, sharedPostingId: { not: null } },
     distinct: ["sharedPostingId"],
   });
+
+  // GitHub 앱 권한 해지(토큰은 곧 행과 함께 지워진다). revokeGithubGrant는 던지지 않지만 혹시 모를 오류도 탈퇴를 막지 않는다.
+  const revoke = deps.revokeGithub ?? (async (id: string) => (await import("@/lib/github/account")).revokeGithubGrant(id));
+  await revoke(userId).catch((err) => console.error("[deleteAccount] GitHub 권한 해지 실패", err));
 
   await prisma.$transaction([
     // rate_events는 사용자 FK가 없다 — 사용자 id를 키로 쓴 기록만 지운다(IP 키는 해시라 사용자와 연결되지 않는다).

@@ -41,10 +41,14 @@ import {
   GraphChatOutputSchema,
   GraphImportOutputSchema,
   type GraphProposalData,
+  GraphRepoImportOutputSchema,
   MAX_IMPORT_OPS,
+  MAX_REPO_IMPORT_OPS,
+  MAX_REPO_IMPORT_QUESTIONS,
+  type RepoImportData,
 } from "@/lib/domain/chat";
 import { FeatureError } from "@/lib/api/errors";
-import { type DbRateLimit, GRAPH_CHAT_LIMIT, GRAPH_IMPORT_LIMIT, hitDbLimit } from "@/lib/auth/db-rate-limit";
+import { type DbRateLimit, GITHUB_IMPORT_LIMIT, GRAPH_CHAT_LIMIT, GRAPH_IMPORT_LIMIT, hitDbLimit } from "@/lib/auth/db-rate-limit";
 import { BodyTooLargeError, readBodyLimited } from "@/lib/diagnoses/body";
 import {
   addMessage,
@@ -65,6 +69,10 @@ import { assessProjectStructure, type ProjectStructure, projectFocusText, restri
 import { storyTagName } from "@/lib/domain/experience-categories";
 import type { FollowupAnswerData, GraphFollowup } from "@/lib/domain/followups";
 import { skillKey } from "@/lib/skills/dictionary";
+import { GRAPH_CHAT_FOCUS_RULES } from "./graph-focus-rules";
+import { buildRepoImportPrompt, repoBriefBlock } from "./graph-repo-import";
+import type { GithubThreadRepo } from "@/lib/github/types";
+import { includePrivateAllowed, type RepoSnapshot, snapshotByRepoId, snapshotForProject, threadRepoView, unlinkDeletedProjects } from "@/lib/github/snapshots";
 import { modelGuide } from "./graph-guide";
 import {
   buildGraphImportPrompt,
@@ -100,6 +108,8 @@ export const REPLY_TIMEOUT_MS = 270_000;
 export const STALE_AFTER_MS = 330_000;
 /** 프로젝트 단위 대화에서 그 프로젝트가 그래프에서 지워졌을 때의 답. */
 export const FOCUS_MISSING_REPLY = "구조화하던 프로젝트를 그래프에서 찾을 수 없습니다. 지워졌다면 새 대화를 시작하거나 다른 프로젝트를 골라 주세요.";
+/** GitHub 저장소로 정리하는데 저장소 정보(snapshot)가 없을 때(연결 해제 등)의 답. */
+export const REPO_MISSING_REPLY = "GitHub 저장소 정보를 찾을 수 없습니다. 연결 상태를 확인하고 다시 가져와 주세요.";
 /** 새 스레드 기본 제목(첫 메시지로 바뀐다). */
 export const DEFAULT_THREAD_TITLE = "새 대화";
 /** 프롬프트에 넣는 그래프 요약 상한(글자). */
@@ -136,14 +146,8 @@ ${modelGuide()}
 
 ${INJECTION_RULE}`;
 
-/** 프로젝트 단위 대화(스레드에 focusNodeId가 있을 때) 시스템 프롬프트에 덧붙이는 규칙. */
-export const GRAPH_CHAT_FOCUS_RULES = `프로젝트 단위 대화 규칙(위 규칙보다 우선한다):
-P1. 이 대화는 <${CHAT_TAGS.focusProject}>의 '구조화할 프로젝트' 하나를 깊게 정리하는 인터뷰다. 사용자의 답을 그 프로젝트의 배경·문제, 내 역할, 한 일, 사용 기술, 성과, 기간·소속, 배운 점으로 나눠 넣는다.
-P2. 질문은 한 번에 하나만 한다. 질문은 followUpQuestions에 정확히 1개(모두 채웠으면 0개)만 넣고, 화면이 따로 보여 주므로 reply에 같은 질문을 되풀이하지 않는다. 사용자가 방금 답한 항목을 먼저 정리하고, 그다음 프로젝트 구조화 체크리스트에서 '다음에 물을 항목'(빠진 항목 중 가장 앞)을 묻는다. 다만 이 대화에서 사용자가 모른다·없다·넘어가자고 한 항목은 다시 묻지 않고 그다음 미완료 항목으로 넘어간다(성과 수치가 없다고 하면 정성 결과만 result에 넣고 수치를 지어내지 않는다). 수치·기간처럼 구체적으로 답할 수 있게 묻는다. 위 규칙 2·13의 전체 경험 체크리스트 질문은 이 대화에서는 하지 않는다.
-P3. 모든 연산은 이 프로젝트에 붙는다: 프로젝트 속성은 updateNode(id는 그 프로젝트 id)로, 새 노드는 같은 변경안에서 이 프로젝트(또는 이 프로젝트에 이은 새 노드)와 관계로 잇는다. 기술은 이 프로젝트 -USED_SKILL-> Skill, 수치 성과는 이 프로젝트 -ACHIEVED-> Achievement, 따로 떼어 낼 일화는 Experience -RELATED_TO-> 이 프로젝트(+ me -HAS_EXPERIENCE-> Experience), 소속은 Role -WORKED_ON-> 이 프로젝트 또는 이 프로젝트 -PART_OF-> Company|Experience|Education.
-P4. 새 Project를 만들지 않고, 이 프로젝트와 관련 없는 노드를 고치거나 지우지 않는다. 사용자가 다른 프로젝트·경험을 이야기하면 ops 없이 일반 대화에서 정리하라고 안내한다. 이 범위를 벗어난 연산은 서버가 뺀다.
-P5. 기존 속성 값이 있으면 사용자가 새로 말한 내용을 더해 다시 쓴다(지우지 않는다). 프로젝트 속성은 '이 프로젝트의 현재 속성(원문 그대로)'을 기준으로 다시 쓴다. 값 끝에 '…(잘림)'이 붙은 속성은 원문이 아니므로 그 값을 바탕으로 다시 쓰지 않는다. 합친 값이 속성 상한(situation·action·result·learned 1000자)을 넘으면 뜻을 잃지 않게 요약해 줄인다. 사용자가 말하지 않은 내용은 채우지 않는다.
-P6. <${CHAT_TAGS.followupQuestions}>가 있으면: '지금 답하는 질문'이 있으면 사용자의 최근 메시지는 그 질문에 대한 답이니 그 답을 먼저 정리한다. 다음 질문(followUpQuestions의 1개)은 '남은 후속 질문' 중 가장 앞의 것을 글자 그대로 옮겨 묻고, 남은 것이 없을 때만 체크리스트의 다음 항목을 묻는다.`;
+/** 프로젝트 단위 대화(스레드에 focusNodeId가 있을 때) 시스템 프롬프트에 덧붙이는 규칙(graph-focus-rules.ts — 저장소 가져오기 프롬프트도 쓴다). */
+export { GRAPH_CHAT_FOCUS_RULES };
 
 /**
  * 일반 대화에서 사용자가 후속 질문에 답할 때의 안내. 시스템 프롬프트가 아니라 구분자 뒤 후속 질문 블록에 넣는다
@@ -165,6 +169,11 @@ export function conversationForPrompt(messages: readonly ChatMessage[]): Pick<Ch
         role: "user",
         content: `(자료: ${DOC_KIND_NAMES[m.data.docKind]} ${m.data.fileName ?? "붙여넣은 글"}, ${m.data.chars.toLocaleString()}자 — 원문은 <${tag}>에)`,
       });
+      continue;
+    }
+    if (m.role === "user" && m.data?.kind === "repo-import") {
+      // 저장소 정보는 대화가 아니라 <github_repo>로 따로 넣는다(buildGraphChatPrompt repoBrief).
+      out.push({ role: "user", content: `(자료: GitHub 저장소 ${m.data.fullName} — 정보는 <${CHAT_TAGS.githubRepo}>에)` });
       continue;
     }
     if (m.role === "user" && m.data?.kind === "followup-answer") {
@@ -205,6 +214,8 @@ export function buildGraphChatPrompt(input: {
   focusProjectId?: string | null;
   /** 후속 질문: 이번 메시지가 답하는 질문(current)과 그 프로젝트의 남은 열린 질문(rest, 프로젝트 대화만). */
   followups?: { current: string | null; rest: readonly string[] } | null;
+  /** 프로젝트 대화: 이 프로젝트에 이은 GitHub 저장소 요약(github_repo_snapshots.brief). 구분자 앞(캐시 접두사)에 넣는다. */
+  repoBrief?: string | null;
 }): { system: string; user: string } {
   // 날짜는 한국 시간 기준(UTC로 자르면 KST 00:00~09:00에 하루 전 날짜가 들어간다).
   const today = kstToday(input.today ?? Date.now());
@@ -219,6 +230,7 @@ export function buildGraphChatPrompt(input: {
     "경험 체크리스트(빠진 필수 항목부터):",
     wrapData(CHAT_TAGS.experienceChecklist, checklistToPromptText(assessExperienceChecklist(input.graph))),
     ...(focusText ? ["", "이 대화에서 구조화할 프로젝트(모든 변경안은 이 프로젝트에 붙인다):", wrapData(CHAT_TAGS.focusProject, focusText)] : []),
+    ...(focusText && input.repoBrief ? repoBriefBlock(input.repoBrief) : []),
     ...latestDocumentBlock(input.messages),
     STAGE_TASK_DELIMITER,
     field("오늘 날짜", today),
@@ -442,6 +454,10 @@ export interface ProposalOptions {
   sourceText?: string;
   /** 프로젝트 단위 대화: 이 Project에 붙는 연산만 남긴다(restrictToFocus). */
   focusNodeId?: string | null;
+  /** 남길 후속 질문 수(기본: 프로젝트 대화 1개, 그 밖 3개). GitHub 저장소 가져오기는 5개. */
+  maxQuestions?: number;
+  /** sourceText가 있을 때 data.source(기본 "document-import"). */
+  sourceKind?: "document-import" | "repo-import";
 }
 
 /**
@@ -474,7 +490,10 @@ export function proposalFromOutput(
     ...validated.dropped,
   ];
   // 프로젝트 단위 대화는 한 번에 한 질문만(P2) — 서버에서도 자른다.
-  const followUpQuestions = output.followUpQuestions.map((q) => q.trim()).filter(Boolean).slice(0, opts.focusNodeId ? 1 : 3);
+  const followUpQuestions = output.followUpQuestions
+    .map((q) => q.trim())
+    .filter(Boolean)
+    .slice(0, opts.maxQuestions ?? (opts.focusNodeId ? 1 : 3));
   const allDropped = droppedOps.length > 0 || deduped.merged.length > 0 ? [...deduped.merged, ...droppedOps].slice(0, imported ? 40 : 20) : [];
 
   // 후속 질문 후보: 뺀 항목 중 사용자가 채울 수 있는 것(근거·기간·수치) + 변경안의 후속 질문.
@@ -499,14 +518,18 @@ export function proposalFromOutput(
 
   const data: GraphProposalData = {
     kind: "graph-proposal",
-    ...(imported ? { source: "document-import" as const } : {}),
+    ...(imported ? { source: opts.sourceKind ?? ("document-import" as const) } : {}),
     ops: validated.ops,
     summary: validated.ops.length > 0 ? output.summary.trim().slice(0, 300) || `${validated.ops.length}개 변경` : "",
     followUpQuestions,
     ...(allDropped.length > 0 ? { droppedOps: allDropped } : {}),
     ...(droppedFollowups.length > 0 ? { droppedFollowups } : {}),
   };
-  const emptyReply = imported ? "문서에서 그래프에 넣을 항목을 찾지 못했습니다." : "알겠습니다.";
+  const emptyReply = !imported
+    ? "알겠습니다."
+    : opts.sourceKind === "repo-import"
+      ? "저장소에서 그래프에 넣을 항목을 찾지 못했습니다."
+      : "문서에서 그래프에 넣을 항목을 찾지 못했습니다.";
   const content = output.reply.trim() || (validated.ops.length > 0 ? "말씀하신 내용으로 변경안을 만들었어요. 확인 후 적용해 주세요." : emptyReply);
   return { content: content.slice(0, 8000), data, status: validated.ops.length > 0 ? "proposed" : null, followups };
 }
@@ -604,11 +627,17 @@ export async function openFocusedGraphThread(
   userId: string,
   projectId: string,
   deps: Pick<GraphChatDeps, "getGraph"> = defaultGraphChatDeps,
+  /** preferThreadId: 이 사용자의 그 프로젝트 대화면 그 대화를 쓴다(지금 보고 있는 대화에 이어 쓰기). 아니면 가장 최근 대화. */
+  opts: { preferThreadId?: string | null } = {},
 ): Promise<{ thread: ChatThread; created: boolean }> {
   assertGraphEnabled();
   const graph = await deps.getGraph(userId, null);
   if (!assessProjectStructure(graph, projectId)) {
     throw new FeatureError("프로젝트를 찾을 수 없습니다. 그래프를 새로 고친 뒤 다시 시도해 주세요.", 404);
+  }
+  if (opts.preferThreadId) {
+    const preferred = await getThread(userId, opts.preferThreadId);
+    if (preferred && preferred.kind === "graph" && preferred.focusNodeId === projectId) return { thread: preferred, created: false };
   }
   const [latest] = await listThreads(userId, { kind: "graph", focusNodeId: projectId, limit: 1 });
   if (latest) return { thread: latest, created: false };
@@ -638,6 +667,8 @@ export interface GraphThreadView extends ThreadReplyState {
   messages: GraphChatMessageView[];
   /** 프로젝트 단위 대화일 때만. */
   focus?: GraphThreadFocus;
+  /** 프로젝트 대화이고 그 프로젝트에 GitHub 저장소를 이었을 때만. */
+  repo?: GithubThreadRepo;
   /**
    * 후속 질문: 프로젝트 대화면 그 프로젝트의 열린·건너뛴 질문, 일반 대화면 프로젝트 미지정의 열린 질문(오래된 것부터).
    * 읽지 못하면 빈 목록(대화는 보여 준다).
@@ -674,6 +705,13 @@ export async function getGraphThreadView(
     const structure = graph ? assessProjectStructure(graph, thread.focusNodeId) : null;
     focus = { nodeId: thread.focusNodeId, exists: graph ? structure !== null : null, structure };
   }
+  const snapshot = thread.focusNodeId
+    ? await snapshotForProject(userId, thread.focusNodeId).catch((err) => {
+        console.error("[graph-chat github]", threadId, err);
+        return null;
+      })
+    : null;
+  const includePrivateOk = snapshot?.private ? await includePrivateAllowed(userId).catch(() => false) : false;
   const followups = await listFollowups(
     userId,
     thread.focusNodeId
@@ -683,7 +721,14 @@ export async function getGraphThreadView(
     console.error("[graph-chat followups]", threadId, err);
     return [];
   });
-  return { thread, messages: view, ...replyState(messages, deps.now()), ...(focus ? { focus } : {}), followups };
+  return {
+    thread,
+    messages: view,
+    ...replyState(messages, deps.now()),
+    ...(focus ? { focus } : {}),
+    ...(snapshot ? { repo: threadRepoView(snapshot, deps.now(), includePrivateOk) } : {}),
+    followups,
+  };
 }
 
 /**
@@ -740,7 +785,7 @@ export async function startUserMessage(
   threadId: string,
   input: {
     content: string;
-    data: DocumentImportData | FollowupAnswerData | null;
+    data: DocumentImportData | FollowupAnswerData | RepoImportData | null;
     title: string;
     kind: ChatThreadKind;
     limit: DbRateLimit;
@@ -792,6 +837,7 @@ export async function startGraphChatRetry(
   if (!lastUser) throw new FeatureError("다시 시도할 메시지가 없습니다.", 409);
   // 사용자당 전송 상한(DB 원장 — 인스턴스 사이에 공유된다). 문서 가져오기 재시도는 가져오기 하루 상한도 센다.
   if (lastUser.data?.kind === "document-import") await assertWithinLimit(GRAPH_IMPORT_LIMIT, userId);
+  if (lastUser.data?.kind === "repo-import") await assertWithinLimit(GITHUB_IMPORT_LIMIT, userId);
   await assertWithinLimit(GRAPH_CHAT_LIMIT, userId);
   let lastId = messages.at(-1)!.id;
   if (state.stale) {
@@ -804,8 +850,11 @@ export async function startGraphChatRetry(
     if (!marker) throw new FeatureError("대화를 찾을 수 없습니다.", 404);
     lastId = marker.id;
   }
-  // 문서 가져오기 메시지는 읽어 낸 글(data)까지, 후속 질문에 대한 답은 그 질문 연결까지 다시 보낸다.
-  const data = lastUser.data?.kind === "document-import" || lastUser.data?.kind === "followup-answer" ? lastUser.data : null;
+  // 문서·저장소 가져오기 메시지는 data까지, 후속 질문에 대한 답은 그 질문 연결까지 다시 보낸다.
+  const data =
+    lastUser.data?.kind === "document-import" || lastUser.data?.kind === "followup-answer" || lastUser.data?.kind === "repo-import"
+      ? lastUser.data
+      : null;
   const msg = await addMessage(userId, { threadId, role: "user", content: lastUser.content, data }, { expectLastId: lastId }).catch(
     rethrowConcurrent,
   );
@@ -856,11 +905,12 @@ export async function runGraphChatReply(
   const deadlineAt = (opts.startedAt ?? Date.now()) + REPLY_TIMEOUT_MS;
   const deadline = AbortSignal.timeout(Math.max(0, deadlineAt - Date.now()));
   const doc = latest.data?.kind === "document-import" ? latest.data : null;
+  const repoImport = latest.data?.kind === "repo-import" ? latest.data : null;
   try {
     deadline.throwIfAborted();
     const focusNodeId = (await getThread(userId, threadId))?.focusNodeId ?? null;
     const graph = await untilAborted(deps.getGraph(userId, personName), deadline);
-    if (focusNodeId && !doc && !assessProjectStructure(graph, focusNodeId)) {
+    if ((focusNodeId && !doc && !assessProjectStructure(graph, focusNodeId)) || (repoImport && !focusNodeId)) {
       // 구조화하던 프로젝트가 지워졌다: LLM을 부르지 않고 안내만 남긴다.
       return await addMessage(
         userId,
@@ -878,10 +928,43 @@ export async function runGraphChatReply(
           .filter((f) => f.id !== current?.id && !answeredHere.has(f.id))
           .map((f) => f.text)
       : [];
+    // GitHub 저장소: 가져오기 메시지면 그 저장소, 이후 대화면 이 프로젝트에 이은 저장소(비공개는 지금도 허용한 경우만).
+    let repo: RepoSnapshot | null = null;
+    if (repoImport) {
+      repo = await loadAllowedSnapshot(userId, () => snapshotByRepoId(userId, repoImport.repoId));
+      if (!repo) {
+        return await addMessage(
+          userId,
+          { threadId, role: "assistant", content: REPO_MISSING_REPLY, data: null, status: "failed" },
+          { expectLastId: latest.id },
+        );
+      }
+    } else if (focusNodeId && !doc) {
+      repo = await loadAllowedSnapshot(userId, () => snapshotForProject(userId, focusNodeId));
+    }
     const client = deps.createClient(provider, { userId, referenceId: threadId });
     let proposal: ReturnType<typeof proposalFromOutput>;
     let usage;
-    if (doc) {
+    if (repoImport && repo && focusNodeId) {
+      // GitHub 저장소로 이 프로젝트 정리: 저장소 요약만 근거로(문서 가져오기와 같은 검증), 연산 40개·질문 5개까지.
+      const prompt = buildRepoImportPrompt({ graph, focusProjectId: focusNodeId, brief: repo.brief, today: new Date(deps.now()) });
+      const res = await client.generate({
+        task: "graph-repo-import",
+        system: prompt.system,
+        user: prompt.user,
+        schema: GraphRepoImportOutputSchema,
+        effort: "medium",
+        signal: deadline,
+      });
+      usage = res.usage;
+      proposal = proposalFromOutput(res.output, graph, {
+        maxOps: MAX_REPO_IMPORT_OPS,
+        sourceText: repo.brief,
+        focusNodeId,
+        maxQuestions: MAX_REPO_IMPORT_QUESTIONS,
+        sourceKind: "repo-import",
+      });
+    } else if (doc) {
       // 이력서·포트폴리오 가져오기: 문서 원문만 근거로, 연산 상한 MAX_IMPORT_OPS.
       const prompt = buildGraphImportPrompt({ graph, doc, today: new Date(deps.now()) });
       const res = await client.generate({
@@ -902,6 +985,7 @@ export async function runGraphChatReply(
         today: new Date(deps.now()),
         focusProjectId: focusNodeId,
         followups: { current: current?.text ?? null, rest },
+        repoBrief: repo?.brief ?? null,
       });
       const res = await client.generate({
         task: "graph-chat",
@@ -944,6 +1028,19 @@ export async function runGraphChatReply(
       },
       { expectLastId: latest.id },
     ).catch(() => null);
+  }
+}
+
+/** 저장소 정보를 읽는다. 비공개 저장소는 지금도 비공개 허용을 켠 경우만. 읽지 못하면 null(대화는 저장소 없이 이어간다). */
+async function loadAllowedSnapshot(userId: string, load: () => Promise<RepoSnapshot | null>): Promise<RepoSnapshot | null> {
+  try {
+    const snap = await load();
+    if (!snap) return null;
+    if (snap.private && !(await includePrivateAllowed(userId))) return null;
+    return snap;
+  } catch (err) {
+    console.error("[graph-chat github]", err);
+    return null;
   }
 }
 
@@ -1007,7 +1104,7 @@ export async function applyGraphProposal(
     // 제안 뒤에 다른 변경안이 같은 노드를 먼저 만들었을 수 있다: 적용 직전 그래프로 중복을 다시 합친다.
     const current = await deps.getGraph(userId, null);
     const deduped = dedupeAgainstGraph(msg.data.ops, current);
-    const maxOps = msg.data.source === "document-import" ? MAX_IMPORT_OPS : undefined;
+    const maxOps = msg.data.source === "document-import" ? MAX_IMPORT_OPS : msg.data.source === "repo-import" ? MAX_REPO_IMPORT_OPS : undefined;
     const result = await deps.applyOps(userId, deduped.ops, maxOps ? { maxOps } : undefined);
     const data: GraphProposalData = { ...msg.data, created: result.created };
     if (deduped.merged.length > 0) {
@@ -1020,6 +1117,9 @@ export async function applyGraphProposal(
       else delete data.droppedFollowups;
     }
     const message = await updateMessage(userId, messageId, { data });
+    // 지운 Project에 이어 둔 GitHub 저장소 연결을 푼다(Neo4j id라 FK가 없다).
+    const deletedIds = deduped.ops.flatMap((o) => (o.op === "deleteNode" ? [o.id] : []));
+    await unlinkDeletedProjects(userId, deletedIds).catch((err) => console.error("[graph-chat github]", messageId, err));
     await resolveFollowupsAfterApply(userId, messageId, deduped, result.created, msg.data.followupId ?? null, deps).catch((err) =>
       console.error("[graph-chat followups]", messageId, err),
     );
