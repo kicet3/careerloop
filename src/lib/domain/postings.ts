@@ -248,18 +248,22 @@ export type JobPostingSummary = Omit<JobPosting, "jdText" | "structured" | "sour
 // URL 가져오기 작업
 // ---------------------------------------------------------------------------
 
-/** rendering: 정적 HTML에 본문이 없어 페이지를 브라우저로 열어 읽는 중(reading 단계의 일부로 보여 준다). */
-export const POSTING_IMPORT_STATUSES = ["queued", "reading", "rendering", "analyzing", "completed", "failed"] as const;
+/**
+ * requesting: 정적 HTML에 본문이 없어 페이지가 내용을 불러오는 데이터 주소를 직접 요청하는 중, rendering: 페이지를 브라우저로
+ * 열어 읽는 중(둘 다 reading 단계의 일부로 보여 준다).
+ */
+export const POSTING_IMPORT_STATUSES = ["queued", "reading", "requesting", "rendering", "analyzing", "completed", "failed"] as const;
 export type PostingImportStatus = (typeof POSTING_IMPORT_STATUSES)[number];
 export const POSTING_IMPORT_STATUS_LABELS: Record<PostingImportStatus, string> = {
   queued: "대기 중",
   reading: "공고 읽는 중",
+  requesting: "데이터 요청 중",
   rendering: "페이지 열어 읽는 중",
   analyzing: "AI 분석 중",
   completed: "추가 완료",
   failed: "추가 실패",
 };
-export const isPostingImportActive = (s: PostingImportStatus) => s === "queued" || s === "reading" || s === "rendering" || s === "analyzing";
+export const isPostingImportActive = (s: PostingImportStatus) => s === "queued" || s === "reading" || s === "requesting" || s === "rendering" || s === "analyzing";
 
 export interface PostingImportJob {
   id: string;

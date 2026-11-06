@@ -7,8 +7,9 @@ import "server-only";
  * - SSRF(fetch.ts와 같은 규칙): 첫 주소는 publicTarget으로 확인한다. 브라우저의 모든 네트워크(하위 리소스·리다이렉트·웹소켓·
  *   서비스 워커 포함)는 capture-egress.ts의 프록시만 지나며, 프록시가 호스트를 다시 확인하고 검사한 IP로만 연결한다(DNS 고정).
  *   요청 가로채기(setRequestInterception)는 그 앞의 1차 거름망 — 허용하지 않는 스킴·호스트·포트·자원 종류는 abort한다.
- * - 우회하지 않는다: 스텔스 플러그인·지문 위장·검사 풀기·프록시 우회를 쓰지 않는다. User-Agent는 실제 브라우저 값에서
- *   'HeadlessChrome'만 'Chrome'으로 바꾼 것(캡처와 같다).
+ * - 스텔스 플러그인·검사 풀기·프록시 우회를 쓰지 않는다. User-Agent는 기본으로 실제 브라우저 값에서 'HeadlessChrome'만
+ *   'Chrome'으로 바꾼다(원문 캡처·빈 껍데기 페이지 열어 읽기 — 이전부터의 동작). 정적 요청이 보안 검사로 막힌 페이지를 다시 여는
+ *   경우(honestUserAgent)는 바꾸지 않고 실제 값('HeadlessChrome' 포함)을 그대로 보낸다 — 막힌 걸 알고 헤드리스 표시를 지우지 않는다.
  * - 한 인스턴스에서 동시에 띄우는 브라우저는 MAX_CONCURRENT_BROWSERS개(캡처·열어 읽기 공용 세마포어).
  * - 쿠키·저장소가 남지 않는 새 컨텍스트, 다운로드 금지, 서비스 워커 우회, 대화상자 닫기. 끝나면 브라우저·프록시를 항상 닫는다.
  */
@@ -96,6 +97,16 @@ async function launchBrowser(proxyUrl: string, opts: { executablePath?: string; 
 
 const DESKTOP_UA_FALLBACK = "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/153.0.0.0 Safari/537.36";
 
+/**
+ * 페이지에 쓸 User-Agent(순수). honest면 브라우저가 알려 준 값 그대로, 아니면 'HeadlessChrome'을 'Chrome'으로 바꾼 값
+ * (Chrome 표기가 없으면 데스크톱 대체값).
+ */
+export function pageUserAgent(browserUa: string, honest: boolean): string {
+  if (honest) return browserUa;
+  const ua = browserUa.replace(/HeadlessChrome/g, "Chrome");
+  return ua.includes("Chrome/") ? ua : DESKTOP_UA_FALLBACK;
+}
+
 /** p를 기다리되 signal이 끊기면 바로 거절한다(signal.reason이 Error면 그것, 아니면 fallback()). */
 export function raceAbort<T>(p: Promise<T>, signal: AbortSignal, fallback: () => Error = () => new Error("aborted")): Promise<T> {
   const reason = () => (signal.reason instanceof Error ? signal.reason : fallback());
@@ -164,6 +175,8 @@ export interface GuardedPageOptions<E extends Error> {
   messages: { noBrowser: string; timeout: string; generic: string };
   /** 로그 접두어. */
   logTag: string;
+  /** User-Agent를 바꾸지 않는다(브라우저의 실제 값, 'HeadlessChrome' 포함) — 보안 검사로 막힌 페이지를 다시 열 때. */
+  honestUserAgent?: boolean;
   /** 브라우저 실행(테스트 주입용). 기본은 서버리스 @sparticuz/chromium 또는 로컬 Chrome. */
   launch?: (proxyUrl: string, opts: { executablePath?: string; protocolTimeoutMs: number }) => Promise<Browser>;
 }
@@ -221,8 +234,7 @@ export async function withGuardedPage<T, E extends Error>(url: string, opts: Gua
     const cdp = await page.createCDPSession();
     await cdp.send("Browser.setDownloadBehavior", { behavior: "deny" }).catch(() => {});
     await page.setBypassServiceWorker(true);
-    const ua = (await b.userAgent()).replace(/HeadlessChrome/g, "Chrome");
-    await page.setUserAgent({ userAgent: ua.includes("Chrome/") ? ua : DESKTOP_UA_FALLBACK });
+    if (!opts.honestUserAgent) await page.setUserAgent({ userAgent: pageUserAgent(await b.userAgent(), false) });
     await page.setExtraHTTPHeaders({ "accept-language": "ko-KR,ko;q=0.9,en;q=0.8" });
     page.on("dialog", (d) => void d.dismiss().catch(() => {}));
 

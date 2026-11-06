@@ -1,0 +1,764 @@
+<!-- careers.smilegate.com/apply/announce/view?seq=6217 (2026-11) 정적 응답에서 데이터 요청 탐색에 쓰는 부분만 남긴 것: 제목·공유 메타, 머리글 스크립트(팝업·FAQ API 호출), 공고 상세 스크립트(announceDetail — /api/apply/announce 상세 호출) 원문, 외부 스크립트 태그. 화면 마크업은 지웠다. -->
+<!DOCTYPE html><html lang="ko"><head><meta charset="UTF-8">
+<title>Smilegate Careers</title>
+		<meta property="og:title" content="스마일게이트(사업부문) 채용"> 
+<script type="text/javascript" src="/assets/js/jquery-3.5.1.min.js"></script>
+<script type="text/javascript" src="/assets/js/knockout-3.5.1.js"></script>
+<script type="text/javascript" src="/assets/js/common.js?ver=3"></script>
+<script type="text/javascript" src="/assets/js/callAjax.js"></script>
+</head><body><div class="container" data-bind="with: detail"><h3 data-bind="text: title"></h3></div>
+			<script>
+
+				var gnb = function () {
+
+					var self = this;
+
+					this.popContent = ko.observable(null);
+					this.boardSeq = ko.observable(null);
+					this.faqKeywordList = ko.observableArray([]);
+					this.faqList = ko.observableArray([]);
+
+					pageInit = function () {
+						if (common.isLogin()) {
+							if (userInfo.userTypeCd == 'HEADHUNTER' || userInfo.userTypeCd == 'DISPATCHER') {
+								callAjax.get("/api/etc/pop", null, function (result, textStatus, xhr) {
+									if (result.displayYn) {
+										$('.pop_head_hunter').fadeIn(300);
+										$('body, html').css('overflow', 'hidden');
+										setLayerPopHeight('pop_head_hunter');
+										self.popContent(result.contents);   // 서버 정화 결과 - 재디코딩 금지
+										self.boardSeq(result.boardSeq);
+									}
+								}, null, null)
+							}
+						}
+					}
+
+					pageInit();
+
+					closePop = function () {
+						var obj = {
+							agreementYn: true,
+							boardSeq: self.boardSeq()
+						}
+						callAjax.put("/api/etc/noPop", obj, function (result, textStatus, xhr) {
+							console.log(result)
+							$('.btn_pop_close').trigger('click');
+						}, null, null)
+					}
+
+					getFaqKeywordList = function () {
+						callAjax.get('/api/faq/mainKeyword', null, function (result, textStatus, xhr) {
+							console.log(result);
+							self.faqKeywordList(result);
+						}, null, null);
+					}
+
+					getFaqKeywordList();
+
+					getFaqList = function (code) {
+						callAjax.get('/api/faq/mainList/' + code, null, function (result, textStatus, xhr) {
+							console.log(result);
+							self.faqList(result);
+						}, null, null);
+					}
+
+					goPageWith = function (type) {
+						console.log(type)
+						if (type == 'inquiry') {
+							if (common.isLogin()) {
+								location.href = "/mypage/inquiry/write";
+							} else {
+								location.href = "/faq/write";
+							}
+						} else {
+							console.log(type);
+							location.href = type;
+						}
+					}
+				};
+				ko.applyBindings(new gnb(), document.getElementById("ko_gnb"));
+			</script>
+        <script>
+            window.onbeforeunload = function () {
+                localStorage.setItem("referrerUrl", location.href);
+            };
+            var announceDetail = function () {
+                var self = this;
+
+                var url = "/api/apply/announce";
+                
+                /* 비공개 팝업 */
+                self.nowAnnounceTypeCd = ko.observable();
+
+                var completeFunction = function (xhr, textStatus) {
+                    //console.log("complete1", xhr);
+                    //console.log("complete2", textStatus);
+                }
+
+                var errorFunction = function (xhr, errorName, error) {
+                    console.log("error1", xhr);
+                    console.log("error2", errorName);
+                    console.log("error3", error);
+                }
+
+                this.detail = ko.observable({
+                    announceSeq: ko.observable(),
+                    companyCd: ko.observable(),
+                    title: ko.observable(),
+                    careerTypeCd: ko.observable(),
+                    hireTypeCd: ko.observable(),
+                    endDate: ko.observable(),
+                    description: ko.observable(),
+                    commonNotice: ko.observable(),
+                    jobCd: ko.observable(),
+                    workInfo: ko.observable(),
+                    qualificationDesc: ko.observable(),
+                    abilityDesc: ko.observable(),
+                    specialDesc: ko.observable(),
+                    requirementDoc: ko.observable(),
+                    gameGenreCd: ko.observable(),
+                    gamePlatformCd: ko.observable(),
+                    poolYn: ko.observable(),
+                    displayYn: ko.observable(),
+                    applyRouteYn: ko.observable(),
+                    projectSeq: ko.observable(),
+                    projectNm: ko.observable(),
+                    companyNm: ko.observable(),
+                    companyDesc: ko.observable(),
+                    careerTypeNm: ko.observable(),
+                    hireTypeNm: ko.observable(),
+                    jobNm: ko.observable(),
+                    gameGenreNm: ko.observable(),
+                    interestYn: ko.observable(),
+                    screening: ko.observableArray([]),
+                    logoFile: ko.observable(),
+                    relatedAnnounce: ko.observableArray([]),
+                    companyInfo: ko.observable(),
+                    displayYn : ko.observable(),
+                    status : ko.observable(),
+                    projectDisplayYn : ko.observable(),
+                    projectStatus : ko.observable(),
+                    dateEndYn : ko.observable(),
+                    // 타입코드
+                    announceTypeCd: ko.observable(),                                    
+                    //비공개 공고 여부
+                    urlYn : ko.observable(false),
+                    // 공고 URL 비밀번호
+                    urlPassword : ko.observable(),
+                    //비공개 프로젝트 여부
+                    prjUrlYn : ko.observable(false),
+                    // 프로젝트 URL 비밀번호
+                    prjUrlPassword: ko.observable()      
+                });
+                this.seq = ko.observable(null);
+                this.infoList = ko.observable([]);
+                this.isHeadHunter = ko.observable(false);
+                //공고 비밀번호
+                self.announcePassword = ko.observable(null);
+                //프로젝트 비밀번호
+                self.projectPassword = ko.observable(null);
+                //비밀번호 팝업 에러
+                self.error = ko.observable(false);
+                                
+                //로그인했을경우 헤드헌터여부 설정
+                if (common.isLogin()) {
+                    var userType = userInfo.userTypeCd;
+                    if (userType == 'HEADHUNTER' || userType == 'DISPATCHER') {
+                        self.isHeadHunter(true);
+                    } else {
+                        self.isHeadHunter(false);
+                    }
+                }
+
+                getDetail = function (seq) {
+                    var getDetailUrl = "";
+                    if (common.isLogin()) {
+                        getDetailUrl = url + "/" + seq + '?type=finalSelect';
+                    } else {
+                        getDetailUrl = url + "/guest/" + seq + '?type=finalSelect';
+                    }
+                    callAjax.get(getDetailUrl, null, function (data, textStatus, xhr) {
+                        console.log(data);
+
+                        if (data.endDate) {
+                            data.endDate = setDateStr(data.endDate);
+                        }
+                        data.relatedAnnounce.forEach(function (f) {
+                            var subDescription = f.companyNm + " / " + f.jobNm + " / " + f.careerTypeNm;
+                            f.subDescription = subDescription;
+                            if (f.endDate) {
+                                f.endDate = setDateStr(f.endDate) + " 마감";
+                            }
+                        })
+                        var target = data.screening.filter(function (f) {
+                            return f.screeningTypeCd == 'SCR003';
+                        })
+                        if (target.length > 1) {
+                            target.forEach(function (f, index) {
+                                f.screeningTypeNm = (index + 1) + '차 ' + f.screeningTypeNm;
+                            })
+                        }
+
+
+                        let examScreening = data.screening.filter(function (f) {
+                            return f.screeningTypeCd == 'SCR004';
+                        });
+
+                        // HRCT-2036
+                        // [동계인턴십] 공고 채용절차 시험전형 종류 노출
+                        if(examScreening.length > 0){
+                            examScreening.forEach(function (f, index) {
+                                // f.screeningTypeNm = f.screeningTypeNm;
+                                 // f.screeningTypeNm = f.screeningTypeNm  + '<em class="em_bk">(' + f.examTypeNm + ')</em>';
+                                 f.examTypeNm = '(' + f.examTypeNm+ ')';
+                                // f.screeningTypeNm = f.screeningTypeNm  + '        ' + '('+f.examTypeNm+')';
+
+                            })
+                        }
+
+                        data.screening.push({
+                            screeningTypeCd: "1",
+                            screeningTypeNm: data.announceTypeCd == 'ATY001' ? '입사협의' : '입사준비' 
+                        })
+                        data.screening.push({
+                            screeningTypeCd: "2",
+                            screeningTypeNm: "최종결과"
+                        })
+
+                        data.description = unescapeHtml(data.description);
+                        data.commonNotice = unescapeHtml(data.commonNotice);
+
+                        var list = [];
+                        if (data.workInfo) {
+                            list.push({
+                                title: '담당업무',
+                                content: data.workInfo
+                            });
+                        }
+                        if (data.qualificationDesc) {
+                            list.push({
+                                title: '자격요건',
+                                content: data.qualificationDesc
+                            });
+                        }
+                        if (data.abilityDesc) {
+                            list.push({
+                                title: '필요역량',
+                                content: data.abilityDesc
+                            });
+                        }
+                        if (data.specialDesc) {
+                            list.push({
+                                title: '우대사항',
+                                content: data.specialDesc
+                            });
+                        }
+                        if (data.requirementDoc) {
+                            list.push({
+                                title: '제출서류',
+                                content: data.requirementDoc
+                            });
+                        }
+                        console.log(list)
+                        self.infoList(list);
+                        self.detail(data);
+                        console.log(self.detail())
+                        setTimeout(function () {
+                            $("#apply").css({ opacity: 1 });
+                        }, 200)
+
+                        if(self.detail().displayYn == false || (self.detail().projectSeq > 0 && self.detail().projectDisplayYn == false)){
+                            alert("현재 내부 사정으로 인해 해당 채용공고 모집이 중단되었습니다.");
+
+                            if(window.opener){
+                                window.close();
+                            }
+                            else {
+                                location.href = "/apply/announce";
+                            }
+
+                            return false;
+                        }
+
+                        if(self.detail().dateEndYn == true || self.detail().projectStatus == 'PSC003' || self.detail().status == 'ANN003' ) {
+                            if(self.detail().projectSeq > 0){
+                                alert("해당 채용공고 모집이 종료되었습니다.");
+                            }
+                            else {
+                                alert("해당 채용공고 모집이 종료되었습니다.\n\n수시채용으로 진행되기 때문에 채용대상자 발생 시, 조기 마감될 수 있는 점 양해 부탁드립니다.");
+                            }
+
+                            if(window.opener){
+                                window.close();
+                            }
+                            else {
+                                location.href = "/apply/announce";
+                            }
+
+                            return false;
+                        }
+
+                    }, null, null);
+                    console.log();
+                }
+
+                getSecuredInfo = function (seq) {
+                    var getDetailUrl = "";
+                    if (common.isLogin()) {
+                        getDetailUrl = url + "/" + seq;
+                    } else {
+                        getDetailUrl = url + "/guest/" + seq;
+                    }
+                    callAjax.get(getDetailUrl, null, function (data, textStatus, xhr) {
+                        console.log(data);
+                    	self.nowAnnounceTypeCd(data.announceTypeCd);
+                        if (data.urlYn) {
+                            $('.pop_check_password').fadeIn(300);
+                            $('body, html').css('overflow', 'hidden');
+                            setLayerPopHeight('pop_check_password');
+                        } else { 
+                        	if (data.announceTypeCd != "ATY001") {                        		
+	                        	if (data.prjUrlYn && data.prjUrlPassword!=null) {
+                                	var getDetailUrl = "";
+                                    if (common.isLogin()) {
+                                        getDetailUrl = "/api/apply/project/" + data.projectSeq;
+                                    } else {
+                                        getDetailUrl = "/api/apply/project/guest/" + data.projectSeq;
+                                    }
+                                    callAjax.get(getDetailUrl, null, function (data, textStatus, xhr) {
+                                        console.log(data);
+                                        if (data.prjUrlYn) {
+                                            $('.pop_check_password').fadeIn(300);
+                                            $('body, html').css('overflow', 'hidden');
+                                            setLayerPopHeight('pop_check_password');
+                                        } else {
+                                        	getDetail(seq);
+                                        }
+                                    }, null, null);
+	                        	} else {
+	                        	    getDetail(seq);
+	                        	}
+                            } else {
+                               	getDetail(seq);
+                            }                        	
+                        }
+                    }, null, null);
+                };
+
+                closePopup = function () {
+                    location.href = "/apply/announce";
+                }
+
+                checkPassword = function () {
+                    self.error(false);
+                    var obj = {
+                        announceSeq: seq,
+                        password: self.announcePassword()
+                    }
+                    callAjax.post("/api/apply/announce/checkPassword", obj, function (data, textStatus, xhr) {
+                        console.log(data);
+                        if (data == 'SUCCESS') {
+                            $('.pop_check_password').fadeOut(300);
+                            $('body, html').css('overflow', 'auto');
+                            getDetail(seq);
+
+                        } else {
+                            self.error(true);
+                        }
+                    }, null, function (xhr) {
+                        console.log(xhr);
+                        if (xhr.responseJSON.code == 'M003') {
+                            self.error(true);
+                        }
+                    });
+                }
+                
+                checkProjectPassword = function () {
+                    self.error(false);
+                    var obj = {
+                    	announceSeq: seq,
+                        password: self.projectPassword()
+                    }
+                    callAjax.post("/api/apply/project/checkPasswordAnnounce", obj, function (data, textStatus, xhr) {
+                        console.log(data);
+                        if (data == 'SUCCESS') {
+                            $('.pop_check_password').fadeOut(300);
+                            $('body, html').css('overflow', 'auto');
+                            getDetail(seq);                            
+                        } else {
+                            self.error(true);
+                        }
+                    }, null, function (xhr) {
+                        console.log(xhr);
+                        if (xhr.responseJSON.code == 'M003') {
+                            self.error(true);
+                        }
+                    });
+                }
+
+                var seq = paramService.getParameterValues().seq;
+
+                pageInit = function () {
+                    if (seq) {
+                        self.seq(seq);                                               
+                        getSecuredInfo(seq);
+                    }
+                    if (self.announcePassword()) {
+                        getDetail(seq);
+                    }
+                }
+
+                pageInit();
+
+                var checked = false;
+                setInterest = function (data, event) {
+                    if (checked) {
+                        return;
+                    }
+                    var target = $(event)[0].target;
+                    checked = true;
+                    if (!common.isLogin()) {
+                        if (confirm("로그인이 필요합니다. 로그인하시겠습니까?")) {
+                            location.href = "/auth/login";
+                        } else {
+                            if ($('#clickBtn').hasClass('on')) {
+                                $('#clickBtn').removeClass('on');
+                            } else {
+                                $('#clickBtn').addClass('on');
+                            }
+                            checked = false;
+                        }
+                        return;
+                    }
+                    console.log(target)
+                    var setInterestUrl = url + "/interest";
+                    var params = {
+                        announceSeq: self.detail().announceSeq
+                    };
+                    callAjax.post(setInterestUrl, params, function (result, textStatus, xhr) {
+                        if (result == 'SUCCESS') {
+                            if ($('#clickBtn').hasClass('on')) {
+                                $('#clickBtn').addClass('on');
+                            } else {
+                                $('#clickBtn').removeClass('on');
+                            }
+                        }
+                    }, function () {
+                        checked = false;
+                    }, null);
+                }
+
+                var isSetInterest = false;
+
+                setRelatedInterest = function (data, event) {
+                    if (isSetInterest) {
+                        return;
+                    }
+                    var target = $(event)[0].target;
+                    isSetInterest = true;
+                    if (!common.isLogin()) {
+                        if (confirm("로그인이 필요합니다. 로그인하시겠습니까?")) {
+                            location.href = "/auth/login";
+                        } else {
+                            isSetInterest = false;
+                        }
+                        return;
+                    }
+                    var setInterestUrl = "/api/apply/announce/interest";
+                    var params = {
+                        announceSeq: data.announceSeq
+                    };
+                    console.log(params)
+                    callAjax.post(setInterestUrl, params, function (result, textStatus, xhr) {
+                        if (result == 'SUCCESS') {
+                            if ($(target).hasClass('on')) {
+                                $(target).removeClass('on');
+                            } else {
+                                $(target).addClass('on');
+                            }
+                            isSetInterest = false;
+                        }
+                    }, null, null);
+                }
+
+                goList = function () {
+                    location.href = "/apply/announce";
+                }
+
+                //지원하기 버튼
+                apply = function () {
+                    if(self.detail().displayYn == false || (self.detail().projectSeq > 0 && self.detail().projectDisplayYn == false)){
+                        alert("현재 내부 사정으로 인해 해당 채용공고 모집이 중단되었습니다.");
+
+                        if(window.opener){
+                            window.close();
+                        }
+                        else {
+                            location.href = "/apply/announce";
+                        }
+
+                        return false;
+                    }
+
+                    if(self.detail().dateEndYn == true) {
+                        if(self.detail().projectSeq > 0){
+                            alert("해당 채용공고 모집이 종료되었습니다.");
+                        }
+                        else {
+                            alert("해당 채용공고 모집이 종료되었습니다.\r\n\r\n수시채용으로 진행되기 때문에 채용대상자 발생 시, 조기 마감될 수 있는 점 양해 부탁드립니다.");
+                        }
+
+                        if(window.opener){
+                            window.close();
+                        }
+                        else {
+                            location.href = "/apply/announce";
+                        }
+
+                        return false;
+                    }
+
+                    //로그인 했을 경우
+                    if (common.isLogin()) {
+
+                        //헤드헌터, 파견업체 아닐 경우
+                        if (!self.isHeadHunter()) {
+
+                            //지원한 공고 체크
+                            callAjax.get("/api/apply/info", null, function (data, textStatus, xhr) {
+
+                                //임시저장말고 지원완료한 공고만 필터링
+                                var applicantFilter = data.applicantInfo.filter(function (f) {
+                                    return f.applicantStatus != 'APP999';
+                                })
+
+                                console.log("지원한 공고: ", applicantFilter)
+
+                                //지원한 공고가 있을 경우
+                                if (applicantFilter.length > 0) {
+                                    console.log("지원한 공고가 있을 경우")
+                                    var target = applicantFilter.filter(function (f) {
+                                        return f.announceSeq == self.detail().announceSeq;
+                                    })
+
+                                    //지원한 공고가 이 공고 일 경우
+                                    if (target.length > 0) {
+                                        console.log("지원한 공고가 이 공고 일 경우")
+                                        //임시저장 상태 일 경우
+                                        if (target[0].applicantStatus == 'APP999') {
+                                            console.log("임시저장 상태 일 경우")
+                                            location.href = "/apply/write?seq=" + self.detail().announceSeq + "&applicantNo=" + target[0].applicantNo;
+                                        }
+                                        //제출 완료 했을 경우
+                                        else {
+                                            console.log("제출 완료 했을 경우")
+                                            alert("중복 지원이 불가합니다.");
+                                            return;
+                                        }
+                                    }
+
+                                    //지원한 공고가 이 공고가 아닐 경우
+                                    else {
+                                        console.log("지원한 공고가 이 공고가 아닐 경우")
+                                        //지원한 공고가 1개 일 경우
+                                        if (applicantFilter.length == 1) {
+                                            console.log("지원한 공고가 1개 일 경우")
+                                            //지원한 공고가 프로젝트에 속한 공고이면서 중복 지원 가능한 공고일 경우
+                                            if (applicantFilter[0].duplicateYn) {
+                                                console.log("지원한 공고가 프로젝트에 속한 공고이면서 중복 지원 가능한 공고일 경우")
+                                                //이 공고의 프로젝트와 지원한 공고의 프로젝트가 같지 않다면 지원가능
+                                                //(이 공고가 프로젝트가 없는 일반 수시 공고 일 경우도 포함)
+                                                if (self.detail().projectSeq != applicantFilter[0].projectSeq) {
+                                                    console.log("이 공고의 프로젝트와 지원한 공고의 프로젝트가 같지 않다면 지원가능")
+                                                    location.href = "/apply/terms?seq=" + self.detail().announceSeq;
+                                                }
+                                                //이 공고의 프로젝트와 지원한 공고의 프로젝트가 같을 때
+                                                else {
+                                                    console.log("이 공고의 프로젝트와 지원한 공고의 프로젝트가 같을 때")
+                                                    alert("중복 지원이 불가합니다.");
+                                                    return;
+                                                }
+                                            }
+                                            //지원한 공고가 일반 공고 or 중복지원이 불가능 한 프로젝트에 속한 공고일 경우
+                                            else {
+                                                console.log("지원한 공고가 일반 공고 or 중복지원이 불가능 한 프로젝트에 속한 공고일 경우")
+                                                //이 공고가 프로젝트에 속해 있고 중복지원이 가능하면 지원 가능
+                                                if (self.detail().duplicateYn) {
+                                                    console.log("이 공고가 프로젝트에 속해 있고 중복지원이 가능하면 지원 가능")
+                                                    location.href = "/apply/terms?seq=" + self.detail().announceSeq;
+                                                }
+
+                                                //이 공고가 중복지원이 불가능 할 때
+                                                else {
+                                                    console.log("이 공고가 중복지원이 불가능 할 때")
+                                                    alert("중복 지원이 불가합니다.");
+                                                    return;
+                                                }
+                                            }
+                                        }
+                                        //지원한 공고가 2개 이상 일 경우
+                                        else if (applicantFilter.length > 1) {
+                                            console.log("지원한 공고가 2개 이상 일 경우")
+                                            //지원한 공고가 2개 이상 일 경우 중복지원 가능한 공고는 무조건 1개 이상
+                                            var filter = applicantFilter.filter(function (f) {
+                                                return f.duplicateYn;
+                                            })
+
+                                            //지원한 공고 중 중복지원 가능한 공고들의 프로젝트seq를 담는다.
+                                            var dupProjectList = [];
+                                            if (filter.length > 0) {
+                                                filter.forEach(function (f) {
+                                                    dupProjectList.push(f.projectSeq);
+                                                })
+                                            }
+
+                                            //지원한 공고들이 모두 중복지원 가능한 공고 일 경우 (지원한 공고들이 모두 프로젝트에 속해 있는 공고 일 경우)
+                                            if (dupProjectList.length == applicantFilter.length) {
+                                                console.log("지원한 공고들이 모두 중복지원 가능한 공고 일 경우 (지원한 공고들이 모두 프로젝트에 속해 있는 공고 일 경우)")
+                                                //이 공고가 프로젝트에 속해 있지 않은 일반 공고라면 지원 가능
+                                                if (!self.detail().projectSeq || self.detail().projectSeq == 0) {
+                                                    console.log("이 공고가 프로젝트에 속해 있지 않은 일반 공고라면 지원 가능")
+                                                    location.href = "/apply/terms?seq=" + self.detail().announceSeq;
+                                                }
+                                                // 이 공고가 프로젝트에 속해 있으면서 중복지원 가능한 공고 일 경우
+                                                else if (self.detail().duplicateYn) {
+                                                    console.log("이 공고가 프로젝트에 속해 있으면서 중복지원 가능한 공고 일 경우")
+                                                    var dupFilter = dupProjectList.filter(function (f) {
+                                                        return self.detail().projectSeq == f;
+                                                    })
+
+                                                    // 이 공고의 프로젝트가 지원한 공고들의 프로젝트와 다르다면 지원 가능
+                                                    if (dupFilter.length < 1) {
+                                                        console.log("이 공고의 프로젝트가 지원한 공고들의 프로젝트와 다르다면 지원 가능")
+                                                        location.href = "/apply/terms?seq=" + self.detail().announceSeq;
+                                                    }
+
+                                                    // 지원한 공고들의 프로젝트 중 이 공고의 프로젝트와 일치하는 프로젝트가 있을 경우
+                                                    else {
+                                                        console.log("지원한 공고들의 프로젝트 중 이 공고의 프로젝트와 일치하는 프로젝트가 있을 경우")
+                                                        alert("중복 지원이 불가합니다.");
+                                                        return;
+                                                    }
+                                                }
+                                                // 이 공고가 프로젝트에 속해 있으면서 중복지원 불 가능한 공고 일 경우
+                                                else {
+                                                    console.log("이 공고가 프로젝트에 속해 있으면서 중복지원 불 가능한 공고 일 경우")
+                                                    alert("중복 지원이 불가합니다.");
+                                                    return;
+                                                }
+                                            }
+
+                                            //지원한 공고들중에 일반공고가 포함 되어있고 중복지원 가능한 공고가 포함되어 있을 경우
+                                            else {
+                                                console.log("지원한 공고들중에 일반공고가 포함 되어있고 중복지원 가능한 공고가 포함되어 있을 경우")
+                                                //이 공고가 프로젝트에 속해 있지 않은 일반 공고일 경우
+
+                                                console.log(self.detail().projectSeq)
+                                                console.log(self.detail().duplicateYn)
+
+                                                if (!self.detail().projectSeq || self.detail().projectSeq == 0) {
+                                                    console.log("이 공고가 프로젝트에 속해 있지 않은 일반 공고일 경우")
+                                                    alert("중복 지원이 불가합니다.");
+                                                    return;
+                                                }
+                                                // 이 공고가 프로젝트에 속해 있으면서 중복지원 가능한 공고 일 경우
+                                                else if (self.detail().duplicateYn) {
+                                                    console.log("이 공고가 프로젝트에 속해 있으면서 중복지원 가능한 공고 일 경우")
+                                                    var dupFilter = dupProjectList.filter(function (f) {
+                                                        return self.detail().projectSeq == f;
+                                                    })
+
+                                                    // 이 공고의 프로젝트가 지원한 공고들의 프로젝트와 다르다면 지원 가능
+                                                    if (dupFilter.length < 1) {
+                                                        console.log("이 공고의 프로젝트가 지원한 공고들의 프로젝트와 다르다면 지원 가능")
+                                                        location.href = "/apply/terms?seq=" + self.detail().announceSeq;
+                                                    }
+
+                                                    // 지원한 공고들의 프로젝트 중 이 공고의 프로젝트와 일치하는 프로젝트가 있을 경우
+                                                    else {
+                                                        console.log("지원한 공고들의 프로젝트 중 이 공고의 프로젝트와 일치하는 프로젝트가 있을 경우")
+                                                        alert("중복 지원이 불가합니다.");
+                                                        return;
+                                                    }
+                                                }
+                                                // 이 공고가 프로젝트에 속해 있으면서 중복지원 불 가능한 공고 일 경우
+                                                else {
+                                                    console.log("이 공고가 프로젝트에 속해 있으면서 중복지원 불 가능한 공고 일 경우")
+                                                    alert("중복 지원이 불가합니다.");
+                                                    return;
+                                                }
+                                            }
+
+                                        }
+
+                                    }
+                                }
+                                //지원한 공고가 없을 경우
+                                else {
+                                    console.log("지원한 공고가 없을 경우")
+                                    location.href = "/apply/terms?seq=" + self.detail().announceSeq;
+                                }
+                            }, null, null);
+                        } else {
+                            location.href = "/apply/terms?seq=" + self.detail().announceSeq;
+                        }
+                    }
+                    //로그인 안 했을 경우
+                    else {
+                        console.log("로그인 안 했을 경우")
+                        if (confirm("로그인이 필요합니다. 로그인하시겠습니까?")) {
+                            location.href = "/auth/login";
+                        }
+                    }
+                }
+
+                /* apply = function () {
+                    if (common.isLogin()) {
+                        callAjax.get("/api/apply/info", null, function (data, textStatus, xhr) {
+                            if (data.applicantInfo.length > 0) {
+                                var target = data.applicantInfo.filter(function (f) {
+                                    return f.announceSeq == self.detail().announceSeq;
+                                })
+                                if (target.length > 0) {
+                                    if (target[0].applicantStatus == 'APP999') {
+                                        location.href = "/apply/write?seq=" + self.detail().announceSeq + "&applicantNo=" + target[0].applicantNo;
+                                    } else {
+                                        alert("중복 지원이 불가합니다.");
+                                        return;
+                                    }
+                                } else {
+                                    location.href = "/apply/terms?seq=" + self.detail().announceSeq;
+                                }
+                            } else {
+                                location.href = "/apply/terms?seq=" + self.detail().announceSeq;
+                            }
+                        }, null, null);
+                    } else {
+                        if (confirm("로그인이 필요합니다. 로그인하시겠습니까?")) {
+                            location.href = "/auth/login";
+                        }
+                    }
+                } */
+
+                setDateStr = function (date) {
+                    var str = date.slice(0, 4) + "." + date.slice(4, 6) + "." + date.slice(6, 8);
+                    return str;
+                }
+
+                share = function (type) {
+                    shareSns(type, null, null, null);
+                }
+                setTimeout(function () {
+                    page.apply.onLoad();
+                    page.apply.swiper.recruit();
+                    if ($('.setPosition').length) {
+                        page.apply.infoLayerFixed();
+                    }
+                }, 350)
+            };
+            ko.applyBindings(new announceDetail(), document.getElementById("contents"));
+
+        </script>
+<script type="text/javascript" src="/assets/js/sns-share.js"></script>
+</body></html>

@@ -150,8 +150,17 @@ export interface RawPageResponse {
 /** 고정한 주소로 GET 1회. 본문이 maxBytes를 넘으면 PostingFetchError. */
 export type ConnectFn = (
   target: { url: URL; address: ResolvedAddress },
-  opts: { signal: AbortSignal; maxBytes: number },
+  opts: { signal: AbortSignal; maxBytes: number; headers?: RequestHeaders },
 ) => Promise<RawPageResponse>;
+
+/** 요청마다 바꿀 수 있는 헤더(그 밖의 헤더·쿠키·인증 정보는 보내지 않는다). */
+export interface RequestHeaders {
+  accept?: string;
+  referer?: string;
+}
+
+/** 모든 요청의 User-Agent(정직하게 이 서비스를 밝힌다). */
+export const READER_USER_AGENT = "ResumePanel/1.0 (job posting reader)";
 
 export interface FetchDeps {
   lookup?: LookupFn;
@@ -183,7 +192,7 @@ export async function publicTarget(raw: string, lookup: LookupFn = defaultLookup
 }
 
 /** node http(s)로 고정한 주소에 접속한다. lookup을 덮어써 DNS를 다시 묻지 않는다(TLS SNI·Host는 원래 호스트 이름). */
-const nodeConnect: ConnectFn = ({ url, address }, { signal, maxBytes }) =>
+const nodeConnect: ConnectFn = ({ url, address }, { signal, maxBytes, headers: extra }) =>
   new Promise((resolve, reject) => {
     const transport = url.protocol === "https:" ? https : http;
     const request = transport.get(
@@ -192,9 +201,10 @@ const nodeConnect: ConnectFn = ({ url, address }, { signal, maxBytes }) =>
         agent: false,
         signal,
         headers: {
-          "user-agent": "ResumePanel/1.0 (job posting reader)",
-          accept: "text/html,application/xhtml+xml",
+          "user-agent": READER_USER_AGENT,
+          accept: extra?.accept ?? "text/html,application/xhtml+xml",
           "accept-encoding": "gzip, deflate, br",
+          ...(extra?.referer ? { referer: extra.referer } : {}),
         },
         lookup: (_hostname, options, callback) => {
           if (options.all) callback(null, [{ address: address.address, family: address.family }]);
@@ -247,8 +257,18 @@ function decodeHtml(body: Uint8Array, contentType: string): string {
 
 const REDIRECT_STATUSES = new Set([301, 302, 303, 307, 308]);
 
-/** 공고 상세 페이지 HTML. 실패는 PostingFetchError/PostingUrlError(사용자용 문구) 또는 취소(AbortError). */
-export async function fetchPostingPage(raw: string, deps: FetchDeps = {}): Promise<{ url: string; html: string }> {
+interface GetOptions {
+  headers?: RequestHeaders;
+  maxBytes: number;
+  /** 있으면 리다이렉트도 이 출처(origin) 안에서만 따라간다. */
+  origin?: string;
+}
+
+/**
+ * 검사한 주소로 GET(리다이렉트는 매번 다시 검사, MAX_REDIRECTS까지). 리다이렉트가 아닌 첫 응답과 그 주소를 돌려준다.
+ * 실패는 PostingFetchError/PostingUrlError(사용자용 문구) 또는 호출자 취소의 reason.
+ */
+async function guardedGet(raw: string, deps: FetchDeps, opts: GetOptions): Promise<{ target: { url: URL; address: ResolvedAddress }; res: RawPageResponse }> {
   const lookup = deps.lookup ?? defaultLookup;
   const connect = deps.connect ?? nodeConnect;
   const timeout = AbortSignal.timeout(deps.timeoutMs ?? FETCH_TIMEOUT_MS);
@@ -257,9 +277,10 @@ export async function fetchPostingPage(raw: string, deps: FetchDeps = {}): Promi
   let current = raw;
   for (let redirects = 0; ; redirects++) {
     const target = await publicTarget(current, lookup);
+    if (opts.origin && target.url.origin !== opts.origin) throw new PostingFetchError("다른 사이트로 이동하는 주소는 읽지 않습니다.");
     let res: RawPageResponse;
     try {
-      res = await connect(target, { signal, maxBytes: MAX_PAGE_BYTES });
+      res = await connect(target, { signal, maxBytes: opts.maxBytes, ...(opts.headers ? { headers: opts.headers } : {}) });
     } catch (err) {
       if (err instanceof PostingFetchError) throw err;
       if (deps.signal?.aborted) throw deps.signal.reason ?? err;
@@ -278,28 +299,69 @@ export async function fetchPostingPage(raw: string, deps: FetchDeps = {}): Promi
       }
       continue;
     }
-    const type = res.headers["content-type"] ?? "";
-    const isHtml = /text\/html|application\/xhtml\+xml/i.test(type);
-    if (res.status < 200 || res.status >= 300) {
-      // 봇 차단(보안 검사) 페이지면 본문 붙여넣기를 안내한다. 본문을 못 읽어도 헤더만으로 판단할 수 있는 경우가 있다.
-      let html = "";
-      if (isHtml) {
-        try {
-          html = decodeHtml(decompress(res.body, res.headers["content-encoding"]), type);
-        } catch {
-          html = "";
-        }
-      }
-      if (isBotChallengeResponse({ status: res.status, headers: res.headers, html })) throw postingBlockedError();
-      throw new PostingFetchError("공고 사이트가 접근을 허용하지 않거나 공고가 사라졌습니다. 공개된 상세 링크를 확인하세요.");
-    }
-    if (!isHtml) {
-      if (isBotChallengeResponse({ status: res.status, headers: res.headers, html: "" })) throw postingBlockedError();
-      throw new PostingFetchError("웹 공고 상세 페이지 링크를 입력하세요. 파일·이미지 링크는 지원하지 않습니다.");
-    }
-    const body = decompress(res.body, res.headers["content-encoding"]);
-    const html = decodeHtml(body, type);
-    if (isBotChallengeResponse({ status: res.status, headers: res.headers, html })) throw postingBlockedError();
-    return { url: target.url.href, html };
+    return { target, res };
   }
+}
+
+/** 공고 상세 페이지 HTML. 실패는 PostingFetchError/PostingUrlError(사용자용 문구) 또는 취소(AbortError). */
+export async function fetchPostingPage(raw: string, deps: FetchDeps = {}): Promise<{ url: string; html: string }> {
+  const { target, res } = await guardedGet(raw, deps, { maxBytes: MAX_PAGE_BYTES });
+  const type = res.headers["content-type"] ?? "";
+  const isHtml = /text\/html|application\/xhtml\+xml/i.test(type);
+  if (res.status < 200 || res.status >= 300) {
+    // 봇 차단(보안 검사) 페이지면 본문 붙여넣기를 안내한다. 본문을 못 읽어도 헤더만으로 판단할 수 있는 경우가 있다.
+    let html = "";
+    if (isHtml) {
+      try {
+        html = decodeHtml(decompress(res.body, res.headers["content-encoding"]), type);
+      } catch {
+        html = "";
+      }
+    }
+    if (isBotChallengeResponse({ status: res.status, headers: res.headers, html })) throw postingBlockedError();
+    throw new PostingFetchError("공고 사이트가 접근을 허용하지 않거나 공고가 사라졌습니다. 공개된 상세 링크를 확인하세요.");
+  }
+  if (!isHtml) {
+    if (isBotChallengeResponse({ status: res.status, headers: res.headers, html: "" })) throw postingBlockedError();
+    throw new PostingFetchError("웹 공고 상세 페이지 링크를 입력하세요. 파일·이미지 링크는 지원하지 않습니다.");
+  }
+  const body = decompress(res.body, res.headers["content-encoding"]);
+  const html = decodeHtml(body, type);
+  if (isBotChallengeResponse({ status: res.status, headers: res.headers, html })) throw postingBlockedError();
+  return { url: target.url.href, html };
+}
+
+export interface PublicResource {
+  /** 리다이렉트 뒤 최종 주소. */
+  url: string;
+  status: number;
+  contentType: string;
+  /** 2xx일 때만 채운다(그 밖에는 ""). */
+  text: string;
+}
+
+/**
+ * 공고 페이지와 같은 출처의 공개 자원(상세 데이터 API·스크립트 파일) GET 1회 — 데이터 요청(request-data.ts)용.
+ * fetchPostingPage와 같은 SSRF 방어(공개 주소·DNS 고정·리다이렉트 재검사)에 더해 리다이렉트도 같은 출처 안에서만 따른다.
+ * 쿠키·세션은 보내지 않고 GET만 한다. 2xx가 아니어도 던지지 않고 상태만 돌려준다(다음 후보로 넘어간다).
+ * 보안 검사 응답이면 postingBlockedError.
+ */
+export async function fetchPublicResource(
+  raw: string,
+  deps: FetchDeps & { accept: string; referer?: string; maxBytes: number },
+): Promise<PublicResource> {
+  const origin = new URL(raw).origin;
+  const { target, res } = await guardedGet(raw, deps, { maxBytes: deps.maxBytes, origin, headers: { accept: deps.accept, referer: deps.referer } });
+  const contentType = res.headers["content-type"] ?? "";
+  const ok = res.status >= 200 && res.status < 300;
+  let text = "";
+  if (ok || /text\/html/i.test(contentType)) {
+    try {
+      text = decodeHtml(decompress(res.body, res.headers["content-encoding"]), contentType);
+    } catch {
+      text = "";
+    }
+  }
+  if (isBotChallengeResponse({ status: res.status, headers: res.headers, html: /text\/html/i.test(contentType) ? text : "" })) throw postingBlockedError();
+  return { url: target.url.href, status: res.status, contentType, text: ok ? text : "" };
 }

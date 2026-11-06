@@ -5,7 +5,8 @@ import "server-only";
  * 그려진 본문(innerText)과 로드 중 받은 같은 사이트 JSON 응답을 모은다. 분석은 기존 AI 추출(extract.ts)이 그대로 한다.
  *
  * - 브라우저·SSRF 방어·동시 실행 상한은 browser.ts(원문 캡처와 공용). 이미지·글꼴·동영상은 받지 않는다(읽기만 한다).
- * - 우회하지 않는다: 스텔스·지문 위장·검사 풀기를 쓰지 않는다. 열린 화면이 보안 검사면 차단 안내(붙여넣기)로 끝난다(imports.ts).
+ * - 우회하지 않는다: 스텔스·검사 풀기를 쓰지 않는다. 정적 요청이 보안 검사로 막힌 페이지는 User-Agent도 바꾸지 않고(honestUserAgent)
+ *   한 번만 연다. 열린 화면이 보안 검사면 차단 안내(붙여넣기)로 끝난다(imports.ts).
  * - POSTING_RENDER: 탐색 15초, 탐색 뒤 조용해질 때까지 최대 10초(네트워크 유휴·본문 길이 안정), 전체 40초, 전송량 15MB,
  *   JSON 응답은 같은 사이트·응답당 512KB·합계 2MB·20개까지.
  * - 페이지 안의 버튼을 누르지 않는다('더보기' 등 — 이동·제출 위험). 접힌 내용은 JSON 응답으로 보완한다.
@@ -44,6 +45,8 @@ export interface RenderDeps {
   lookup?: LookupFn;
   executablePath?: string;
   signal?: AbortSignal;
+  /** User-Agent를 바꾸지 않는다(browser.ts honestUserAgent) — 정적 요청이 보안 검사로 막힌 페이지를 다시 열 때. */
+  honestUserAgent?: boolean;
 }
 
 export interface RenderedPage extends RenderedPageContent {
@@ -52,7 +55,7 @@ export interface RenderedPage extends RenderedPageContent {
 }
 
 /** 페이지를 열어 읽는 함수(가져오기 작업에 주입 — 테스트는 가짜). */
-export type RenderPageFn = (url: string, opts: { signal: AbortSignal }) => Promise<RenderedPage>;
+export type RenderPageFn = (url: string, opts: { signal: AbortSignal; honestUserAgent?: boolean }) => Promise<RenderedPage>;
 
 const READ_ONLY_BLOCK: ReadonlySet<ResourceType> = new Set(["image", "media", "font"]);
 
@@ -175,6 +178,7 @@ export async function renderPostingPage(url: string, deps: RenderDeps = {}): Pro
       isOwnError: (err): err is PostingRenderError => err instanceof PostingRenderError,
       messages: { noBrowser: RENDER_NO_BROWSER_ERROR, timeout: RENDER_TIMEOUT_ERROR, generic: RENDER_GENERIC_ERROR },
       logTag: "render",
+      honestUserAgent: deps.honestUserAgent,
     },
     async ({ page, target, signal, race }) => {
       const collector = createDataCollector(siteOf(target.hostname));

@@ -113,6 +113,15 @@ function valueText(raw: string): string {
   return looksLikeHtml(raw) ? htmlFragmentText(raw) : collapseWhitespaceKeepLines(raw);
 }
 
+/** 날짜 키(endDate·reg_dt 등)의 붙여 쓴 날짜(20261130, 202611302359) → "2026-11-30"(·" 23:59"). 아니면 null. */
+const DATE_KEY = /date|_dt$|Dt$|^dt$|deadline|마감|기간/i;
+export function compactDateText(key: string, value: string | number): string | null {
+  if (!DATE_KEY.test(key)) return null;
+  const m = /^(20\d{2})(0[1-9]|1[0-2])(0[1-9]|[12]\d|3[01])(?:([01]\d|2[0-3])([0-5]\d)(?:[0-5]\d)?)?$/.exec(String(value).trim());
+  if (!m) return null;
+  return `${m[1]}-${m[2]}-${m[3]}${m[4] ? ` ${m[4]}:${m[5]}` : ""}`;
+}
+
 /** 화면에 이미 보이는 값인지: 15자 이상 값이 그대로 있거나, 8자 이상인 줄이 모두 화면에 있다(공백 차이는 무시). */
 function shownOnPage(text: string, visible: string): boolean {
   const flat = text.replace(/\s+/g, " ").trim();
@@ -133,7 +142,7 @@ function readableValue(value: string): boolean {
 
 /**
  * 페이지가 불러온 JSON 응답들 → "키: 값" 줄(순수). 화면에 이미 보이는 긴 값(15자 이상이 본문에 그대로 있음)과 같은 값은 한 번만.
- * HTML 값은 줄바꿈을 살린 텍스트로 바꾼다. 깊이·노드 수·글자 수(JSON_EVIDENCE_LIMITS) 안에서만 읽는다.
+ * HTML 값은 줄바꿈을 살린 텍스트로 바꾸고, 날짜 키의 붙여 쓴 날짜(20261130)는 2026-11-30으로 읽는다. 깊이·노드 수·글자 수(JSON_EVIDENCE_LIMITS) 안에서만 읽는다.
  */
 export function jsonEvidenceLines(responses: readonly unknown[], visibleText: string): string[] {
   const out: string[] = [];
@@ -144,8 +153,13 @@ export function jsonEvidenceLines(responses: readonly unknown[], visibleText: st
   const full = () => nodes >= JSON_EVIDENCE_LIMITS.nodes || chars >= JSON_EVIDENCE_LIMITS.chars;
   const visit = (v: unknown, key: string, depth: number) => {
     if (depth > JSON_EVIDENCE_LIMITS.depth || full()) return;
+    if (typeof v === "number") {
+      const date = compactDateText(key, v);
+      if (date) visit(date, key, depth);
+      return;
+    }
     if (typeof v === "string") {
-      const raw = v.trim();
+      const raw = compactDateText(key, v) ?? v.trim();
       if (!raw) return;
       const text = valueText(raw).slice(0, JSON_EVIDENCE_LIMITS.valueChars).trim();
       if (!readableValue(text) || seen.has(text)) return;

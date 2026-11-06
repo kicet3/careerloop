@@ -15,9 +15,15 @@ import "server-only";
  * - 원문만 붙여넣기(text-only, '직접 추가'의 AI 추가): 붙여넣기에서 링크를 비우면 작업 행 url은 ''(url_key null)로 두고 링크 검사·
  *   공고 찾기 재사용·중복 판별·출처 링크 없이 같은 분석(근거 검증·구조화·하루 횟수)을 탄다. 멈춰 다시 실행되면 읽을 링크가 없어
  *   TEXT_IMPORT_INTERRUPTED_ERROR로 끝난다.
- * - 브라우저로 열어 읽기(rendering, render.ts): 본문을 자바스크립트로 그리는 사이트는 정적 HTML에 공고가 없다. 정적 본문이
- *   빈 껍데기로 보이거나(needsRendering) AI가 '공고 아님·회사/직무 없음'으로 답하면 실행마다 한 번 헤드리스 브라우저로 열어
- *   그려진 본문으로 다시 분석한다(근거 검증도 그 본문 기준). 열린 화면이 보안 검사면 차단 안내(붙여넣기)로 끝낸다 — 우회하지 않는다.
+ * - 대체 경로(실행마다 각 1회, 앞 경로가 공고를 내지 못했을 때만 다음으로): 본문을 자바스크립트로 그리는 사이트는 정적 HTML에 공고가 없다.
+ *   1) 정적 HTML + AI 추출. 정적 본문이 빈 껍데기(needsRendering)면 AI 없이 바로 2)로.
+ *   2) 데이터 요청(requesting, request-data.ts): 정적 HTML의 스크립트에서 페이지가 상세를 불러오는 같은 출처 데이터 주소를 찾아
+ *      브라우저 없이 GET으로 받고, 공고처럼 보이는 응답으로 AI 추출.
+ *   3) 브라우저로 열어 읽기(rendering, render.ts): 헤드리스 브라우저로 열어 그려진 본문으로 AI 추출.
+ *   근거 검증은 각 경로의 본문 기준, 출처 링크는 원래 공고 주소. AI 추출은 경로마다 최대 1회(최대 3회, 빈 껍데기면 최대 2회).
+ *   정적 응답이 보안 검사(blocked)면 같은 출처라 2)는 건너뛰고 3)을 한 번 정직하게 시도한다(우회 없음 — 스텔스·검사 풀기·프록시를
+ *   쓰지 않고, User-Agent도 브라우저의 실제 값('HeadlessChrome' 포함) 그대로 — honestUserAgent). 열린 화면도 보안 검사이거나 열지 못하면
+ *   차단 안내(붙여넣기)로 끝낸다.
  * CareerLoop(src/server/postingImport/jobs.ts)에서 가져옴 — 원본은 프로세스 메모리 Map으로 중복 실행을 막아 여러 인스턴스·재시작에서 새었다.
  */
 import { isIP } from "node:net";
@@ -38,6 +44,7 @@ import { createLlmClient, type LlmClient } from "@/lib/llm";
 import { resolveRequestedProvider } from "@/lib/providers/options";
 import { runPostingCapture, type CaptureDeps } from "./capture";
 import { PostingRenderError, RENDER_GENERIC_ERROR, renderPostingPage, type RenderPageFn } from "./render";
+import { requestPostingData, type RequestDataFn } from "./request-data";
 import { isRenderedChallenge, needsRendering, renderedPageText } from "./rendered-text";
 import { requestCapture } from "./capture-store";
 import { extractPosting, PostingExtractError } from "./extract";
@@ -56,9 +63,9 @@ export const MAX_IMPORT_ATTEMPTS = 3;
 /** 사용자당 동시에 진행할 수 있는 가져오기. */
 export const MAX_ACTIVE_IMPORTS = 3;
 
-const ACTIVE: PostingImportStatus[] = ["queued", "reading", "rendering", "analyzing"];
+const ACTIVE: PostingImportStatus[] = ["queued", "reading", "requesting", "rendering", "analyzing"];
 /** 실행 중 상태(멈춤 판단 대상). */
-const RUNNING: PostingImportStatus[] = ["reading", "rendering", "analyzing"];
+const RUNNING: PostingImportStatus[] = ["reading", "requesting", "rendering", "analyzing"];
 const STALE_ERROR = "공고 가져오기가 중간에 끊겼습니다. 다시 시도해 주세요.";
 /** 붙여넣은 내용이 공고가 아니라 보안 검사 화면일 때. */
 export const PASTED_CHALLENGE_ERROR =
@@ -291,6 +298,11 @@ export interface RunImportDeps {
    * fetchPage나 fetchDeps.connect를 바꾼 경우(테스트)는 기본 브라우저를 쓰지 않는다(실제 인터넷에 접속하지 않게) — 필요하면 함께 넣는다.
    */
   renderPage?: RenderPageFn | null;
+  /**
+   * 데이터 요청(request-data.ts). 없으면 기본(정적 HTML의 스크립트로 찾은 같은 출처 데이터 주소를 GET), null이면 하지 않는다.
+   * fetchPage나 fetchDeps.connect를 바꾼 경우(테스트)는 기본을 쓰지 않는다 — 필요하면 함께 넣는다.
+   */
+  requestData?: RequestDataFn | null;
   /** 본문 붙여넣어 가져오기: 페이지를 읽지 않고 이 본문(사용자가 복사한 페이지 텍스트)으로 분석한다. */
   pastedText?: string;
   timeLimitMs?: number;
@@ -342,18 +354,47 @@ export async function runImport(importId: string, deps: RunImportDeps = {}): Pro
     const pasted = deps.pastedText !== undefined;
     let page: { url: string; pageText: string };
     let staticHtml = "";
+    let staticBlocked = false;
     if (pasted) {
       page = { url: claimed.url, pageText: pastedPageText(deps.pastedText!) };
     } else {
       // 원문만 붙여넣은 작업이 멈춰 다시 실행됐다 — 읽을 링크가 없다.
       if (!claimed.url) throw new PostingExtractError(TEXT_IMPORT_INTERRUPTED_ERROR);
-      const fetched = deps.fetchPage
-        ? await deps.fetchPage(claimed.url, { signal })
-        : await fetchPostingPage(claimed.url, { ...deps.fetchDeps, signal });
-      page = { url: fetched.url, pageText: postingPageText(fetched.html) };
-      staticHtml = fetched.html;
+      try {
+        const fetched = deps.fetchPage
+          ? await deps.fetchPage(claimed.url, { signal })
+          : await fetchPostingPage(claimed.url, { ...deps.fetchDeps, signal });
+        page = { url: fetched.url, pageText: postingPageText(fetched.html) };
+        staticHtml = fetched.html;
+      } catch (err) {
+        // 보안 검사(차단) 응답: 브라우저로 한 번 열어 본다(아래). 브라우저를 쓸 수 없으면 그대로 차단 안내.
+        if (!(err instanceof PostingFetchError && err.code === "blocked") || !defaultRenderer(deps)) throw err;
+        console.warn("[runImport] static fetch blocked — trying browser once");
+        staticBlocked = true;
+        page = { url: claimed.url, pageText: "" };
+      }
     }
     signal.throwIfAborted();
+
+    // 데이터 요청은 실행마다 한 번(정적 응답이 차단이면 하지 않는다 — 같은 출처라 다시 막힌다). 찾지 못하면 null.
+    const requester = pasted ? null : defaultRequester(deps);
+    let requested = false;
+    const tryRequest = async (): Promise<{ url: string; pageText: string } | null> => {
+      if (!requester || requested || staticBlocked || !staticHtml) return null;
+      requested = true;
+      if (!(await write({ status: "requesting" }))) throw new ImportSupersededError();
+      try {
+        const r = await requester({ url: page.url, html: staticHtml }, { signal });
+        signal.throwIfAborted();
+        console.info("[runImport] request tier", r.kind, `requests=${r.requests}`, r.kind === "found" ? r.dataUrl : "");
+        // 공고 주소는 정적으로 읽은 최종 주소를 그대로 쓴다(데이터 주소는 출처 링크로 쓰지 않는다).
+        return r.kind === "found" ? { url: page.url, pageText: r.pageText } : null;
+      } catch (err) {
+        if (signal.aborted) throw err;
+        console.error("[runImport] request tier", err);
+        return null;
+      }
+    };
 
     // 브라우저로 열어 읽기는 실행마다 한 번. 실패하면 그 문구를 남겨 두고(정적 본문으로 분석이 끝나면 쓰지 않는다) null.
     const render = pasted ? null : defaultRenderer(deps);
@@ -364,7 +405,8 @@ export async function runImport(importId: string, deps: RunImportDeps = {}): Pro
       rendered = true;
       if (!(await write({ status: "rendering" }))) throw new ImportSupersededError();
       try {
-        const r = await render(page.url, { signal });
+        // 막힌 걸 알고 다시 여는 경우는 User-Agent를 바꾸지 않는다(헤드리스 표시를 지우지 않는다).
+        const r = await render(page.url, staticBlocked ? { signal, honestUserAgent: true } : { signal });
         signal.throwIfAborted();
         if (isRenderedChallenge(r)) throw postingBlockedError();
         if (r.status >= 400) throw new PostingRenderError(`공고 페이지가 오류를 돌려줬습니다(HTTP ${r.status}).`);
@@ -392,8 +434,15 @@ export async function runImport(importId: string, deps: RunImportDeps = {}): Pro
       if (dup) throw new DuplicatePostingError(dup);
     }
 
-    // 정적 본문이 자바스크립트로 그려지는 빈 껍데기면 AI 분석 전에 브라우저로 연다(헛된 분석 1회를 아낀다).
-    if (!pasted && render && needsRendering(staticHtml, page.pageText)) page = (await tryRender()) ?? page;
+    if (staticBlocked) {
+      // 정적 응답이 보안 검사였다 — 브라우저로 한 번 열어 본다. 열지 못하거나(브라우저 없음·시간 초과) 열린 화면도 검사면 차단 안내.
+      const opened = await tryRender();
+      if (!opened) throw postingBlockedError();
+      page = opened;
+    } else if (!pasted && (requester || render) && needsRendering(staticHtml, page.pageText)) {
+      // 정적 본문이 자바스크립트로 그려지는 빈 껍데기면 AI 분석 전에 데이터 요청 → 브라우저 순으로 본문을 얻는다(헛된 분석 1회를 아낀다).
+      page = (await tryRequest()) ?? (await tryRender()) ?? page;
+    }
 
     if (!(await write({ status: "analyzing" }))) return;
 
@@ -412,17 +461,27 @@ export async function runImport(importId: string, deps: RunImportDeps = {}): Pro
         throw err;
       }
     };
-    let extracted: Awaited<ReturnType<typeof extractPosting>>;
+    let extracted: Awaited<ReturnType<typeof extractPosting>> | null = null;
     try {
       extracted = await extract(page);
     } catch (err) {
       if (!(err instanceof PostingExtractError) || pasted) throw err;
-      // 정적 본문으로는 회사·직무를 찾지 못했다 — 아직 열어 보지 않았으면 브라우저로 열어 그 본문으로 한 번 더 분석한다.
-      const again = await tryRender();
-      if (!again) throw renderFailure ? new PostingExtractError(renderFailure) : err;
-      page = again;
-      if (!(await write({ status: "analyzing" }))) return;
-      extracted = await extract(page);
+      // 이 본문으로는 회사·직무를 찾지 못했다 — 아직 쓰지 않은 다음 경로(데이터 요청 → 브라우저)의 본문으로 한 번씩 더 분석한다.
+      let last: PostingExtractError = err;
+      for (const next of [tryRequest, tryRender]) {
+        const again = await next();
+        if (!again) continue;
+        page = again;
+        if (!(await write({ status: "analyzing" }))) return;
+        try {
+          extracted = await extract(page);
+          break;
+        } catch (e) {
+          if (!(e instanceof PostingExtractError)) throw e;
+          last = e;
+        }
+      }
+      if (!extracted) throw renderFailure ? new PostingExtractError(renderFailure) : last;
     }
     const { posting, structure, sourceText } = extracted;
     signal.throwIfAborted();
@@ -460,12 +519,20 @@ export async function runImport(importId: string, deps: RunImportDeps = {}): Pro
   }
 }
 
+/** 기본 데이터 요청 함수. 페이지 가져오기를 바꾼 경우(테스트)는 쓰지 않는다 — RunImportDeps.requestData 참고. */
+function defaultRequester(deps: RunImportDeps): RequestDataFn | null {
+  if (deps.requestData !== undefined) return deps.requestData;
+  if (deps.fetchPage || deps.fetchDeps?.connect) return null;
+  const lookup = deps.fetchDeps?.lookup;
+  return (page, { signal }) => requestPostingData(page, { lookup, signal });
+}
+
 /** 기본 열어 읽기 함수. 페이지 가져오기를 바꾼 경우(테스트)는 쓰지 않는다 — RunImportDeps.renderPage 참고. */
 function defaultRenderer(deps: RunImportDeps): RenderPageFn | null {
   if (deps.renderPage !== undefined) return deps.renderPage;
   if (deps.fetchPage || deps.fetchDeps?.connect) return null;
   const lookup = deps.fetchDeps?.lookup;
-  return (url, { signal }) => renderPostingPage(url, { lookup, signal });
+  return (url, { signal, honestUserAgent }) => renderPostingPage(url, { lookup, signal, honestUserAgent });
 }
 
 // ---------------------------------------------------------------------------

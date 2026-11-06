@@ -21,8 +21,9 @@ import { PasteImportForm } from "./PasteImportForm";
 import { DeadlineBadge, inputClass, type ApiError } from "./shared";
 
 const STEPS = ["queued", "reading", "analyzing", "completed"] as const;
-/** 진행 막대 칸(브라우저로 열어 읽기 rendering은 읽기 단계로 센다). */
-const stepOf = (status: ImportJobView["status"]) => STEPS.indexOf((status === "rendering" ? "reading" : status) as (typeof STEPS)[number]);
+/** 진행 막대 칸(데이터 요청 requesting·브라우저로 열어 읽기 rendering은 읽기 단계로 센다). */
+const stepOf = (status: ImportJobView["status"]) =>
+  STEPS.indexOf((status === "rendering" || status === "requesting" ? "reading" : status) as (typeof STEPS)[number]);
 
 /** 작업 줄의 출처 표시. 원문만 붙여넣은 작업(링크 없음)은 url이 비어 있다. */
 const importJobLabel = (job: ImportJobView) => job.url || "붙여넣은 공고 원문";
