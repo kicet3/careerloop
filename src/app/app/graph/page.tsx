@@ -49,17 +49,22 @@ export default async function GraphPage({ searchParams }: { searchParams: Promis
   return (
     <div className="space-y-6">
       <Header />
-      <div className="grid gap-6 xl:grid-cols-[minmax(0,1fr)_clamp(22rem,32%,36rem)] xl:items-start">
-        <CareerGraphView initialGraph={initialGraph} initialError={initialError} />
-        <div className="min-w-0 space-y-6">
-          <section id="graph-chat" aria-label="경험 정리하기·경험 질문하기" className="min-w-0 scroll-mt-20">
-            <GraphAssistantPanel initialMessage={ask} initialTab={tab} uploadLimits={uploadLimitsFor()} />
-          </section>
-          <section aria-label="공고 대비 부족한 기술" className="min-w-0">
-            <SkillGapPanel />
-          </section>
-        </div>
-      </div>
+      {/* 위: 경험 정리하기 | 경험 질문하기 탭. 아래: 왼쪽 채팅(넓게), 오른쪽 그래프 요소·부족한 기술. */}
+      <section id="graph-chat" aria-label="경험 정리하기·경험 질문하기" className="min-w-0 scroll-mt-20">
+        <GraphAssistantPanel
+          initialMessage={ask}
+          initialTab={tab}
+          uploadLimits={uploadLimitsFor()}
+          aside={
+            <>
+              <CareerGraphView initialGraph={initialGraph} initialError={initialError} />
+              <section aria-label="공고 대비 부족한 기술" className="min-w-0">
+                <SkillGapPanel />
+              </section>
+            </>
+          }
+        />
+      </section>
     </div>
   );
 }
