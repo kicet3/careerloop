@@ -14,7 +14,8 @@ const SHOWN = 10;
 
 type LoadState = { kind: "loading" } | { kind: "ready"; data: SkillGapResponse } | { kind: "error"; message: string };
 
-export function SkillGapPanel() {
+/** bare: 다른 카드 안(경험 그래프 화면의 오른쪽 탭)에 넣을 때 — 카드 테두리 없이 그린다. */
+export function SkillGapPanel({ bare = false }: { bare?: boolean } = {}) {
   const [state, setState] = useState<LoadState>({ kind: "loading" });
   const [reloadKey, setReloadKey] = useState(0);
   const [expanded, setExpanded] = useState(false);
@@ -40,8 +41,9 @@ export function SkillGapPanel() {
   const shown = expanded ? items : items.slice(0, SHOWN);
 
   return (
-    <Card className="min-w-0">
+    <Wrapper bare={bare}>
       <CardHeader
+        className={bare ? "px-4 pt-4 sm:px-5" : undefined}
         title="공고가 요구하지만 내 그래프에 없는 기술"
         description="보관한 공고(마감 제외, 최근 50개)를 경험 그래프와 대조해 많이 요구하는 순으로 모았습니다."
         action={
@@ -50,7 +52,7 @@ export function SkillGapPanel() {
           </Button>
         }
       />
-      <CardBody>
+      <CardBody className={bare ? "px-4 sm:px-5" : undefined}>
         {state.kind === "loading" && (
           <p className="flex items-center gap-2 text-sm text-slate-500">
             <Spinner /> 공고와 대조하는 중…
@@ -115,6 +117,10 @@ export function SkillGapPanel() {
           </div>
         )}
       </CardBody>
-    </Card>
+    </Wrapper>
   );
+}
+
+function Wrapper({ bare, children }: { bare: boolean; children: React.ReactNode }) {
+  return bare ? <div className="min-w-0">{children}</div> : <Card className="min-w-0">{children}</Card>;
 }

@@ -1,7 +1,7 @@
 "use client";
 /**
  * 경험 그래프 화면 배치: 경험 체크리스트(전체 폭) → 경험 정리하기 | 경험 질문하기 탭(전체 폭) →
- * 왼쪽 채팅(넓게) · 오른쪽 탭(경험 그래프 / 부족한 기술, 하나씩 본다). 좁은 화면에서는 오른쪽이 채팅 아래로 내려간다.
+ * 왼쪽 채팅(넓게) · 오른쪽 카드 하나(탭: 관계도 / 목록 / 부족한 기술, 오른쪽 끝에 항목 추가 — 채팅 카드와 높이를 맞추고 안에서 스크롤). 좁은 화면에서는 오른쪽이 채팅 아래로 내려간다.
  * 그래프 상태는 CareerGraphView가 갖고, 채팅 탭 상태는 GraphAssistantPanel이 갖는다.
  */
 import { SkillGapPanel } from "@/components/match/SkillGapPanel";
@@ -31,7 +31,7 @@ export function GraphWorkspace({
           initialError={initialError}
           chatTabs={tabs}
           chat={panels}
-          sideTabs={[{ key: "skills", label: "부족한 기술", content: <SkillGapPanel /> }]}
+          sideTabs={[{ key: "skills", label: "부족한 기술", content: <SkillGapPanel bare /> }]}
         />
       )}
     </GraphAssistantPanel>
