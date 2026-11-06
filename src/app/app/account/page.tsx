@@ -101,8 +101,20 @@ export default async function AccountPage() {
 
       <Card>
         <CardHeader
+          title="MCP 연결"
+          description="Claude Code·Cursor·Claude Desktop 같은 외부 AI 앱에서 내 경험 그래프를 읽게 하는 토큰을 만들고 관리합니다."
+        />
+        <CardBody>
+          <Link href="/app/mcp" className="text-sm font-medium text-indigo-700 underline underline-offset-2">
+            MCP 연결 관리 →
+          </Link>
+        </CardBody>
+      </Card>
+
+      <Card>
+        <CardHeader
           title="회원 탈퇴"
-          description="탈퇴하면 계정과 진단·이력서·공고·지원 기록, 경험 그래프, 올린 파일이 모두 삭제되며 되돌릴 수 없습니다."
+          description="탈퇴하면 계정과 진단·이력서·공고·지원 기록, 경험 그래프, MCP 연결 토큰, 올린 파일이 모두 삭제되며 되돌릴 수 없습니다."
         />
         <CardBody>
           <DeleteAccountButton />

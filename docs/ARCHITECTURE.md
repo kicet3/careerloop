@@ -191,6 +191,8 @@
 | `/api/graph/**`, `/api/diagnoses/[id]/chat/**`, `/api/resumes/**` | 경험 그래프·그래프 채팅, 심사위원 대화, 회사별 이력서 — §11 |
 | `/app/postings`, `/app/postings/[id]`, `/app/applications` | 공고 보관함·공고 상세(내 경력과 대조), 지원 현황(칸반 + 결과 모아 보기) — §11-4 |
 | `/api/postings/**`, `/api/applications/**`, `/api/insights`, `/api/insights/skills` | 공고·URL 가져오기·대조, 지원·단계·제출본, 인사이트·스킬 갭 — §11-4 |
+| `/app/mcp`, `GET/POST /api/mcp-tokens`, `DELETE /api/mcp-tokens/[id]` | MCP 연결: 개인 접근 토큰 만들기·목록·폐기 — §11-5 |
+| `POST /api/mcp` | MCP 서버(Streamable HTTP, 상태 없음, Bearer 토큰). 경험 그래프 읽기 전용 도구 6개 — §11-5 |
 
 ## 8. 보고서 구성 (웹·PDF 동일 순서)
 
@@ -353,3 +355,12 @@ docker compose --env-file .env.local -p resume-career up -d neo4j
   인사이트는 실제 결과만 센다: 응답률 = 과제·면접·최종 합격에 한 번이라도 도달 / 지원 완료 이후 단계에 도달(이벤트 기준), 단계 도달, 이력서 버전별,
   회사별(연결 진단의 `fit.matchScore`는 참고값), 할 일 제안(마감·일정·팔로업, KST 마감 시각 기준). 예측 표현은 쓰지 않는다. `/app`에 요약 카드.
 - **사이드바** — 진단·경력·서류·지원·설정 그룹. 넓은 화면에서 바깥 칸이 행 높이만큼 늘어나 긴 페이지에서도 배경·경계선이 끝까지 이어진다.
+
+### 11-5. MCP 연결 (외부 AI 앱에서 경험 그래프 읽기)
+
+자세한 내용은 [MCP.md](./MCP.md)에 있다. 요약하면 다음과 같다.
+
+- 엔드포인트는 `POST /api/mcp`다. `@modelcontextprotocol/sdk`의 `McpServer`와 `WebStandardStreamableHTTPServerTransport`를 요청마다 새로 만든다(세션 없음, JSON 응답).
+- 인증은 개인 접근 토큰(`mcp_tokens`, SHA-256 해시 저장)으로 하고 쿠키는 보지 않는다. 사용자 상태와 필수 동의는 요청마다 다시 본다. 레이트 리밋은 사용자당 10분 300회(`MCP_REQUEST_LIMIT`)다.
+- 도구는 `get_profile_summary`·`list_nodes`·`get_node`·`search_graph`·`get_graph_text`·`get_experience_checklist` 6개다. 본문은 순수 함수(`src/lib/mcp/graph-tools.ts`)이고 LLM을 부르지 않는다. 리소스는 `careerloop://graph/schema`·`careerloop://graph/text` 두 개다.
+- OAuth(claude.ai 커넥터)는 2단계다. 테이블에 `kind`·`client_id` 자리만 있다.

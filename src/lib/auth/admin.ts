@@ -2,7 +2,7 @@ import "server-only";
 /**
  * 회원 관리(관리자 전용) 저장소. 라우트는 requireAdminApiUser()로 관리자를 확인한 뒤 actor로 넘긴다.
  * 규칙: 자기 자신은 바꿀 수 없다 · 관리자(role=admin 또는 ADMIN_EMAILS)는 거절·정지할 수 없다 ·
- * 허용 전이만(allowedAdminActions) · 거절·정지하면 그 사용자의 세션을 모두 지운다.
+ * 허용 전이만(allowedAdminActions) · 거절·정지하면 그 사용자의 세션을 모두 지우고 MCP 토큰을 모두 폐기한다.
  * 상태 변경은 조건부 UPDATE(바꾸기 전 상태가 그대로일 때만)라 동시 처리에서 한쪽만 반영된다.
  */
 import { prisma, type Prisma } from "@/lib/db/client";
@@ -160,7 +160,11 @@ export async function adminSetUserStatus(actorId: string, targetId: string, acti
       },
     });
     if (count === 0) return null;
-    if (next === "rejected" || next === "suspended") await tx.session.deleteMany({ where: { userId: targetId } });
+    if (next === "rejected" || next === "suspended") {
+      await tx.session.deleteMany({ where: { userId: targetId } });
+      // MCP 토큰도 폐기한다(정지 해제 뒤에도 다시 쓰이지 않게 — 사용자가 새로 만든다).
+      await tx.mcpToken.updateMany({ where: { userId: targetId, revokedAt: null }, data: { revokedAt: now } });
+    }
     return tx.user.findUnique({ where: { id: targetId }, select });
   });
   if (!updated) return fail("conflict");

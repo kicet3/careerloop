@@ -38,6 +38,9 @@ export const POSTING_CAPTURE_RETRY_LIMIT: DbRateLimit = { bucket: "posting-captu
 /** 공고 원문 캡처: 공용 공고(key=sharedPostingId)당 1시간 3회(여러 사용자가 같은 공고를 연달아 다시 찍지 않게). 자동 캡처도 센다. */
 export const POSTING_CAPTURE_TARGET_LIMIT: DbRateLimit = { bucket: "posting-capture-target", limit: 3, windowMs: 60 * 60_000 };
 
+/** MCP(외부 AI 앱의 경험 그래프 읽기) 요청: 사용자당 10분 300회(LLM 비용은 없지만 Neo4j 읽기·DB 조회를 막는다). */
+export const MCP_REQUEST_LIMIT: DbRateLimit = { bucket: "mcp", limit: 300, windowMs: 10 * 60_000 };
+
 /** IP는 원문 대신 해시로 저장한다. */
 export function ipKey(ip: string): string {
   return createHash("sha256").update(`ip:${ip}`).digest("base64url").slice(0, 32);

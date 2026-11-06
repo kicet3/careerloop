@@ -259,6 +259,7 @@ export function AccountMenu({
           </div>
           <div role="separator" className="-mx-1 my-1 h-px bg-slate-100" />
           {linkItem("/app/account", "계정 설정", <UserIcon />)}
+          {linkItem("/app/mcp", "MCP 연결", <McpIcon />)}
           {showConnections && linkItem("/app/connections", "AI 연결", <PlugIcon />)}
           <div role="separator" className="-mx-1 my-1 h-px bg-slate-100" />
           <button
@@ -333,6 +334,17 @@ function PlugIcon() {
       <path d="M9 3.5v4M15 3.5v4" />
       <path d="M6.5 7.5h11v3a5.5 5.5 0 0 1-11 0z" />
       <path d="M12 16v4.5" />
+    </Svg>
+  );
+}
+
+function McpIcon() {
+  return (
+    <Svg>
+      <circle cx="6" cy="12" r="2.5" />
+      <circle cx="18" cy="6" r="2.5" />
+      <circle cx="18" cy="18" r="2.5" />
+      <path d="M8.3 10.8l7.4-3.6M8.3 13.2l7.4 3.6" />
     </Svg>
   );
 }

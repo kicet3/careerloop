@@ -76,7 +76,7 @@ export function DeleteAccountButton({ variant = "danger" }: { variant?: "danger"
           </h2>
           <p>탈퇴하면 아래 정보가 지체 없이 삭제되며 되돌릴 수 없습니다.</p>
           <ul className="list-disc space-y-1 pl-5 text-slate-600">
-            <li>계정 정보(이메일·이름·로그인 정보)와 모든 로그인 세션</li>
+            <li>계정 정보(이메일·이름·로그인 정보)와 모든 로그인 세션, MCP 연결 토큰</li>
             <li>진단·이력서·채용공고 보관함·지원 기록·대화 내용과 올린 파일</li>
             <li>경험 그래프</li>
             <li>동의 기록</li>

@@ -1,4 +1,5 @@
 import type { Metadata } from "next";
+import Link from "next/link";
 import { GraphWorkspace } from "@/components/graph/GraphWorkspace";
 import { Alert } from "@/components/ui/Alert";
 import { Card } from "@/components/ui/Card";
@@ -61,7 +62,12 @@ export default async function GraphPage({ searchParams }: { searchParams: Promis
 function Header() {
   return (
     <div>
-      <h1 className="text-2xl font-bold tracking-tight text-slate-900">경험 그래프</h1>
+      <div className="flex flex-wrap items-baseline justify-between gap-x-4 gap-y-1">
+        <h1 className="text-2xl font-bold tracking-tight text-slate-900">경험 그래프</h1>
+        <Link href="/app/mcp" className="text-sm font-medium text-indigo-700 hover:underline hover:underline-offset-2">
+          외부 AI 앱에서 쓰기 (MCP) →
+        </Link>
+      </div>
       <p className="mt-1 max-w-prose text-sm text-slate-500">
         회사·직무·프로젝트·경험·기술·성과를 서로 이어 정리해 둡니다. 채팅으로 이야기하거나 이력서를 올려 채우고, 정리한 그래프에 질문해
         보세요.

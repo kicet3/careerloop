@@ -23,6 +23,12 @@ export function createRateLimiter(opts: { limit: number; windowMs: number; maxKe
       entry.count += 1;
       return { ok: entry.count <= opts.limit, retryAfterSec: Math.ceil((entry.resetAt - now) / 1000) };
     },
+    /** 기록하지 않고 지금 막혀 있는지만 본다(실패만 세는 리밋이 요청 처리 전에 확인할 때). */
+    peek(key: string, now: number = Date.now()): { ok: boolean; retryAfterSec: number } {
+      const entry = hits.get(key);
+      if (!entry || entry.resetAt <= now) return { ok: true, retryAfterSec: 0 };
+      return { ok: entry.count < opts.limit, retryAfterSec: Math.ceil((entry.resetAt - now) / 1000) };
+    },
     reset(key: string) {
       hits.delete(key);
     },

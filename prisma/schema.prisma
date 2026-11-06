@@ -45,6 +45,7 @@ model User {
   interviewAnswers  InterviewAnswer[]
   portfolios        Portfolio[]
   llmUsageEvents    LlmUsageEvent[]
+  mcpTokens         McpToken[]
 
   @@index([status, createdAt], map: "users_status_idx")
   @@map("users")
@@ -667,4 +668,30 @@ model LlmUsageEvent {
   @@index([userId, createdAt], map: "llm_usage_events_user_idx")
   @@index([createdAt], map: "llm_usage_events_created_idx")
   @@map("llm_usage_events")
+}
+
+/// MCP(외부 AI 앱) 접근 토큰. 원문은 만들 때 한 번만 보여 주고 DB에는 SHA-256 해시만 둔다(docs/MCP.md).
+/// kind: 'pat'(사용자가 만든 개인 토큰). 'oauth'와 client_id는 OAuth 연결(2단계)용 자리다.
+model McpToken {
+  id         String    @id
+  userId     String    @map("user_id")
+  /// 사용자가 붙인 이름(예: "Claude Code").
+  name       String
+  /// 토큰 원문의 SHA-256(hex).
+  tokenHash  String    @unique(map: "mcp_tokens_token_hash_unique") @map("token_hash")
+  /// 원문 앞 12자("clp_" + 8자). 목록에서 토큰을 알아보는 데만 쓴다.
+  prefix     String
+  kind       String    @default("pat")
+  clientId   String?   @map("client_id")
+  scopes     String[]  @default(["graph:read"])
+  /// 만료 시각. null이면 만료 없음.
+  expiresAt  DateTime? @map("expires_at") @db.Timestamptz(3)
+  lastUsedAt DateTime? @map("last_used_at") @db.Timestamptz(3)
+  revokedAt  DateTime? @map("revoked_at") @db.Timestamptz(3)
+  createdAt  DateTime  @default(now()) @map("created_at") @db.Timestamptz(3)
+
+  user User @relation(fields: [userId], references: [id], onDelete: Cascade, map: "mcp_tokens_user_id_fkey")
+
+  @@index([userId, createdAt], map: "mcp_tokens_user_idx")
+  @@map("mcp_tokens")
 }

@@ -20,6 +20,16 @@ describe("createRateLimiter", () => {
     rl.reset("k");
     expect(rl.hit("k", 2).ok).toBe(true);
   });
+
+  it("peek은 세지 않고 막혔는지만 본다", () => {
+    const rl = createRateLimiter({ limit: 2, windowMs: 1000 });
+    expect(rl.peek("k", 0)).toEqual({ ok: true, retryAfterSec: 0 });
+    rl.hit("k", 0);
+    expect(rl.peek("k", 1).ok).toBe(true);
+    rl.hit("k", 2);
+    expect(rl.peek("k", 3)).toEqual({ ok: false, retryAfterSec: 1 });
+    expect(rl.peek("k", 1000).ok).toBe(true);
+  });
 });
 
 describe("clientIp", () => {

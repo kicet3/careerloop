@@ -26,6 +26,12 @@ beforeAll(async () => {
   });
   await tdb.prisma.jobPosting.create({ data: { id: "jp", userId: "ua", company: "c", roleTitle: "r", sharedPostingId: "sp" } });
   await tdb.prisma.rateEvent.createMany({ data: [{ bucket: "resume-draft", key: "ua" }, { bucket: "resume-draft", key: "ub" }] });
+  await tdb.prisma.mcpToken.createMany({
+    data: [
+      { id: "mcp_a", userId: "ua", name: "a", tokenHash: "hash-a", prefix: "clp_aaaaaaaa" },
+      { id: "mcp_b", userId: "ub", name: "b", tokenHash: "hash-b", prefix: "clp_bbbbbbbb" },
+    ],
+  });
   await storage.putJson(storage.userKey("ua", "resumes", "r1", "v1.json"), { a: 1 });
   await storage.putJson(storage.userKey("ub", "resumes", "r1", "v1.json"), { b: 1 });
 });
@@ -54,6 +60,7 @@ describe("deleteAccount", () => {
     expect(await tdb.prisma.userConsent.count()).toBe(0);
     expect(await tdb.prisma.jobPosting.count()).toBe(0);
     expect((await tdb.prisma.rateEvent.findMany()).map((r) => r.key)).toEqual(["ub"]);
+    expect((await tdb.prisma.mcpToken.findMany()).map((t) => t.id)).toEqual(["mcp_b"]);
     expect(await tdb.prisma.sharedPosting.findUniqueOrThrow({ where: { id: "sp" } })).toMatchObject({ createdBy: null, importerCount: 0 });
     expect(await storage.listByPrefix(storage.userPrefix("ua"))).toEqual([]);
     expect(existsSync(path.join(storageDir, "users", "ub", "resumes", "r1", "v1.json"))).toBe(true);

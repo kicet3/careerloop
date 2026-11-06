@@ -1,4 +1,4 @@
-/** 회원 관리(PGlite): 탭·검색, 허용 전이, 자기 자신·관리자 보호, 정지 시 세션 삭제, 동시 처리. */
+/** 회원 관리(PGlite): 탭·검색, 허용 전이, 자기 자신·관리자 보호, 정지 시 세션 삭제·MCP 토큰 폐기, 동시 처리. */
 import { afterAll, beforeAll, beforeEach, describe, expect, it, vi } from "vitest";
 import { createTestDb, type TestDb } from "@/test/db";
 
@@ -61,9 +61,17 @@ describe("상태 변경", () => {
     expect(row.approvedAt).toBeInstanceOf(Date);
   });
 
-  it("정지하면 세션을 모두 지우고, 해제하면 승인으로 돌아온다", async () => {
+  it("정지하면 세션을 모두 지우고 MCP 토큰을 폐기하며, 해제하면 승인으로 돌아온다", async () => {
+    await tdb.prisma.mcpToken.createMany({
+      data: [
+        { id: "mcp_u1", userId: "u1", name: "a", tokenHash: "h1", prefix: "clp_11111111" },
+        { id: "mcp_boss", userId: "boss", name: "b", tokenHash: "h2", prefix: "clp_22222222" },
+      ],
+    });
     expect((await admin.adminSetUserStatus("boss", "u1", "suspend")).ok).toBe(true);
     expect(await tdb.prisma.session.count({ where: { userId: "u1" } })).toBe(0);
+    expect((await tdb.prisma.mcpToken.findUniqueOrThrow({ where: { id: "mcp_u1" } })).revokedAt).toBeInstanceOf(Date);
+    expect((await tdb.prisma.mcpToken.findUniqueOrThrow({ where: { id: "mcp_boss" } })).revokedAt).toBeNull();
     expect(await admin.adminSetUserStatus("boss", "u1", "unsuspend")).toMatchObject({ ok: true, user: { status: "approved" } });
   });
 
