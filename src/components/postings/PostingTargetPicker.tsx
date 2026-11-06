@@ -1,12 +1,14 @@
 "use client";
 /**
  * 지원할 자리 고르기: 내 보관함 공고 검색 / 공고 링크로 가져오기(끝나면 자동 선택, 이미 보관한 공고·공고 찾기의 공고는 바로 선택).
+ * 보안 검사(봇 차단)로 링크를 읽지 못하면 본문 붙여넣기(PasteImportForm)로 가져온다(처음부터 고를 수도 있다).
  * 고르는 방법(mode)은 부모가 정하고, 고른 공고(전체 JobPosting)를 onSelect로 돌려준다. 새 진단 폼이 쓴다.
  */
 import Link from "next/link";
 import { useEffect, useMemo, useRef, useState } from "react";
 import { inputClass } from "@/components/resumes/styles";
-import { usePostingImports } from "@/components/postings/import-jobs";
+import { usePostingImports, type StartImportOptions } from "@/components/postings/import-jobs";
+import { PasteImportForm } from "@/components/postings/PasteImportForm";
 import { Badge } from "@/components/ui/Badge";
 import { Button } from "@/components/ui/Button";
 import { Spinner } from "@/components/ui/Spinner";
@@ -47,6 +49,8 @@ export function PostingTargetPicker({
   const [url, setUrl] = useState("");
   const [error, setError] = useState<string | null>(null);
   const [loadingId, setLoadingId] = useState<string | null>(null);
+  /** 처음부터 연 본문 붙여넣기 입력(처음 채울 링크). 차단으로 실패한 작업의 입력은 작업에서 바로 연다. */
+  const [paste, setPaste] = useState<{ url: string } | null>(null);
   const results = useMemo(() => searchPostingOptions(options, query), [options, query]);
 
   async function chooseById(id: string, note: string | null): Promise<boolean> {
@@ -92,9 +96,26 @@ export function PostingTargetPicker({
       setError("공고 상세 페이지 주소를 붙여넣으세요.");
       return;
     }
-    const result = await imports.start(value);
+    const failure = await startImport(value);
+    if (failure) setError(failure);
+    else setUrl("");
+  }
+
+  /** 본문 붙여넣어 가져오기. 성공하면 null, 실패하면 입력 아래에 보일 문구. */
+  async function importPasted(value: string, pageText: string): Promise<string | null> {
+    setError(null);
+    const failedJob = urlJob?.status === "failed" ? urlJob.id : null;
+    const failure = await startImport(value, { pageText });
+    if (failure) return failure;
+    if (failedJob) imports.dismiss(failedJob);
+    setPaste(null);
+    return null;
+  }
+
+  /** 가져오기 시작(링크·붙여넣기 공통). 시작했거나 기존 공고를 골랐으면 null, 실패면 사용자용 문구. */
+  async function startImport(value: string, opts: StartImportOptions = {}): Promise<string | null> {
+    const result = await imports.start(value, opts);
     if (result.ok) {
-      setUrl("");
       const { job } = result;
       // 바로 끝난 작업(공고 찾기에 있던 공고 등)은 start 안에서 onCompleted가 이미 불렸다 — 진행 중일 때만 막는다.
       if (isPostingImportActive(job.status)) onBusyChange?.(true);
@@ -102,13 +123,12 @@ export function PostingTargetPicker({
       else if (job.status === "failed" && job.postingId) {
         if (await chooseById(job.postingId, "이미 보관함에 있는 공고라 그 공고를 골랐습니다.")) imports.dismiss(job.id);
       }
-      return;
+      return null;
     }
     if (result.error.existingId && (await chooseById(result.error.existingId, "이미 보관함에 있는 공고라 그 공고를 골랐습니다."))) {
-      setUrl("");
-      return;
+      return null;
     }
-    setError(result.error.error);
+    return result.error.error;
   }
 
   if (mode === "library") {
@@ -195,6 +215,24 @@ export function PostingTargetPicker({
       )}
       {urlJob?.status === "failed" && !urlJob.postingId && <p className="mt-2 text-sm text-red-700">{urlJob.error ?? "공고를 가져오지 못했습니다."}</p>}
       {error && <p className="mt-2 text-sm text-red-700">{error}</p>}
+      {urlJob?.status === "failed" && urlJob.errorCode === "blocked" && !importing ? (
+        <PasteImportForm key={urlJob.id} initialUrl={urlJob.url} onSubmit={importPasted} submitLabel="붙여넣은 내용으로 가져와서 고르기" className="mt-3" />
+      ) : paste ? (
+        <PasteImportForm
+          key={paste.url}
+          initialUrl={paste.url}
+          onSubmit={importPasted}
+          onCancel={() => setPaste(null)}
+          submitLabel="붙여넣은 내용으로 가져와서 고르기"
+          className="mt-3"
+        />
+      ) : (
+        !importing && (
+          <button type="button" className="mt-2 text-xs font-medium text-indigo-700 hover:underline" onClick={() => setPaste({ url: url.trim() })}>
+            링크로 안 되면 본문 붙여넣기
+          </button>
+        )
+      )}
     </div>
   );
 }

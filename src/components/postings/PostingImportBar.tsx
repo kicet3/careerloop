@@ -5,6 +5,8 @@
  * - 이 입력줄 아래에는 끝난 작업(완료 미리보기·실패 사유)만 보인다.
  * - 이미 보관한 공고(409)면 기존 공고 열기와 '다시 가져오기'(최신 내용으로 갱신)를 안내한다.
  * - 공고 찾기에 같은 공고가 있으면 AI 없이 바로 담긴다(완료 표시에 안내).
+ * - 보안 검사(봇 차단)로 링크를 읽지 못한 작업(errorCode 'blocked')은 그 자리에 본문 붙여넣기 입력(PasteImportForm)을 연다.
+ *   입력줄 아래 '링크로 안 되면 본문 붙여넣기'로 처음부터 붙여넣기로 가져올 수도 있다.
  */
 import Link from "next/link";
 import { useEffect, useState } from "react";
@@ -14,7 +16,8 @@ import { Button } from "@/components/ui/Button";
 import { Spinner } from "@/components/ui/Spinner";
 import { cn } from "@/components/ui/cn";
 import { POSTING_IMPORT_STATUS_LABELS, isPostingImportActive, type JobPosting } from "@/lib/domain/postings";
-import type { ImportJobView, StartImportResult } from "./import-jobs";
+import type { ImportJobView, StartImportOptions, StartImportResult } from "./import-jobs";
+import { PasteImportForm } from "./PasteImportForm";
 import { DeadlineBadge, inputClass, type ApiError } from "./shared";
 
 const STEPS = ["queued", "reading", "analyzing", "completed"] as const;
@@ -25,12 +28,25 @@ export function PostingImportBar({
   dismiss,
 }: {
   jobs: ImportJobView[];
-  start: (url: string, opts?: { refresh?: boolean }) => Promise<StartImportResult>;
+  start: (url: string, opts?: StartImportOptions) => Promise<StartImportResult>;
   dismiss: (id: string) => void;
 }) {
   const [url, setUrl] = useState("");
   const [submitting, setSubmitting] = useState(false);
   const [error, setError] = useState<(ApiError & { url?: string }) | null>(null);
+  /** 열린 본문 붙여넣기 입력(처음 채울 링크). */
+  const [paste, setPaste] = useState<{ url: string } | null>(null);
+
+  /** 본문 붙여넣어 가져오기. 성공하면 null, 실패하면 입력 아래에 보일 문구(이미 보관한 공고는 위 안내에 기존 공고 링크도). */
+  async function startPaste(value: string, pageText: string): Promise<string | null> {
+    const result = await start(value, { pageText });
+    if (result.ok) {
+      setError(null);
+      return null;
+    }
+    if (result.error.existingId) setError({ error: result.error.error, existingId: result.error.existingId });
+    return result.error.error;
+  }
 
   async function run(value: string, refresh: boolean) {
     setError(null);
@@ -78,9 +94,25 @@ export function PostingImportBar({
           링크로 가져오기
         </Button>
       </form>
+      {paste ? (
+        <PasteImportForm
+          key={paste.url}
+          initialUrl={paste.url}
+          onCancel={() => setPaste(null)}
+          onSubmit={async (value, text) => {
+            const failure = await startPaste(value, text);
+            if (!failure) setPaste(null);
+            return failure;
+          }}
+        />
+      ) : (
+        <button type="button" className="text-xs font-medium text-indigo-700 hover:underline" onClick={() => setPaste({ url: url.trim() })}>
+          링크로 안 되면 본문 붙여넣기
+        </button>
+      )}
       <p className="text-xs text-slate-500">
-        서버가 공개된 공고 페이지를 읽고 AI가 회사·직무·마감일과 업무·자격·우대·복지 등 구역을 원문 그대로 나눠 정리합니다. 로그인해야 보이는 공고는 직접 추가하세요. 하루 20번까지.
-        링크로 가져온 공고 내용(메모·상태 제외)은 &lsquo;공고 찾기&rsquo;에 공유되고, 이미 누군가 가져온 링크는 AI 없이 바로 담깁니다.
+        서버가 공개된 공고 페이지를 읽고 AI가 회사·직무·마감일과 업무·자격·우대·복지 등 구역을 원문 그대로 나눠 정리합니다. 로그인해야 보이는 공고는 직접 추가하고, 보안 검사로 막힌 사이트는 본문을 붙여넣어 가져오세요. 하루 20번까지.
+        링크로 가져온 공고 내용(메모·상태 제외)은 &lsquo;공고 찾기&rsquo;에 공유되고, 이미 누군가 가져온 링크는 AI 없이 바로 담깁니다. 본문을 붙여넣어 가져온 공고는 직접 추가한 공고처럼 공유됩니다(원문·링크 제외).
       </p>
       {error && (
         <Alert tone="error">
@@ -106,7 +138,16 @@ export function PostingImportBar({
       {finished.length > 0 && (
         <ul className="space-y-2" aria-live="polite">
           {finished.map((job) => (
-            <ImportRow key={job.id} job={job} onDismiss={() => dismiss(job.id)} />
+            <ImportRow
+              key={job.id}
+              job={job}
+              onDismiss={() => dismiss(job.id)}
+              onPaste={async (value, text) => {
+                const failure = await startPaste(value, text);
+                if (!failure) dismiss(job.id);
+                return failure;
+              }}
+            />
           ))}
         </ul>
       )}
@@ -137,7 +178,15 @@ export function ImportingCard({ job }: { job: ImportJobView }) {
   );
 }
 
-function ImportRow({ job, onDismiss }: { job: ImportJobView; onDismiss: () => void }) {
+function ImportRow({
+  job,
+  onDismiss,
+  onPaste,
+}: {
+  job: ImportJobView;
+  onDismiss: () => void;
+  onPaste: (url: string, pageText: string) => Promise<string | null>;
+}) {
   const active = isPostingImportActive(job.status);
   const step = STEPS.indexOf(job.status as (typeof STEPS)[number]);
   return (
@@ -160,6 +209,13 @@ function ImportRow({ job, onDismiss }: { job: ImportJobView; onDismiss: () => vo
             {job.status === "completed" && job.refresh && <span className="font-normal text-slate-600"> — 최신 내용으로 갱신했습니다</span>}
           </p>
           {job.status === "completed" && job.postingId && <ImportPreview postingId={job.postingId} />}
+          {job.status === "failed" && job.errorCode === "blocked" &&
+            (job.refresh ? (
+              // 다시 가져오기(이미 보관한 공고)는 붙여넣기로 갱신할 수 없다(붙여넣기는 새 공고만 만든다 — 같은 링크면 409).
+              <p className="mt-1 text-xs text-red-800">이 사이트는 링크로 다시 가져올 수 없습니다. 바뀐 내용은 기존 공고를 열어 직접 고쳐 주세요.</p>
+            ) : (
+              <PasteImportForm initialUrl={job.url} onSubmit={onPaste} className="mt-2" />
+            ))}
           {active && (
             <div className="mt-2 flex gap-1" aria-hidden>
               {STEPS.slice(0, 3).map((s, i) => (

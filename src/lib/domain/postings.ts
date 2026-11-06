@@ -171,6 +171,33 @@ export const PostingImportInputSchema = z
   })
   .strict();
 
+/** '본문 붙여넣어 가져오기'의 붙여넣은 본문 최소 길이(이보다 짧으면 공고 한 페이지로 보기 어렵다). */
+export const POSTING_PASTE_MIN_CHARS = 200;
+
+/**
+ * 본문 붙여넣어 가져오기 요청: 링크로 읽을 수 없는 공고(봇 차단 등)를 사용자가 브라우저에서 복사한 페이지 본문으로 가져온다.
+ * url은 출처 링크(중복 판별·공고 찾기 공유 키)로 그대로 쓰고, 형식·공개 주소 검사는 URL 가져오기와 같다(parsePostingUrl).
+ */
+export const PostingPasteImportInputSchema = z
+  .object({
+    url: z.string().trim().min(1, "공고 주소를 입력하세요.").max(POSTING_LIMITS.url),
+    pageText: z
+      .string()
+      .trim()
+      .min(POSTING_PASTE_MIN_CHARS, `붙여넣은 내용이 너무 짧습니다. 공고 페이지 전체(Ctrl+A)를 복사해 ${POSTING_PASTE_MIN_CHARS}자 이상 붙여넣어 주세요.`)
+      .max(POSTING_LIMITS.jdText, `붙여넣은 내용은 ${POSTING_LIMITS.jdText.toLocaleString("en-US")}자 이내여야 합니다. 공고 본문 부분만 복사해 주세요.`),
+  })
+  .strict();
+export type PostingPasteImportInput = z.output<typeof PostingPasteImportInputSchema>;
+
+/**
+ * 가져오기 실패 종류(화면 안내용). 'blocked': 공고 사이트가 보안 검사(봇 차단)로 서버 접속을 막았다 — 본문 붙여넣기를 안내한다.
+ * 작업 행에는 문구만 저장하므로 문구가 이 값과 같을 때 'blocked'로 본다(toImportJob).
+ */
+export type PostingImportErrorCode = "blocked";
+export const POSTING_BLOCKED_ERROR =
+  "이 공고 사이트는 보안 검사(봇 차단)로 자동 접속을 막고 있어 링크로 가져올 수 없습니다. 브라우저에서 공고를 열고 페이지 전체(Ctrl+A 또는 ⌘+A)를 복사해 '본문 붙여넣어 가져오기'로 추가해 주세요.";
+
 // ---------------------------------------------------------------------------
 // 응답 형태(API·화면)
 // ---------------------------------------------------------------------------
@@ -237,6 +264,8 @@ export interface PostingImportJob {
   status: PostingImportStatus;
   /** 사용자에게 보여도 되는 한국어 오류 문구(내부 오류 원문은 담지 않는다). */
   error: string | null;
+  /** 실패 종류('blocked'면 본문 붙여넣기를 안내한다). 그 밖에는 null. */
+  errorCode: PostingImportErrorCode | null;
   postingId: string | null;
   /** 결과 공용 공고 id(재사용했거나 새로 만든 것). */
   sharedPostingId: string | null;

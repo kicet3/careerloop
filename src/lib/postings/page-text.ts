@@ -245,3 +245,12 @@ export function postingPageText(html: string, maxChars: number = POSTING_LIMITS.
   const body = tidy(parts.join(" "));
   return [...jobs, ...pageData, body].filter(Boolean).join("\n\n").slice(0, maxChars).trim();
 }
+
+/**
+ * 사용자가 브라우저에서 복사해 붙여넣은 공고 페이지 본문 → 모델에 줄 본문 텍스트(순수, '본문 붙여넣어 가져오기').
+ * HTML로 해석하지 않는다(일반 텍스트). NUL·제어 문자를 지우고 줄 구분은 살려 공백만 정리한 뒤 JD 상한으로 자른다.
+ */
+export function pastedPageText(text: string, maxChars: number = POSTING_LIMITS.jdText): string {
+  const clean = text.replace(/\r\n?/g, "\n").replace(/[\u0000-\u0008\u000b\u000c\u000e-\u001f\u007f]/g, "");
+  return tidy(clean).slice(0, maxChars).trim();
+}

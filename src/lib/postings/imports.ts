@@ -8,27 +8,37 @@ import "server-only";
  *   실행 1회는 180초 상한이라 정상 실행이 멈춤으로 오판되지 않는다. 3회 시도 뒤에도 멈추면 실패로 닫는다.
  * - 오류는 사용자용 문구만 저장한다(내부 주소·원본 오류 메시지는 로그에만).
  * - 공고 찾기: 결과는 공용 공고(shared_postings)에도 저장하고, 같은 URL을 다시 가져오면 공용 공고를 바로 담는다(shared.ts).
+ * - 본문 붙여넣어 가져오기(pasted): 봇 차단 등으로 링크를 읽을 수 없는 공고는 사용자가 복사한 페이지 본문으로 같은 경로를 탄다
+ *   (URL은 출처 링크·중복 판별에 쓰고, 공고 찾기에 같은 링크가 있으면 그것을 담는다). 결과는 링크 공용 공고로 올리지 않고
+ *   직접 입력 공고처럼 만든다(검증하지 못한 본문의 링크 선점·개인정보 공유 방지 — runImport). 본문은 저장하지 않고 실행에만 넘기므로(runImport deps.pastedText)
+ *   실행이 멈춰 조회 시 다시 실행되면 링크 읽기로 돌아가 같은 차단 안내로 끝난다. 원문 캡처는 시도하지 않는다.
  * CareerLoop(src/server/postingImport/jobs.ts)에서 가져옴 — 원본은 프로세스 메모리 Map으로 중복 실행을 막아 여러 인스턴스·재시작에서 새었다.
  */
+import { isIP } from "node:net";
 import { nanoid } from "nanoid";
 import { FeatureError } from "@/lib/api/errors";
 import { prisma, type Prisma } from "@/lib/db/client";
 import { stripNul } from "@/lib/db/errors";
 import type { PostingImportRow, SharedPostingRow } from "@/lib/db/types";
-import { DAILY_POSTING_IMPORT_LIMIT, type PostingImportJob, type PostingImportStatus } from "@/lib/domain/postings";
+import {
+  DAILY_POSTING_IMPORT_LIMIT,
+  POSTING_BLOCKED_ERROR,
+  type PostingImportJob,
+  type PostingImportStatus,
+} from "@/lib/domain/postings";
 import type { ProviderId } from "@/lib/domain/providers";
 import { hitDbLimit, POSTING_CAPTURE_TARGET_LIMIT } from "@/lib/auth/db-rate-limit";
 import { createLlmClient, type LlmClient } from "@/lib/llm";
 import { resolveRequestedProvider } from "@/lib/providers/options";
 import { runPostingCapture, type CaptureDeps } from "./capture";
 import { requestCapture } from "./capture-store";
-import { extractPosting } from "./extract";
-import { fetchPostingPage, type FetchDeps } from "./fetch";
+import { extractPosting, PostingExtractError } from "./extract";
+import { fetchPostingPage, isPublicAddress, looksLikeChallengeText, postingBlockedError, type FetchDeps } from "./fetch";
 import { safePostingAiError } from "./http";
-import { postingPageText } from "./page-text";
+import { pastedPageText, postingPageText } from "./page-text";
 import { createPosting, DuplicatePostingError, findPostingIdByUrl, releaseMovedShared } from "./service";
 import { findSharedPostingByUrlKey, refreshSharedImporterCount, saveSharedToLibrary, syncPostingFromShared, upsertSharedPosting } from "./shared";
-import { normalizeUrl, parsePostingUrl, PostingUrlError } from "./url";
+import { isValidUrl, normalizeUrl, parsePostingUrl, PostingUrlError } from "./url";
 
 /** 실행 1회 전체 상한(페이지 읽기 + AI 분석). */
 export const IMPORT_TIME_LIMIT_MS = 180_000;
@@ -40,6 +50,9 @@ export const MAX_ACTIVE_IMPORTS = 3;
 
 const ACTIVE: PostingImportStatus[] = ["queued", "reading", "analyzing"];
 const STALE_ERROR = "공고 가져오기가 중간에 끊겼습니다. 다시 시도해 주세요.";
+/** 붙여넣은 내용이 공고가 아니라 보안 검사 화면일 때. */
+export const PASTED_CHALLENGE_ERROR =
+  "붙여넣은 내용이 공고가 아니라 보안 검사 화면입니다. 브라우저에서 보안 검사를 마치고 공고 내용이 보일 때 페이지 전체를 복사해 다시 붙여넣어 주세요.";
 
 export function toImportJob(row: PostingImportRow): PostingImportJob {
   return {
@@ -47,6 +60,7 @@ export function toImportJob(row: PostingImportRow): PostingImportJob {
     url: row.url,
     status: row.status,
     error: row.error ?? null,
+    errorCode: row.status === "failed" && row.error === POSTING_BLOCKED_ERROR ? "blocked" : null,
     postingId: row.postingId ?? null,
     sharedPostingId: row.sharedPostingId ?? null,
     refresh: row.refresh,
@@ -63,6 +77,11 @@ export function isImportStale(job: Pick<PostingImportJob, "status" | "updatedAt"
 export interface CreateImportOptions {
   /** '다시 가져오기': 공용 공고가 있어도 페이지를 다시 읽는다. 내 보관함에 같은 URL이 있으면 409 대신 그 공고를 새 내용으로 맞춘다. */
   refresh?: boolean;
+  /**
+   * 본문 붙여넣어 가져오기: 실행(runImport)에 붙여넣은 본문을 넘긴다. refresh는 쓰지 않는다. 같은 URL을 진행 중인 작업이 있으면
+   * 재사용하지 않고 409(그 작업은 붙여넣은 본문을 모른다).
+   */
+  pasted?: boolean;
   now?: number;
 }
 
@@ -83,10 +102,15 @@ export interface CreateImportResult {
  */
 export async function createImport(userId: string, rawUrl: string, opts: CreateImportOptions = {}): Promise<CreateImportResult> {
   const now = opts.now ?? Date.now();
-  const refresh = opts.refresh ?? false;
+  const pasted = opts.pasted ?? false;
+  const refresh = !pasted && (opts.refresh ?? false);
   let url: string;
   try {
-    url = parsePostingUrl(rawUrl).href;
+    const parsed = parsePostingUrl(rawUrl);
+    // 붙여넣기는 서버가 접속하지 않아 DNS 검사(fetch.ts publicTarget)를 거치지 않는다 — 출처 링크로 남길 만한 공개 주소인지
+    // 형식으로 확인한다(점이 있는 호스트, IP 리터럴이면 공개 주소). 캡처 등 나중의 접속은 각자 DNS 검사를 한다.
+    if (pasted && !isPublicSourceUrl(parsed)) throw new PostingUrlError("외부에 공개된 채용 공고 주소만 가져올 수 있습니다.");
+    url = parsed.href;
   } catch (err) {
     if (err instanceof PostingUrlError) throw new FeatureError(err.message, 400);
     throw err;
@@ -125,6 +149,7 @@ export async function createImport(userId: string, rawUrl: string, opts: CreateI
     const active = (await tx.postingImport.findMany({ where: { userId, status: { in: ACTIVE } } })) as PostingImportRow[];
     // 같은 공고(www·추적 파라미터·끝 슬래시만 다른 링크 포함)를 진행 중이면 그 작업을 재사용한다.
     const same = active.find((r) => (r.urlKey ?? normalizeUrl(r.url)) === key && !isImportStale(toImportJob(r), now));
+    if (same && pasted) throw new FeatureError("같은 공고를 가져오는 중입니다. 끝난 뒤 다시 시도하세요.", 409);
     if (same) return { job: toImportJob(same), reused: true, fromShared: false };
     if (active.filter((r) => !isImportStale(toImportJob(r), now)).length >= MAX_ACTIVE_IMPORTS) {
       throw new FeatureError("진행 중인 공고 가져오기가 많습니다. 끝난 뒤 다시 시도하세요.", 409);
@@ -156,6 +181,13 @@ export async function createImport(userId: string, rawUrl: string, opts: CreateI
     });
     return { job: toImportJob(row as PostingImportRow), reused: false, fromShared: false };
   });
+}
+
+/** 출처 링크로 둘 공개 주소 형식인지(접속하지 않는다): 호스트에 점이 있고, IP 리터럴이면 공개 주소. */
+function isPublicSourceUrl(url: URL): boolean {
+  const host = url.hostname.replace(/^\[|\]$/g, "");
+  if (isIP(host)) return isPublicAddress(host);
+  return isValidUrl(url.href) && !/\.(?:local|localhost|internal|lan|home\.arpa)$/i.test(host);
 }
 
 /** 같은 입력 주소(url_key)로 끝난 가져오기 작업이 남긴 공용 공고(숨김 제외) — 리다이렉트 링크의 별칭. */
@@ -220,6 +252,8 @@ export interface RunImportDeps {
   /** 테스트용: 페이지 가져오기를 바꾼다(실제 인터넷에 접속하지 않게). */
   fetchPage?: (url: string, opts: { signal: AbortSignal }) => Promise<{ url: string; html: string }>;
   fetchDeps?: Omit<FetchDeps, "signal">;
+  /** 본문 붙여넣어 가져오기: 페이지를 읽지 않고 이 본문(사용자가 복사한 페이지 텍스트)으로 분석한다. */
+  pastedText?: string;
   timeLimitMs?: number;
   now?: () => number;
 }
@@ -266,9 +300,16 @@ export async function runImport(importId: string, deps: RunImportDeps = {}): Pro
   const timer = setTimeout(() => controller.abort(new ImportTimeoutError()), deps.timeLimitMs ?? IMPORT_TIME_LIMIT_MS);
   const signal = controller.signal;
   try {
-    const page = deps.fetchPage
-      ? await deps.fetchPage(claimed.url, { signal })
-      : await fetchPostingPage(claimed.url, { ...deps.fetchDeps, signal });
+    const pasted = deps.pastedText !== undefined;
+    let page: { url: string; pageText: string };
+    if (pasted) {
+      page = { url: claimed.url, pageText: pastedPageText(deps.pastedText!) };
+    } else {
+      const fetched = deps.fetchPage
+        ? await deps.fetchPage(claimed.url, { signal })
+        : await fetchPostingPage(claimed.url, { ...deps.fetchDeps, signal });
+      page = { url: fetched.url, pageText: postingPageText(fetched.html) };
+    }
     signal.throwIfAborted();
 
     // 리다이렉트 뒤 최종 주소로 다시 확인한다(입력 주소로는 못 찾은 경우) — AI 분석 전에 끝내 비용을 쓰지 않는다.
@@ -288,9 +329,29 @@ export async function runImport(importId: string, deps: RunImportDeps = {}): Pro
 
     const provider = deps.llm ? null : (deps.provider ?? (await resolveRequestedProvider(null)));
     const llm = deps.llm ?? createLlmClient(provider!, { userId: claimed.userId, referenceId: claimed.id });
-    const { posting, structure, sourceText } = await extractPosting({ url: page.url, pageText: postingPageText(page.html) }, llm, { signal });
+    let extracted: Awaited<ReturnType<typeof extractPosting>>;
+    try {
+      extracted = await extractPosting(page, llm, { signal });
+    } catch (err) {
+      // 200으로 온 보안 검사 페이지(표식 없이 문구만 남은 경우)는 '공고 아님'으로 끝난다 — 차단 안내로 바꾼다.
+      if (err instanceof PostingExtractError && looksLikeChallengeText(page.pageText)) {
+        if (pasted) throw new PostingExtractError(PASTED_CHALLENGE_ERROR);
+        throw postingBlockedError();
+      }
+      throw err;
+    }
+    const { posting, structure, sourceText } = extracted;
     signal.throwIfAborted();
     const extractedBy = provider ?? llm.name;
+    if (pasted) {
+      // 붙여넣은 본문은 공고 찾기의 링크 공고(url_key)로 올리지 않는다: 서버가 페이지를 확인하지 못했으므로 아무 링크에나 지어낸
+      // 본문을 붙여 공용 공고를 선점할 수 있고, 전체 복사에 섞인 개인정보(머리글의 이름·이메일 등)가 원문으로 공유될 수 있다.
+      // 직접 입력 공고와 같이 만든다(createPosting이 url 없는 공용 공고를 공개 필드만으로 만든다 — 붙여넣은 원문은 내 공고에만).
+      // 작업 행의 sharedPostingId도 비워 둔다(같은 입력 주소의 별칭 재사용 findSharedPostingByAlias에 걸리지 않게).
+      const own = await createPosting(claimed.userId, posting, { extractedBy, structure, sourceText });
+      await write({ status: "completed", postingId: own.id, sharedPostingId: null, error: null });
+      return;
+    }
     // 공고 찾기(공용 공고)에 저장한다 — 페이지에서 뽑은 값만(상태·메모는 개인 값이라 넣지 않는다).
     const shared = await upsertSharedPosting({ url: page.url, posting, structure, sourceText, extractedBy, createdBy: claimed.userId });
     // 다시 가져오기: 작업에 실린 내 공고, 없으면(리다이렉트 전 주소로 연 경우) 최종 주소·공용 공고로 찾은 내 공고를 갱신한다.
@@ -355,6 +416,8 @@ export async function runImportThenCapture(importId: string, deps: RunImportDeps
     console.error("[runImport]", importId, err);
     return;
   }
+  // 본문 붙여넣어 가져오기: 서버가 페이지를 열 수 없는(봇 차단) 공고라 캡처해도 보안 검사 화면만 찍힌다 — 시도하지 않는다.
+  if (deps.pastedText !== undefined) return;
   const sharedId = await queueCaptureForImport(importId);
   if (sharedId) await runPostingCapture(sharedId, deps.capture);
 }

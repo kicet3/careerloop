@@ -14,18 +14,88 @@ import http from "node:http";
 import https from "node:https";
 import { BlockList, isIP } from "node:net";
 import { brotliDecompressSync, gunzipSync, inflateSync } from "node:zlib";
+import { POSTING_BLOCKED_ERROR, type PostingImportErrorCode } from "@/lib/domain/postings";
 import { parsePostingUrl } from "./url";
 
 export const MAX_PAGE_BYTES = 2 * 1024 * 1024;
 export const FETCH_TIMEOUT_MS = 20_000;
 export const MAX_REDIRECTS = 3;
 
-/** 사용자에게 그대로 보여도 되는 가져오기 실패(내부 주소·원본 오류는 담지 않는다). */
+/** 사용자에게 그대로 보여도 되는 가져오기 실패(내부 주소·원본 오류는 담지 않는다). code 'blocked'는 봇 차단(보안 검사) 페이지. */
 export class PostingFetchError extends Error {
-  constructor(message: string) {
+  readonly code: PostingImportErrorCode | null;
+  constructor(message: string, code: PostingImportErrorCode | null = null) {
     super(message);
     this.name = "PostingFetchError";
+    this.code = code;
   }
+}
+
+/** 봇 차단(보안 검사) 페이지 — 우회하지 않고 본문 붙여넣기를 안내한다. */
+export const postingBlockedError = () => new PostingFetchError(POSTING_BLOCKED_ERROR, "blocked");
+
+// ---------------------------------------------------------------------------
+// 봇 차단(보안 검사) 페이지 판별 — 우회하지 않는다(사이트의 보호를 존중하고 사용자에게 본문 붙여넣기를 안내).
+// 보수적으로: 서비스가 차단을 명시한 헤더, 또는 차단 상태 코드 + 알려진 보안 검사 페이지 표식만 본다.
+// ---------------------------------------------------------------------------
+
+/** 차단 응답에 쓰이는 상태 코드(403 Forbidden·429 Too Many Requests·503 Service Unavailable). */
+const BLOCK_STATUSES = new Set([403, 429, 503]);
+
+/**
+ * 보안 검사(차단) 화면에만 나오는 표식 — 2xx 본문에서도 이것만 본다. 보호 서비스가 일반 페이지에도 심는 감지 스크립트
+ * (Cloudflare /cdn-cgi/challenge-platform/…/scripts/jsd/, Imperva /_Incapsula_Resource, AWS WAF SDK *.awswaf.com,
+ * DataDome js.datadome.co 등)는 표식으로 쓰지 않는다.
+ */
+const CHALLENGE_PAGE_MARKERS: readonly RegExp[] = [
+  /window\._cf_chl_opt\b/, // Cloudflare 관리형·JS 검사
+  /\/cdn-cgi\/challenge-platform\/(?:h\/[a-z]\/)?orchestrate\//, // Cloudflare 검사 오케스트레이션(chl_page·jsch 등)
+  /id=["']?cf-browser-verification\b/, // Cloudflare 예전 '브라우저 확인' 페이지
+  /geo\.captcha-delivery\.com/, // DataDome 차단·캡차 화면(iframe·dd 설정)
+  /id=["']?px-captcha\b/, // HUMAN(PerimeterX) 차단 화면
+];
+
+/** 차단 상태 코드(403/429/503)일 때만 보는 표식 — 차단 화면의 제목·문구(일반 오류 페이지에는 나오지 않는 것). */
+const BLOCK_PAGE_MARKERS: readonly RegExp[] = [
+  /<title>\s*Just a moment\.\.\.\s*<\/title>/i, // Cloudflare
+  /Checking (?:if the site connection is secure|your browser before accessing)/i, // Cloudflare
+  /Attention Required! \| Cloudflare/, // Cloudflare 차단
+  /Verify(?:ing)? you are (?:a )?human/i, // Cloudflare Turnstile 검사 화면
+  /보안\s*검사를\s*진행/, // 국내 사이트의 Cloudflare 검사 안내
+  /Incapsula incident ID/i, // Imperva 차단
+  /Pardon Our Interruption/, // Imperva·Distil
+  /\/_sec\/cp_challenge\//, // Akamai Bot Manager 검사
+];
+
+/** 2xx 보안 검사 페이지로 볼 본문 상한(바이트). 실제 공고 페이지는 대개 이보다 크다 — 표식이 있어도 큰 페이지는 넘긴다. */
+const CHALLENGE_PAGE_MAX_BYTES = 64 * 1024;
+
+/**
+ * 응답이 봇 차단(보안 검사) 페이지인지(순수). headers 키는 소문자.
+ * - cf-mitigated: challenge(Cloudflare가 검사를 요구했다고 명시), x-amzn-waf-action: challenge|captcha(AWS WAF) — 상태와 무관하게 차단.
+ * - 403/429/503: 검사 화면 표식 또는 차단 화면 문구가 본문에 있으면 차단. AkamaiGHost가 403을 돌려주면 차단(Akamai 'Access Denied').
+ * - 2xx: 작은 페이지(64KB 이하)에 검사 화면 표식이 있을 때만(검사 페이지를 200으로 주는 경우).
+ */
+export function isBotChallengeResponse(res: { status: number; headers: Record<string, string | undefined>; html: string }): boolean {
+  const header = (k: string) => (res.headers[k] ?? "").toLowerCase();
+  if (header("cf-mitigated").includes("challenge")) return true;
+  if (/\b(?:challenge|captcha)\b/.test(header("x-amzn-waf-action"))) return true;
+  const body = res.html;
+  const hasChallenge = CHALLENGE_PAGE_MARKERS.some((m) => m.test(body));
+  if (BLOCK_STATUSES.has(res.status)) {
+    if (res.status === 403 && header("server").includes("akamaighost")) return true;
+    return hasChallenge || BLOCK_PAGE_MARKERS.some((m) => m.test(body));
+  }
+  return res.status >= 200 && res.status < 300 && hasChallenge && body.length <= CHALLENGE_PAGE_MAX_BYTES;
+}
+
+/**
+ * 페이지 본문 텍스트가 보안 검사 안내로 보이는지(순수). 표식을 지운 뒤의 텍스트로만 판단해야 할 때(LLM이 '공고 아님'으로
+ * 답한 짧은 페이지 등) 쓴다 — 짧은 본문(2,000자 이하)에서 검사 문구가 보일 때만 true.
+ */
+const CHALLENGE_TEXT = /보안\s*검사를\s*진행|자동\s*입력\s*방지|사람인지\s*확인|Just a moment\.\.\.|Checking (?:if the site connection is secure|your browser)|Verify(?:ing)? you are (?:a )?human|Enable JavaScript and cookies to continue|Attention Required!|Pardon Our Interruption/i;
+export function looksLikeChallengeText(text: string): boolean {
+  return text.length <= 2000 && CHALLENGE_TEXT.test(text);
 }
 
 const blocked = new BlockList();
@@ -208,14 +278,28 @@ export async function fetchPostingPage(raw: string, deps: FetchDeps = {}): Promi
       }
       continue;
     }
+    const type = res.headers["content-type"] ?? "";
+    const isHtml = /text\/html|application\/xhtml\+xml/i.test(type);
     if (res.status < 200 || res.status >= 300) {
+      // 봇 차단(보안 검사) 페이지면 본문 붙여넣기를 안내한다. 본문을 못 읽어도 헤더만으로 판단할 수 있는 경우가 있다.
+      let html = "";
+      if (isHtml) {
+        try {
+          html = decodeHtml(decompress(res.body, res.headers["content-encoding"]), type);
+        } catch {
+          html = "";
+        }
+      }
+      if (isBotChallengeResponse({ status: res.status, headers: res.headers, html })) throw postingBlockedError();
       throw new PostingFetchError("공고 사이트가 접근을 허용하지 않거나 공고가 사라졌습니다. 공개된 상세 링크를 확인하세요.");
     }
-    const type = res.headers["content-type"] ?? "";
-    if (!/text\/html|application\/xhtml\+xml/i.test(type)) {
+    if (!isHtml) {
+      if (isBotChallengeResponse({ status: res.status, headers: res.headers, html: "" })) throw postingBlockedError();
       throw new PostingFetchError("웹 공고 상세 페이지 링크를 입력하세요. 파일·이미지 링크는 지원하지 않습니다.");
     }
     const body = decompress(res.body, res.headers["content-encoding"]);
-    return { url: target.url.href, html: decodeHtml(body, type) };
+    const html = decodeHtml(body, type);
+    if (isBotChallengeResponse({ status: res.status, headers: res.headers, html })) throw postingBlockedError();
+    return { url: target.url.href, html };
   }
 }

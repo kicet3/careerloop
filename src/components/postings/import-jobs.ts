@@ -1,6 +1,6 @@
 "use client";
 /**
- * 공고 URL 가져오기 작업(클라이언트): 시작(POST /api/postings/import), 진행 중 작업 폴링(GET /import/[jobId]),
+ * 공고 URL 가져오기 작업(클라이언트): 시작(POST /api/postings/import, 본문 붙여넣기는 POST /api/postings/import/paste), 진행 중 작업 폴링(GET /import/[jobId]),
  * 새로 끝난 작업 알림(onCompleted). 보관함 목록·새 이력서의 '공고 링크로'·공고 상세의 '다시 가져오기'가 같이 쓴다.
  *
  * 끝난 작업 판별은 순수 함수(mergeImportResults)로 한다 — setState 갱신 함수 안에서 바깥 변수를 바꾸면
@@ -43,13 +43,21 @@ export type StartImportResult =
   /** existingId: 이미 보관함에 있는 공고(409). */
   | { ok: false; error: ApiError; status: number };
 
+export interface StartImportOptions {
+  /** '다시 가져오기'(링크 가져오기만). */
+  refresh?: boolean;
+  /** 본문 붙여넣어 가져오기: 페이지를 읽지 않고 이 본문(브라우저에서 복사한 공고 페이지 텍스트)으로 가져온다. */
+  pageText?: string;
+}
+
 /** 가져오기 시작. 공고 찾기에 있던 공고면 job이 이미 completed(fromShared)다. */
-export async function startPostingImport(url: string, opts: { refresh?: boolean } = {}): Promise<StartImportResult> {
+export async function startPostingImport(url: string, opts: StartImportOptions = {}): Promise<StartImportResult> {
   try {
-    const res = await fetch("/api/postings/import", {
+    const pasted = opts.pageText !== undefined;
+    const res = await fetch(pasted ? "/api/postings/import/paste" : "/api/postings/import", {
       method: "POST",
       headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({ url, ...(opts.refresh ? { refresh: true } : {}) }),
+      body: JSON.stringify(pasted ? { url, pageText: opts.pageText } : { url, ...(opts.refresh ? { refresh: true } : {}) }),
     });
     if (!res.ok) {
       return { ok: false, status: res.status, error: await readApiError(res, "공고 가져오기를 시작하지 못했습니다. 잠시 후 다시 시도해 주세요.") };
@@ -135,7 +143,7 @@ export function usePostingImports({
   }, [activeIds, commit]);
 
   const start = useCallback(
-    async (url: string, opts: { refresh?: boolean } = {}): Promise<StartImportResult> => {
+    async (url: string, opts: StartImportOptions = {}): Promise<StartImportResult> => {
       const result = await startPostingImport(url, opts);
       if (result.ok) {
         const already = jobsRef.current.find((j) => j.id === result.job.id);

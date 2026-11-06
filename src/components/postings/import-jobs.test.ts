@@ -8,6 +8,7 @@ const job = (id: string, status: PostingImportJob["status"], over: Partial<Posti
   url: `https://x.example/${id}`,
   status,
   error: null,
+  errorCode: null,
   postingId: null,
   sharedPostingId: null,
   refresh: false,
