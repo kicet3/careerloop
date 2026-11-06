@@ -20,6 +20,7 @@ import {
 import type { DiagnosisListItem } from "./types";
 import type { DiagnosisPortfolio } from "./form";
 import { DiagnosisServiceError } from "./errors";
+import { notify } from "@/lib/notifications/service";
 
 export { DiagnosisServiceError };
 
@@ -204,20 +205,58 @@ export async function markStaleRunsFailed(userId?: string): Promise<number> {
   const cutoff = new Date(Date.now() - STALE_AFTER_MS);
   const where = { status: { in: ACTIVE }, updatedAt: { lt: cutoff }, ...(userId ? { userId } : {}) };
 
-  const stale = await prisma.diagnosis.findMany({ select: { id: true }, where });
+  const stale = await prisma.diagnosis.findMany({ select: { id: true, userId: true, title: true }, where });
   if (stale.length === 0) return 0;
-  const ids = stale.map((s) => s.id);
   const now = new Date();
+  let closed = 0;
+  // 한 건씩 조건부로 바꿔, 동시에 정리한 다른 요청과 알림이 겹치지 않게 한다(바꾼 쪽만 알린다).
+  for (const d of stale) {
+    const { count } = await prisma.diagnosis.updateMany({
+      where: { ...where, id: d.id },
+      data: { status: "failed", error: STALE_MESSAGE, updatedAt: now },
+    });
+    if (count === 0) continue;
+    closed++;
+    await prisma.diagnosisStage.updateMany({
+      where: { diagnosisId: d.id, status: "running" },
+      data: { status: "failed", error: "시간 초과로 중단됨", finishedAt: now },
+    });
+    await notify(d.userId, {
+      kind: "diagnosis-failed",
+      title: "이력서 진단을 끝내지 못했습니다",
+      body: `${d.title} — ${STALE_MESSAGE}`,
+      link: `/app/d/${d.id}`,
+    });
+  }
+  return closed;
+}
 
-  await prisma.diagnosis.updateMany({
-    where: { ...where, id: { in: ids } },
-    data: { status: "failed", error: STALE_MESSAGE, updatedAt: now },
+/**
+ * 시간 예산에 걸려 멈춘 뒤(DEADLINE_STOP_ERROR) STALE_AFTER_MS 넘게 아무도 이어서 실행하지 않은 진단을 한 번 알린다.
+ * 이어하기는 진행 화면이 부르므로, 화면을 닫았거나 자동 이어하기 상한을 다 쓰면 멈춘 채 남는다(알림 폴링이 부른다).
+ * 멈춘 뒤(updatedAt 이후) 이 진단으로 만든 알림이 이미 있으면 다시 만들지 않는다. 만든 개수.
+ */
+export async function notifyIdleDeadlineStops(userId: string, nowMs: number = Date.now()): Promise<number> {
+  const idle = await prisma.diagnosis.findMany({
+    select: { id: true, title: true, updatedAt: true },
+    where: { userId, status: "failed", error: DEADLINE_STOP_ERROR, updatedAt: { lt: new Date(nowMs - STALE_AFTER_MS) } },
+    orderBy: { updatedAt: "desc" },
+    take: 10,
   });
-  await prisma.diagnosisStage.updateMany({
-    where: { diagnosisId: { in: ids }, status: "running" },
-    data: { status: "failed", error: "시간 초과로 중단됨", finishedAt: now },
-  });
-  return ids.length;
+  let made = 0;
+  for (const d of idle) {
+    const link = `/app/d/${d.id}`;
+    const already = await prisma.notification.findFirst({ select: { id: true }, where: { userId, link, createdAt: { gte: d.updatedAt } } });
+    if (already) continue;
+    await notify(userId, {
+      kind: "diagnosis-failed",
+      title: "이력서 진단이 멈춰 있습니다",
+      body: `${d.title} — 서버 실행 시간 제한으로 멈췄습니다. 진단을 열어 이어서 진행하거나 다시 시도해 주세요.`,
+      link,
+    });
+    made++;
+  }
+  return made;
 }
 
 /**

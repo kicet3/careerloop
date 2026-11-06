@@ -45,7 +45,7 @@ beforeAll(async () => {
   tdb = await createTestDb();
   ({ runDiagnosis } = await import("./runner"));
   ({ createDiagnosis } = await import("@/lib/diagnoses/service"));
-  for (const id of ["r1", "r2", "r3", "r4"]) await tdb.prisma.user.create({ data: { id, email: `${id}@x.com`, passwordHash: "x" } });
+  for (const id of ["r1", "r2", "r3", "r4", "r5", "r6"]) await tdb.prisma.user.create({ data: { id, email: `${id}@x.com`, passwordHash: "x" } });
 });
 
 afterAll(() => tdb.close());
@@ -57,6 +57,9 @@ describe("runDiagnosis", () => {
     const { d } = await load(id);
     expect(d.status).toBe("done");
     expect(d.runId).toBeTruthy();
+    // 끝나면 진단 화면으로 가는 완료 알림을 남긴다.
+    const notes = await tdb.prisma.notification.findMany({ where: { userId: "r1" } });
+    expect(notes).toEqual([expect.objectContaining({ kind: "diagnosis-completed", link: `/app/d/${id}` })]);
   });
 
   it("실패한 단계가 쓴 토큰도 사용량에 더한다", async () => {
@@ -76,6 +79,7 @@ describe("runDiagnosis", () => {
     expect(d.status).toBe("failed");
     expect(stage("rewrite").error).toContain("출력 길이 한도");
     expect(d.usage!.outputTokens).toBeGreaterThanOrEqual(50_000);
+    expect(await tdb.prisma.notification.findMany({ where: { userId: "r2" } })).toEqual([expect.objectContaining({ kind: "diagnosis-failed" })]);
   });
 
   it("멈춤 판정 뒤 다른 실행이 차지하면, 예전 실행은 LLM 호출을 멈추고 아무 행도 덮어쓰지 않는다", async () => {
@@ -115,5 +119,42 @@ describe("runDiagnosis", () => {
     expect(d.error).toContain("시간 제한");
     expect(stage("fit").error).toContain("시간 제한");
     expect(llm.calls).not.toContain("synthesis");
+    // 시간 예산으로 멈춘 것은 진행 화면이 이어서 실행하므로 알리지 않는다.
+    expect(await tdb.prisma.notification.count({ where: { userId: "r4" } })).toBe(0);
+
+    // 아무도 이어서 실행하지 않고 멈춘 채 남으면 알림 폴링(notifyIdleDeadlineStops)이 한 번 알린다.
+    const { notifyIdleDeadlineStops } = await import("@/lib/diagnoses/service");
+    expect(await notifyIdleDeadlineStops("r4")).toBe(0); // 막 멈춤 — 진행 화면이 이어서 실행할 시간
+    await tdb.prisma.diagnosis.update({ where: { id }, data: { updatedAt: new Date(Date.now() - 3 * 60_000) } });
+    expect(await notifyIdleDeadlineStops("r4")).toBe(1);
+    expect(await notifyIdleDeadlineStops("r4")).toBe(0);
+    expect(await tdb.prisma.notification.findMany({ where: { userId: "r4" } })).toEqual([
+      expect.objectContaining({ kind: "diagnosis-failed", link: `/app/d/${id}` }),
+    ]);
+  });
+
+  it("실행 중 치명적 오류로 끝나도 실패 알림을 남긴다", async () => {
+    const { id } = await createDiagnosis("r5", input);
+    const opts = {
+      get llm(): LlmClient {
+        throw new Error("boom");
+      },
+    };
+    await runDiagnosis(id, opts);
+    const { d } = await load(id);
+    expect(d.status).toBe("failed");
+    expect(await tdb.prisma.notification.findMany({ where: { userId: "r5" } })).toEqual([
+      expect.objectContaining({ kind: "diagnosis-failed", link: `/app/d/${id}` }),
+    ]);
+  });
+
+  it("하트비트가 끊겨 멈춤으로 닫힌 진단도 실패 알림을 한 번 남긴다", async () => {
+    const { markStaleRunsFailed } = await import("@/lib/diagnoses/service");
+    const { id } = await createDiagnosis("r6", input);
+    await tdb.prisma.diagnosis.update({ where: { id }, data: { status: "running", updatedAt: new Date(Date.now() - 10 * 60_000) } });
+    expect(await markStaleRunsFailed("r6")).toBe(1);
+    expect(await markStaleRunsFailed("r6")).toBe(0);
+    expect((await load(id)).d.status).toBe("failed");
+    expect(await tdb.prisma.notification.count({ where: { userId: "r6", kind: "diagnosis-failed" } })).toBe(1);
   });
 });

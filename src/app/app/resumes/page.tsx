@@ -5,11 +5,13 @@ import { Badge } from "@/components/ui/Badge";
 import { buttonClass } from "@/components/ui/Button";
 import { Card } from "@/components/ui/Card";
 import { SourceLink } from "@/components/postings/SourceLink";
+import { DraftJobsStrip } from "@/components/resumes/DraftJobsStrip";
 import { ResumeListStatus } from "@/components/resumes/ResumeListStatus";
 import { ResumeStatusBadge } from "@/components/resumes/ResumeStatusControl";
 import { cn } from "@/components/ui/cn";
 import { requireUser } from "@/lib/auth/session";
 import { RESUME_APPLY_STATUS_LABELS, RESUME_TEMPLATES } from "@/lib/domain/resumes";
+import { listVisibleDraftJobs } from "@/lib/resumes/draft-jobs";
 import { listResumePostingLinks, listResumes, parseResumeStatusFilter } from "@/lib/resumes/service";
 import type { ResumeListItem, ResumeListStatusFilter, ResumePostingLink } from "@/lib/resumes/types";
 
@@ -37,7 +39,7 @@ export default async function ResumesPage({ searchParams }: { searchParams: Sear
   const sp = await searchParams;
   const filter = parseResumeStatusFilter(Array.isArray(sp.status) ? sp.status[0] : sp.status);
   // 개수를 함께 보여 주려고 한 번에 읽고 화면에서 거른다(사용자당 이력서 상한이 작다).
-  const all = await listResumes(user.id);
+  const [all, draftJobs] = await Promise.all([listResumes(user.id), listVisibleDraftJobs(user.id)]);
   const postings = await listResumePostingLinks(user.id, all.map((i) => i.postingId));
   const items = all.filter((i) => matches(i, filter));
   const generals = items.filter((i) => i.kind === "general");
@@ -62,6 +64,9 @@ export default async function ResumesPage({ searchParams }: { searchParams: Sear
         </div>
       </div>
 
+      {/* 진행 중인(또는 최근 실패한) AI 초안 — 끝나면 목록을 새로 그린다. key로 서버 값이 바뀌면 다시 시작한다. */}
+      <DraftJobsStrip key={draftJobs.map((j) => `${j.id}:${j.status}`).join(",")} initialJobs={draftJobs} />
+
       {all.length > 0 && (
         <nav aria-label="지원 상태로 거르기" className="flex flex-wrap gap-1.5">
           {(Object.keys(FILTER_LABELS) as ResumeListStatusFilter[]).map((f) => {
@@ -84,7 +89,10 @@ export default async function ResumesPage({ searchParams }: { searchParams: Sear
         </nav>
       )}
 
-      {all.length === 0 ? (
+      {all.length === 0 && draftJobs.some((j) => j.status === "running") ? (
+        // 첫 이력서를 AI 초안으로 만드는 중 — 빈 목록 안내 대신 진행 중이라고만 알린다.
+        <p className="text-sm text-slate-500">첫 이력서를 만드는 중입니다. 초안이 완성되면 이 목록에 나타납니다.</p>
+      ) : all.length === 0 ? (
         <Card className="px-6 py-14 text-center">
           <p className="text-lg font-semibold text-slate-900">아직 만든 이력서가 없습니다</p>
           <p className="mx-auto mt-2 max-w-md text-sm text-slate-500">

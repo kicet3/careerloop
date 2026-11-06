@@ -2,11 +2,13 @@
 
 /**
  * 앱 주 메뉴(진단·경력·서류[이력서·포트폴리오]·지원[공고 찾기·공고 보관함·지원 현황]·면접 그룹) + 하단 계정 메뉴(계정 설정·AI 연결·로그아웃). 넓은 화면(lg 이상, 1024px~)은 왼쪽 고정 사이드바(아이콘만 보이는 접힌 모드 지원),
- * 좁은 화면은 상단 얇은 바 + 햄버거 → 왼쪽 서랍(오버레이). 인쇄할 때는 둘 다 숨긴다.
+ * 좁은 화면은 상단 얇은 바(햄버거·로고·알림 버튼) + 햄버거 → 왼쪽 서랍(오버레이). 인쇄할 때는 둘 다 숨긴다.
+ * 넓은 화면의 알림 버튼은 앱 틀(src/app/app/layout.tsx)의 본문 위 상단 바에 있다.
  */
 import Link from "next/link";
 import { usePathname } from "next/navigation";
 import { useEffect, useId, useRef, useState, useSyncExternalStore, type ReactNode } from "react";
+import { NotificationBell } from "@/components/notifications/NotificationBell";
 import { cn } from "@/components/ui/cn";
 import { AccountMenu } from "./AccountMenu";
 import { EnvBadge } from "./EnvBadge";
@@ -219,6 +221,9 @@ export function AppSidebar({
         <MenuButton open={drawerOpen} onOpen={() => setDrawerOpenAt(pathname)} />
         <Logo href="/app" />
         <EnvBadge env={env} />
+        <div className="ml-auto">
+          <NotificationBell />
+        </div>
       </header>
       {drawerOpen && (
         <Drawer onClose={closeDrawer} badge={<EnvBadge env={env} />}>

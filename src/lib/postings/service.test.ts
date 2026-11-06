@@ -214,6 +214,9 @@ describe("URL 가져오기 작업", () => {
     expect(posting!.sourceText).toContain("Python과 SQL");
     expect(posting!.structured).toMatchObject({ source: "llm", jdComposed: false });
     expect(posting!.note).toBe("");
+    // 완료 알림은 한 번만(동시 실행 2회여도).
+    const notes = await tdb.prisma.notification.findMany({ where: { userId: "ua", kind: "posting-import-completed" } });
+    expect(notes).toEqual([expect.objectContaining({ body: "페이랩 · 백엔드 개발자", link: `/app/postings/${done!.postingId}` })]);
     // 끝난 작업은 다시 실행하지 않는다.
     await imports.runImport(job.id, { llm, fetchPage });
     expect(spy).toHaveBeenCalledTimes(1);
@@ -253,6 +256,9 @@ describe("URL 가져오기 작업", () => {
     expect(failed?.status).toBe("failed");
     expect(failed?.error).toBeTruthy();
     expect(failed?.error).not.toContain("INTERNAL_SECRET");
+    const note = await tdb.prisma.notification.findFirst({ where: { userId: "ub", kind: "posting-import-failed" } });
+    expect(note?.body).toContain("jobs.example");
+    expect(note?.body).not.toContain("INTERNAL_SECRET");
   });
 
   it("근거 검증 실패는 사용자용 문구로 남긴다", async () => {

@@ -16,6 +16,7 @@ import type { Diagnosis, UsageTotals } from "@/lib/db/types";
 import { STAGE_LABELS } from "@/lib/domain/reviewers";
 import { STAGE_KEYS, STAGE_SCHEMAS, type StageKey, type StageOutputs } from "@/lib/domain/schemas";
 import { DEADLINE_STOP_ERROR, HEARTBEAT_MS } from "@/lib/diagnoses/summary";
+import { notify } from "@/lib/notifications/service";
 import { createLlmClient, legacyProvider } from "@/lib/llm";
 import { LlmPermanentError, usageOfError, type LlmClient, type LlmUsage } from "@/lib/llm/types";
 import { runPipeline } from "./pipeline";
@@ -112,6 +113,8 @@ export async function runDiagnosis(
   let heartbeat: ReturnType<typeof setInterval> | undefined;
   let deadlineTimer: ReturnType<typeof setTimeout> | undefined;
   const mine = { id: diagnosisId, runId, status: "running" } satisfies Prisma.DiagnosisWhereInput;
+  // 치명적 오류로 끝날 때 실패 알림을 보낼 대상(진단을 읽은 뒤 채운다).
+  let target: { userId: string; title: string } | null = null;
   const loseOwnership = () => {
     if (!controller.signal.aborted) controller.abort(new RunAbortedError("lost_ownership"));
   };
@@ -125,6 +128,7 @@ export async function runDiagnosis(
 
     const diagnosis = (await prisma.diagnosis.findUnique({ where: { id: diagnosisId } })) as Diagnosis | null;
     if (!diagnosis) return;
+    target = { userId: diagnosis.userId, title: diagnosis.title };
 
     // 단계 행이 빠져 있으면 만들고, 끝나지 않은 단계는 pending으로 되돌린다(멈춘 running 정리).
     await prisma.diagnosisStage.createMany({
@@ -224,19 +228,38 @@ export async function runDiagnosis(
           ? `${failed.map((s) => STAGE_LABELS[s]).join(", ")} 단계가 실패했습니다. 다시 시도하면 완료된 단계는 건너뛰고 이어서 진행합니다.`
           : "일부 단계를 완료하지 못했습니다. 다시 시도해 주세요.";
     // 이 실행이 아직 소유한 경우에만 최종 상태를 쓴다(멈춤 판정 뒤 다른 실행이 시작됐으면 건드리지 않는다).
-    await prisma.diagnosis.updateMany({
+    const final = await prisma.diagnosis.updateMany({
       where: mine,
       data: { status: ok ? "done" : "failed", error, completedAt: ok ? now : null, updatedAt: now, usage: { ...usage } },
     });
+    // 끝나면 알림. 시간 예산으로 멈춘 경우는 진행 화면이 이어서 실행하므로 여기서는 알리지 않는다
+    // (아무도 이어서 실행하지 않고 멈춘 채 남으면 알림 폴링의 notifyIdleDeadlineStops가 알린다).
+    if (final.count > 0 && (ok || !deadlineHit)) {
+      await notify(diagnosis.userId, {
+        kind: ok ? "diagnosis-completed" : "diagnosis-failed",
+        title: ok ? "이력서 진단이 끝났습니다" : "이력서 진단을 끝내지 못했습니다",
+        body: ok ? diagnosis.title : `${diagnosis.title} — ${error ?? "다시 시도해 주세요."}`,
+        link: `/app/d/${diagnosisId}`,
+      });
+    }
   } catch (e) {
     console.error(`[runDiagnosis] ${diagnosisId} 실행 오류:`, e);
     try {
       clearInterval(heartbeat);
       await chain;
-      await prisma.diagnosis.updateMany({
+      const message = "진단을 실행하는 중 오류가 발생했습니다. 다시 시도해 주세요.";
+      const { count } = await prisma.diagnosis.updateMany({
         where: { id: diagnosisId, runId, status: { not: "done" } },
-        data: { status: "failed", error: "진단을 실행하는 중 오류가 발생했습니다. 다시 시도해 주세요.", updatedAt: new Date() },
+        data: { status: "failed", error: message, updatedAt: new Date() },
       });
+      if (count > 0 && target) {
+        await notify(target.userId, {
+          kind: "diagnosis-failed",
+          title: "이력서 진단을 끝내지 못했습니다",
+          body: `${target.title} — ${message}`,
+          link: `/app/d/${diagnosisId}`,
+        });
+      }
     } catch (e2) {
       console.error(`[runDiagnosis] ${diagnosisId} 실패 상태 기록 실패:`, e2);
     }

@@ -48,6 +48,8 @@ model User {
   mcpTokens         McpToken[]
   graphFollowups    GraphFollowup[]
   githubAccount     GithubAccount?
+  resumeDraftJobs   ResumeDraftJob[]
+  notifications     Notification[]
 
   @@index([status, createdAt], map: "users_status_idx")
   @@map("users")
@@ -415,6 +417,7 @@ model CompanyResume {
   submittedApplication Application?       @relation("ResumeSubmittedApplication", fields: [submittedApplicationId], references: [id], onDelete: SetNull, map: "company_resumes_submitted_application_id_fkey")
   portfolio            Portfolio?         @relation(fields: [portfolioId], references: [id], onDelete: SetNull, map: "company_resumes_portfolio_id_fkey")
   interviewSessions    InterviewSession[]
+  draftJobs            ResumeDraftJob[]
 
   @@index([userId, applyStatus, updatedAt], map: "company_resumes_user_status_idx")
   @@index([userId, kind, updatedAt], map: "company_resumes_user_kind_idx")
@@ -801,4 +804,62 @@ model GithubRepoSnapshot {
   @@unique([userId, repoId], map: "github_repo_snapshots_repo_uq")
   @@index([userId, projectNodeId], map: "github_repo_snapshots_project_idx")
   @@map("github_repo_snapshots")
+}
+
+/// AI 이력서 초안 작업(새 이력서 '초안 만들기'). 요청은 작업 행만 만들고 202로 돌아가며, 초안은 after()에서 쓴다 — src/lib/resumes/draft-jobs.ts.
+/// 진행 화면(/app/resumes/drafts/[id])이 폴링한다. 끝나면 company_resumes 행(resume_id)이 생긴다.
+/// input(요청 본문 — 공고 JD 포함)은 다시 시도에만 쓰므로 완료하면 지운다. 끝난 작업은 7일 뒤 지운다. 탈퇴하면 CASCADE.
+model ResumeDraftJob {
+  id          String    @id
+  userId      String    @map("user_id")
+  /// 현재 실행 식별자. 실행 중 쓰기는 이 값과 status='running'으로 조건 건다(멈춤 판정·다시 시도와 겹치지 않게).
+  runId       String    @map("run_id")
+  /// ResumeDraftJobStatus('running' | 'completed' | 'failed')
+  status      String    @default("running")
+  /// ResumeDraftJobStage('material' 자료 모으기 | 'writing' AI 초안 | 'saving' 저장). 끝나면 마지막 단계가 남는다.
+  stage       String    @default("material")
+  /// 화면 표시용 "회사 · 직무" 또는 "공용 이력서".
+  label       String
+  /// CreateResumeInput(공고 기본값을 채운 뒤). 완료하면 null.
+  input       Json?
+  provider    String?
+  /// 사용자에게 보여도 되는 한국어 실패 문구.
+  error       String?
+  /// 만든 이력서. 이력서를 지우면 null.
+  resumeId    String?   @map("resume_id")
+  /// 초안 메모 { notes: string[], missingInfo: string[] }.
+  result      Json?
+  attempts    Int       @default(1)
+  /// 현재 실행을 시작한 시각(멈춤 판정 기준).
+  startedAt   DateTime  @default(now()) @map("started_at") @db.Timestamptz(3)
+  createdAt   DateTime  @default(now()) @map("created_at") @db.Timestamptz(3)
+  updatedAt   DateTime  @default(now()) @map("updated_at") @db.Timestamptz(3)
+  completedAt DateTime? @map("completed_at") @db.Timestamptz(3)
+
+  user   User           @relation(fields: [userId], references: [id], onDelete: Cascade, map: "resume_draft_jobs_user_id_fkey")
+  resume CompanyResume? @relation(fields: [resumeId], references: [id], onDelete: SetNull, map: "resume_draft_jobs_resume_id_fkey")
+
+  @@index([userId, createdAt], map: "resume_draft_jobs_user_idx")
+  @@index([resumeId], map: "resume_draft_jobs_resume_idx")
+  @@map("resume_draft_jobs")
+}
+
+/// 앱 안 알림(상단 알림 버튼). 오래 걸리는 백그라운드 작업(AI 이력서 초안·진단·공고 가져오기·면접 질문)이 끝나면 만든다 — src/lib/notifications/service.ts.
+/// 기존 기록에서 만든 짧은 안내(제목·한 줄·화면 링크)만 담는다. 사용자당 최근 100개만 남긴다. 탈퇴하면 CASCADE.
+model Notification {
+  id        String    @id
+  userId    String    @map("user_id")
+  /// NotificationKind
+  kind      String
+  title     String
+  body      String    @default("")
+  /// 앱 안 경로(/app/...). 없으면 null.
+  link      String?
+  readAt    DateTime? @map("read_at") @db.Timestamptz(3)
+  createdAt DateTime  @default(now()) @map("created_at") @db.Timestamptz(3)
+
+  user User @relation(fields: [userId], references: [id], onDelete: Cascade, map: "notifications_user_id_fkey")
+
+  @@index([userId, createdAt], map: "notifications_user_idx")
+  @@map("notifications")
 }

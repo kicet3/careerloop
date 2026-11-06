@@ -142,6 +142,9 @@ describe("면접 연습 흐름", () => {
     const detail = (await store.getSessionDetail("ua", session.id))!;
     expect(detail.session.status).toBe("ready");
     expect(detail.questions.length).toBeGreaterThan(2);
+    expect(await tdb.prisma.notification.findFirst({ where: { userId: "ua", kind: "interview-ready" } })).toMatchObject({
+      link: `/app/interview/${session.id}`,
+    });
     const docs = new Set(detail.sourceLines.map((l) => l.doc));
     expect(docs).toEqual(new Set(["resume", "portfolio", "posting"]));
     const line = detail.questions.find((q) => q.category === "line")!;
@@ -204,6 +207,7 @@ describe("면접 연습 흐름", () => {
     const failed = (await store.getSessionSummary("ua", session.id))!;
     expect(failed.status).toBe("failed");
     expect(failed.error).toContain("질문을 만들지 못했습니다");
+    expect(await tdb.prisma.notification.count({ where: { userId: "ua", kind: "interview-failed" } })).toBe(1);
 
     const re = (await svc.restartInterviewGeneration("ua", session.id))!;
     expect(re.session.status).toBe("generating");

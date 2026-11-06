@@ -4,6 +4,7 @@
  * 1) 지원할 자리: 내 보관함 공고 고르기(검색) / 공고 링크로 가져오기(끝나면 자동 선택, 이미 있는 공고·공고 찾기의 공고는 바로 선택) /
  *    공용 이력서(회사 지정 없음). 회사·직무·JD는 직접 입력하지 않고 공고에서 가져온다(서버가 공고 값으로 채운다).
  * 2) 초안 출처: 경험 그래프·진단 재작성본(AI) / 공용 이력서 내용으로 시작(복사, AI 없음) / 빈 문서.
+ *    AI 초안은 서버가 백그라운드 작업으로 쓴다(202 { draftJob }) — 바로 진행 화면(/app/resumes/drafts/[id])으로 옮긴다.
  * 양식은 편집 화면 위쪽에서 고른다.
  */
 import Link from "next/link";
@@ -20,6 +21,7 @@ import { cn } from "@/components/ui/cn";
 import { isPostingImportActive, POSTING_IMPORT_STATUS_LABELS, POSTING_STATUS_LABELS, type JobPosting, type PostingStatus } from "@/lib/domain/postings";
 import { NO_ENGINE_MESSAGE, PROVIDER_DATA_DESTINATION, type ProviderId, type ProviderOption } from "@/lib/domain/providers";
 import { DEFAULT_RESUME_TEMPLATE } from "@/lib/domain/resumes";
+import type { StartResumeDraftResponse } from "@/lib/resumes/draft-job-types";
 import { saveDraftNotes } from "@/lib/resumes/prefill";
 import {
   RESUME_DRAFT_SOURCE_KINDS,
@@ -260,9 +262,15 @@ export function NewResumeForm({
           }),
         ),
       });
-      const data = (await res.json().catch(() => null)) as (Partial<CreateResumeResponse> & { error?: string }) | null;
+      const data = (await res.json().catch(() => null)) as (Partial<CreateResumeResponse & StartResumeDraftResponse> & { error?: string }) | null;
       if (res.status === 401) {
         router.push("/login?next=/app/resumes/new");
+        return;
+      }
+      // AI 초안: 서버가 백그라운드에서 쓴다 — 바로 진행 화면으로 옮긴다(화면을 떠나도 계속되고, 끝나면 알림).
+      const draftJobId = res.ok ? data?.draftJob?.id : undefined;
+      if (draftJobId) {
+        router.push(`/app/resumes/drafts/${encodeURIComponent(draftJobId)}`);
         return;
       }
       if (!res.ok || !data?.id) {
@@ -547,9 +555,11 @@ export function NewResumeForm({
       )}
 
       <div className="flex flex-col-reverse items-stretch gap-3 sm:flex-row sm:items-center sm:justify-end">
-        {usesAi && <p className="text-sm text-slate-500 sm:mr-auto">AI 초안은 보통 30초~2분 걸립니다.</p>}
+        {usesAi && (
+          <p className="text-sm text-slate-500 sm:mr-auto">AI 초안은 보통 1~5분 걸립니다. 진행 화면을 떠나도 계속 쓰고, 끝나면 알림으로 알려 드립니다.</p>
+        )}
         <Button type="submit" size="lg" loading={submitting} disabled={importing}>
-          {submitting ? (usesAi ? "초안 쓰는 중…" : "만드는 중…") : general ? `공용 이력서 ${submitLabel}` : submitLabel}
+          {submitting ? (usesAi ? "초안 시작하는 중…" : "만드는 중…") : general ? `공용 이력서 ${submitLabel}` : submitLabel}
         </Button>
       </div>
     </form>

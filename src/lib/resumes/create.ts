@@ -1,13 +1,14 @@
 import "server-only";
 /**
  * 새 이력서 만들기: 출처(그래프·진단 재작성본·빈 문서) 자료를 불러와 필요하면 AI 초안을 쓰고 v1로 저장한다.
+ * 화면의 AI 초안은 백그라운드 작업(draft-jobs.ts)으로 만든다 — createResumeFromInput은 빈 문서·복사와 요청 안에서 기다리는 경로용이다.
  */
 import { FeatureError } from "@/lib/api/errors";
 import { emptyResumeDocument, performanceScaffold, type ResumeDocument, type ResumeKind } from "@/lib/domain/resumes";
 import { createLlmClient, type LlmClient } from "@/lib/llm";
 import { withLlmDeadline } from "@/lib/llm/deadline";
 import { resolveRequestedProvider } from "@/lib/providers/options";
-import { generateResumeDraft, loadDraftMaterial } from "./draft";
+import { generateResumeDraft, loadDraftMaterial, type DraftContext, type DraftMaterial } from "./draft";
 import { copyResume, createResume, RESUME_NOT_FOUND } from "./service";
 import type { CreateResumeInput, CreateResumeResponse } from "./types";
 
@@ -23,16 +24,50 @@ export interface CreateDeps {
 const GENERAL_DRAFT_COMPANY = "(지정 없음 — 여러 회사에 두루 내는 공용 이력서)";
 const GENERAL_DRAFT_ROLE = "(지정 없음 — 자료에서 가장 잘 드러나는 직무)";
 
+type NewResumeInput = Omit<CreateResumeInput, "kind"> & { kind?: ResumeKind };
+
+/** AI 초안 프롬프트 맥락(공용 이력서는 회사·직무·JD 없이). 백그라운드 초안 작업(draft-jobs.ts)도 쓴다. */
+export function draftContextFor(user: { name: string | null }, input: NewResumeInput, material: DraftMaterial): DraftContext {
+  const general = input.kind === "general";
+  return {
+    company: general ? GENERAL_DRAFT_COMPANY : input.company,
+    roleTitle: general ? GENERAL_DRAFT_ROLE : input.roleTitle,
+    jdText: general ? "" : input.jdText,
+    templateId: input.templateId,
+    material,
+    personName: user.name,
+  };
+}
+
+/** 문서를 v1로 저장한다(AI 초안이면 source 'ai'). 백그라운드 초안 작업(draft-jobs.ts)도 쓴다. */
+export function saveNewResume(userId: string, input: NewResumeInput, document: ResumeDocument, material: DraftMaterial | null) {
+  return createResume(userId, {
+    kind: input.kind ?? "company",
+    company: input.company,
+    roleTitle: input.roleTitle,
+    jdText: input.jdText,
+    templateId: input.templateId,
+    title: input.title,
+    document,
+    source: material ? "ai" : "manual",
+    postingId: input.postingId ?? null,
+    note: material ? (material.kind === "graph" ? "경험 그래프로 만든 AI 초안" : "진단 재작성본으로 만든 AI 초안") : "빈 문서",
+  });
+}
+
 /**
  * 새 이력서. sourceResumeId가 있으면 그 이력서 내용을 복사하고(AI 없음, 원본이 남의 것이면 404),
  * 아니면 출처(그래프·진단 재작성본·빈 문서)로 v1을 만든다. kind 'general'은 회사·직무·공고 없이 만든다.
  */
 export async function createResumeFromInput(
   user: { id: string; email: string; name: string | null },
-  input: Omit<CreateResumeInput, "kind"> & { kind?: ResumeKind },
+  input: NewResumeInput,
   deps: CreateDeps = {},
 ): Promise<CreateResumeResponse> {
   const general = input.kind === "general";
+  // 진행 중인 AI 초안도 곧 이력서가 되므로 함께 센다(초안이 비용을 다 쓴 뒤 저장 단계에서 상한에 막히지 않게).
+  const { assertResumeSlots } = await import("./draft-jobs");
+  await assertResumeSlots(user.id);
   if (input.sourceResumeId) {
     const copied = await copyResume(user.id, input.sourceResumeId, {
       kind: input.kind ?? "company",
@@ -54,19 +89,7 @@ export async function createResumeFromInput(
     // 요청 안에서 기다리므로 전체 시간에 상한을 둔다(CLI 엔진 대기·재요청이 쌓여도 수십 분 붙잡히지 않게).
     const { draft } = await withLlmDeadline(
       deps.signal,
-      (signal) =>
-        generateResumeDraft(
-          client,
-          {
-            company: general ? GENERAL_DRAFT_COMPANY : input.company,
-            roleTitle: general ? GENERAL_DRAFT_ROLE : input.roleTitle,
-            jdText: general ? "" : input.jdText,
-            templateId: input.templateId,
-            material,
-            personName: user.name,
-          },
-          signal,
-        ),
+      (signal) => generateResumeDraft(client, draftContextFor(user, input, material), signal),
       { timeoutMs: deps.timeoutMs, message: "AI 초안을 만드는 데 너무 오래 걸려 중단했습니다. 잠시 후 다시 시도하거나 빈 문서로 시작해 주세요." },
     );
     document = draft.document;
@@ -81,17 +104,6 @@ export async function createResumeFromInput(
     if (input.templateId === "performance") document = performanceScaffold(document);
   }
 
-  const { resume } = await createResume(user.id, {
-    kind: input.kind ?? "company",
-    company: input.company,
-    roleTitle: input.roleTitle,
-    jdText: input.jdText,
-    templateId: input.templateId,
-    title: input.title,
-    document,
-    source: material ? "ai" : "manual",
-    postingId: input.postingId ?? null,
-    note: material ? (material.kind === "graph" ? "경험 그래프로 만든 AI 초안" : "진단 재작성본으로 만든 AI 초안") : "빈 문서",
-  });
+  const { resume } = await saveNewResume(user.id, input, document, material);
   return { id: resume.id, notes, missingInfo };
 }

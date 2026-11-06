@@ -1,7 +1,9 @@
 import { featureErrorResponse } from "@/lib/api/errors";
 import { assertSameOrigin, requireApiUser } from "@/lib/auth/session";
-import { hitDbLimit, RESUME_DRAFT_LIMIT } from "@/lib/auth/db-rate-limit";
 import { createResumeFromInput } from "@/lib/resumes/create";
+import { assertDraftLimit, draftErrorResponse, noStore, scheduleDraftJob } from "@/lib/resumes/draft-http";
+import { startResumeDraftJob } from "@/lib/resumes/draft-jobs";
+import type { StartResumeDraftResponse } from "@/lib/resumes/draft-job-types";
 import { jsonError } from "@/lib/diagnoses/http";
 import { withResumePostingDefaults } from "@/lib/postings/defaults";
 import { getPosting, POSTING_NOT_FOUND } from "@/lib/postings/service";
@@ -10,7 +12,8 @@ import { listResumes, parseResumeStatusFilter } from "@/lib/resumes/service";
 import { CreateResumeInputSchema, type CreateResumeResponse } from "@/lib/resumes/types";
 
 export const runtime = "nodejs";
-// AI 초안(LLM 1회)이 요청 안에서 끝나야 한다. 계정 로그인(CLI) 엔진은 느릴 수 있다.
+// after()로 이어지는 AI 초안(LLM 1회)의 시간 상한. Vercel에서는 초안 작업이 maxDuration - 30초에 스스로 멈추고 실패로 기록한다
+// (draft-jobs.ts DRAFT_ROUTE_MAX_DURATION_SEC와 같아야 한다). Next가 정적으로 읽으므로 리터럴이어야 한다.
 export const maxDuration = 300;
 
 /** 목록. ?status=all|draft|applying|submitted|general(모르는 값은 all). */
@@ -26,7 +29,8 @@ export async function GET(req: Request) {
 }
 
 /**
- * 새 이력서: 출처가 그래프·진단이면 AI 초안, 빈 문서면 바로 v1, sourceResumeId면 그 이력서 내용을 복사(AI 없음).
+ * 새 이력서: 출처가 그래프·진단이면 AI 초안 작업을 만들고 202 { draftJob }(초안은 응답 뒤 백그라운드에서 쓴다 — 화면은
+ * /app/resumes/drafts/[id]에서 폴링), 빈 문서면 바로 v1(201 { id }), sourceResumeId면 그 이력서 내용을 복사(AI 없음, 201).
  * kind 'general'은 공용 이력서(회사·공고 없음).
  * postingId(보관 공고)를 주면 내 공고인지 확인하고, 비운 회사·직무·JD를 공고 값으로 채운 뒤 이력서를 공고에 연결한다.
  */
@@ -48,18 +52,14 @@ export async function POST(req: Request) {
     }
     const input = parseJsonInput(CreateResumeInputSchema, raw);
     if (input.source.kind !== "blank" && !input.sourceResumeId) {
-      // AI 초안: 사용자당 24시간 30회(엔진 비용·남용 방지). DB 원장이라 인스턴스 사이에 공유된다.
-      const limit = await hitDbLimit(RESUME_DRAFT_LIMIT, user.id);
-      if (!limit.ok) {
-        return Response.json(
-          { error: "오늘 만들 수 있는 AI 초안 수를 넘었습니다. 빈 문서로 시작하거나 내일 다시 시도해 주세요." },
-          { status: 429, headers: { "Retry-After": String(limit.retryAfterSec) } },
-        );
-      }
+      // AI 초안: 입력·자료·엔진 확인 뒤 레이트 리밋(사용자당 24시간 30회)을 세고 작업 행을 만든다.
+      const { job, runId, provider } = await startResumeDraftJob(user, input, { beforeCreate: () => assertDraftLimit(user.id) });
+      scheduleDraftJob(user.id, job.id, runId, provider);
+      return Response.json({ draftJob: job } satisfies StartResumeDraftResponse, { status: 202, headers: noStore });
     }
-    const created = await createResumeFromInput(user, input, { signal: req.signal });
+    const created = await createResumeFromInput(user, input);
     return Response.json(created satisfies CreateResumeResponse, { status: 201 });
   } catch (err) {
-    return featureErrorResponse(err, "POST /api/resumes");
+    return draftErrorResponse(err, "POST /api/resumes");
   }
 }

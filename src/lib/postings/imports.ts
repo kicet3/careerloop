@@ -40,6 +40,7 @@ import {
 import type { ProviderId } from "@/lib/domain/providers";
 import { hitDbLimit, POSTING_CAPTURE_TARGET_LIMIT } from "@/lib/auth/db-rate-limit";
 import { createLlmClient, type LlmClient } from "@/lib/llm";
+import { notify } from "@/lib/notifications/service";
 import { resolveRequestedProvider } from "@/lib/providers/options";
 import { runPostingCapture, type CaptureDeps } from "./capture";
 import { PostingRenderError, RENDER_GENERIC_ERROR, renderPostingPage, type RenderPageFn } from "./render";
@@ -329,11 +330,15 @@ export async function runImport(importId: string, deps: RunImportDeps = {}): Pro
   }
 
   const owned: Prisma.PostingImportWhereInput = { id: importId, attempts: claimed.attempts, status: { in: ACTIVE } };
-  const write = async (patch: Prisma.PostingImportUncheckedUpdateManyInput): Promise<boolean> => {
+  // 끝 상태(completed·failed)를 쓰면 알림을 남긴다(가져오기는 30초~2분 — 화면을 떠났어도 알 수 있게). notify: false면 남기지 않는다.
+  const write = async (patch: Prisma.PostingImportUncheckedUpdateManyInput, opts: { notify?: boolean } = {}): Promise<boolean> => {
     const { count } = await prisma.postingImport.updateMany({
       where: owned,
       data: { ...patch, ...(typeof patch.error === "string" ? { error: stripNul(patch.error) } : {}), updatedAt: new Date(now()) },
     });
+    if (count > 0 && opts.notify !== false && (patch.status === "completed" || patch.status === "failed")) {
+      await notifyImportResult(claimed.userId, claimed.url, patch);
+    }
     return count > 0;
   };
 
@@ -503,13 +508,43 @@ export async function runImport(importId: string, deps: RunImportDeps = {}): Pro
     if (err instanceof ImportSupersededError) return;
     if (err instanceof DuplicatePostingError) {
       // 리다이렉트 뒤 최종 주소가 이미 보관한 공고와 같은 경우. 기존 공고로 안내한다.
-      await write({ status: "failed", error: err.message, postingId: err.existingId });
+      await write({ status: "failed", error: err.message, postingId: err.existingId }, { notify: false });
       return;
     }
     await write({ status: "failed", error: safePostingAiError(err, { timedOut: signal.reason instanceof ImportTimeoutError, context: "runImport" }) });
   } finally {
     clearTimeout(timer);
   }
+}
+
+/** 공고 가져오기 결과 알림. 던지지 않는다. */
+async function notifyImportResult(userId: string, url: string, patch: Prisma.PostingImportUncheckedUpdateManyInput): Promise<void> {
+  const postingId = typeof patch.postingId === "string" ? patch.postingId : null;
+  const host = (() => {
+    try {
+      return url ? new URL(url).hostname : "";
+    } catch {
+      return "";
+    }
+  })();
+  if (patch.status === "completed") {
+    const p = postingId
+      ? await prisma.jobPosting.findFirst({ select: { company: true, roleTitle: true }, where: { id: postingId, userId } }).catch(() => null)
+      : null;
+    await notify(userId, {
+      kind: "posting-import-completed",
+      title: "공고를 보관함에 담았습니다",
+      body: p ? `${p.company} · ${p.roleTitle}` : host,
+      link: postingId ? `/app/postings/${postingId}` : "/app/postings",
+    });
+    return;
+  }
+  await notify(userId, {
+    kind: "posting-import-failed",
+    title: "공고를 가져오지 못했습니다",
+    body: [host, typeof patch.error === "string" ? patch.error : ""].filter(Boolean).join(" — "),
+    link: "/app/postings",
+  });
 }
 
 /** 기본 데이터 요청 함수. 페이지 가져오기를 바꾼 경우(테스트)는 쓰지 않는다 — RunImportDeps.requestData 참고. */

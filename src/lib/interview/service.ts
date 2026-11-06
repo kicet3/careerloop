@@ -40,6 +40,7 @@ import { isProviderId, type ProviderId } from "@/lib/domain/providers";
 import type { ResumeDocument } from "@/lib/domain/resumes";
 import { createLlmClient, LlmPermanentError, modelNameFor, type LlmClient, type LlmUsageContext } from "@/lib/llm";
 import { INTERACTIVE_LLM_TIMEOUT_MS, withLlmDeadline } from "@/lib/llm/deadline";
+import { notify } from "@/lib/notifications/service";
 import { stageErrorMessage } from "@/lib/panel/runner";
 import { getPosting } from "@/lib/postings/service";
 import { listProviderOptions, resolveRequestedProvider } from "@/lib/providers/options";
@@ -302,15 +303,30 @@ export async function runInterviewGeneration(
     );
     const questions = normalizeGeneratedQuestions(res.output, snapshot.lines);
     if (questions.length === 0) {
-      await store.failGeneration(sessionId, runId, "서류에서 근거를 확인할 수 있는 질문을 만들지 못했습니다. 다시 만들어 주세요.");
+      const message = "서류에서 근거를 확인할 수 있는 질문을 만들지 못했습니다. 다시 만들어 주세요.";
+      if (await store.failGeneration(sessionId, runId, message)) await notifyGeneration(userId, sessionId, { ok: false, error: message });
       return;
     }
     const saved = await saveOnce(() => store.completeGeneration(sessionId, runId, questions, { usage: res.usage, model: res.model }));
     if (!saved) console.warn(`[interview] ${sessionId} 생성 결과를 버림(다른 실행·삭제와 겹침)`);
+    else await notifyGeneration(userId, sessionId, { ok: true, count: questions.length });
   } catch (err) {
     if (!(err instanceof LlmPermanentError) && !(err instanceof FeatureError)) console.error("[interview generate]", sessionId, err);
-    await store.failGeneration(sessionId, runId, interviewErrorMessage(err, "질문")).catch(() => false);
+    const message = interviewErrorMessage(err, "질문");
+    if (await store.failGeneration(sessionId, runId, message).catch(() => false)) await notifyGeneration(userId, sessionId, { ok: false, error: message });
   }
+}
+
+/** 질문 생성이 끝났다는 알림(화면을 떠났어도 알 수 있게). 던지지 않는다. */
+async function notifyGeneration(userId: string, sessionId: string, r: { ok: true; count: number } | { ok: false; error: string }): Promise<void> {
+  const row = await prisma.interviewSession.findFirst({ select: { title: true }, where: { id: sessionId, userId } }).catch(() => null);
+  if (!row) return;
+  await notify(userId, {
+    kind: r.ok ? "interview-ready" : "interview-failed",
+    title: r.ok ? "면접 예상 질문이 준비됐습니다" : "면접 예상 질문을 만들지 못했습니다",
+    body: r.ok ? `${row.title} — 질문 ${r.count}개` : `${row.title} — ${r.error}`,
+    link: `/app/interview/${sessionId}`,
+  });
 }
 
 // ---------------------------------------------------------------------------
