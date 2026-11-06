@@ -4,7 +4,7 @@ import { skillGapAcrossPostings } from "@/lib/graph/match-service";
 
 export const runtime = "nodejs";
 
-/** 보관한 공고(마감 제외)들이 요구하지만 내 경력 그래프에 없는 기술 Top N. 그래프 저장소가 꺼져 있으면 503. */
+/** 보관한 공고(마감 제외)들이 요구하지만 내 경험 그래프에 없는 기술 Top N. 그래프 저장소가 꺼져 있으면 503. */
 export async function GET() {
   const user = await requireApiUser();
   if (user instanceof Response) return user;

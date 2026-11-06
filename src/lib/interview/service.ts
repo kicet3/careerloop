@@ -38,7 +38,7 @@ import {
 } from "@/lib/domain/interview";
 import { isProviderId, type ProviderId } from "@/lib/domain/providers";
 import type { ResumeDocument } from "@/lib/domain/resumes";
-import { createLlmClient, LlmPermanentError, modelNameFor, type LlmClient } from "@/lib/llm";
+import { createLlmClient, LlmPermanentError, modelNameFor, type LlmClient, type LlmUsageContext } from "@/lib/llm";
 import { INTERACTIVE_LLM_TIMEOUT_MS, withLlmDeadline } from "@/lib/llm/deadline";
 import { stageErrorMessage } from "@/lib/panel/runner";
 import { getPosting } from "@/lib/postings/service";
@@ -52,7 +52,7 @@ import * as store from "./store";
 export { buildInterviewFeedbackPrompt, buildInterviewQuestionsPrompt } from "./prompts";
 
 export interface InterviewDeps {
-  createClient?: (provider: ProviderId) => LlmClient;
+  createClient?: (provider: ProviderId, usage: LlmUsageContext) => LlmClient;
   now?: () => number;
   /** LLM 대기 상한(기본 INTERACTIVE_LLM_TIMEOUT_MS). 테스트용. */
   timeoutMs?: number;
@@ -283,7 +283,7 @@ export async function runInterviewGeneration(
       await store.failGeneration(sessionId, runId, "근거 자료를 찾지 못했습니다. 새 연습을 만들어 주세요.");
       return;
     }
-    const client = (deps.createClient ?? createLlmClient)(provider);
+    const client = (deps.createClient ?? createLlmClient)(provider, { userId, referenceId: sessionId });
     const prompt = buildInterviewQuestionsPrompt(snapshot);
     const res = await withLlmDeadline(
       undefined,
@@ -368,7 +368,7 @@ export async function runInterviewFeedback(userId: string, answerId: string, pro
     }
     const snapshot = await store.loadSourceSnapshot(userId, row.sessionId);
     const lines = snapshot ? feedbackContextLines(question, snapshot.lines) : [];
-    const client = (deps.createClient ?? createLlmClient)(provider);
+    const client = (deps.createClient ?? createLlmClient)(provider, { userId, referenceId: row.sessionId });
     const prompt = buildInterviewFeedbackPrompt({ question, answer: row.answer, durationSec: row.durationSec, lines });
     const res = await withLlmDeadline(
       undefined,

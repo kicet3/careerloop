@@ -1,6 +1,6 @@
 import "server-only";
 /**
- * 공고 ↔ 경력 그래프 대조 서비스. 공고·진단은 PostgreSQL(Prisma)에서 userId 조건으로 읽고, 그래프는 getCareerGraph(userId)로 한 번 읽어
+ * 공고 ↔ 경험 그래프 대조 서비스. 공고·진단은 PostgreSQL(Prisma)에서 userId 조건으로 읽고, 그래프는 getCareerGraph(userId)로 한 번 읽어
  * 순수 함수(match.ts)로 대조한다. Neo4j에 공고·요구 관계를 쓰지 않는다.
  * 요구 기술은 그 공고에 연결된 진단 중 JD 분석(jd 단계)이 끝난 가장 최근 것을 우선 쓴다(진단 전체가 실패했어도 jd 단계가 끝났으면 쓴다).
  */
@@ -46,7 +46,7 @@ async function latestJdAnalyses(userId: string, postingIds: string[]): Promise<M
   return out;
 }
 
-/** 공고 하나를 내 경력 그래프와 대조한다. 남의 공고·없는 공고는 404. */
+/** 공고 하나를 내 경험 그래프와 대조한다. 남의 공고·없는 공고는 404. */
 export async function matchPosting(userId: string, postingId: string): Promise<PostingMatchResponse> {
   assertGraph();
   const posting = await prisma.jobPosting.findFirst({

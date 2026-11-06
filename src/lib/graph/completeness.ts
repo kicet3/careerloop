@@ -1,5 +1,5 @@
 /**
- * 경험 체크리스트(순수, 클라이언트·서버 공용): 경력 그래프가 자소서·이력서에 필요한 경험 카테고리(domain/experience-categories.ts)를
+ * 경험 체크리스트(순수, 클라이언트·서버 공용): 경험 그래프가 자소서·이력서에 필요한 경험 카테고리(domain/experience-categories.ts)를
  * 최소한으로 채웠는지 판정한다. 화면의 체크리스트 패널과 그래프 채팅 프롬프트가 같은 결과를 쓴다. 규칙은 docs/EXPERIENCE-CATEGORIES.md.
  */
 import { MAX_CHAT_MESSAGE_CHARS } from "@/lib/domain/chat";
@@ -222,7 +222,7 @@ function assessQuantified(cat: ExperienceCategory, graph: CareerGraph): Category
   return status(cat, "partial", matched, `${quote(target)}: 수치(전후 값, %, 건수, 기간)를 넣어 주세요`, best);
 }
 
-/** 경력 그래프 → 경험 체크리스트. 노드 하나가 여러 카테고리를 채워도 된다(태그 상한 3개가 몰아 달기를 막는다). */
+/** 경험 그래프 → 경험 체크리스트. 노드 하나가 여러 카테고리를 채워도 된다(태그 상한 3개가 몰아 달기를 막는다). */
 export function assessExperienceChecklist(graph: CareerGraph): ExperienceChecklist {
   const categories = EXPERIENCE_CATEGORIES.map((cat) =>
     cat.id === "career" ? assessCareer(cat, graph) : cat.id === "quantified-result" ? assessQuantified(cat, graph) : assessTag(cat, graph),

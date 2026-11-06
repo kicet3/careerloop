@@ -2,7 +2,7 @@
 
 /**
  * 회원 탈퇴 버튼 + 확인 대화상자. 확인 문구(ACCOUNT_DELETE_CONFIRM)를 직접 입력해야 탈퇴 버튼이 켜진다.
- * DELETE /api/account → 성공하면 첫 화면으로. 경력 그래프 삭제가 실패하면 아무것도 지우지 않고 오류를 보여 준다.
+ * DELETE /api/account → 성공하면 첫 화면으로. 경험 그래프 삭제가 실패하면 아무것도 지우지 않고 오류를 보여 준다.
  */
 import { useRouter } from "next/navigation";
 import { useEffect, useId, useRef, useState } from "react";
@@ -78,7 +78,7 @@ export function DeleteAccountButton({ variant = "danger" }: { variant?: "danger"
           <ul className="list-disc space-y-1 pl-5 text-slate-600">
             <li>계정 정보(이메일·이름·로그인 정보)와 모든 로그인 세션</li>
             <li>진단·이력서·채용공고 보관함·지원 기록·대화 내용과 올린 파일</li>
-            <li>경력 그래프</li>
+            <li>경험 그래프</li>
             <li>동의 기록</li>
           </ul>
           <p className="text-xs text-slate-500">

@@ -182,7 +182,7 @@ export async function runDiagnosis(
     }
 
     const { ok } = await runPipeline(input, {
-      llm: opts?.llm ?? createLlmClient(diagnosis.provider ?? legacyProvider(diagnosis.model)),
+      llm: opts?.llm ?? createLlmClient(diagnosis.provider ?? legacyProvider(diagnosis.model), { userId: diagnosis.userId, referenceId: diagnosis.id }),
       existing,
       signal: controller.signal,
       async onStageStart(stage) {

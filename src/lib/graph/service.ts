@@ -1,6 +1,6 @@
 import "server-only";
 /**
- * 경력 그래프 저장소(Neo4j). 규칙:
+ * 경험 그래프 저장소(Neo4j). 규칙:
  * - 모든 노드에 userId를 넣고, 모든 MATCH에 userId 조건을 건다 — 다른 사용자 노드는 id를 알아도 닿지 않는다.
  * - 값은 모두 파라미터로 넘긴다. Cypher 문자열에 끼우는 것은 화이트리스트(NODE_LABELS·REL_TYPES)를 통과한 라벨·관계 타입뿐이다.
  * - 사용자 노드는 Career 라벨 + 종류 라벨(:Career:Company 등)을 갖는다. Person은 사용자당 하나(MERGE).

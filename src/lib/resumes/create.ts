@@ -50,7 +50,7 @@ export async function createResumeFromInput(
   let notes: string[] = [];
   let missingInfo: string[] = [];
   if (material) {
-    const client = deps.client ?? createLlmClient(await resolveRequestedProvider(input.provider ?? null));
+    const client = deps.client ?? createLlmClient(await resolveRequestedProvider(input.provider ?? null), { userId: user.id });
     // 요청 안에서 기다리므로 전체 시간에 상한을 둔다(CLI 엔진 대기·재요청이 쌓여도 수십 분 붙잡히지 않게).
     const { draft } = await withLlmDeadline(
       deps.signal,
@@ -91,7 +91,7 @@ export async function createResumeFromInput(
     document,
     source: material ? "ai" : "manual",
     postingId: input.postingId ?? null,
-    note: material ? (material.kind === "graph" ? "경력 그래프로 만든 AI 초안" : "진단 재작성본으로 만든 AI 초안") : "빈 문서",
+    note: material ? (material.kind === "graph" ? "경험 그래프로 만든 AI 초안" : "진단 재작성본으로 만든 AI 초안") : "빈 문서",
   });
   return { id: resume.id, notes, missingInfo };
 }

@@ -1,7 +1,5 @@
 import type { Metadata } from "next";
-import { CareerGraphView } from "@/components/graph/CareerGraphView";
-import { GraphAssistantPanel } from "@/components/graph/GraphAssistantPanel";
-import { SkillGapPanel } from "@/components/match/SkillGapPanel";
+import { GraphWorkspace } from "@/components/graph/GraphWorkspace";
 import { Alert } from "@/components/ui/Alert";
 import { Card } from "@/components/ui/Card";
 import { requireUser } from "@/lib/auth/session";
@@ -10,7 +8,7 @@ import type { CareerGraph } from "@/lib/domain/graph";
 import { getCareerGraph, GraphUnavailableError, graphEnabled } from "@/lib/graph/service";
 import { uploadLimitsFor } from "@/lib/ingest/upload-limits";
 
-export const metadata: Metadata = { title: "경력 그래프" };
+export const metadata: Metadata = { title: "경험 그래프" };
 export const dynamic = "force-dynamic";
 
 export default async function GraphPage({ searchParams }: { searchParams: Promise<Record<string, string | string[] | undefined>> }) {
@@ -27,8 +25,8 @@ export default async function GraphPage({ searchParams }: { searchParams: Promis
       <div className="space-y-6">
         <Header />
         <Card className="p-5">
-          <Alert tone="warning" title="경력 그래프 저장소가 설정되지 않았습니다">
-            이 서버에는 Neo4j 연결 정보(NEO4J_URI·NEO4J_USER·NEO4J_PASSWORD)가 없어 경력 그래프를 쓸 수 없습니다. 관리자라면
+          <Alert tone="warning" title="경험 그래프 저장소가 설정되지 않았습니다">
+            이 서버에는 Neo4j 연결 정보(NEO4J_URI·NEO4J_USER·NEO4J_PASSWORD)가 없어 경험 그래프를 쓸 수 없습니다. 관리자라면
             .env.example의 Neo4j 항목을 채우고(개발용은 docker-compose.yml) 서버를 다시 시작해 주세요.
           </Alert>
         </Card>
@@ -43,28 +41,19 @@ export default async function GraphPage({ searchParams }: { searchParams: Promis
     initialGraph = await getCareerGraph(user.id, { personName: user.name });
   } catch (err) {
     if (!(err instanceof GraphUnavailableError)) console.error("[GET /app/graph]", err);
-    initialError = "경력 그래프 저장소에 연결하지 못했습니다. 잠시 후 다시 시도해 주세요.";
+    initialError = "경험 그래프 저장소에 연결하지 못했습니다. 잠시 후 다시 시도해 주세요.";
   }
 
   return (
     <div className="space-y-6">
       <Header />
-      {/* 위: 경험 정리하기 | 경험 질문하기 탭. 아래: 왼쪽 채팅(넓게), 오른쪽 그래프 요소·부족한 기술. */}
-      <section id="graph-chat" aria-label="경험 정리하기·경험 질문하기" className="min-w-0 scroll-mt-20">
-        <GraphAssistantPanel
-          initialMessage={ask}
-          initialTab={tab}
-          uploadLimits={uploadLimitsFor()}
-          aside={
-            <>
-              <CareerGraphView initialGraph={initialGraph} initialError={initialError} />
-              <section aria-label="공고 대비 부족한 기술" className="min-w-0">
-                <SkillGapPanel />
-              </section>
-            </>
-          }
-        />
-      </section>
+      <GraphWorkspace
+        initialGraph={initialGraph}
+        initialError={initialError}
+        initialMessage={ask}
+        initialTab={tab}
+        uploadLimits={uploadLimitsFor()}
+      />
     </div>
   );
 }
@@ -72,7 +61,7 @@ export default async function GraphPage({ searchParams }: { searchParams: Promis
 function Header() {
   return (
     <div>
-      <h1 className="text-2xl font-bold tracking-tight text-slate-900">경력 그래프</h1>
+      <h1 className="text-2xl font-bold tracking-tight text-slate-900">경험 그래프</h1>
       <p className="mt-1 max-w-prose text-sm text-slate-500">
         회사·직무·프로젝트·경험·기술·성과를 서로 이어 정리해 둡니다. 채팅으로 이야기하거나 이력서를 올려 채우고, 정리한 그래프에 질문해
         보세요.

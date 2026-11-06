@@ -1,4 +1,4 @@
-# 경력 그래프·채팅·이력서 기능 — 공통 계약
+# 경험 그래프·채팅·이력서 기능 — 공통 계약
 
 기반(Foundation) 작업이 만든 공유 타입·모듈과 파일 소유권. 기능 에이전트는 이 문서를 먼저 읽는다.
 기존 규칙(docs/ARCHITECTURE.md)은 그대로다: 서버 전용 모듈은 `import "server-only"`, 인증은 `requireUser`/`requireApiUser`,
@@ -133,7 +133,7 @@ DEFAULT_RESUME_TEMPLATE = "performance"
 
 ## 5. 서버 공통 모듈
 
-### 경력 그래프 — `src/lib/graph/*`
+### 경험 그래프 — `src/lib/graph/*`
 
 ```ts
 // client.ts (server-only)
@@ -213,7 +213,7 @@ class FeatureError(message, status)            // 기능 모듈이 404·409 등�
 
 ## 6. 화면·환경
 
-- 내비게이션: '경력 그래프'(`/app/graph`), '이력서'(`/app/resumes`) 링크 추가됨. 두 페이지는 자리(placeholder) 상태 — graph-ui·resumes가 교체.
+- 내비게이션: '경험 그래프'(`/app/graph`), '이력서'(`/app/resumes`) 링크 추가됨. 두 페이지는 자리(placeholder) 상태 — graph-ui·resumes가 교체.
 - `.env.example`: `NEO4J_URI/USER/PASSWORD/DATABASE`, `R2_*`, `STORAGE_DIR`. 개발용 Neo4j는 `docker-compose.yml`.
 - 테스트: 실제 LLM 호출 금지(`new FakeLlmClient()`(`@/test/fake-llm`, 테스트 파일에서만 import 가능) 또는 가짜 클라이언트 주입).
   가짜 심사위원(mock) 엔진·`LLM_MOCK`은 없앴다. 로컬 확인은 Claude/ChatGPT 계정 로그인 엔진으로 한다. Neo4j 통합 테스트는
@@ -389,7 +389,7 @@ src/lib/ingest/extract.ts      기존 extract 진입점에 .hwp/.hwpx/.html(.htm
 
 ### 7-7. 화면
 
-- 사이드바(`AppSidebar`)는 그룹 메뉴: 진단(새 진단 `/app/new`·내 진단 `/app`), 경력(경력 그래프), 서류(이력서),
+- 사이드바(`AppSidebar`)는 그룹 메뉴: 진단(새 진단 `/app/new`·내 진단 `/app`), 경력(경험 그래프), 서류(이력서),
   지원(공고 보관함 `/app/postings`·지원 현황 `/app/applications`), 설정(AI 연결, CLI 엔진이 켜졌을 때만). 접힌 모드는 그룹 사이 구분선.
 - 넓은 화면 사이드바: 바깥 칸이 행 높이만큼 늘어나 배경·경계선이 페이지 끝까지 이어지고, 안쪽 `<aside>`는 `sticky top-0 h-dvh` + 메뉴 자체 스크롤.
 - `/app/postings`, `/app/postings/[id]`, `/app/applications`는 postings·applications 담당이 구현했다(통합 완료).

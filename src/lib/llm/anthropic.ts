@@ -30,6 +30,7 @@ import {
   type GenerateResult,
   type LlmClient,
   type LlmUsage,
+  type ModelUsage,
 } from "./types";
 
 export const DEFAULT_MODEL = "claude-opus-5-5";
@@ -113,6 +114,7 @@ export function userContent(user: string, cache = true): BetaTextBlockParam[] {
 }
 
 type UsageLike = {
+  model?: string | null;
   input_tokens?: number | null;
   output_tokens?: number | null;
   cache_read_input_tokens?: number | null;
@@ -134,6 +136,30 @@ export function addUsage(acc: LlmUsage, msg: Pick<BetaMessage, "usage">): LlmUsa
       cacheReadTokens: out.cacheReadTokens + (u.cache_read_input_tokens ?? 0),
       cacheWriteTokens: out.cacheWriteTokens + (u.cache_creation_input_tokens ?? 0),
     };
+  }
+  return out;
+}
+
+/**
+ * 모델별 사용량을 더한다(비용 추정용). iterations 항목에 model이 있으면 그 모델로 매긴다. 없으면 fallback이 일어난 응답의
+ * 'message' 항목은 거절한 요청 모델(requestedModel), 그 밖에는 응답 모델(msg.model)로 매긴다.
+ */
+export function addUsageByModel(acc: ModelUsage[], msg: Pick<BetaMessage, "usage" | "model">, requestedModel: string): ModelUsage[] {
+  const iterations = (msg.usage as { iterations?: (UsageLike & { type?: string })[] | null }).iterations;
+  const parts: (UsageLike & { type?: string })[] = iterations && iterations.length > 0 ? iterations : [msg.usage as UsageLike];
+  const fellBack = parts.some((u) => u.type === "fallback_message");
+  const out = acc.map((m) => ({ model: m.model, usage: { ...m.usage } }));
+  for (const u of parts) {
+    const model = u.model || (fellBack && u.type === "message" ? requestedModel : msg.model) || requestedModel;
+    let slot = out.find((m) => m.model === model);
+    if (!slot) {
+      slot = { model, usage: { inputTokens: 0, outputTokens: 0, cacheReadTokens: 0, cacheWriteTokens: 0 } };
+      out.push(slot);
+    }
+    slot.usage.inputTokens += u.input_tokens ?? 0;
+    slot.usage.outputTokens += u.output_tokens ?? 0;
+    slot.usage.cacheReadTokens += u.cache_read_input_tokens ?? 0;
+    slot.usage.cacheWriteTokens += u.cache_creation_input_tokens ?? 0;
   }
   return out;
 }
@@ -192,16 +218,22 @@ export class AnthropicLlmClient implements LlmClient {
 
   async generate<T>(req: LlmRequest<T>): Promise<GenerateResult<T>> {
     let usage: LlmUsage = { inputTokens: 0, outputTokens: 0, cacheReadTokens: 0, cacheWriteTokens: 0 };
+    let usageByModel: ModelUsage[] = [];
     try {
-      return await this.generateInner(req, (msg) => {
+      const result = await this.generateInner(req, (msg) => {
         usage = addUsage(usage, msg);
+        usageByModel = addUsageByModel(usageByModel, msg, this.model);
         return usage;
       });
+      return { ...result, usageByModel };
     } catch (e) {
-      // 실패해도 이미 쓴 토큰은 남긴다(runner가 진단 사용량에 더한다).
-      if (e && typeof e === "object" && (e as { usage?: unknown }).usage === undefined) {
+      // 실패해도 이미 쓴 토큰은 남긴다(runner가 진단 사용량에 더한다). 모델별 사용량은 비용 추정(llm_usage_events)용.
+      if (e && typeof e === "object") {
         try {
-          (e as { usage?: LlmUsage }).usage = usage;
+          if ((e as { usage?: unknown }).usage === undefined) (e as { usage?: LlmUsage }).usage = usage;
+          if ((e as { usageByModel?: unknown }).usageByModel === undefined && usageByModel.length > 0) {
+            (e as { usageByModel?: ModelUsage[] }).usageByModel = usageByModel;
+          }
         } catch {
           // 고정된 오류 객체면 무시
         }

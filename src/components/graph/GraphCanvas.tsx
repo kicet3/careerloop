@@ -54,7 +54,7 @@ export function GraphCanvas({
         style={{ width: `${zoom * 100}%`, minWidth: Math.min(vb.width, 320) * zoom, maxWidth: zoom === 1 ? vb.width * 1.6 : undefined }}
         className="mx-auto block h-auto select-none"
         role="group"
-        aria-label="경력 그래프 관계도"
+        aria-label="경험 그래프 관계도"
       >
         {layout.radii.map((r) => (
           <circle key={r} r={r} className="fill-none stroke-slate-200" strokeDasharray="4 6" />

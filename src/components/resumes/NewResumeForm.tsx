@@ -3,7 +3,7 @@
  * 새 이력서 폼.
  * 1) 지원할 자리: 내 보관함 공고 고르기(검색) / 공고 링크로 가져오기(끝나면 자동 선택, 이미 있는 공고·공고 찾기의 공고는 바로 선택) /
  *    공용 이력서(회사 지정 없음). 회사·직무·JD는 직접 입력하지 않고 공고에서 가져온다(서버가 공고 값으로 채운다).
- * 2) 초안 출처: 경력 그래프·진단 재작성본(AI) / 공용 이력서 내용으로 시작(복사, AI 없음) / 빈 문서.
+ * 2) 초안 출처: 경험 그래프·진단 재작성본(AI) / 공용 이력서 내용으로 시작(복사, AI 없음) / 빈 문서.
  * 양식은 편집 화면 위쪽에서 고른다.
  */
 import Link from "next/link";
@@ -419,7 +419,7 @@ export function NewResumeForm({
               const label = k === "copy" ? COPY_SOURCE_LABEL : RESUME_DRAFT_SOURCE_LABELS[k];
               const hint =
                 k === "graph" && !graphAvailable
-                  ? "경력 그래프 저장소가 설정되지 않아 쓸 수 없습니다."
+                  ? "경험 그래프 저장소가 설정되지 않아 쓸 수 없습니다."
                   : k === "diagnosis" && diagnoses.length === 0
                     ? "다시 쓴 이력서가 있는 진단이 아직 없습니다."
                     : k === "copy" && !canCopy
@@ -454,7 +454,7 @@ export function NewResumeForm({
             <p className="mt-3 text-sm text-slate-500">
               그래프가 비어 있다면{" "}
               <Link href="/app/graph" className="font-medium text-indigo-700 hover:underline">
-                경력 그래프
+                경험 그래프
               </Link>
               에서 먼저 경력·경험을 정리해 주세요.
             </p>
@@ -534,7 +534,7 @@ export function NewResumeForm({
       {usesAi && (
         <Alert tone="info">
           {destination
-            ? `초안을 쓰기 위해 ${source === "graph" ? "경력 그래프" : "진단의 재작성본"}${general ? "" : "와 공고 JD"}가 ${destination}(으)로 전송됩니다. `
+            ? `초안을 쓰기 위해 ${source === "graph" ? "경험 그래프" : "진단의 재작성본"}${general ? "" : "와 공고 JD"}가 ${destination}(으)로 전송됩니다. `
             : "초안을 쓰기 위해 자료가 선택한 AI 엔진으로 전송됩니다. "}
           AI는 자료에 있는 사실만 쓰고, 모르는 내용은 <strong>[ADD: …]</strong> 자리표시로 남깁니다.
         </Alert>

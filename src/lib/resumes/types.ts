@@ -27,12 +27,12 @@ export const MAX_RESUME_NOTE_CHARS = 200;
 export const MAX_RESUMES_PER_USER = 100;
 export const MAX_VERSIONS_PER_RESUME = 200;
 
-/** 초안 출처: 경력 그래프 / 기존 진단의 재작성본 / 빈 문서. */
+/** 초안 출처: 경험 그래프 / 기존 진단의 재작성본 / 빈 문서. */
 export const RESUME_DRAFT_SOURCE_KINDS = ["graph", "diagnosis", "blank"] as const;
 export type ResumeDraftSourceKind = (typeof RESUME_DRAFT_SOURCE_KINDS)[number];
 
 export const RESUME_DRAFT_SOURCE_LABELS: Record<ResumeDraftSourceKind, { name: string; description: string }> = {
-  graph: { name: "경력 그래프에서", description: "정리해 둔 경력·경험 그래프와 JD로 AI가 초안을 씁니다." },
+  graph: { name: "경험 그래프에서", description: "정리해 둔 경력·경험 그래프와 JD로 AI가 초안을 씁니다." },
   diagnosis: { name: "기존 진단의 재작성본에서", description: "진단 보고서의 '다시 쓴 이력서'를 이 양식으로 옮깁니다." },
   blank: { name: "빈 문서", description: "AI 없이 빈 양식에서 직접 씁니다." },
 };

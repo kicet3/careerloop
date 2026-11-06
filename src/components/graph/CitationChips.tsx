@@ -68,7 +68,7 @@ export function SourceChips({ sources }: { sources: readonly GraphSource[] }) {
   if (sources.length === 0) return null;
   return (
     <div className="space-y-1">
-      <p className="text-xs font-medium text-slate-500">출처(경력 그래프)</p>
+      <p className="text-xs font-medium text-slate-500">출처(경험 그래프)</p>
       <ul className="space-y-1">
         {sources.map((s) => (
           <SourceChip key={s.n} source={s} />

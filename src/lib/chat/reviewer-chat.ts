@@ -361,7 +361,7 @@ export async function sendReviewerMessage(
   if (inFlight.has(userId)) throw new FeatureError("이전 메시지의 답변을 기다리는 중입니다.", 409);
   inFlight.add(userId);
   try {
-    const llm = input.llm ?? createLlmClient(await pickReviewerChatProvider(diagnosis));
+    const llm = input.llm ?? createLlmClient(await pickReviewerChatProvider(diagnosis), { userId, referenceId: diagnosisId });
     // 요청 안에서 기다리므로 전체 시간에 상한을 둔다(CLI 엔진의 슬롯 대기·재요청이 쌓여도 수십 분 붙잡히지 않게).
     const result = await withLlmDeadline(
       input.signal,

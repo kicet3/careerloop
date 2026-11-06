@@ -16,7 +16,7 @@ export interface LlmUsage {
 
 /**
  * 파이프라인 밖 기능의 LLM 호출 종류(심사 단계가 아닌 호출). 테스트용 가짜 LLM은 이 값으로 가짜 출력을 고른다.
- * - graph-chat: 경력 그래프 채팅(GraphChatOutputSchema)
+ * - graph-chat: 경험 그래프 채팅(GraphChatOutputSchema)
  * - reviewer-chat: 심사위원 채팅(ReviewerChatOutputSchema)
  * - resume-draft: 회사별 이력서 초안(ResumeDraftOutputSchema)
  * - posting-extract: 채용 공고 페이지 본문에서 회사·직무·마감·구역별 항목 추출(PostingExtractSchema, 구역만이면 PostingSectionsOnlySchema)
@@ -79,6 +79,14 @@ export interface GenerateResult<T> {
   usage: LlmUsage;
   /** 실제로 응답한 모델(서버 측 fallback이 동작했으면 대체 모델 이름). */
   model: string;
+  /** 모델별 사용량(서버 측 fallback으로 여러 모델이 나눠 쓴 경우 비용을 모델별로 매기기 위함). 없으면 usage 전체를 model로 본다. */
+  usageByModel?: ModelUsage[];
+}
+
+/** 한 모델이 쓴 토큰. */
+export interface ModelUsage {
+  model: string;
+  usage: LlmUsage;
 }
 
 export interface LlmClient {
@@ -132,4 +140,18 @@ export function usageOfError(error: unknown): LlmUsage | null {
     cacheReadTokens: n("cacheReadTokens"),
     cacheWriteTokens: n("cacheWriteTokens"),
   };
+}
+
+/** 실패한 generate()의 모델별 사용량(있으면). 클라이언트 구현체가 오류 객체의 usageByModel 필드에 붙인다. */
+export function usageByModelOfError(error: unknown): ModelUsage[] | null {
+  const v = (error as { usageByModel?: unknown } | null)?.usageByModel;
+  if (!Array.isArray(v) || v.length === 0) return null;
+  const out: ModelUsage[] = [];
+  for (const item of v) {
+    if (!item || typeof item !== "object" || typeof (item as ModelUsage).model !== "string") return null;
+    const u = usageOfError(item);
+    if (!u) return null;
+    out.push({ model: (item as ModelUsage).model, usage: u });
+  }
+  return out;
 }

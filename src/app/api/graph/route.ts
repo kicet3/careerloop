@@ -6,11 +6,11 @@ import type { GraphResponse } from "@/components/graph/api";
 
 export const runtime = "nodejs";
 
-/** 로그인 사용자의 경력 그래프 전체. Neo4j가 설정되지 않았으면 503. */
+/** 로그인 사용자의 경험 그래프 전체. Neo4j가 설정되지 않았으면 503. */
 export async function GET() {
   const user = await requireApiUser();
   if (user instanceof Response) return user;
-  if (!graphEnabled()) return jsonError("경력 그래프 저장소(Neo4j)가 설정되지 않았습니다.", 503);
+  if (!graphEnabled()) return jsonError("경험 그래프 저장소(Neo4j)가 설정되지 않았습니다.", 503);
 
   try {
     const graph = await getCareerGraph(user.id, { personName: user.name });

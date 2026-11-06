@@ -35,7 +35,7 @@ export const CHAT_TAGS = {
   latestMessage: "latest_message",
   /** 이전 대화(historyToPrompt 결과) */
   conversation: "conversation",
-  /** 경력 그래프 요약(graphToText 결과) */
+  /** 경험 그래프 요약(graphToText 결과) */
   careerGraph: "career_graph",
   /** 이력서 원문 (panel/prompts.ts TAGS.resume와 같은 이름) */
   resume: "resume",

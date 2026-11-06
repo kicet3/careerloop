@@ -43,7 +43,7 @@ export function SkillGapPanel() {
     <Card className="min-w-0">
       <CardHeader
         title="공고가 요구하지만 내 그래프에 없는 기술"
-        description="보관한 공고(마감 제외, 최근 50개)를 경력 그래프와 대조해 많이 요구하는 순으로 모았습니다."
+        description="보관한 공고(마감 제외, 최근 50개)를 경험 그래프와 대조해 많이 요구하는 순으로 모았습니다."
         action={
           <Button size="sm" variant="ghost" onClick={() => setReloadKey((k) => k + 1)} disabled={state.kind === "loading"}>
             새로 고침

@@ -1,6 +1,6 @@
 "use client";
 /**
- * 공고 상세의 '내 경력과 대조' 카드. 공고가 요구하는 기술을 경력 그래프와 맞춰 증명됨·보유만·없음으로 나눈다.
+ * 공고 상세의 '내 경력과 대조' 카드. 공고가 요구하는 기술을 경험 그래프와 맞춰 증명됨·보유만·없음으로 나눈다.
  * 스스로 GET /api/postings/[id]/match를 부른다. '없음'·'보유만' 항목은 그래프 채팅을 미리 채운 입력으로 연다.
  */
 import Link from "next/link";
@@ -52,7 +52,7 @@ export function PostingMatchCard({ postingId }: { postingId: string }) {
     <Card className="min-w-0">
       <CardHeader
         title="내 경력과 대조"
-        description="공고가 요구하는 기술을 경력 그래프와 맞춰 봤습니다."
+        description="공고가 요구하는 기술을 경험 그래프와 맞춰 봤습니다."
         action={
           <Button size="sm" variant="ghost" onClick={reload} disabled={state.kind === "loading"}>
             다시 대조
@@ -62,12 +62,12 @@ export function PostingMatchCard({ postingId }: { postingId: string }) {
       <CardBody className="space-y-4">
         {state.kind === "loading" && (
           <p className="flex items-center gap-2 text-sm text-slate-500">
-            <Spinner /> 경력 그래프와 맞춰 보는 중…
+            <Spinner /> 경험 그래프와 맞춰 보는 중…
           </p>
         )}
         {state.kind === "error" &&
           (state.status === 503 ? (
-            <Alert tone="warning" title="경력 그래프를 쓸 수 없습니다">
+            <Alert tone="warning" title="경험 그래프를 쓸 수 없습니다">
               {state.message} 그래프 저장소가 준비되면 이 공고와 내 경력을 대조할 수 있습니다.
             </Alert>
           ) : (
@@ -120,10 +120,10 @@ function MatchResult({ data }: { data: PostingMatchResponse }) {
       </div>
 
       {data.graphEmpty && (
-        <Alert tone="info" title="경력 그래프가 비어 있습니다">
+        <Alert tone="info" title="경험 그래프가 비어 있습니다">
           그래프에 직무·프로젝트와 쓴 기술을 정리하면 이 공고와 무엇이 맞는지 보입니다.{" "}
           <Link href="/app/graph" className="font-medium underline">
-            경력 그래프로 가기
+            경험 그래프로 가기
           </Link>
         </Alert>
       )}

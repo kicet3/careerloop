@@ -1,6 +1,6 @@
 import "server-only";
 /**
- * AI 이력서 초안(task 'resume-draft'). 경력 그래프 텍스트 또는 진단 재작성본 + JD → ResumeDocument.
+ * AI 이력서 초안(task 'resume-draft'). 경험 그래프 텍스트 또는 진단 재작성본 + JD → ResumeDocument.
  * 자료(그래프·이력서·JD)는 모두 데이터 태그로 감싼다 — 태그 안 지시문은 따르지 않는다(INJECTION_RULE).
  * 사실을 지어내지 않고, 모르는 값은 [ADD: ...] 자리표시와 missingInfo 질문으로 남긴다.
  */
@@ -77,7 +77,7 @@ export function buildResumeDraftPrompt(ctx: DraftContext): { system: string; use
   if (ctx.personName?.trim()) lines.push(field("지원자 이름(계정)", ctx.personName.trim()));
   lines.push("");
   if (ctx.material.kind === "graph") {
-    lines.push("지원자의 경력 그래프(노드와 관계). 이 안의 사실만 쓴다:", wrapData(CHAT_TAGS.careerGraph, ctx.material.text));
+    lines.push("지원자의 경험 그래프(노드와 관계). 이 안의 사실만 쓴다:", wrapData(CHAT_TAGS.careerGraph, ctx.material.text));
   } else {
     lines.push(
       `지원자의 기존 이력서(진단 '${ctx.material.diagnosisTitle.replace(/\s+/g, " ").slice(0, 80)}'에서 다시 쓴 판). 이 안의 사실만 쓴다:`,
@@ -128,10 +128,10 @@ export async function loadDraftMaterial(
     case "blank":
       return null;
     case "graph": {
-      if (!graphEnabled()) throw new FeatureError("경력 그래프 저장소(Neo4j)가 설정되지 않아 그래프에서 초안을 만들 수 없습니다.", 503);
+      if (!graphEnabled()) throw new FeatureError("경험 그래프 저장소(Neo4j)가 설정되지 않아 그래프에서 초안을 만들 수 없습니다.", 503);
       const graph = await getCareerGraph(user.id, { personName: user.name });
       if (graph.nodes.length === 0) {
-        throw new FeatureError("경력 그래프가 비어 있습니다. '경력 그래프'에서 경력·경험을 먼저 정리해 주세요.", 409);
+        throw new FeatureError("경험 그래프가 비어 있습니다. '경험 그래프'에서 경력·경험을 먼저 정리해 주세요.", 409);
       }
       return { kind: "graph", text: graphToText(graph, { maxChars: GRAPH_TEXT_MAX }) };
     }

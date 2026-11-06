@@ -1,12 +1,12 @@
 # 경험 카테고리 (자소서·이력서·포트폴리오용 최소 경험)
 
-CareerLoop는 경력 그래프가 자기소개서·이력서·포트폴리오에 반복해서 쓰이는 경험 소재를 **최소한** 갖췄는지 `경험 체크리스트`로 보여 준다.
+CareerLoop는 경험 그래프가 자기소개서·이력서·포트폴리오에 반복해서 쓰이는 경험 소재를 **최소한** 갖췄는지 `경험 체크리스트`로 보여 준다.
 필수 6개를 모두 채우면 완료이고, 추천 4개는 더 채우면 좋은 항목이다.
 
 - 정의: `src/lib/domain/experience-categories.ts` (`EXPERIENCE_CATEGORIES`, `STORY_FIELD_NAMES`)
 - 소재 분류 태그와 별칭: `src/lib/domain/graph.ts` (`STORY_TAGS`, `STORY_TAG_ALIASES`)
 - 판정: `src/lib/graph/completeness.ts` (`assessExperienceChecklist`)
-- 화면: `src/components/graph/ExperienceChecklist.tsx` (경력 그래프 화면 맨 위)
+- 화면: `src/components/graph/ExperienceChecklist.tsx` (경험 그래프 화면 맨 위)
 - 채팅: `src/lib/chat/graph-chat.ts` (시스템 프롬프트 규칙 11~14, 사용자 프롬프트의 `<experience_checklist>` 블록)
 
 ## 1. 그래프 매핑

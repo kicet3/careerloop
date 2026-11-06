@@ -41,7 +41,7 @@ export async function POST(req: Request, { params }: Ctx) {
     if (!daily.ok) {
       return tooManyRequests(`AI로 다시 정리는 하루 ${DAILY_POSTING_STRUCTURE_LIMIT}번까지 할 수 있습니다. 내일 다시 시도해 주세요.`, daily.retryAfterSec);
     }
-    const posting = await restructurePosting(user.id, id, { llm: createLlmClient(provider), signal: req.signal });
+    const posting = await restructurePosting(user.id, id, { llm: createLlmClient(provider, { userId: user.id, referenceId: id }), signal: req.signal });
     if (!posting) return postingNotFound();
     return Response.json({ posting });
   } catch (err) {

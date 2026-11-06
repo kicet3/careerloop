@@ -1,5 +1,5 @@
 /**
- * 경력 그래프 API 응답 타입과 브라우저용 호출 도우미(GET /api/graph, POST /api/graph/ops).
+ * 경험 그래프 API 응답 타입과 브라우저용 호출 도우미(GET /api/graph, POST /api/graph/ops).
  * 그래프가 바뀌면 window에 GRAPH_CHANGED_EVENT를 보낸다 — 채팅 패널이 변경안을 적용했을 때도 같은 이벤트를 쓴다.
  */
 import { MAX_CHAT_MESSAGE_CHARS } from "@/lib/domain/chat";

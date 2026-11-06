@@ -1,5 +1,5 @@
 /**
- * 이력서·포트폴리오로 경력 그래프 채우기(기능 A). 그래프 채팅 스레드에 문서를 올리면 LLM이 문서에 글자로 있는 사실만으로
+ * 이력서·포트폴리오로 경험 그래프 채우기(기능 A). 그래프 채팅 스레드에 문서를 올리면 LLM이 문서에 글자로 있는 사실만으로
  * 변경안을 만들고, 사용자가 확인해 적용한다(적용 흐름은 그래프 채팅과 같다 — graph-chat.ts).
  *
  * 이 파일: 업로드 폼 해석(parseImportForm), 가져오기 프롬프트(buildGraphImportPrompt), 문서 대조 검증(verifyAgainstDocument).
@@ -100,7 +100,7 @@ export function importMessage(p: ParsedImport): { content: string; data: Documen
 // 프롬프트
 // ---------------------------------------------------------------------------
 
-export const GRAPH_IMPORT_SYSTEM = `너는 한국어 경력 정리 도우미다. 사용자가 올린 이력서·포트폴리오 문서를 읽고 '경력 그래프'에 넣을 변경안을 만든다.
+export const GRAPH_IMPORT_SYSTEM = `너는 한국어 경력 정리 도우미다. 사용자가 올린 이력서·포트폴리오 문서를 읽고 '경험 그래프'에 넣을 변경안을 만든다.
 변경안은 사용자가 확인한 뒤에만 적용된다. reply에는 무엇을 정리했는지 짧게 설명한다.
 
 ${modelGuide()}
@@ -130,7 +130,7 @@ export function buildGraphImportPrompt(input: {
   const user = [
     field("본인 이름", input.graph.person.name ?? "(모름)"),
     "",
-    "현재 경력 그래프([id]로 기존 노드를 가리킨다):",
+    "현재 경험 그래프([id]로 기존 노드를 가리킨다):",
     wrapData(CHAT_TAGS.careerGraph, graphToText(input.graph, { maxChars: IMPORT_GRAPH_MAX_CHARS })),
     "",
     "경험 체크리스트(빠진 필수 항목부터):",

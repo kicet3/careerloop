@@ -1,6 +1,6 @@
 "use client";
 /**
- * 그래프 채팅 패널(기능 2). 경험을 이야기하면 AI가 경력 그래프 변경안을 제안하고, 사용자가 확인하면 적용한다.
+ * 그래프 채팅 패널(기능 2). 경험을 이야기하면 AI가 경험 그래프 변경안을 제안하고, 사용자가 확인하면 적용한다.
  * - 메시지 전송은 202로 바로 끝나고 답변은 서버가 백그라운드로 만든다 → 답을 기다리는 동안 스레드를 폴링한다.
  * - 변경안을 적용하면 window 이벤트 'career-graph:changed'를 보내 그래프 화면이 다시 읽게 한다.
  * - initialMessage가 오면(공고 대조의 '그래프 채팅으로 추가') 새 대화로 열고 입력을 미리 채운다. 보내기는 사용자가 누른다.
@@ -364,7 +364,7 @@ export function GraphChatPanel({
 
       {/* 메시지 목록 */}
       <div ref={listRef} className="h-[min(60vh,560px)] min-h-72 space-y-4 overflow-y-auto px-4 py-4" aria-live="polite">
-        {!graphOn && <Alert tone="warning">경력 그래프 저장소(Neo4j)가 설정되지 않아 대화로 정리할 수 없습니다.</Alert>}
+        {!graphOn && <Alert tone="warning">경험 그래프 저장소(Neo4j)가 설정되지 않아 대화로 정리할 수 없습니다.</Alert>}
         {noEngine && <Alert tone="warning">{NO_ENGINE_MESSAGE}</Alert>}
         {threadId && !view && (
           <div className="flex justify-center py-10 text-slate-400">

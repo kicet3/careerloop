@@ -44,6 +44,7 @@ model User {
   interviewSessions InterviewSession[]
   interviewAnswers  InterviewAnswer[]
   portfolios        Portfolio[]
+  llmUsageEvents    LlmUsageEvent[]
 
   @@index([status, createdAt], map: "users_status_idx")
   @@map("users")
@@ -633,4 +634,37 @@ model RateEvent {
 
   @@index([bucket, key, createdAt], map: "rate_events_key_idx")
   @@map("rate_events")
+}
+
+/// LLM 호출 1건의 토큰 사용량 원장(append-only, 관리자 '사용량' 화면 — src/lib/llm/usage.ts).
+/// 프롬프트·응답 본문은 저장하지 않는다(개수·모델·엔진·작업·성공 여부·시각·참조 id만). 탈퇴하면 함께 지워진다(CASCADE).
+/// user_id가 null이면 사용자에 묶이지 않은 호출(시스템 작업).
+model LlmUsageEvent {
+  id               Int      @id @default(autoincrement())
+  userId           String?  @map("user_id")
+  /// 심사 단계면 'diagnosis'(단계는 stage), 아니면 LlmTask.
+  task             String
+  /// 심사 단계 키(StageKey). 심사 밖 호출은 null.
+  stage            String?
+  /// ProviderId('anthropic' | 'claude-cli' | 'codex-cli').
+  provider         String
+  model            String
+  inputTokens      Int      @default(0) @map("input_tokens")
+  outputTokens     Int      @default(0) @map("output_tokens")
+  cacheReadTokens  Int      @default(0) @map("cache_read_tokens")
+  cacheWriteTokens Int      @default(0) @map("cache_write_tokens")
+  /// 추정 비용(USD의 백만분의 1, 정수). 가격을 모르는 모델·CLI 엔진은 null.
+  costMicroUsd     BigInt?  @map("cost_micro_usd")
+  ok               Boolean
+  /// 실패 사유(LlmPermanentError.reason 또는 'error'). 성공이면 null.
+  errorReason      String?  @map("error_reason")
+  /// 관련 행 id(진단·대화 스레드·면접 세션 등). FK 없음.
+  referenceId      String?  @map("reference_id")
+  createdAt        DateTime @default(now()) @map("created_at") @db.Timestamptz(3)
+
+  user User? @relation(fields: [userId], references: [id], onDelete: Cascade, map: "llm_usage_events_user_id_fkey")
+
+  @@index([userId, createdAt], map: "llm_usage_events_user_idx")
+  @@index([createdAt], map: "llm_usage_events_created_idx")
+  @@map("llm_usage_events")
 }

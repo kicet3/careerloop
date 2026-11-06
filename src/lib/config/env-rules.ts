@@ -217,7 +217,7 @@ function devWarnings(env: Env): string[] {
   if (R2_ENV_KEYS.some((k) => !has(env, k))) {
     warnings.push("R2 설정이 없어 이력서 본문을 로컬 폴더(STORAGE_DIR, 기본 ./data/storage)에 저장합니다.");
   }
-  if (!has(env, "NEO4J_URI")) warnings.push("NEO4J_URI가 없어 경력 그래프 기능이 꺼집니다.");
+  if (!has(env, "NEO4J_URI")) warnings.push("NEO4J_URI가 없어 경험 그래프 기능이 꺼집니다.");
   else if (!has(env, "NEO4J_PASSWORD")) warnings.push("NEO4J_URI는 있는데 NEO4J_PASSWORD가 비어 있어 그래프 저장소에 연결하지 못할 수 있습니다.");
   if (!has(env, "ANTHROPIC_API_KEY") && !cliProvidersAllowed(env)) {
     warnings.push("ANTHROPIC_API_KEY·CLI_PROVIDERS가 모두 없어 쓸 수 있는 AI 엔진이 없습니다.");

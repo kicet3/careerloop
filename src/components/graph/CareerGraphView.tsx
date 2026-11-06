@@ -1,6 +1,6 @@
 "use client";
 
-import { useCallback, useEffect, useRef, useState } from "react";
+import { useCallback, useEffect, useRef, useState, type ReactNode } from "react";
 import { Alert } from "@/components/ui/Alert";
 import { Button, buttonClass } from "@/components/ui/Button";
 import { Card } from "@/components/ui/Card";
@@ -23,11 +23,33 @@ type Panel =
 const ZOOMS = [1, 1.5, 2, 3];
 
 /**
- * 경력 그래프 보기·편집. 관계도(SVG)·목록 두 보기, 선택한 항목의 상세, 추가·수정·삭제·연결 폼.
+ * 경험 그래프 보기·편집. 관계도(SVG)·목록 두 보기, 선택한 항목의 상세, 추가·수정·삭제·연결 폼.
+ * 화면 배치도 맡는다: 경험 체크리스트(전체 폭) → chatTabs(전체 폭) → 왼쪽 chat · 오른쪽 탭(경험 그래프 + sideTabs, 하나씩).
  * 그래프 채팅이 변경안을 적용하면 window 이벤트(career-graph:changed)를 받아 다시 불러온다.
  * 그래프에 묻기의 출처 칩은 window 이벤트(career-graph:focus)로 노드를 고르고 본인에서의 경로를 강조한다.
  */
-export function CareerGraphView({ initialGraph, initialError }: { initialGraph: CareerGraph | null; initialError: string | null }) {
+export interface SideTab {
+  key: string;
+  label: string;
+  content: ReactNode;
+}
+
+const GRAPH_TAB = "graph";
+
+export function CareerGraphView({
+  initialGraph,
+  initialError,
+  chatTabs,
+  chat,
+  sideTabs = [],
+}: {
+  initialGraph: CareerGraph | null;
+  initialError: string | null;
+  chatTabs?: ReactNode;
+  chat?: ReactNode;
+  sideTabs?: SideTab[];
+}) {
+  const [sideTab, setSideTab] = useState<string>(GRAPH_TAB);
   const [graph, setGraph] = useState<CareerGraph | null>(initialGraph);
   const [loadError, setLoadError] = useState<string | null>(initialError);
   const [loading, setLoading] = useState(false);
@@ -79,6 +101,7 @@ export function CareerGraphView({ initialGraph, initialError }: { initialGraph: 
         return;
       }
       setFocusNotice(null);
+      setSideTab(GRAPH_TAB);
       setView("graph");
       setPanel({ kind: "detail", id: detail.id });
       setHighlight({ id: detail.id, ids: new Set([...(detail.pathIds ?? []), detail.id]) });
@@ -111,18 +134,16 @@ export function CareerGraphView({ initialGraph, initialError }: { initialGraph: 
     else setPanel((p) => ("id" in p ? { kind: "detail", id: p.id } : p));
   }, []);
 
-  if (!graph) {
-    return (
+  const errorCard = (
       <Card className="p-5">
-        <Alert tone="error" title="경력 그래프를 불러오지 못했습니다">
+        <Alert tone="error" title="경험 그래프를 불러오지 못했습니다">
           {loadError ?? "잠시 후 다시 시도해 주세요."}
         </Alert>
         <Button variant="secondary" className="mt-4" onClick={() => void refresh()} loading={loading}>
           다시 시도
         </Button>
       </Card>
-    );
-  }
+      );
 
   const selectedId = panel.kind === "none" || panel.kind === "add" ? null : panel.id;
   const select = (id: string) => {
@@ -130,15 +151,14 @@ export function CareerGraphView({ initialGraph, initialError }: { initialGraph: 
     setPanel({ kind: "detail", id });
   };
   const highlightIds = highlight && selectedId === highlight.id ? highlight.ids : undefined;
-  const empty = graph.nodes.length === 0;
-  const editing = panel.kind === "edit" ? graph.nodes.find((n) => n.id === panel.id) : undefined;
+  const empty = !graph || graph.nodes.length === 0;
+  const editing = graph && panel.kind === "edit" ? graph.nodes.find((n) => n.id === panel.id) : undefined;
 
-  return (
-    <div className="min-w-0 space-y-6">
-      <ExperienceChecklist
-        graph={graph}
-        onFix={(b) => setPanel(b.fix === "link" ? { kind: "link", id: b.nodeId, targetLabels: b.linkTargets } : { kind: "edit", id: b.nodeId })}
-      />
+  const tabsList = [{ key: GRAPH_TAB, label: "경험 그래프" }, ...sideTabs.map((t) => ({ key: t.key, label: t.label }))];
+
+  const graphCard = !graph ? (
+    errorCard
+  ) : (
       <div ref={canvasRef} className="scroll-mt-20">
         <Card className="overflow-hidden">
           {focusNotice && (
@@ -198,7 +218,7 @@ export function CareerGraphView({ initialGraph, initialError }: { initialGraph: 
                 적용하면 여기에 나타납니다. 직접 하나씩 추가해도 됩니다.
               </p>
               <p className="mx-auto mt-2 max-w-md text-sm font-medium text-slate-700">
-                자소서와 이력서에 꼭 필요한 경험 6가지를 위 체크리스트로 채워 보세요.
+                자소서와 이력서에 꼭 필요한 경험 6가지를 위쪽 경험 체크리스트로 채워 보세요.
               </p>
               <div className="mt-6 flex flex-wrap justify-center gap-2">
                 <a href="#graph-chat" className={buttonClass("primary", "md")}>
@@ -285,6 +305,56 @@ export function CareerGraphView({ initialGraph, initialError }: { initialGraph: 
             </div>
           )}
         </Card>
+      </div>
+  );
+
+  return (
+    <div className="min-w-0 space-y-6">
+      {graph && (
+        <ExperienceChecklist
+          graph={graph}
+          onFix={(b) => {
+            setSideTab(GRAPH_TAB);
+            setPanel(b.fix === "link" ? { kind: "link", id: b.nodeId, targetLabels: b.linkTargets } : { kind: "edit", id: b.nodeId });
+          }}
+        />
+      )}
+      {chatTabs}
+      <div className="grid gap-6 xl:grid-cols-[minmax(30rem,46%)_minmax(0,1fr)] xl:items-start">
+        <div id="graph-chat" className="min-w-0 scroll-mt-20">
+          {chat}
+        </div>
+        <div className="min-w-0 space-y-3">
+          {tabsList.length > 1 && (
+            <div role="tablist" aria-label="그래프 보기" className="inline-flex rounded-lg bg-slate-100 p-0.5">
+              {tabsList.map((t) => (
+                <button
+                  key={t.key}
+                  id={`graph-side-tab-${t.key}`}
+                  type="button"
+                  role="tab"
+                  aria-selected={sideTab === t.key}
+                  aria-controls={`graph-side-panel-${t.key}`}
+                  onClick={() => setSideTab(t.key)}
+                  className={cn(
+                    "rounded-md px-3 py-1.5 text-sm font-medium",
+                    sideTab === t.key ? "bg-white text-slate-900 shadow-sm" : "text-slate-600 hover:text-slate-900",
+                  )}
+                >
+                  {t.label}
+                </button>
+              ))}
+            </div>
+          )}
+          <div id={`graph-side-panel-${GRAPH_TAB}`} role="tabpanel" aria-labelledby={`graph-side-tab-${GRAPH_TAB}`} hidden={sideTab !== GRAPH_TAB}>
+            {graphCard}
+          </div>
+          {sideTabs.map((t) => (
+            <div key={t.key} id={`graph-side-panel-${t.key}`} role="tabpanel" aria-labelledby={`graph-side-tab-${t.key}`} hidden={sideTab !== t.key}>
+              {t.content}
+            </div>
+          ))}
+        </div>
       </div>
     </div>
   );

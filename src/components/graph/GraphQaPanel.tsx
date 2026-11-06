@@ -1,6 +1,6 @@
 "use client";
 /**
- * 그래프에 묻기 패널(기능 B). 경력 그래프만 근거로 답하고, 문장마다 [n] 출처(그래프 노드와 본인에서의 경로)를 단다.
+ * 그래프에 묻기 패널(기능 B). 경험 그래프만 근거로 답하고, 문장마다 [n] 출처(그래프 노드와 본인에서의 경로)를 단다.
  * - 질문 전송은 202로 바로 끝나고 답은 서버가 백그라운드로 만든다 → 답을 기다리는 동안 스레드를 폴링한다.
  * - 출처 칩·[n]을 누르면 같은 화면의 그래프 보기가 그 노드를 고르고 경로를 강조한다(career-graph:focus).
  * - 그래프에 답이 없으면 채울 방법(그래프 만들기 채팅 문구·체크리스트)을 보여 준다.
@@ -153,7 +153,7 @@ export function GraphQaPanel() {
   return (
     <Card className="flex min-w-0 flex-col">
       <div className="flex flex-wrap items-center gap-2 border-b border-slate-200 px-4 py-3">
-        <h2 className="w-full text-base font-semibold text-slate-900">내 경력 그래프에 묻기</h2>
+        <h2 className="w-full text-base font-semibold text-slate-900">내 경험 그래프에 묻기</h2>
         <label className="sr-only" htmlFor="graph-qa-thread">
           질문 대화 선택
         </label>
@@ -210,7 +210,7 @@ export function GraphQaPanel() {
       )}
 
       <div ref={listRef} className="h-[min(60vh,560px)] min-h-72 space-y-4 overflow-y-auto px-4 py-4" aria-live="polite">
-        {!graphOn && <Alert tone="warning">경력 그래프 저장소(Neo4j)가 설정되지 않아 질문할 수 없습니다.</Alert>}
+        {!graphOn && <Alert tone="warning">경험 그래프 저장소(Neo4j)가 설정되지 않아 질문할 수 없습니다.</Alert>}
         {noEngine && <Alert tone="warning">{NO_ENGINE_MESSAGE}</Alert>}
         {threadId && !view && (
           <div className="flex justify-center py-10 text-slate-400">
@@ -220,7 +220,7 @@ export function GraphQaPanel() {
         {(!threadId || (view && messages.length === 0)) && (
           <div className="rounded-lg bg-slate-50 px-4 py-5 text-sm leading-relaxed text-slate-600">
             <p className="font-medium text-slate-800">내 경력에 대해 물어보세요</p>
-            <p className="mt-1">답은 경력 그래프에 정리된 내용만으로 만들고, 문장마다 근거 항목을 [번호]로 달아 드려요. 번호를 누르면 그래프에서 위치를 보여 줍니다.</p>
+            <p className="mt-1">답은 경험 그래프에 정리된 내용만으로 만들고, 문장마다 근거 항목을 [번호]로 달아 드려요. 번호를 누르면 그래프에서 위치를 보여 줍니다.</p>
             <div className="mt-3 flex flex-wrap gap-1.5">
               {EXAMPLES.map((q) => (
                 <button

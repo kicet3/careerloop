@@ -1,5 +1,5 @@
 /**
- * 경력 그래프 → LLM 프롬프트용 텍스트(순수 함수). id를 함께 적어 LLM이 updateNode·addEdge에서 기존 노드를 가리킬 수 있게 한다.
+ * 경험 그래프 → LLM 프롬프트용 텍스트(순수 함수). id를 함께 적어 LLM이 updateNode·addEdge에서 기존 노드를 가리킬 수 있게 한다.
  * 사용자가 입력한 값이므로 호출자가 데이터 태그로 감싸고 neutralize한다(chat/prompt.ts wrapData).
  */
 import {
@@ -38,7 +38,7 @@ const sectionLength = (sec: Section) => sec.header.length + 1 + sec.lines.reduce
 const joinSections = (secs: Section[]) => secs.map((sec) => [sec.header, ...sec.lines].join("\n")).join("\n");
 
 /**
- * 경력 그래프를 글자 상한 안의 텍스트로. 관계는 노드 바로 뒤가 아니라 맨 끝에 오므로, 앞에서부터 자르면 관계와 뒤쪽 라벨
+ * 경험 그래프를 글자 상한 안의 텍스트로. 관계는 노드 바로 뒤가 아니라 맨 끝에 오므로, 앞에서부터 자르면 관계와 뒤쪽 라벨
  * (학력·자격증)이 먼저 사라진다. 그래서 (1) 속성 값을 짧게 줄여 가며 전체를 맞춰 보고, (2) 그래도 넘치면 라벨·관계 구역마다
  * 몫을 나눠 각 구역의 앞부분을 남기고 구역별로 무엇을 몇 개 생략했는지 적는다.
  */

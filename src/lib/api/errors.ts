@@ -37,7 +37,7 @@ export function featureErrorResponse(err: unknown, context: string): Response {
   if (isGraphConnectionError(err)) {
     // 일시 장애: 스택 대신 한 줄 경고, 클라이언트에는 503(버그인 500과 구분).
     console.warn(`[${context}] Neo4j 연결 실패: ${(err as { code?: unknown }).code ?? ""} ${(err as Error).message.slice(0, 200)}`);
-    return jsonError("경력 그래프 저장소에 연결하지 못했습니다. 잠시 후 다시 시도해 주세요.", 503);
+    return jsonError("경험 그래프 저장소에 연결하지 못했습니다. 잠시 후 다시 시도해 주세요.", 503);
   }
   const llmStatus = transientLlmStatus(err);
   if (llmStatus !== null) {

@@ -287,7 +287,7 @@ export async function runImport(importId: string, deps: RunImportDeps = {}): Pro
     if (!(await write({ status: "analyzing" }))) return;
 
     const provider = deps.llm ? null : (deps.provider ?? (await resolveRequestedProvider(null)));
-    const llm = deps.llm ?? createLlmClient(provider!);
+    const llm = deps.llm ?? createLlmClient(provider!, { userId: claimed.userId, referenceId: claimed.id });
     const { posting, structure, sourceText } = await extractPosting({ url: page.url, pageText: postingPageText(page.html) }, llm, { signal });
     signal.throwIfAborted();
     const extractedBy = provider ?? llm.name;

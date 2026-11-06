@@ -1,7 +1,7 @@
 import type Anthropic from "@anthropic-ai/sdk";
 import { describe, expect, it } from "vitest";
 import { z } from "zod";
-import { addUsage, AnthropicLlmClient, userContent } from "./anthropic";
+import { addUsage, addUsageByModel, AnthropicLlmClient, userContent } from "./anthropic";
 import { LlmPermanentError, usageOfError } from "./types";
 
 const ZERO = { inputTokens: 0, outputTokens: 0, cacheReadTokens: 0, cacheWriteTokens: 0 };
@@ -56,6 +56,32 @@ describe("addUsage", () => {
   it("iterations가 없으면 top-level usage", () => {
     const msg = { usage: { input_tokens: 1, output_tokens: 2, cache_read_input_tokens: 3, cache_creation_input_tokens: 4 } };
     expect(addUsage(ZERO, msg as never)).toEqual({ inputTokens: 1, outputTokens: 2, cacheReadTokens: 3, cacheWriteTokens: 4 });
+  });
+});
+
+describe("addUsageByModel", () => {
+  it("fallback이 일어나면 시도별 모델로 나눠 더한다(model이 없는 거절 시도는 요청 모델)", () => {
+    const msg = {
+      model: "claude-sonnet-5-5",
+      usage: {
+        input_tokens: 5,
+        output_tokens: 7,
+        cache_read_input_tokens: 0,
+        cache_creation_input_tokens: 0,
+        iterations: [
+          { type: "message", model: null, input_tokens: 100, output_tokens: 40, cache_read_input_tokens: 3, cache_creation_input_tokens: 2 },
+          { type: "fallback_message", model: "claude-sonnet-5-5", input_tokens: 5, output_tokens: 7, cache_read_input_tokens: 0, cache_creation_input_tokens: 0 },
+        ],
+      },
+    };
+    const first = addUsageByModel([], msg as never, "claude-opus-5-5");
+    expect(first).toEqual([
+      { model: "claude-opus-5-5", usage: { inputTokens: 100, outputTokens: 40, cacheReadTokens: 3, cacheWriteTokens: 2 } },
+      { model: "claude-sonnet-5-5", usage: { inputTokens: 5, outputTokens: 7, cacheReadTokens: 0, cacheWriteTokens: 0 } },
+    ]);
+    // 재요청(스키마 재시도 등)은 같은 모델 칸에 더한다.
+    const plain = { model: "claude-opus-5-5", usage: { input_tokens: 1, output_tokens: 1, cache_read_input_tokens: 0, cache_creation_input_tokens: 0 } };
+    expect(addUsageByModel(first, plain as never, "claude-opus-5-5")[0].usage.inputTokens).toBe(101);
   });
 });
 

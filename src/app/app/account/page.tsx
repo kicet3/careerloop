@@ -102,7 +102,7 @@ export default async function AccountPage() {
       <Card>
         <CardHeader
           title="회원 탈퇴"
-          description="탈퇴하면 계정과 진단·이력서·공고·지원 기록, 경력 그래프, 올린 파일이 모두 삭제되며 되돌릴 수 없습니다."
+          description="탈퇴하면 계정과 진단·이력서·공고·지원 기록, 경험 그래프, 올린 파일이 모두 삭제되며 되돌릴 수 없습니다."
         />
         <CardBody>
           <DeleteAccountButton />

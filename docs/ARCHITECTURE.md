@@ -105,6 +105,11 @@
 - 재시도: 429/5xx/연결 오류는 SDK 재시도(maxRetries)에 맡기고, 스키마 검증 실패는 1회 재요청 후 `LlmPermanentError("invalid_output")`.
 - 사용량: `usage.iterations`가 있으면(서버 측 fallback 등) 시도별 값을 합산한다. 실패한 호출도 그때까지의 사용량을
   오류 객체(`error.usage`)에 붙이고, runner가 진단 사용량에 더한다.
+- 사용량 원장: `createLlmClient(provider, { userId, referenceId })`가 실제 엔진 클라이언트를 `UsageRecordingLlmClient`(src/lib/llm/usage.ts)로
+  감싸 성공·실패한 `generate()` 1건마다 `llm_usage_events`에 1행(사용자·task/stage·엔진·모델·토큰 4종·추정 비용·성공 여부)을 남긴다.
+  프롬프트·응답 본문은 저장하지 않는다. 추정 비용은 src/lib/llm/pricing.ts 단가표(USD 백만분의 1 정수, 모르는 모델·CLI 엔진은 null).
+  서버 측 fallback으로 여러 모델이 나눠 쓰면 시도별 모델 단가로 매긴다(`usageByModel`). 엔진을 쓸 수 없어(CLI 꺼짐·미설치) 토큰 없이 끝난 실패는 기록하지 않는다.
+  기록 실패는 로그만 남기고 기능에 영향을 주지 않는다. 탈퇴하면 CASCADE로 함께 지워진다. 관리자 화면 `/app/admin/usage`(+ `GET /api/admin/usage`).
 - 프롬프트 캐싱: `system`은 모든 단계·진단이 같은 공통 규칙(`SYSTEM_PROMPT`) 하나이고 `cache_control`을 붙인다.
   user 메시지는 [공유 자료 블록(cache_control)] + [단계 역할 + 할 일 + 이전 결과] 순서다. system 캐시는 단계·진단을
   넘어 재사용된다. 자료 블록까지의 캐시는 effort와 출력 스키마가 같은 요청끼리만 맞을 수 있고, 동시에 출발한 요청은
@@ -182,8 +187,8 @@
 | `POST/DELETE /api/diagnoses/[id]/share` | 공유 링크 생성/해제 |
 | `GET /api/diagnoses/[id]/pdf`, `GET /api/share/[token]/pdf` | PDF 다운로드. 렌더 결과는 메모리 캐시(내용 키)·ETag/304, 동시 요청은 한 번만 렌더. 공유 PDF에는 진단 ID를 넣지 않음 |
 | `GET /api/diagnoses/[id]/markdown?file=panel\|resume` | 원본 스킬 호환 `PANEL.md` / `RESUME-IMPROVED.md` |
-| `/app/graph`, `/app/resumes`, `/app/resumes/new`, `/app/resumes/[id]` | 경력 그래프(편집 + 채팅), 회사별 이력서 — §11 |
-| `/api/graph/**`, `/api/diagnoses/[id]/chat/**`, `/api/resumes/**` | 경력 그래프·그래프 채팅, 심사위원 대화, 회사별 이력서 — §11 |
+| `/app/graph`, `/app/resumes`, `/app/resumes/new`, `/app/resumes/[id]` | 경험 그래프(편집 + 채팅), 회사별 이력서 — §11 |
+| `/api/graph/**`, `/api/diagnoses/[id]/chat/**`, `/api/resumes/**` | 경험 그래프·그래프 채팅, 심사위원 대화, 회사별 이력서 — §11 |
 | `/app/postings`, `/app/postings/[id]`, `/app/applications` | 공고 보관함·공고 상세(내 경력과 대조), 지원 현황(칸반 + 결과 모아 보기) — §11-4 |
 | `/api/postings/**`, `/api/applications/**`, `/api/insights`, `/api/insights/skills` | 공고·URL 가져오기·대조, 지원·단계·제출본, 인사이트·스킬 갭 — §11-4 |
 
@@ -270,7 +275,7 @@ export function Report(props: { report: ReportModel; actions?: React.ReactNode }
 export async function renderReportPdf(r: ReportModel): Promise<Uint8Array>;
 ```
 
-## 11. 경력 그래프·채팅·포트폴리오·이력서 (추가 기능)
+## 11. 경험 그래프·채팅·포트폴리오·이력서 (추가 기능)
 
 공유 타입·공통 모듈 시그니처·파일 소유권은 [CONTRACTS-career.md](./CONTRACTS-career.md)를 본다. 여기서는 구조와 실행 방법만 적는다.
 
@@ -278,7 +283,7 @@ export async function renderReportPdf(r: ReportModel): Promise<Uint8Array>;
 
 | 자료 | 저장소 | 비고 |
 |---|---|---|
-| 경력 그래프(노드·관계) | Neo4j (`src/lib/graph/*`) | 노드마다 `userId`, 모든 쿼리 userId 조건 + 파라미터. 라벨·관계 이름은 화이트리스트만 Cypher에 들어간다. 본인 노드는 `Person`(API에서 id `"me"`) |
+| 경험 그래프(노드·관계) | Neo4j (`src/lib/graph/*`) | 노드마다 `userId`, 모든 쿼리 userId 조건 + 파라미터. 라벨·관계 이름은 화이트리스트만 Cypher에 들어간다. 본인 노드는 `Person`(API에서 id `"me"`) |
 | 채팅 스레드·메시지 | PostgreSQL `chat_threads`·`chat_messages` | `kind: graph \| reviewer`. 그래프 변경안은 메시지 `data`(`graph-proposal`)와 `status`(proposed→applied/dismissed/failed) |
 | 포트폴리오 | PostgreSQL `diagnoses.portfolio_text`·`portfolio_file_name` | 원본 파일은 보관하지 않고 추출 텍스트만 |
 | 회사별 이력서 메타·버전 | PostgreSQL `company_resumes`·`resume_versions` | 버전 번호는 이력서별 유일(이력서별 `pg_advisory_xact_lock` 트랜잭션에서 예약) |
@@ -296,7 +301,7 @@ docker compose --env-file .env.local -p resume-career up -d neo4j
 
 ### 11-2. 기능 요약
 
-- **경력 그래프 보기·편집** — `/app/graph`, `GET /api/graph`, `POST /api/graph/ops`(`{ ops: GraphOp[] }`, 1~60개).
+- **경험 그래프 보기·편집** — `/app/graph`, `GET /api/graph`, `POST /api/graph/ops`(`{ ops: GraphOp[] }`, 1~60개).
   직접 편집과 채팅 변경안이 같은 `GraphOp`와 `applyGraphOps`(한 트랜잭션, 하나라도 틀리면 400 + 아무것도 안 씀)를 쓴다.
   화면은 외부 라이브러리 없는 SVG 관계도(동심원 배치) + 목록 보기 + 상세/폼. 변경이 생기면 window 이벤트 `career-graph:changed`.
 - **대화로 그래프 만들기** — `/api/graph/chat/threads[/id[/messages|/retry]]`, `/api/graph/chat/messages/[id]/(apply|dismiss)`.
@@ -308,7 +313,7 @@ docker compose --env-file .env.local -p resume-career up -d neo4j
   (`before`→`after`→이유)의 원문 인용을 검증한다. 엔진은 그 진단의 엔진을 우선. 공유 화면에는 없다.
 - **포트폴리오 함께 평가** — 새 진단 4단계(선택). 파일(PDF·DOCX·HWP·HWPX·HTML·TXT·MD)과 링크·설명. `<portfolio>` 블록은 심사위원 7명과
   fit·synthesis·rewrite·plan에만 들어가고(jd·rescreen 제외), 인용 필드에는 이력서 원문만 쓰게 한다. 포트폴리오가 없으면 프롬프트는 이전과 바이트 단위로 같다.
-- **회사별 이력서** — `/app/resumes`, `/app/resumes/new`, `/app/resumes/[id]`, `/api/resumes/**`. 초안 출처는 경력 그래프·진단 재작성본·빈 문서,
+- **회사별 이력서** — `/app/resumes`, `/app/resumes/new`, `/app/resumes/[id]`, `/api/resumes/**`. 초안 출처는 경험 그래프·진단 재작성본·빈 문서,
   양식 5종(`RESUME_TEMPLATES`), 저장마다 새 버전(다른 탭이 먼저 저장했으면 409), 버전 복원, 버전별 PDF. "이 이력서로 진단"은
   sessionStorage(`src/lib/resumes/prefill.ts`)로 새 진단 폼에 이력서·직무·JD를 채운다.
 

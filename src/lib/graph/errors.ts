@@ -16,7 +16,7 @@ export class GraphOpError extends Error {
 /** NEO4J_URI가 없어 그래프 저장소를 쓸 수 없음(503). */
 export class GraphUnavailableError extends Error {
   readonly status = 503;
-  constructor(message = "경력 그래프 저장소(Neo4j)가 설정되지 않았습니다.") {
+  constructor(message = "경험 그래프 저장소(Neo4j)가 설정되지 않았습니다.") {
     super(message);
     this.name = "GraphUnavailableError";
   }

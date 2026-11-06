@@ -22,14 +22,14 @@ describe("엔진 선택(가짜 심사위원 없음)", () => {
   it("API 키가 없으면 가짜 결과 대신 unavailable 오류", async () => {
     delete process.env.ANTHROPIC_API_KEY;
     expect(modelNameFor("anthropic")).not.toBe("mock");
-    await expect(createLlmClient("anthropic").generate(req as never)).rejects.toMatchObject({
+    await expect(createLlmClient("anthropic", { userId: null }).generate(req as never)).rejects.toMatchObject({
       name: "LlmPermanentError",
       reason: "unavailable",
     });
   });
 
   it("DB에 남은 예전 'mock' 엔진 값은 호출 없이 실패한다", async () => {
-    const err = await createLlmClient("mock" as never).generate(req as never).catch((e: unknown) => e);
+    const err = await createLlmClient("mock" as never, { userId: null }).generate(req as never).catch((e: unknown) => e);
     expect(err).toBeInstanceOf(LlmPermanentError);
     expect((err as Error).message).toContain("더 이상 지원하지 않는 샘플 엔진");
   });

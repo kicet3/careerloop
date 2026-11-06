@@ -2,9 +2,11 @@ import { RETIRED_ENGINE_MESSAGE, type ProviderId } from "@/lib/domain/providers"
 import { AnthropicLlmClient, anthropicModelName } from "./anthropic";
 import { ClaudeCliLlmClient, claudeCliModel, CodexCliLlmClient, codexCliModel } from "./cli";
 import { LlmPermanentError, type GenerateResult, type LlmClient } from "./types";
+import { UsageRecordingLlmClient, type LlmUsageContext } from "./usage";
 
 export type { LlmClient, LlmUsage, GenerateRequest, TaskRequest, LlmRequest, LlmTask, GenerateResult, Effort } from "./types";
 export { LlmPermanentError, LLM_TASKS, requestLabel } from "./types";
+export type { LlmUsageContext } from "./usage";
 
 /** 엔진을 고르지 않은 요청의 기본 엔진. 실제 사용 가능 여부는 providers/options.ts가 검증한다. */
 export function defaultProvider(): ProviderId {
@@ -26,7 +28,17 @@ class UnavailableLlmClient implements LlmClient {
   }
 }
 
-export function createLlmClient(provider: ProviderId = defaultProvider()): LlmClient {
+/**
+ * 엔진별 LLM 클라이언트. 실제 호출하는 클라이언트는 사용량 기록(llm_usage_events)으로 감싼다 —
+ * usage.userId가 그 호출을 매길 사용자다(사용자에 묶이지 않은 호출이면 null).
+ */
+export function createLlmClient(provider: ProviderId, usage: LlmUsageContext): LlmClient {
+  const inner = createRawLlmClient(provider);
+  if (inner instanceof UnavailableLlmClient) return inner;
+  return new UsageRecordingLlmClient(inner, { provider, model: modelNameFor(provider), ctx: usage });
+}
+
+function createRawLlmClient(provider: ProviderId): LlmClient {
   switch (provider) {
     case "anthropic":
       return process.env.ANTHROPIC_API_KEY

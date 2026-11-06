@@ -6,7 +6,7 @@ export const runtime = "nodejs";
 
 type Ctx = { params: Promise<{ id: string }> };
 
-/** 공고 요구 기술 ↔ 내 경력 그래프 대조. 남의 공고는 404, 그래프 저장소가 꺼져 있으면 503. */
+/** 공고 요구 기술 ↔ 내 경험 그래프 대조. 남의 공고는 404, 그래프 저장소가 꺼져 있으면 503. */
 export async function GET(_req: Request, { params }: Ctx) {
   const user = await requireApiUser();
   if (user instanceof Response) return user;

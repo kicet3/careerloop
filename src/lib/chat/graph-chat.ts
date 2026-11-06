@@ -74,7 +74,7 @@ import {
   type ParsedImport,
   verifyAgainstDocument,
 } from "./graph-import";
-import { createLlmClient, LlmPermanentError, type LlmClient } from "@/lib/llm";
+import { createLlmClient, LlmPermanentError, type LlmClient, type LlmUsageContext } from "@/lib/llm";
 import { STAGE_TASK_DELIMITER } from "@/lib/panel/prompts";
 import { stageErrorMessage } from "@/lib/panel/runner";
 import { kstToday } from "@/lib/time/kst";
@@ -98,7 +98,7 @@ const FOLLOWUP_DOC_MAX_CHARS = 8000;
 // 프롬프트 (순수)
 // ---------------------------------------------------------------------------
 
-export const GRAPH_CHAT_SYSTEM = `너는 한국어 경력 정리 도우미다. 사용자가 대화로 들려주는 경력·경험을 '경력 그래프'로 정리하는 변경안을 만든다.
+export const GRAPH_CHAT_SYSTEM = `너는 한국어 경력 정리 도우미다. 사용자가 대화로 들려주는 경력·경험을 '경험 그래프'로 정리하는 변경안을 만든다.
 변경안은 사용자가 확인한 뒤에만 적용된다. reply에는 무엇을 정리했는지 짧게 설명하고, 변경할 것이 없으면 ops는 []로 둔다.
 
 ${modelGuide()}
@@ -173,7 +173,7 @@ export function buildGraphChatPrompt(input: {
   const user = [
     field("본인 이름", input.graph.person.name ?? "(모름)"),
     "",
-    "현재 경력 그래프([id]로 기존 노드를 가리킨다):",
+    "현재 경험 그래프([id]로 기존 노드를 가리킨다):",
     wrapData(CHAT_TAGS.careerGraph, graphToText(input.graph, { maxChars: GRAPH_TEXT_MAX_CHARS })),
     "",
     "경험 체크리스트(빠진 필수 항목부터):",
@@ -441,14 +441,15 @@ export function replyState(messages: readonly Pick<ChatMessage, "role" | "status
 export interface GraphChatDeps {
   getGraph(userId: string, personName: string | null): Promise<CareerGraph>;
   applyOps(userId: string, ops: GraphOp[], opts?: { maxOps?: number }): Promise<ApplyGraphOpsResult>;
-  createClient(provider: ProviderId): LlmClient;
+  /** usage: 토큰 사용량을 매길 사용자(llm_usage_events). */
+  createClient(provider: ProviderId, usage: LlmUsageContext): LlmClient;
   now(): number;
 }
 
 export const defaultGraphChatDeps: GraphChatDeps = {
   getGraph: (userId, personName) => getCareerGraph(userId, { personName }),
   applyOps: (userId, ops, opts) => applyGraphOps(userId, ops, opts),
-  createClient: (provider) => createLlmClient(provider),
+  createClient: (provider, usage) => createLlmClient(provider, usage),
   now: () => Date.now(),
 };
 
@@ -664,7 +665,7 @@ export async function runGraphChatReply(
   try {
     deadline.throwIfAborted();
     const graph = await untilAborted(deps.getGraph(userId, personName), deadline);
-    const client = deps.createClient(provider);
+    const client = deps.createClient(provider, { userId, referenceId: threadId });
     let proposal: ReturnType<typeof proposalFromOutput>;
     let usage;
     if (doc) {

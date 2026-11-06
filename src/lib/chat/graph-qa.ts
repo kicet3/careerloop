@@ -1,6 +1,6 @@
 import "server-only";
 /**
- * 그래프에 묻기(기능 B): 사용자의 경력 그래프만 근거로 질문에 답하고, 문장마다 [n] 출처(노드 id·라벨·이름·본인에서의 경로)를 단다.
+ * 그래프에 묻기(기능 B): 사용자의 경험 그래프만 근거로 질문에 답하고, 문장마다 [n] 출처(노드 id·라벨·이름·본인에서의 경로)를 단다.
  * 파이프라인(docs/GRAPH-QA.md): 그래프 로드 → retrieve(후보·확장) → rerank(결정적 점수·MMR) → (선택) llmRerank →
  * buildContext(번호 붙인 출처 표) → 답변 LLM → answerFromOutput(인용 검증) → assistant 메시지 저장.
  *
@@ -60,7 +60,7 @@ export type GraphQaDeps = Pick<GraphChatDeps, "getGraph" | "createClient" | "now
 // 프롬프트 (순수)
 // ---------------------------------------------------------------------------
 
-export const GRAPH_QA_SYSTEM = `너는 사용자의 경력 그래프를 근거로 질문에 답하는 한국어 도우미다. 답의 근거는 <${CHAT_TAGS.graphSources}>에 번호를 붙여 준 자료뿐이다.
+export const GRAPH_QA_SYSTEM = `너는 사용자의 경험 그래프를 근거로 질문에 답하는 한국어 도우미다. 답의 근거는 <${CHAT_TAGS.graphSources}>에 번호를 붙여 준 자료뿐이다.
 
 규칙:
 1. <${CHAT_TAGS.graphSources}>에 있는 내용만 쓴다. 자료 밖의 사실·일반론·추측으로 빈 곳을 메우지 않는다.
@@ -378,7 +378,7 @@ export async function runQaReply(
         suggestions: suggestionsFor([], checklist, true),
       });
     }
-    const client = deps.createClient(provider);
+    const client = deps.createClient(provider, { userId, referenceId: threadId });
     const r = await retrieveForQuestion(graph, latest.content, {
       history: previousQuestion(messages),
       provider,

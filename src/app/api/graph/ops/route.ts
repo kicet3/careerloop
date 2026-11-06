@@ -37,7 +37,7 @@ export async function POST(req: Request) {
   if (forbidden) return forbidden;
   const user = await requireApiUser();
   if (user instanceof Response) return user;
-  if (!graphEnabled()) return jsonError("경력 그래프 저장소(Neo4j)가 설정되지 않았습니다.", 503);
+  if (!graphEnabled()) return jsonError("경험 그래프 저장소(Neo4j)가 설정되지 않았습니다.", 503);
 
   let raw: unknown;
   try {

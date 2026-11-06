@@ -7,7 +7,7 @@ export const runtime = "nodejs";
 
 /**
  * 회원 탈퇴. 본문 { confirm: "탈퇴합니다" }(화면의 확인 입력). 승인 대기·거절·정지 사용자도 할 수 있다(로그인만 확인).
- * 경력 그래프 → 저장소 파일 → DB 행(CASCADE) 순으로 지우고(src/lib/auth/account.ts deleteAccount) 세션 쿠키를 비운다.
+ * 경험 그래프 → 저장소 파일 → DB 행(CASCADE) 순으로 지우고(src/lib/auth/account.ts deleteAccount) 세션 쿠키를 비운다.
  */
 export async function DELETE(req: Request) {
   const bad = assertSameOrigin(req);
@@ -25,7 +25,7 @@ export async function DELETE(req: Request) {
   const result = await deleteAccount(user.id);
   if (!result.ok) {
     if (result.reason === "graph_failed") {
-      return authError(503, "경력 그래프 삭제에 실패해 탈퇴를 멈췄습니다. 잠시 후 다시 시도해 주세요. 아무것도 지워지지 않았습니다.");
+      return authError(503, "경험 그래프 삭제에 실패해 탈퇴를 멈췄습니다. 잠시 후 다시 시도해 주세요. 아무것도 지워지지 않았습니다.");
     }
     if (result.reason === "storage_failed") {
       return authError(503, "저장된 파일 삭제에 실패해 탈퇴를 멈췄습니다. 잠시 후 다시 시도해 주세요. 계정은 아직 남아 있습니다.");

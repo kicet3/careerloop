@@ -87,6 +87,7 @@ describe("스키마(PGlite에 prisma/migrations 적용)", () => {
       "interview_questions",
       "interview_sessions",
       "job_postings",
+      "llm_usage_events",
       "portfolios",
       "posting_imports",
       "rate_events",

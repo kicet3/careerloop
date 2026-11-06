@@ -39,7 +39,7 @@ export const GROUPS: NavGroup[] = [
       { href: "/app", label: "내 진단", icon: <ListIcon />, match: (p) => p === "/app" || p.startsWith("/app/d/") },
     ],
   },
-  { label: "경력", items: [{ href: "/app/graph", label: "경력 그래프", icon: <GraphIcon />, match: under("/app/graph") }] },
+  { label: "경력", items: [{ href: "/app/graph", label: "경험 그래프", icon: <GraphIcon />, match: under("/app/graph") }] },
   {
     label: "서류",
     items: [
@@ -77,6 +77,7 @@ function adminGroup(pendingCount: number): NavGroup {
         badge: pendingCount,
         badgeLabel: `승인 대기 ${pendingCount}명`,
       },
+      { href: "/app/admin/usage", label: "사용량", icon: <GaugeIcon />, match: under("/app/admin/usage") },
     ],
   };
 }
@@ -131,7 +132,7 @@ function useCollapsed(): [boolean, (v: boolean) => void] {
 
 /**
  * showConnections: CLI 엔진(CLI_PROVIDERS=1)이 켜져 있을 때만 'AI 연결' 메뉴를 보인다.
- * isAdmin: 관리자면 '관리 > 회원 관리' 메뉴와 승인 대기 배지(pendingCount)를 보인다.
+ * isAdmin: 관리자면 '관리 > 회원 관리·사용량' 메뉴와 승인 대기 배지(pendingCount)를 보인다.
  */
 export function AppSidebar({
   email,
@@ -519,6 +520,17 @@ function UsersIcon() {
       <path d="M3.5 19.5a5.5 5.5 0 0 1 11 0" />
       <circle cx="16.5" cy="9.5" r="2.5" />
       <path d="M15.5 14.2a4.6 4.6 0 0 1 5 4.8" />
+    </Svg>
+  );
+}
+
+function GaugeIcon() {
+  return (
+    <Svg>
+      <path d="M4 19h16" />
+      <path d="M7 15v-3" />
+      <path d="M12 15V6" />
+      <path d="M17 15v-6" />
     </Svg>
   );
 }
