@@ -189,3 +189,84 @@ describe("본문 붙여넣어 가져오기", () => {
     expect(await tdb.prisma.sharedPosting.count({ where: { captureStatus: { not: null } } })).toBe(0);
   });
 });
+
+describe("원문만 붙여넣기(링크 없음, '직접 추가'의 AI 추가)", () => {
+  it("링크 없이 작업을 만들고 같은 분석으로 공고를 만든다: 출처 링크·링크 공용 공고 없음, 원문은 내 공고에만", async () => {
+    const fetchPage = vi.fn(async (url: string) => ({ url, html: CHALLENGE_HTML }));
+    const llm = new FakeLlmClient();
+    const spy = vi.spyOn(llm, "generate");
+    const r = await imports.createImport("ua", "  ", { pasted: true });
+    expect(r).toMatchObject({ reused: false, fromShared: false, job: { url: "", status: "queued", refresh: false } });
+    expect(await tdb.prisma.postingImport.findUniqueOrThrow({ where: { id: r.job.id } })).toMatchObject({ url: "", urlKey: null });
+
+    await imports.runImport(r.job.id, { llm, fetchPage, pastedText: pasted() });
+    expect(fetchPage).not.toHaveBeenCalled();
+    expect(spy).toHaveBeenCalledTimes(1);
+    const done = await imports.getImport("ua", r.job.id);
+    expect(done).toMatchObject({ status: "completed", errorCode: null, sharedPostingId: null, error: null });
+    const mine = await service.getPosting("ua", done!.postingId!);
+    expect(mine).toMatchObject({ company: "예시게임즈", roleTitle: "게임 서버 프로그래머", deadline: "2026-12-20", url: "", urlKey: null, platform: "" });
+    expect(mine!.sourceText).toContain("대규모 온라인 게임 서버 개발");
+    expect(mine!.structured?.source).toBe("llm");
+    expect(mine!.structured?.duties.length).toBeGreaterThan(0);
+    expect(await tdb.prisma.jobPosting.findUniqueOrThrow({ where: { id: mine!.id } })).toMatchObject({ url: null, urlKey: null });
+    // 공용 공고는 직접 입력처럼 공개 필드만(링크·원문 없음).
+    const s = await tdb.prisma.sharedPosting.findUniqueOrThrow({ where: { id: mine!.sharedPostingId! } });
+    expect(s).toMatchObject({ url: null, urlKey: null, sourceText: null, company: "예시게임즈" });
+    // 다른 사용자는 볼 수 없다.
+    expect(await service.getPosting("ub", done!.postingId!)).toBeNull();
+  });
+
+  it("같은 본문을 연달아 붙여넣어도 진행 중 작업 재사용·링크 중복 409 없이 각각 작업을 만든다(동시 진행 제한은 같다)", async () => {
+    const a = await imports.createImport("ua", "", { pasted: true });
+    const b = await imports.createImport("ua", "", { pasted: true });
+    expect(b.job.id).not.toBe(a.job.id);
+    // 링크 가져오기는 링크 없는 작업과 섞이지 않는다.
+    expect(await imports.createImport("ua", URL_A)).toMatchObject({ reused: false });
+    await expect(imports.createImport("ua", "", { pasted: true })).rejects.toMatchObject({ status: 409 });
+  });
+
+  it("공고가 아닌 내용은 '공고 내용을 찾지 못했습니다' 안내로 실패한다(공고를 만들지 않는다)", async () => {
+    const r = await imports.createImport("ua", "", { pasted: true });
+    await imports.runImport(r.job.id, { llm: new FakeLlmClient(), pastedText: "오늘의 날씨와 뉴스 요약입니다. ".repeat(20) });
+    expect(await imports.getImport("ua", r.job.id)).toMatchObject({ status: "failed", error: imports.PASTED_NOT_POSTING_ERROR, postingId: null });
+    expect(imports.PASTED_NOT_POSTING_ERROR).toContain("공고 내용을 찾지 못했습니다");
+    expect(await tdb.prisma.jobPosting.count({ where: { userId: "ua" } })).toBe(0);
+  });
+
+  it("보안 검사 화면을 붙여넣으면 다시 복사하라고 안내한다", async () => {
+    const r = await imports.createImport("ua", "", { pasted: true });
+    const text = `NEXON\n접속을 위해 보안 검사를 진행해 주세요.\nEnable JavaScript and cookies to continue\n${"보안 검사가 정상적으로 진행되지 않을 경우 1:1 문의를 이용해주시기 바랍니다. ".repeat(3)}`;
+    await imports.runImport(r.job.id, { llm: new FakeLlmClient(), pastedText: text });
+    expect(await imports.getImport("ua", r.job.id)).toMatchObject({ status: "failed", error: imports.PASTED_CHALLENGE_ERROR });
+  });
+
+  it("멈춘 작업이 본문 없이 다시 실행되면 링크를 읽지 않고 다시 붙여넣으라고 안내한다", async () => {
+    const r = await imports.createImport("ua", "", { pasted: true });
+    const fetchPage = vi.fn(async (url: string) => ({ url, html: "" }));
+    const llm = new FakeLlmClient();
+    const spy = vi.spyOn(llm, "generate");
+    await imports.runImport(r.job.id, { llm, fetchPage });
+    expect(fetchPage).not.toHaveBeenCalled();
+    expect(spy).not.toHaveBeenCalled();
+    expect(await imports.getImport("ua", r.job.id)).toMatchObject({ status: "failed", error: imports.TEXT_IMPORT_INTERRUPTED_ERROR });
+  });
+
+  it("하루 가져오기 횟수를 같이 센다(429)", async () => {
+    const at = new Date();
+    for (let i = 0; i < DAILY_POSTING_IMPORT_LIMIT; i++) {
+      await tdb.prisma.postingImport.create({
+        data: { id: `old${i}`, userId: "ua", url: "", status: "failed", attempts: 1, createdAt: at, updatedAt: at },
+      });
+    }
+    await expect(imports.createImport("ua", "", { pasted: true })).rejects.toMatchObject({ status: 429 });
+  });
+
+  it("원문 캡처를 시도하지 않는다", async () => {
+    const r = await imports.createImport("ua", "", { pasted: true });
+    const capture = vi.fn();
+    await imports.runImportThenCapture(r.job.id, { llm: new FakeLlmClient(), pastedText: pasted(), capture: { capture } });
+    expect((await imports.getImport("ua", r.job.id))?.status).toBe("completed");
+    expect(capture).not.toHaveBeenCalled();
+  });
+});

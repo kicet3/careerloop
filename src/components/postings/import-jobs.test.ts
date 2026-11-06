@@ -35,6 +35,14 @@ describe("mergeImportResults", () => {
     const { jobs } = mergeImportResults([{ ...job("a", "queued"), fromShared: true }], [job("a", "reading")]);
     expect(jobs[0]).toMatchObject({ status: "reading", fromShared: true });
   });
+
+  it("링크 없는 원문 붙여넣기 작업의 원문(pastedText)은 실패로 끝나도 남는다(다시 붙여넣기 입력에 채움)", () => {
+    const { jobs } = mergeImportResults(
+      [{ ...job("a", "analyzing", { url: "" }), pastedText: "원문" }],
+      [job("a", "failed", { url: "", error: "공고 내용을 찾지 못했습니다." })],
+    );
+    expect(jobs[0]).toMatchObject({ status: "failed", url: "", pastedText: "원문" });
+  });
 });
 
 describe("upsertImportJob", () => {

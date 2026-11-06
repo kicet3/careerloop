@@ -12,6 +12,12 @@ import "server-only";
  *   (URL은 출처 링크·중복 판별에 쓰고, 공고 찾기에 같은 링크가 있으면 그것을 담는다). 결과는 링크 공용 공고로 올리지 않고
  *   직접 입력 공고처럼 만든다(검증하지 못한 본문의 링크 선점·개인정보 공유 방지 — runImport). 본문은 저장하지 않고 실행에만 넘기므로(runImport deps.pastedText)
  *   실행이 멈춰 조회 시 다시 실행되면 링크 읽기로 돌아가 같은 차단 안내로 끝난다. 원문 캡처는 시도하지 않는다.
+ * - 원문만 붙여넣기(text-only, '직접 추가'의 AI 추가): 붙여넣기에서 링크를 비우면 작업 행 url은 ''(url_key null)로 두고 링크 검사·
+ *   공고 찾기 재사용·중복 판별·출처 링크 없이 같은 분석(근거 검증·구조화·하루 횟수)을 탄다. 멈춰 다시 실행되면 읽을 링크가 없어
+ *   TEXT_IMPORT_INTERRUPTED_ERROR로 끝난다.
+ * - 브라우저로 열어 읽기(rendering, render.ts): 본문을 자바스크립트로 그리는 사이트는 정적 HTML에 공고가 없다. 정적 본문이
+ *   빈 껍데기로 보이거나(needsRendering) AI가 '공고 아님·회사/직무 없음'으로 답하면 실행마다 한 번 헤드리스 브라우저로 열어
+ *   그려진 본문으로 다시 분석한다(근거 검증도 그 본문 기준). 열린 화면이 보안 검사면 차단 안내(붙여넣기)로 끝낸다 — 우회하지 않는다.
  * CareerLoop(src/server/postingImport/jobs.ts)에서 가져옴 — 원본은 프로세스 메모리 Map으로 중복 실행을 막아 여러 인스턴스·재시작에서 새었다.
  */
 import { isIP } from "node:net";
@@ -31,9 +37,11 @@ import { hitDbLimit, POSTING_CAPTURE_TARGET_LIMIT } from "@/lib/auth/db-rate-lim
 import { createLlmClient, type LlmClient } from "@/lib/llm";
 import { resolveRequestedProvider } from "@/lib/providers/options";
 import { runPostingCapture, type CaptureDeps } from "./capture";
+import { PostingRenderError, RENDER_GENERIC_ERROR, renderPostingPage, type RenderPageFn } from "./render";
+import { isRenderedChallenge, needsRendering, renderedPageText } from "./rendered-text";
 import { requestCapture } from "./capture-store";
 import { extractPosting, PostingExtractError } from "./extract";
-import { fetchPostingPage, isPublicAddress, looksLikeChallengeText, postingBlockedError, type FetchDeps } from "./fetch";
+import { fetchPostingPage, isPublicAddress, looksLikeChallengeText, postingBlockedError, PostingFetchError, type FetchDeps } from "./fetch";
 import { safePostingAiError } from "./http";
 import { pastedPageText, postingPageText } from "./page-text";
 import { createPosting, DuplicatePostingError, findPostingIdByUrl, releaseMovedShared } from "./service";
@@ -48,11 +56,19 @@ export const MAX_IMPORT_ATTEMPTS = 3;
 /** 사용자당 동시에 진행할 수 있는 가져오기. */
 export const MAX_ACTIVE_IMPORTS = 3;
 
-const ACTIVE: PostingImportStatus[] = ["queued", "reading", "analyzing"];
+const ACTIVE: PostingImportStatus[] = ["queued", "reading", "rendering", "analyzing"];
+/** 실행 중 상태(멈춤 판단 대상). */
+const RUNNING: PostingImportStatus[] = ["reading", "rendering", "analyzing"];
 const STALE_ERROR = "공고 가져오기가 중간에 끊겼습니다. 다시 시도해 주세요.";
 /** 붙여넣은 내용이 공고가 아니라 보안 검사 화면일 때. */
 export const PASTED_CHALLENGE_ERROR =
   "붙여넣은 내용이 공고가 아니라 보안 검사 화면입니다. 브라우저에서 보안 검사를 마치고 공고 내용이 보일 때 페이지 전체를 복사해 다시 붙여넣어 주세요.";
+
+/** 붙여넣은 내용에서 회사·모집 직무를 찾지 못했을 때(링크 안내 문구 대신). */
+export const PASTED_NOT_POSTING_ERROR =
+  "공고 내용을 찾지 못했습니다. 회사 이름과 모집 직무가 보이는 채용 공고 본문 전체를 복사해 다시 붙여넣어 주세요.";
+/** 원문만 붙여넣은 작업이 멈춰 다시 실행될 때(본문은 저장하지 않아 다시 읽을 수 없다). */
+export const TEXT_IMPORT_INTERRUPTED_ERROR = "공고 원문 분석이 중간에 끊겼습니다. 공고 원문을 다시 붙여넣어 주세요.";
 
 export function toImportJob(row: PostingImportRow): PostingImportJob {
   return {
@@ -71,7 +87,7 @@ export function toImportJob(row: PostingImportRow): PostingImportJob {
 
 /** 진행 중인데 오래 갱신되지 않은 작업(조회 시 다시 실행할 대상). */
 export function isImportStale(job: Pick<PostingImportJob, "status" | "updatedAt">, now = Date.now()): boolean {
-  return (job.status === "queued" || job.status === "reading" || job.status === "analyzing") && now - job.updatedAt > IMPORT_STALE_MS;
+  return ACTIVE.includes(job.status) && now - job.updatedAt > IMPORT_STALE_MS;
 }
 
 export interface CreateImportOptions {
@@ -104,6 +120,8 @@ export async function createImport(userId: string, rawUrl: string, opts: CreateI
   const now = opts.now ?? Date.now();
   const pasted = opts.pasted ?? false;
   const refresh = !pasted && (opts.refresh ?? false);
+  // 원문만 붙여넣기(링크 없음): 링크 검사·공고 찾기 재사용·중복 판별을 건너뛴다.
+  if (pasted && !rawUrl.trim()) return createImportRow(userId, { url: "", key: null, refresh: false, existing: null, pasted, now });
   let url: string;
   try {
     const parsed = parsePostingUrl(rawUrl);
@@ -143,12 +161,20 @@ export async function createImport(userId: string, rawUrl: string, opts: CreateI
     }
   }
 
+  return createImportRow(userId, { url, key, refresh, existing, pasted, now });
+}
+
+/** 제한(동시 진행·하루 횟수)을 확인하고 queued 작업 행을 만든다. key null: 원문만 붙여넣기(같은 링크 작업 재사용 없음). */
+async function createImportRow(
+  userId: string,
+  { url, key, refresh, existing, pasted, now }: { url: string; key: string | null; refresh: boolean; existing: string | null; pasted: boolean; now: number },
+): Promise<CreateImportResult> {
   return prisma.$transaction(async (tx) => {
     // 같은 사용자의 가져오기 생성을 직렬화한다(READ COMMITTED에서는 개수 확인과 삽입 사이에 다른 요청이 끼어들 수 있다).
     await tx.$executeRaw`SELECT pg_advisory_xact_lock(hashtext(${`posting-import:${userId}`}))`;
     const active = (await tx.postingImport.findMany({ where: { userId, status: { in: ACTIVE } } })) as PostingImportRow[];
     // 같은 공고(www·추적 파라미터·끝 슬래시만 다른 링크 포함)를 진행 중이면 그 작업을 재사용한다.
-    const same = active.find((r) => (r.urlKey ?? normalizeUrl(r.url)) === key && !isImportStale(toImportJob(r), now));
+    const same = key ? active.find((r) => (r.urlKey ?? normalizeUrl(r.url)) === key && !isImportStale(toImportJob(r), now)) : undefined;
     if (same && pasted) throw new FeatureError("같은 공고를 가져오는 중입니다. 끝난 뒤 다시 시도하세요.", 409);
     if (same) return { job: toImportJob(same), reused: true, fromShared: false };
     if (active.filter((r) => !isImportStale(toImportJob(r), now)).length >= MAX_ACTIVE_IMPORTS) {
@@ -160,7 +186,7 @@ export async function createImport(userId: string, rawUrl: string, opts: CreateI
     });
     if (recent >= DAILY_POSTING_IMPORT_LIMIT) {
       throw new FeatureError(
-        `공고 링크 가져오기는 하루 ${DAILY_POSTING_IMPORT_LIMIT}번까지 할 수 있습니다. 직접 입력으로 추가하거나 내일 다시 시도하세요.`,
+        `공고 가져오기(링크·원문 붙여넣기)는 하루 ${DAILY_POSTING_IMPORT_LIMIT}번까지 할 수 있습니다. 직접 입력으로 추가하거나 내일 다시 시도하세요.`,
         429,
       );
     }
@@ -170,7 +196,7 @@ export async function createImport(userId: string, rawUrl: string, opts: CreateI
         id: nanoid(),
         userId,
         url: stripNul(url),
-        urlKey: stripNul(key),
+        urlKey: key ? stripNul(key) : null,
         status: "queued",
         refresh,
         // 다시 가져오기: 결과를 이 공고에 맞춘다(runImport).
@@ -244,6 +270,14 @@ class ImportTimeoutError extends Error {
   }
 }
 
+/** 다른 실행이 작업을 가져갔다(이후 쓰기를 하지 않고 끝낸다). */
+class ImportSupersededError extends Error {
+  constructor() {
+    super("import superseded");
+    this.name = "ImportSupersededError";
+  }
+}
+
 export interface RunImportDeps {
   /** 테스트용: 엔진 선택 없이 이 클라이언트를 쓴다. */
   llm?: LlmClient;
@@ -252,6 +286,11 @@ export interface RunImportDeps {
   /** 테스트용: 페이지 가져오기를 바꾼다(실제 인터넷에 접속하지 않게). */
   fetchPage?: (url: string, opts: { signal: AbortSignal }) => Promise<{ url: string; html: string }>;
   fetchDeps?: Omit<FetchDeps, "signal">;
+  /**
+   * 브라우저로 열어 읽기(render.ts). 없으면 기본(헤드리스 Chromium), null이면 열어 읽지 않는다.
+   * fetchPage나 fetchDeps.connect를 바꾼 경우(테스트)는 기본 브라우저를 쓰지 않는다(실제 인터넷에 접속하지 않게) — 필요하면 함께 넣는다.
+   */
+  renderPage?: RenderPageFn | null;
   /** 본문 붙여넣어 가져오기: 페이지를 읽지 않고 이 본문(사용자가 복사한 페이지 텍스트)으로 분석한다. */
   pastedText?: string;
   timeLimitMs?: number;
@@ -269,7 +308,7 @@ export async function runImport(importId: string, deps: RunImportDeps = {}): Pro
     where: {
       id: importId,
       attempts: { lt: MAX_IMPORT_ATTEMPTS },
-      OR: [{ status: "queued" }, { status: { in: ["reading", "analyzing"] }, updatedAt: { lt: staleBefore } }],
+      OR: [{ status: "queued" }, { status: { in: RUNNING }, updatedAt: { lt: staleBefore } }],
     },
     data: { status: "reading", error: null, attempts: { increment: 1 }, updatedAt: new Date(now()) },
   });
@@ -302,18 +341,46 @@ export async function runImport(importId: string, deps: RunImportDeps = {}): Pro
   try {
     const pasted = deps.pastedText !== undefined;
     let page: { url: string; pageText: string };
+    let staticHtml = "";
     if (pasted) {
       page = { url: claimed.url, pageText: pastedPageText(deps.pastedText!) };
     } else {
+      // 원문만 붙여넣은 작업이 멈춰 다시 실행됐다 — 읽을 링크가 없다.
+      if (!claimed.url) throw new PostingExtractError(TEXT_IMPORT_INTERRUPTED_ERROR);
       const fetched = deps.fetchPage
         ? await deps.fetchPage(claimed.url, { signal })
         : await fetchPostingPage(claimed.url, { ...deps.fetchDeps, signal });
       page = { url: fetched.url, pageText: postingPageText(fetched.html) };
+      staticHtml = fetched.html;
     }
     signal.throwIfAborted();
 
+    // 브라우저로 열어 읽기는 실행마다 한 번. 실패하면 그 문구를 남겨 두고(정적 본문으로 분석이 끝나면 쓰지 않는다) null.
+    const render = pasted ? null : defaultRenderer(deps);
+    let rendered = false;
+    let renderFailure: string | null = null;
+    const tryRender = async (): Promise<{ url: string; pageText: string } | null> => {
+      if (!render || rendered) return null;
+      rendered = true;
+      if (!(await write({ status: "rendering" }))) throw new ImportSupersededError();
+      try {
+        const r = await render(page.url, { signal });
+        signal.throwIfAborted();
+        if (isRenderedChallenge(r)) throw postingBlockedError();
+        if (r.status >= 400) throw new PostingRenderError(`공고 페이지가 오류를 돌려줬습니다(HTTP ${r.status}).`);
+        // 공고 주소는 정적으로 읽은 최종 주소를 그대로 쓴다(브라우저 안의 이동·해시 변경으로 공용 공고 키가 바뀌지 않게).
+        return { url: page.url, pageText: renderedPageText(r) };
+      } catch (err) {
+        if (signal.aborted || (err instanceof PostingFetchError && err.code === "blocked")) throw err;
+        renderFailure = err instanceof PostingRenderError ? err.message : RENDER_GENERIC_ERROR;
+        if (!(err instanceof PostingRenderError)) console.error("[runImport] render", err);
+        else console.warn("[runImport] render", err.message);
+        return null;
+      }
+    };
+
     // 리다이렉트 뒤 최종 주소로 다시 확인한다(입력 주소로는 못 찾은 경우) — AI 분석 전에 끝내 비용을 쓰지 않는다.
-    if (!claimed.refresh) {
+    if (!claimed.refresh && page.url) {
       const finalShared = await findSharedPostingByUrlKey(normalizeUrl(page.url));
       if (finalShared) {
         // 공고 찾기에 이미 있으면 바로 담는다(이미 보관한 같은 공고면 그 공고를 연결해 돌려준다).
@@ -325,20 +392,37 @@ export async function runImport(importId: string, deps: RunImportDeps = {}): Pro
       if (dup) throw new DuplicatePostingError(dup);
     }
 
+    // 정적 본문이 자바스크립트로 그려지는 빈 껍데기면 AI 분석 전에 브라우저로 연다(헛된 분석 1회를 아낀다).
+    if (!pasted && render && needsRendering(staticHtml, page.pageText)) page = (await tryRender()) ?? page;
+
     if (!(await write({ status: "analyzing" }))) return;
 
     const provider = deps.llm ? null : (deps.provider ?? (await resolveRequestedProvider(null)));
     const llm = deps.llm ?? createLlmClient(provider!, { userId: claimed.userId, referenceId: claimed.id });
+    const extract = async (target: { url: string; pageText: string }) => {
+      try {
+        return await extractPosting(target, llm, { signal });
+      } catch (err) {
+        // 200으로 온 보안 검사 페이지(표식 없이 문구만 남은 경우)는 '공고 아님'으로 끝난다 — 차단 안내로 바꾼다.
+        if (err instanceof PostingExtractError && looksLikeChallengeText(target.pageText)) {
+          if (pasted) throw new PostingExtractError(PASTED_CHALLENGE_ERROR);
+          throw postingBlockedError();
+        }
+        if (err instanceof PostingExtractError && pasted) throw new PostingExtractError(PASTED_NOT_POSTING_ERROR);
+        throw err;
+      }
+    };
     let extracted: Awaited<ReturnType<typeof extractPosting>>;
     try {
-      extracted = await extractPosting(page, llm, { signal });
+      extracted = await extract(page);
     } catch (err) {
-      // 200으로 온 보안 검사 페이지(표식 없이 문구만 남은 경우)는 '공고 아님'으로 끝난다 — 차단 안내로 바꾼다.
-      if (err instanceof PostingExtractError && looksLikeChallengeText(page.pageText)) {
-        if (pasted) throw new PostingExtractError(PASTED_CHALLENGE_ERROR);
-        throw postingBlockedError();
-      }
-      throw err;
+      if (!(err instanceof PostingExtractError) || pasted) throw err;
+      // 정적 본문으로는 회사·직무를 찾지 못했다 — 아직 열어 보지 않았으면 브라우저로 열어 그 본문으로 한 번 더 분석한다.
+      const again = await tryRender();
+      if (!again) throw renderFailure ? new PostingExtractError(renderFailure) : err;
+      page = again;
+      if (!(await write({ status: "analyzing" }))) return;
+      extracted = await extract(page);
     }
     const { posting, structure, sourceText } = extracted;
     signal.throwIfAborted();
@@ -364,6 +448,7 @@ export async function runImport(importId: string, deps: RunImportDeps = {}): Pro
     await refreshSharedImporterCount(shared.id);
     await write({ status: "completed", postingId, sharedPostingId: shared.id, error: null });
   } catch (err) {
+    if (err instanceof ImportSupersededError) return;
     if (err instanceof DuplicatePostingError) {
       // 리다이렉트 뒤 최종 주소가 이미 보관한 공고와 같은 경우. 기존 공고로 안내한다.
       await write({ status: "failed", error: err.message, postingId: err.existingId });
@@ -373,6 +458,14 @@ export async function runImport(importId: string, deps: RunImportDeps = {}): Pro
   } finally {
     clearTimeout(timer);
   }
+}
+
+/** 기본 열어 읽기 함수. 페이지 가져오기를 바꾼 경우(테스트)는 쓰지 않는다 — RunImportDeps.renderPage 참고. */
+function defaultRenderer(deps: RunImportDeps): RenderPageFn | null {
+  if (deps.renderPage !== undefined) return deps.renderPage;
+  if (deps.fetchPage || deps.fetchDeps?.connect) return null;
+  const lookup = deps.fetchDeps?.lookup;
+  return (url, { signal }) => renderPostingPage(url, { lookup, signal });
 }
 
 // ---------------------------------------------------------------------------
@@ -408,7 +501,10 @@ export async function queueCaptureForShared(sharedId: string, now: number = Date
   }
 }
 
-/** after()용: 가져오기를 실행하고, 끝나면 원문 캡처까지 이어서 한다(가져오기 180초 + 캡처 75초 < maxDuration 300). 던지지 않는다. */
+/**
+ * after()용: 가져오기를 실행하고, 끝나면 원문 캡처까지 이어서 한다(가져오기 180초 — 브라우저로 열어 읽기 40초 포함 — + 캡처 75초
+ * < maxDuration 300). 던지지 않는다.
+ */
 export async function runImportThenCapture(importId: string, deps: RunImportDeps & { capture?: CaptureDeps } = {}): Promise<void> {
   try {
     await runImport(importId, deps);

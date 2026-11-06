@@ -12,8 +12,11 @@ import { readApiError, type ApiError } from "./shared";
 
 export const IMPORT_POLL_MS = 2000;
 
-/** 화면용 작업: 공고 찾기에 있던 공고를 바로 담았으면 fromShared. */
-export type ImportJobView = PostingImportJob & { fromShared?: boolean };
+/**
+ * 화면용 작업: 공고 찾기에 있던 공고를 바로 담았으면 fromShared.
+ * pastedText: 링크 없이 원문만 붙여넣은 작업의 원문(이 탭의 메모리에만 — 실패하면 그 원문으로 붙여넣기 입력을 다시 연다).
+ */
+export type ImportJobView = PostingImportJob & { fromShared?: boolean; pastedText?: string };
 
 /**
  * 폴링 결과를 합친다. 결과가 없는(요청 실패) 작업은 그대로 두고, 이번에 completed가 된 작업을 따로 돌려준다.
@@ -145,6 +148,7 @@ export function usePostingImports({
   const start = useCallback(
     async (url: string, opts: StartImportOptions = {}): Promise<StartImportResult> => {
       const result = await startPostingImport(url, opts);
+      if (result.ok && opts.pageText !== undefined && !result.job.url) result.job.pastedText = opts.pageText;
       if (result.ok) {
         const already = jobsRef.current.find((j) => j.id === result.job.id);
         const next = upsertImportJob(jobsRef.current, result.job);

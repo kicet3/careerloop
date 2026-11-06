@@ -21,6 +21,11 @@ import { PasteImportForm } from "./PasteImportForm";
 import { DeadlineBadge, inputClass, type ApiError } from "./shared";
 
 const STEPS = ["queued", "reading", "analyzing", "completed"] as const;
+/** 진행 막대 칸(브라우저로 열어 읽기 rendering은 읽기 단계로 센다). */
+const stepOf = (status: ImportJobView["status"]) => STEPS.indexOf((status === "rendering" ? "reading" : status) as (typeof STEPS)[number]);
+
+/** 작업 줄의 출처 표시. 원문만 붙여넣은 작업(링크 없음)은 url이 비어 있다. */
+const importJobLabel = (job: ImportJobView) => job.url || "붙여넣은 공고 원문";
 
 export function PostingImportBar({
   jobs,
@@ -157,15 +162,15 @@ export function PostingImportBar({
 
 /** 목록 맨 앞의 '가져오는 중' 카드(공고 카드와 같은 크기). 끝나면 부모가 공고 카드로 바꾼다. */
 export function ImportingCard({ job }: { job: ImportJobView }) {
-  const step = STEPS.indexOf(job.status as (typeof STEPS)[number]);
+  const step = stepOf(job.status);
   return (
     <div className="flex h-full flex-col rounded-xl border border-dashed border-indigo-300 bg-indigo-50/40 p-4 sm:p-5" role="status" aria-live="polite">
       <div className="flex items-center gap-2">
         <Spinner size="sm" className="shrink-0" />
         <p className="font-semibold text-slate-900">{job.refresh ? "다시 가져오는 중" : "공고 가져오는 중"}</p>
       </div>
-      <p className="mt-1 truncate text-sm text-slate-500" title={job.url}>
-        {job.url}
+      <p className="mt-1 truncate text-sm text-slate-500" title={job.url || undefined}>
+        {importJobLabel(job)}
       </p>
       <p className="mt-3 text-sm font-medium text-indigo-800">{POSTING_IMPORT_STATUS_LABELS[job.status]}</p>
       <div className="mt-2 flex gap-1" aria-hidden>
@@ -188,7 +193,7 @@ function ImportRow({
   onPaste: (url: string, pageText: string) => Promise<string | null>;
 }) {
   const active = isPostingImportActive(job.status);
-  const step = STEPS.indexOf(job.status as (typeof STEPS)[number]);
+  const step = stepOf(job.status);
   return (
     <li
       className={cn(
@@ -199,8 +204,8 @@ function ImportRow({
       <div className="flex items-start gap-2">
         {active && <Spinner size="sm" className="mt-0.5 shrink-0" />}
         <div className="min-w-0 flex-1">
-          <p className="truncate text-slate-500" title={job.url}>
-            {job.url}
+          <p className="truncate text-slate-500" title={job.url || undefined}>
+            {importJobLabel(job)}
           </p>
           <p className={cn("mt-0.5 font-medium", job.status === "failed" ? "text-red-800" : "text-slate-900")}>
             {POSTING_IMPORT_STATUS_LABELS[job.status]}
@@ -216,6 +221,19 @@ function ImportRow({
             ) : (
               <PasteImportForm initialUrl={job.url} onSubmit={onPaste} className="mt-2" />
             ))}
+          {job.status === "failed" && !job.url && job.errorCode !== "blocked" && (
+            // 링크 없이 원문만 붙여넣은 작업의 실패(공고 아님·보안 검사 화면·중간에 끊김 등): 이 탭에 남은 원문으로 다시 붙여넣기 입력을 연다.
+            <PasteImportForm
+              initialText={job.pastedText ?? ""}
+              title="공고 원문 다시 붙여넣기"
+              textLabel="공고 원문 붙여넣기"
+              intro="공고 내용이 빠짐없이 들어갔는지 확인하고 고쳐서 다시 시도하세요."
+              submitLabel="AI로 다시 추가하기"
+              textFirst
+              onSubmit={onPaste}
+              className="mt-2"
+            />
+          )}
           {active && (
             <div className="mt-2 flex gap-1" aria-hidden>
               {STEPS.slice(0, 3).map((s, i) => (

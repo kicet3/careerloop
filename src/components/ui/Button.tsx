@@ -1,4 +1,4 @@
-import type { ButtonHTMLAttributes } from "react";
+import type { ButtonHTMLAttributes, Ref } from "react";
 import { cn } from "./cn";
 import { Spinner } from "./Spinner";
 
@@ -37,6 +37,8 @@ export interface ButtonProps extends ButtonHTMLAttributes<HTMLButtonElement> {
   variant?: ButtonVariant;
   size?: ButtonSize;
   loading?: boolean;
+  /** React 19: ref는 일반 prop으로 <button>에 그대로 넘어간다(포커스 돌려놓기 등). */
+  ref?: Ref<HTMLButtonElement>;
 }
 
 export function Button({

@@ -92,6 +92,21 @@ URL 가져오기 fetcher(`fetch.ts`)와 같은 규칙을 쓴다. 공개 주소�
 | 동시 실행 | 인스턴스당 브라우저 2개 |
 | 시도 상한 | 자동 시도와 다시 시도를 합쳐 5회(성공하면 0으로 초기화). pending이나 running이 3분 넘게 이어지면 멈춘 작업으로 보고 다시 맡는다 |
 
+## 브라우저로 열어 읽기(가져오기 대체 경로)
+
+본문을 자바스크립트로 그리는 채용 사이트(예: Knockout으로 상세 API를 불러 그리는 careers.smilegate.com)는 정적 HTML에 공고가 없다. 가져오기(`runImport`)는 이런 페이지를 캡처와 같은 헤드리스 Chromium으로 한 번 열어 그려진 본문으로 분석한다.
+
+- 언제 여는가(실행마다 최대 1회)
+  - 정적 본문이 빈 껍데기일 때(`needsRendering`, `rendered-text.ts`): 본문 150자 미만, 또는 1,500자 미만이면서 Knockout `data-bind`·Angular·Vue 템플릿, 빈 앱 루트(`#root`·`#__next` 등), 자바스크립트 필요 안내, "Loading..." 같은 표식이 있을 때. JobPosting JSON-LD가 있으면 열지 않는다. 이때는 AI 분석 전에 연다.
+  - AI가 정적 본문에서 회사·직무를 찾지 못했을 때(`PostingExtractError`): 그때 열어 한 번 더 분석한다.
+- 무엇을 읽는가(`render.ts`): `domcontentloaded`(15초) → 네트워크 유휴·본문 길이 안정(최대 10초) → `document.body.innerText`, 그린 DOM(보안 검사 판별·제목/공유 메타 — 페이지 안에서 2MB로 잘라 받는다), 로드 중 받은 같은 사이트 JSON 응답(응답당 512KB·합계 2MB·20개 — 버퍼 상한을 둔 별도 CDP 세션에서 받은 크기(압축 푼 바이트)를 세고, 다 받은 뒤 상한 안일 때만 본문을 가져온다). 실행 도중 마감·취소되면 늦게 뜬 브라우저도 닫고, 닫힌 뒤에야 동시 실행 차례를 돌려준다. 전체 40초, 전송량 15MB. 이미지·글꼴·동영상은 받지 않고 페이지 안의 버튼은 누르지 않는다.
+- 모델에 주는 본문(`renderedPageText`): 페이지 제목·공유 제목/설명 → 보이는 본문 → "페이지가 불러온 데이터"(화면에 없는 JSON 값). 근거 검증과 원문 저장도 이 본문 기준이다. 공고 주소는 정적으로 읽은 최종 주소를 그대로 쓴다.
+- 작업 상태: 여는 동안 `rendering`("페이지 열어 읽는 중", 진행 막대는 읽기 단계).
+- 우회하지 않는다: 스텔스 플러그인·지문 위장·검사 풀기·우회 프록시를 쓰지 않고 User-Agent는 캡처와 같다. 열린 화면이 보안 검사(fetch.ts와 같은 판별 + 짧은 본문의 검사 문구)면 `blocked`(본문 붙여넣기 안내)로 끝난다.
+- 열기에 실패하고 정적 본문으로도 찾지 못하면 열기 실패 문구(시간 초과·브라우저 없음·일반)를 남긴다.
+- 브라우저 실행·SSRF 방어·동시 실행 상한(인스턴스당 2개, 캡처와 공용)은 `browser.ts`의 `withGuardedPage`를 캡처와 함께 쓴다.
+- Playwright가 아니라 기존 puppeteer-core + @sparticuz/chromium을 쓴다: 같은 헤드리스 Chromium 방식이고, Vercel 함수 번들·추적 설정이 이미 되어 있다.
+
 ## Vercel 함수 크기·시간 고려사항
 
 - **함수 크기**
@@ -100,7 +115,7 @@ URL 가져오기 fetcher(`fetch.ts`)와 같은 규칙을 쓴다. 공개 주소�
   - 함수가 커지면 `@sparticuz/chromium-min`과 외부 tar를 쓰는 방식으로 바꿀 수 있다(코드에서는 `executablePath(url)`만 바꾸면 된다).
 - **번들링**: `serverExternalPackages`에 `@sparticuz/chromium`과 `puppeteer-core`를 넣었다. chromium은 `import.meta.url` 기준으로 `bin/`을 찾기 때문에 번들링하지 않는다. 두 패키지 모두 캡처할 때만 동적 `import()`로 불러온다.
 - **시간**
-  - 해당 라우트의 `maxDuration`은 300이다. 가져오기 상한 180초와 캡처 상한 75초를 더한 255초가 그 안에 들어온다.
+  - 해당 라우트의 `maxDuration`은 300이다. 가져오기 상한 180초(브라우저로 열어 읽기 40초 포함)와 캡처 상한 75초를 더한 255초가 그 안에 들어온다.
   - 콜드 스타트에서는 Chromium 압축 해제에 수 초가 더 걸린다. `/tmp/chromium`이 있으면 다시 풀지 않는다.
 - **메모리**: Chromium에는 1GB 이상(권장 1.6GB 이상)이 필요하다. Vercel 함수 메모리 설정(Standard 2GB 이상)을 확인한다.
 - **아키텍처**: npm 패키지 `@sparticuz/chromium`에는 x64 바이너리만 들어 있다. Vercel 함수는 x64(AL2023)에서 돌기 때문에 그대로 쓸 수 있다. arm64로 바꾸려면 `@sparticuz/chromium-min`과 arm64 pack을 써야 한다.

@@ -14,6 +14,7 @@ export const maxDuration = 300;
 /**
  * 본문 붙여넣어 가져오기 시작: 링크로 읽을 수 없는 공고(보안 검사·봇 차단 등)를 사용자가 브라우저에서 복사한 페이지 본문으로 가져온다.
  * URL 가져오기(POST /api/postings/import)와 같은 작업·제한을 쓰고, 페이지 읽기 대신 붙여넣은 본문을 분석한다(결과는 링크 공용 공고로 올리지 않는다 — imports.runImport).
+ * url을 비우면 원문만 붙여넣기('직접 추가'의 AI 추가): 링크 검사·공고 찾기 재사용·중복 판별 없이 본문만 분석해 공고를 만든다(202만, 409 existingId 없음).
  * - 202 { jobId, job }: 새 작업(진행 상황은 GET /api/postings/import/[jobId]).
  * - 200 { jobId, job, fromShared: true }: 공고 찾기에 같은 링크의 공고가 있어 바로 담았다(AI 없음).
  * - 409 { existingId }: 이미 보관한 URL. 409(existingId 없음): 같은 URL을 가져오는 중.

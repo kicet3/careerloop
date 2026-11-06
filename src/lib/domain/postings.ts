@@ -177,10 +177,11 @@ export const POSTING_PASTE_MIN_CHARS = 200;
 /**
  * 본문 붙여넣어 가져오기 요청: 링크로 읽을 수 없는 공고(봇 차단 등)를 사용자가 브라우저에서 복사한 페이지 본문으로 가져온다.
  * url은 출처 링크(중복 판별·공고 찾기 공유 키)로 그대로 쓰고, 형식·공개 주소 검사는 URL 가져오기와 같다(parsePostingUrl).
+ * url을 비우거나 빼면 원문만 붙여넣기('직접 추가'의 AI 추가): 링크 없이 본문만 분석해 공고를 만든다(imports.createImport).
  */
 export const PostingPasteImportInputSchema = z
   .object({
-    url: z.string().trim().min(1, "공고 주소를 입력하세요.").max(POSTING_LIMITS.url),
+    url: z.string().trim().max(POSTING_LIMITS.url).optional().default(""),
     pageText: z
       .string()
       .trim()
@@ -247,16 +248,18 @@ export type JobPostingSummary = Omit<JobPosting, "jdText" | "structured" | "sour
 // URL 가져오기 작업
 // ---------------------------------------------------------------------------
 
-export const POSTING_IMPORT_STATUSES = ["queued", "reading", "analyzing", "completed", "failed"] as const;
+/** rendering: 정적 HTML에 본문이 없어 페이지를 브라우저로 열어 읽는 중(reading 단계의 일부로 보여 준다). */
+export const POSTING_IMPORT_STATUSES = ["queued", "reading", "rendering", "analyzing", "completed", "failed"] as const;
 export type PostingImportStatus = (typeof POSTING_IMPORT_STATUSES)[number];
 export const POSTING_IMPORT_STATUS_LABELS: Record<PostingImportStatus, string> = {
   queued: "대기 중",
   reading: "공고 읽는 중",
+  rendering: "페이지 열어 읽는 중",
   analyzing: "AI 분석 중",
   completed: "추가 완료",
   failed: "추가 실패",
 };
-export const isPostingImportActive = (s: PostingImportStatus) => s === "queued" || s === "reading" || s === "analyzing";
+export const isPostingImportActive = (s: PostingImportStatus) => s === "queued" || s === "reading" || s === "rendering" || s === "analyzing";
 
 export interface PostingImportJob {
   id: string;

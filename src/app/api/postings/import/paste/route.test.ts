@@ -6,7 +6,7 @@ import { mkdtempSync } from "node:fs";
 import { tmpdir } from "node:os";
 import path from "node:path";
 import { afterAll, beforeAll, beforeEach, describe, expect, it, vi } from "vitest";
-import { POSTING_LIMITS } from "@/lib/domain/postings";
+import { DAILY_POSTING_IMPORT_LIMIT, POSTING_LIMITS } from "@/lib/domain/postings";
 import { createTestDb, type TestDb } from "@/test/db";
 
 vi.mock("server-only", () => ({}));
@@ -52,7 +52,7 @@ let capture: typeof import("@/lib/postings/capture");
 
 beforeAll(async () => {
   tdb = await createTestDb();
-  for (const id of ["ua", "ub", "uc"]) await tdb.prisma.user.create({ data: { id, email: `${id}@x.com`, passwordHash: "x" } });
+  for (const id of ["ua", "ub", "uc", "ud", "ue", "uf"]) await tdb.prisma.user.create({ data: { id, email: `${id}@x.com`, passwordHash: "x" } });
   paste = await import("./route");
   importJob = await import("../[jobId]/route");
   capture = await import("@/lib/postings/capture");
@@ -138,5 +138,54 @@ describe("POST /api/postings/import/paste", () => {
     const other = await post({ url: "https://careers.example/recruit/10460", pageText });
     expect(other.status).toBe(202);
     expect(state.afterTasks).toHaveLength(1);
+  });
+
+  describe("원문만 붙여넣기(링크 없음)", () => {
+    it("url을 빼거나 비우면 링크 없이 202 → 공고를 만든다(출처 링크·링크 공용 공고 없음, 원문은 내 공고에만)", async () => {
+      state.user = { id: "ud", email: "ud@x.com", name: null };
+      const res = await post({ pageText });
+      expect(res.status).toBe(202);
+      const { jobId, job } = (await res.json()) as { jobId: string; job: { status: string; url: string } };
+      expect(job).toMatchObject({ status: "queued", url: "" });
+      await state.afterTasks[0]!();
+      expect(state.llmCalls).toEqual([{ provider: "anthropic", opts: { userId: "ud", referenceId: jobId } }]);
+      expect(capture.runPostingCapture).not.toHaveBeenCalled();
+      const polled = (await (await importJob.GET(new Request("http://localhost"), ctx(jobId))).json()) as { job: { status: string; postingId: string } };
+      expect(polled.job.status).toBe("completed");
+      const posting = await tdb.prisma.jobPosting.findUniqueOrThrow({ where: { id: polled.job.postingId } });
+      expect(posting).toMatchObject({ userId: "ud", company: "넥스트게임즈", roleTitle: "게임 클라이언트 프로그래머", url: null, urlKey: null, deadline: "2026-12-31" });
+      expect(posting.sourceText).toContain("Unity 기반 클라이언트 개발");
+      const shared = await tdb.prisma.sharedPosting.findUniqueOrThrow({ where: { id: posting.sharedPostingId! } });
+      expect(shared).toMatchObject({ url: null, urlKey: null, sourceText: null });
+
+      // 같은 본문을 다시 붙여넣어도 링크 중복 409가 없다(공백 url도 링크 없음).
+      state.afterTasks = [];
+      expect((await post({ url: "   ", pageText })).status).toBe(202);
+    });
+
+    it("입력 검사: 본문 길이(200..30000)·잘못된 링크는 여전히 400", async () => {
+      state.user = { id: "ue", email: "ue@x.com", name: null };
+      expect((await post({ pageText: "가".repeat(199) })).status).toBe(400);
+      expect((await post({ pageText: "가".repeat(POSTING_LIMITS.jdText + 1) })).status).toBe(400);
+      expect((await post({ url: "not a url", pageText })).status).toBe(400);
+      expect((await post({})).status).toBe(400);
+      expect(await tdb.prisma.postingImport.count({ where: { userId: "ue" } })).toBe(0);
+    });
+
+    it("출처 403·로그인 401·하루 횟수 429", async () => {
+      state.crossSite = true;
+      expect((await post({ pageText })).status).toBe(403);
+      state.crossSite = false;
+      state.user = null;
+      expect((await post({ pageText })).status).toBe(401);
+      state.user = { id: "uf", email: "uf@x.com", name: null };
+      const at = new Date();
+      await tdb.prisma.postingImport.createMany({
+        data: Array.from({ length: DAILY_POSTING_IMPORT_LIMIT }, (_, i) => ({ id: `uf-old${i}`, userId: "uf", url: "", status: "failed", attempts: 1, createdAt: at, updatedAt: at })),
+      });
+      const limited = await post({ pageText });
+      expect(limited.status).toBe(429);
+      expect(state.afterTasks).toHaveLength(0);
+    });
   });
 });
