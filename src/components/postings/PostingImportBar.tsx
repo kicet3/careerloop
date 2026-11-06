@@ -162,7 +162,14 @@ export function PostingImportBar({
 }
 
 /** 목록 맨 앞의 '가져오는 중' 카드(공고 카드와 같은 크기). 끝나면 부모가 공고 카드로 바꾼다. */
-export function ImportingCard({ job }: { job: ImportJobView }) {
+export function ImportingCard({
+  job,
+  hint = "끝나면 이 자리에 공고 카드가 나타납니다. 다른 화면으로 가도 계속 진행됩니다.",
+}: {
+  job: ImportJobView;
+  /** 카드 아래 안내(공고 찾기의 '공고 추가'처럼 끝난 공고가 다른 곳에 나타나는 화면은 바꿔 쓴다). */
+  hint?: string;
+}) {
   const step = stepOf(job.status);
   return (
     <div className="flex h-full flex-col rounded-xl border border-dashed border-indigo-300 bg-indigo-50/40 p-4 sm:p-5" role="status" aria-live="polite">
@@ -179,7 +186,7 @@ export function ImportingCard({ job }: { job: ImportJobView }) {
           <span key={s} className={cn("h-1 flex-1 rounded-full", i <= step ? "bg-indigo-500" : "bg-slate-200")} />
         ))}
       </div>
-      <p className="mt-auto pt-3 text-xs text-slate-500">끝나면 이 자리에 공고 카드가 나타납니다. 다른 화면으로 가도 계속 진행됩니다.</p>
+      <p className="mt-auto pt-3 text-xs text-slate-500">{hint}</p>
     </div>
   );
 }

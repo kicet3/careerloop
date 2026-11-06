@@ -2,10 +2,9 @@
 /**
  * 공고 보관함 목록: URL 가져오기(진행 중 카드 → 끝나면 새로고침 없이 공고 카드), 직접 추가(AI 엔진이 있으면 공고 원문을 붙여넣어
  * AI가 채워 바로 추가 — 링크 없는 본문 붙여넣기 가져오기 작업, 아래에 펼쳐 쓰는 직접 입력 폼), 검색·상태·정렬·마감 임박 필터,
- * 공고 카드(마감 배지). '공고 찾기'(공용 공고)는 사이드바의 별도 메뉴다.
+ * 공고 카드(마감 배지). '공고 찾기'(공용 공고)는 사이드바의 별도 메뉴다. 직접 추가 입력은 공고 찾기의 '공고 추가'와 같은 PostingAddForms다.
  */
 import Link from "next/link";
-import { useRouter } from "next/navigation";
 import { useCallback, useMemo, useRef, useState } from "react";
 import { Badge } from "@/components/ui/Badge";
 import { Button } from "@/components/ui/Button";
@@ -24,9 +23,8 @@ import { formatPostingDeadline } from "@/lib/postings/deadline";
 import { EMPTY_POSTING_FILTERS, filterPostings, POSTING_SORT_LABELS, type PostingFilters, type PostingSort } from "@/lib/postings/filter";
 import { safeSourceUrl } from "@/lib/postings/source-link";
 import { platformLabel } from "@/lib/postings/url";
-import { PasteImportForm } from "./PasteImportForm";
-import { PostingForm } from "./PostingForm";
 import { usePostingImports } from "./import-jobs";
+import { PostingAddForms } from "./PostingAddForms";
 import { ImportingCard, PostingImportBar } from "./PostingImportBar";
 import { DeadlineBadge, inputClass, PostingStatusBadge, useNow } from "./shared";
 import { SourceLink } from "./SourceLink";
@@ -42,7 +40,6 @@ export function PostingsView({
   serverNow: number;
   aiAvailable?: boolean;
 }) {
-  const router = useRouter();
   const now = useNow(serverNow);
   const [items, setItems] = useState(initialItems);
   const [filters, setFilters] = useState<PostingFilters>(EMPTY_POSTING_FILTERS);
@@ -50,8 +47,6 @@ export function PostingsView({
   const [adding, setAdding] = useState(false);
   /** AI 추가를 시작한 뒤 화면 낭독기에 알리는 문구(항상 붙어 있는 라이브 영역). */
   const [announce, setAnnounce] = useState("");
-  /** AI 추가 입력에서 이미 보관한 공고(409)로 막힌 경우 그 공고 id. */
-  const [pasteExistingId, setPasteExistingId] = useState<string | null>(null);
   const addToggleRef = useRef<HTMLButtonElement>(null);
 
   const reload = useCallback(async () => {
@@ -75,14 +70,6 @@ export function PostingsView({
   const resetFilters: PostingFilters = activeCount > 0 ? EMPTY_POSTING_FILTERS : { ...EMPTY_POSTING_FILTERS, status: "all" };
   const setFilter = <K extends keyof PostingFilters>(k: K, v: PostingFilters[K]) => setFilters((f) => ({ ...f, [k]: v }));
 
-  const manualForm = (
-    <PostingForm
-      aiAvailable={aiAvailable}
-      onCancel={() => setAdding(false)}
-      onSaved={(p, opts) => router.push(`/app/postings/${p.id}${opts.structure ? "?structure=1" : ""}`)}
-    />
-  );
-
   return (
     <div className="space-y-6">
       <div className="flex flex-wrap items-end justify-between gap-3">
@@ -92,7 +79,6 @@ export function PostingsView({
         </div>
         <Button ref={addToggleRef} variant={adding ? "secondary" : "primary"} onClick={() => {
             setAnnounce("");
-            setPasteExistingId(null);
             setAdding((a) => !a);
           }}
           aria-expanded={adding}
@@ -112,44 +98,18 @@ export function PostingsView({
       {adding && (
         <Card className="p-5 sm:p-6">
           <h2 className="mb-4 text-base font-semibold text-slate-900">공고 직접 추가</h2>
-          {aiAvailable ? (
-            <>
-              {/* 원문 붙여넣기가 기본: 링크 가져오기와 같은 작업으로 시작해 진행 상황은 위 입력줄·목록의 가져오기 카드에 보인다. */}
-              <PasteImportForm
-                title="공고 원문 붙여넣기 → AI가 자동으로 정리해 추가"
-                intro="공고 페이지·문서·메일 등에서 공고 내용 전체를 복사해 붙여넣고 'AI로 추가하기'를 누르세요. 회사·직무·마감일·근무지와 주요 업무·자격 요건·우대 사항·복지·전형 절차를 AI가 채워 공고를 만듭니다. 저장된 공고는 상세 화면에서 고칠 수 있습니다."
-                submitLabel="AI로 추가하기"
-                textLabel="공고 원문 붙여넣기"
-                textFirst
-                rows={10}
-                className="border-indigo-200 bg-indigo-50/30 p-4"
-                onSubmit={async (url, pageText) => {
-                  const result = await imports.start(url, { pageText });
-                  if (!result.ok) {
-                    setPasteExistingId(result.error.existingId ?? null);
-                    return result.error.error;
-                  }
-                  setPasteExistingId(null);
-                  setAdding(false);
-                  setAnnounce("공고 원문 분석을 시작했습니다. 진행 상황은 가져오기 목록에 표시됩니다.");
-                  // 누른 버튼이 추가 칸과 함께 사라지므로 포커스를 '직접 추가' 버튼으로 돌려놓는다.
-                  addToggleRef.current?.focus();
-                  return null;
-                }}
-              />
-              {pasteExistingId && (
-                <Link href={`/app/postings/${pasteExistingId}`} className="mt-2 inline-block text-sm font-medium text-indigo-700 hover:underline">
-                  기존 공고 열기 →
-                </Link>
-              )}
-              <details className="group mt-4 rounded-lg border border-slate-200">
-                <summary className="cursor-pointer px-4 py-3 text-sm font-medium text-slate-700 hover:text-slate-900">직접 입력(항목을 하나씩 적기)</summary>
-                <div className="border-t border-slate-200 p-4">{manualForm}</div>
-              </details>
-            </>
-          ) : (
-            manualForm
-          )}
+          {/* 원문 붙여넣기가 기본: 링크 가져오기와 같은 작업으로 시작해 진행 상황은 위 입력줄·목록의 가져오기 카드에 보인다. */}
+          <PostingAddForms
+            aiAvailable={aiAvailable}
+            start={imports.start}
+            onCancel={() => setAdding(false)}
+            onPasteStarted={() => {
+              setAdding(false);
+              setAnnounce("공고 원문 분석을 시작했습니다. 진행 상황은 가져오기 목록에 표시됩니다.");
+              // 누른 버튼이 추가 칸과 함께 사라지므로 포커스를 '직접 추가' 버튼으로 돌려놓는다.
+              addToggleRef.current?.focus();
+            }}
+          />
         </Card>
       )}
 
