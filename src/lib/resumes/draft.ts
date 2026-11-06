@@ -103,7 +103,8 @@ export async function generateResumeDraft(client: LlmClient, ctx: DraftContext, 
     user,
     schema: ResumeDraftOutputSchema,
     effort: "medium",
-    maxTokens: 16_000,
+    // 모델 출력 상한(Opus 5.5 128K)까지 쓴다 — thinking 토큰도 이 한도에 들어간다. 실제로 쓴 만큼만 과금된다.
+    maxTokens: 128_000,
     signal,
   });
   const draft = res.output;

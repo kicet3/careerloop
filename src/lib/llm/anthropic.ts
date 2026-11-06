@@ -90,6 +90,23 @@ function strict(node: Json): Json {
 
 // 변환 결과를 스키마 객체별로 캐시한다(동일 바이트 유지 → 프롬프트 캐시 유지).
 const formatCache = new WeakMap<object, BetaJSONOutputFormat>();
+/**
+ * 구조화 출력 문법이 너무 크다고 API가 거절한 스키마("The compiled grammar is too large").
+ * 이런 스키마는 output_config.format 없이 보내고, 스키마는 시스템 지시문에 JSON으로 실어 응답을 zod로 검증한다
+ * (검증 실패 시 기존처럼 1회 재요청).
+ */
+const grammarTooLarge = new WeakSet<object>();
+
+/** 문법 크기 때문에 거절된 400인가. */
+export function isGrammarTooLargeError(message: string): boolean {
+  return /compiled grammar is too large/i.test(message);
+}
+
+/** 스키마 강제 없이 보낼 때 시스템 지시문 뒤에 붙이는 출력 규칙. */
+export function schemaInstruction(schema: z.ZodType): string {
+  return `\n\n# 출력 형식\n다음 JSON Schema에 정확히 맞는 JSON 객체 하나만 출력한다. 코드 블록(\`\`\`)·설명 문장 없이 JSON만 쓴다. 모든 필드를 빠짐없이 쓰고(없으면 빈 문자열·빈 배열), description의 {maxLength}·{maxItems} 한도를 지킨다.\n${JSON.stringify(toStrictJsonSchema(schema))}`;
+}
+
 function outputFormat(schema: z.ZodType): BetaJSONOutputFormat {
   let f = formatCache.get(schema);
   if (!f) {
@@ -192,8 +209,16 @@ function parseOutput<T>(content: BetaContentBlock[], schema: z.ZodType<T>): Pars
     try {
       raw = JSON.parse(text);
     } catch (e) {
-      problem = `JSON 파싱 실패: ${(e as Error).message}`;
-      continue;
+      // 스키마 강제 없이 받은 응답은 코드 블록이나 앞뒤 문장이 붙을 수 있다 — 가장 바깥 { … }만 다시 읽어 본다.
+      const start = text.indexOf("{");
+      const end = text.lastIndexOf("}");
+      try {
+        if (start < 0 || end <= start) throw e;
+        raw = JSON.parse(text.slice(start, end + 1));
+      } catch {
+        problem = `JSON 파싱 실패: ${(e as Error).message}`;
+        continue;
+      }
     }
     const r = schema.safeParse(raw);
     if (r.success) return { ok: true, value: r.data };
@@ -293,20 +318,36 @@ export class AnthropicLlmClient implements LlmClient {
   }
 
   private async call<T>(req: LlmRequest<T>, messages: BetaMessageParam[], maxTokens: number): Promise<BetaMessage> {
-    try {
+    const send = async (constrained: boolean) => {
       const stream = this.client.beta.messages.stream(
         {
           model: this.model,
           max_tokens: maxTokens,
           betas: [FALLBACK_BETA],
           fallbacks: "default",
-          system: [{ type: "text", text: req.system, cache_control: { type: "ephemeral" } }],
+          system: [
+            { type: "text", text: constrained ? req.system : req.system + schemaInstruction(req.schema), cache_control: { type: "ephemeral" } },
+          ],
           messages,
-          output_config: { effort: req.effort, format: outputFormat(req.schema) },
+          output_config: constrained ? { effort: req.effort, format: outputFormat(req.schema) } : { effort: req.effort },
         },
         { signal: req.signal },
       );
       return await stream.finalMessage();
+    };
+    try {
+      if (grammarTooLarge.has(req.schema)) return await send(false);
+      try {
+        return await send(true);
+      } catch (e) {
+        // 문법이 너무 크다는 거절은 토큰을 쓰기 전에 난다 — 이 스키마는 앞으로 스키마 강제 없이 보낸다.
+        if (e instanceof Anthropic.BadRequestError && isGrammarTooLargeError(e.message)) {
+          grammarTooLarge.add(req.schema);
+          console.warn(`[llm] structured output grammar too large; retrying without format (${requestLabel(req)})`);
+          return await send(false);
+        }
+        throw e;
+      }
     } catch (e) {
       if (e instanceof Anthropic.BadRequestError) {
         throw new LlmPermanentError(`요청이 거부되었습니다: ${e.message}`, "bad_request");

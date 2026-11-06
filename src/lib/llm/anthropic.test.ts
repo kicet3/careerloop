@@ -145,3 +145,48 @@ describe("userContent 캐시 지점", () => {
     expect(userContent(user, false)[0]).not.toHaveProperty("cache_control");
   });
 });
+
+describe("구조화 출력 문법이 너무 큰 스키마", () => {
+  it("문법 크기 400이면 스키마 강제 없이 다시 보내고, 코드 블록으로 감싼 JSON도 읽는다(이후 같은 스키마는 바로 강제 없이)", async () => {
+    const { default: AnthropicSdk } = await import("@anthropic-ai/sdk");
+    const BigSchema = z.object({ ok: z.boolean() });
+    const calls: { format: unknown; system: string }[] = [];
+    const replies = ["```json\n{\"ok\":true}\n```", '{"ok":false}'];
+    const client = {
+      beta: {
+        messages: {
+          stream(params: { output_config: { format?: unknown }; system: { text: string }[] }) {
+            calls.push({ format: params.output_config.format, system: params.system[0]!.text });
+            if (params.output_config.format) {
+              throw new AnthropicSdk.BadRequestError(
+                400,
+                { type: "error", error: { type: "invalid_request_error", message: "The compiled grammar is too large, which would cause performance issues." } },
+                "The compiled grammar is too large, which would cause performance issues.",
+                new Headers(),
+              );
+            }
+            const text = replies.shift()!;
+            return {
+              finalMessage: async () => ({
+                model: "m",
+                stop_reason: "end_turn",
+                content: [{ type: "text", text }],
+                usage: { input_tokens: 1, output_tokens: 1, cache_read_input_tokens: 0, cache_creation_input_tokens: 0 },
+              }),
+            };
+          },
+        },
+      },
+    } as unknown as Anthropic;
+    const llm = new AnthropicLlmClient({ client, model: "m" });
+    expect((await llm.generate({ ...req, schema: BigSchema })).output).toEqual({ ok: true });
+    expect(calls).toHaveLength(2);
+    expect(calls[0]!.format).toBeTruthy();
+    expect(calls[1]!.format).toBeUndefined();
+    expect(calls[1]!.system).toContain("JSON Schema");
+    // 두 번째 요청부터는 처음부터 강제 없이 보낸다.
+    expect((await llm.generate({ ...req, schema: BigSchema })).output).toEqual({ ok: false });
+    expect(calls).toHaveLength(3);
+    expect(calls[2]!.format).toBeUndefined();
+  });
+});
