@@ -70,6 +70,8 @@ let messagesRoute: typeof import("@/app/api/graph/chat/threads/[threadId]/messag
 let retryRoute: typeof import("@/app/api/graph/chat/threads/[threadId]/retry/route");
 let applyRoute: typeof import("@/app/api/graph/chat/messages/[messageId]/apply/route");
 let dismissRoute: typeof import("@/app/api/graph/chat/messages/[messageId]/dismiss/route");
+let followupsRoute: typeof import("@/app/api/graph/chat/followups/route");
+let followupRoute: typeof import("@/app/api/graph/chat/followups/[followupId]/route");
 
 beforeAll(async () => {
   tdb = await createTestDb();
@@ -80,6 +82,8 @@ beforeAll(async () => {
   retryRoute = await import("@/app/api/graph/chat/threads/[threadId]/retry/route");
   applyRoute = await import("@/app/api/graph/chat/messages/[messageId]/apply/route");
   dismissRoute = await import("@/app/api/graph/chat/messages/[messageId]/dismiss/route");
+  followupsRoute = await import("@/app/api/graph/chat/followups/route");
+  followupRoute = await import("@/app/api/graph/chat/followups/[followupId]/route");
 });
 afterAll(() => tdb.close());
 beforeEach(() => {
@@ -214,5 +218,79 @@ describe("그래프 채팅 API", () => {
     const list = await (await threadsRoute.GET()).json();
     expect(list.graphEnabled).toBe(true);
     expect(list.threads.some((t: { id: string }) => t.id === threadId)).toBe(false);
+  });
+
+  it("후속 질문 API: 쌓인 질문 수·목록, 상태·프로젝트 지정, 답으로 보내고 적용하면 answered, 인증·출처·소유권", async () => {
+    graphs.set("a", {
+      nodes: [{ id: "p1", label: "Project", props: { name: "결제 개선" }, createdAt: 0, updatedAt: 0 }],
+      edges: [{ id: "WORKED_ON:me:p1", type: "WORKED_ON", from: "me", to: "p1" }],
+    });
+    const get = (q = "") => followupsRoute.GET(new Request(`http://localhost/api/graph/chat/followups${q}`));
+    const patch = (id: string, body: unknown, headers: Record<string, string> = {}) =>
+      followupRoute.PATCH(
+        new Request("http://localhost/x", {
+          method: "PATCH",
+          headers: { "content-type": "application/json", origin: "http://localhost", host: "localhost", ...headers },
+          body: JSON.stringify(body),
+        }),
+        p({ followupId: id }),
+      );
+
+    await tdb.prisma.graphFollowup.deleteMany(); // 앞 테스트(프로젝트 대화)가 쌓은 질문
+    // 일반 대화의 변경안(가짜 LLM: 경험 + 후속 질문 2개) → 프로젝트 미지정 질문 2개
+    const threadId = await newThread();
+    await messagesRoute.POST(post("/x", { message: "동아리에서 Python으로 추천 서비스를 만들었어요" }), p({ threadId }));
+    await flushAfter();
+    let res = await get("?unassigned=1");
+    expect(res.headers.get("Cache-Control")).toBe("no-store");
+    let body = await res.json();
+    expect(body.counts).toEqual({ byProject: {}, unassigned: 2 });
+    expect(body.items).toHaveLength(2);
+    const [q1, q2] = body.items as { id: string; text: string }[];
+    // 수만 달라고 하면 items가 없다
+    expect((await (await get()).json()).items).toBeUndefined();
+    expect((await get("?status=bogus")).status).toBe(400);
+
+    // 프로젝트 지정(없는 프로젝트는 404) → 프로젝트별 수
+    expect((await patch(q1!.id, { projectNodeId: "nope" })).status).toBe(404);
+    res = await patch(q1!.id, { projectNodeId: "p1" });
+    expect(res.status).toBe(200);
+    expect((await res.json()).counts).toEqual({ byProject: { p1: 1 }, unassigned: 1 });
+    expect((await (await get("?projectNodeId=p1")).json()).items.map((f: { id: string }) => f.id)).toEqual([q1!.id]);
+    // 건너뛰기 → 다시 열기
+    expect((await (await patch(q2!.id, { status: "skipped" })).json()).followup.status).toBe("skipped");
+    expect((await (await patch(q2!.id, { status: "open" })).json()).followup.status).toBe("open");
+    expect((await patch(q2!.id, {})).status).toBe(400);
+    expect((await patch(q2!.id, { status: "done" })).status).toBe(400);
+
+    // 인증·출처·소유권
+    expect((await patch(q2!.id, { status: "skipped" }, { origin: "https://evil.example" })).status).toBe(403);
+    currentUser = { id: "b", email: "b@x.com", name: null };
+    expect((await patch(q2!.id, { status: "skipped" })).status).toBe(404);
+    expect((await (await get("?unassigned=1")).json()).items).toEqual([]);
+    const otherThread = await newThread();
+    expect((await messagesRoute.POST(post("/x", { message: "답", followupId: q1!.id }), p({ threadId: otherThread }))).status).toBe(404);
+    currentUser = null;
+    expect((await get()).status).toBe(401);
+    expect((await patch(q2!.id, { status: "skipped" })).status).toBe(401);
+    currentUser = { id: "a", email: "a@x.com", name: "에이" };
+
+    // 프로젝트 대화에서 그 질문에 답한다 → 변경안 적용 → answered, 수가 줄어든다
+    const opened = await threadsRoute.POST(post("/api/graph/chat/threads", { focusNodeId: "p1", reuse: true }));
+    const focusThread = ((await opened.json()) as { thread: { id: string } }).thread.id;
+    let view = await (await threadRoute.GET(new Request("http://localhost"), p({ threadId: focusThread }))).json();
+    expect(view.followups.map((f: { id: string }) => f.id)).toEqual([q1!.id]);
+    const sent = await messagesRoute.POST(post("/x", { message: "Go로 정산 배치를 다시 만들었어요", followupId: q1!.id }), p({ threadId: focusThread }));
+    expect(sent.status).toBe(202);
+    await flushAfter();
+    view = await (await threadRoute.GET(new Request("http://localhost"), p({ threadId: focusThread }))).json();
+    const proposal = view.messages.at(-1);
+    expect(proposal.data.followupId).toBe(q1!.id);
+    expect((await applyRoute.POST(post("/x"), p({ messageId: proposal.id }))).status).toBe(200);
+    body = await (await get("?projectNodeId=p1&status=all")).json();
+    expect(body.items.find((f: { id: string }) => f.id === q1!.id).status).toBe("answered");
+    // 프로젝트 대화의 새 질문(체크리스트)이 쌓여 그 프로젝트의 열린 질문으로 센다
+    expect(body.counts.byProject.p1).toBe(body.items.filter((f: { status: string }) => f.status === "open").length);
+    graphs.delete("a");
   });
 });

@@ -503,7 +503,9 @@ function fakeGraphChat(user: string): GraphChatOutput {
   const focus = extractTag(user, CHAT_TAGS.focusProject);
   const projectId = focus ? /구조화할 프로젝트: \[([^\]]+)\]/.exec(focus)?.[1] : undefined;
   if (projectId) {
-    const question = /물을 질문: (.+?) 넣을 곳:/.exec(focus!)?.[1];
+    // 남은 후속 질문이 있으면 그 첫 질문을 그대로 묻는다(P6), 없으면 체크리스트의 '물을 질문'.
+    const followups = extractTag(user, CHAT_TAGS.followupQuestions);
+    const question = (followups ? /^1\. (.+)$/m.exec(followups)?.[1] : undefined) ?? /물을 질문: (.+?) 넣을 곳:/.exec(focus!)?.[1];
     const ops: GraphChatOutput["ops"] = [
       { ...blank, op: "updateNode", id: projectId, label: "Project", props: [{ key: "action", value: message.slice(0, 500) }] },
       ...skills.flatMap((name, i): GraphChatOutput["ops"] => [

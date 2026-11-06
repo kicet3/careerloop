@@ -9,22 +9,40 @@
  * - 프로젝트 단위 대화: 스레드에 focusNodeId가 있으면 그 프로젝트 하나를 AI가 한 질문씩 물어 구조화한다. 머리에 프로젝트와
  *   구조화 진행도(n/7)·빠진 항목을 보이고, 그래프가 바뀌면(GRAPH_CHANGED_EVENT) 다시 읽는다. 프로젝트 상세의 버튼은
  *   GRAPH_CHAT_PROJECT_EVENT로 그 프로젝트의 최근 대화를 고르거나 새로 만든다. 이 대화에서는 문서 가져오기를 숨긴다.
+ * - 후속 질문(graph_followups): 변경안의 후속 질문과 '변경안에서 뺀 항목' 중 채울 수 있는 것은 서버가 목록으로 쌓는다. 프로젝트 대화는
+ *   그 프로젝트의 열린 질문을 하나씩 '후속 질문 k/n'으로 띄우고(건너뛰기·다음), 보낼 때 그 질문 id(followupId)를 함께 보낸다 —
+ *   그 답으로 나온 변경안을 적용하면 질문이 답함으로 바뀐다. 기본 현재 질문은 AI가 방금 물은 질문(이 대화에서 이미 답으로 보낸 질문 제외)뿐이고,
+ *   그 밖에는 사용자가 고른 질문(목록·다음·'이어서 답하기'·목록 탭 배지)만 연결한다.
+ *   일반 대화에서는 프로젝트 미지정 질문을 접힌 목록으로 보이고(답하기·프로젝트 지정·건너뛰기), 질문이 바뀌면 FOLLOWUPS_CHANGED_EVENT를 보낸다.
  */
 import { useCallback, useEffect, useRef, useState } from "react";
 import { Alert, Badge, Button, Card, Spinner, cn } from "@/components/ui";
 import type { GraphChatMessageView, GraphThreadFocus, GraphThreadView } from "@/lib/chat/graph-chat";
 import type { ChatThread } from "@/lib/domain/chat";
 import { MAX_CHAT_MESSAGE_CHARS } from "@/lib/domain/chat";
+import { type GraphFollowup, normalizeFollowupText } from "@/lib/domain/followups";
 import { nodeDisplayName } from "@/lib/domain/graph";
 import { NO_ENGINE_MESSAGE, type ProviderId, type ProviderOption } from "@/lib/domain/providers";
 import { SELF_HOSTED_UPLOAD_LIMITS, type UploadLimits } from "@/lib/ingest/upload-limits";
-import { emitGraphChanged, fetchGraph, focusGraphNode, GRAPH_CHANGED_EVENT, GRAPH_CHAT_ASK_EVENT, GRAPH_CHAT_PROJECT_EVENT } from "./api";
+import {
+  emitGraphChanged,
+  fetchGraph,
+  focusGraphNode,
+  GRAPH_CHANGED_EVENT,
+  GRAPH_CHAT_ASK_EVENT,
+  GRAPH_CHAT_PROJECT_EVENT,
+  type ProjectChatDetail,
+} from "./api";
 import { chatApi as api, useElapsed } from "./chat-client";
+import { emitFollowupsChanged, FOLLOWUPS_CHANGED_EVENT, patchFollowup } from "./followups-client";
 import { GraphImportForm } from "./GraphImportForm";
 
 const PROVIDER_STORAGE_KEY = "graph-chat:provider";
 /** 새 프로젝트 대화의 입력에 미리 채우는 문장(보내기는 사용자가 누른다). */
 const projectStarter = (name: string) => `‘${name}’ 프로젝트를 더 구체적으로 정리하고 싶어요. 빠진 부분부터 하나씩 물어봐 주세요.`;
+/** 프로젝트 대화의 현재 후속 질문 고르기: 질문 id, "first"(가장 오래된 열린 질문), "none"(질문과 상관없이 보내기). */
+type FollowupPick = { threadId: string; id: string | "first" | "none" };
+
 /** 변경안 줄이 이보다 많으면(문서 가져오기) 앞부분만 보이고 나머지는 펼쳐 본다. */
 const OP_LINES_PREVIEW = 12;
 
@@ -77,6 +95,11 @@ export function GraphChatPanel({
   const [projectsError, setProjectsError] = useState(false);
   const [pickedProject, setPickedProject] = useState("");
   const [opening, setOpening] = useState(false);
+  // 후속 질문: 프로젝트 대화의 현재 질문 고르기, 일반 대화에서 답할 미지정 질문, 미지정 질문 목록.
+  const [focusPick, setFocusPick] = useState<FollowupPick | null>(null);
+  const [generalPick, setGeneralPick] = useState<string | null>(null);
+  const [unassigned, setUnassigned] = useState<GraphFollowup[]>([]);
+  const [followupBusy, setFollowupBusy] = useState<string | null>(null);
   const listRef = useRef<HTMLDivElement>(null);
   const inputRef = useRef<HTMLTextAreaElement>(null);
   // 체크리스트·그래프에 묻기의 '채우기' 요청 번호(바뀔 때마다 입력란으로 포커스).
@@ -113,7 +136,7 @@ export function GraphChatPanel({
    * 프로젝트 단위 대화 열기: 서버가 그 프로젝트의 최근 대화를 찾아 주고(목록 50개 밖의 오래된 대화도), 없으면 새로 만든다.
    * 새 대화면 입력을 시작 문장으로, 기존 대화면 비운다(다른 대화에 쓰던 글이 따라가지 않게).
    */
-  const openProject = useCallback(async (projectId: string) => {
+  const openProject = useCallback(async (projectId: string, followupId?: string) => {
     setError(null);
     setOpening(true);
     try {
@@ -123,7 +146,9 @@ export function GraphChatPanel({
       });
       setThreads((ts) => [r.thread, ...(ts ?? []).filter((t) => t.id !== r.thread.id)]);
       setThreadId(r.thread.id);
-      setInput(r.created ? projectStarter(r.thread.title) : "");
+      setFocusPick(followupId ? { threadId: r.thread.id, id: followupId } : null);
+      // 후속 질문에 답하러 왔으면 시작 문장을 채우지 않는다(질문이 머리에 보인다).
+      setInput(r.created && !followupId ? projectStarter(r.thread.title) : "");
       setPickerOpen(false);
       setImportOpen(false);
       setFocusRequest((n) => n + 1);
@@ -137,10 +162,10 @@ export function GraphChatPanel({
   // 프로젝트 상세의 '이 프로젝트 대화로 구조화하기'.
   useEffect(() => {
     const onProject = (ev: Event) => {
-      const projectId = (ev as CustomEvent<{ projectId?: string } | undefined>).detail?.projectId;
-      if (!projectId) return;
+      const detail = (ev as CustomEvent<Partial<ProjectChatDetail> | undefined>).detail;
+      if (!detail?.projectId) return;
       ev.preventDefault();
-      void openProject(projectId);
+      void openProject(detail.projectId, detail.followupId);
     };
     window.addEventListener(GRAPH_CHAT_PROJECT_EVENT, onProject);
     return () => window.removeEventListener(GRAPH_CHAT_PROJECT_EVENT, onProject);
@@ -196,6 +221,19 @@ export function GraphChatPanel({
     };
   }, []);
 
+  // 프로젝트 미지정 후속 질문(일반 대화에서 보인다). 질문이 바뀌면 다시 읽는다.
+  const loadUnassigned = useCallback(() => {
+    api<{ items?: GraphFollowup[] }>("/api/graph/chat/followups?unassigned=1").then(
+      (r) => setUnassigned(r.items ?? []),
+      () => {},
+    );
+  }, []);
+  useEffect(() => {
+    loadUnassigned();
+    window.addEventListener(FOLLOWUPS_CHANGED_EVENT, loadUnassigned);
+    return () => window.removeEventListener(FOLLOWUPS_CHANGED_EVENT, loadUnassigned);
+  }, [loadUnassigned]);
+
   const loadThread = useCallback(async (id: string) => {
     const seq = ++loadSeq.current;
     const v = await api<GraphThreadView>(`/api/graph/chat/threads/${encodeURIComponent(id)}`);
@@ -232,8 +270,9 @@ export function GraphChatPanel({
       try {
         const v = await loadThread(threadId);
         if (!v.pending || stopped) {
-          // 답이 오면 스레드 목록 순서·제목도 갱신한다.
+          // 답이 오면 스레드 목록 순서·제목도 갱신한다. 답과 함께 후속 질문이 쌓였을 수 있다.
           api<{ threads: ChatThread[] }>("/api/graph/chat/threads").then((r) => setThreads(r.threads), () => {});
+          if (!v.pending) emitFollowupsChanged();
           return;
         }
       } catch {
@@ -258,6 +297,72 @@ export function GraphChatPanel({
   const elapsed = useElapsed(pending ? lastCreatedAt : null);
   const readyProviders = providers?.filter((p) => p.ready) ?? [];
   const noEngine = providers !== null && readyProviders.length === 0;
+
+  // ---- 후속 질문 ----
+  // 프로젝트 대화: 그 프로젝트의 열린 질문 중 현재 질문(보낼 때 이 질문의 답으로 연결한다).
+  //  - 사용자가 고른 질문(목록·다음·배지의 "first")이 있으면 그것.
+  //  - 고른 것이 없으면 AI가 방금 물은 질문과 같은 열린 질문만 — 그 밖의 이야기를 아무 질문의 답으로 연결하지 않는다.
+  //  - 이 대화에서 이미 답으로 보낸 질문(적용 전이거나 "모르겠어요"로 끝난 것)은 자동으로 다시 고르지 않는다(서버 프롬프트도 같은 규칙).
+  // 일반 대화: 사용자가 '답하기'로 고른 미지정 질문만.
+  const threadFollowups = focusNodeId ? (view?.followups ?? []) : [];
+  const openFollowups = threadFollowups.filter((f) => f.status === "open");
+  const answeredHere = new Set(
+    (view?.messages ?? []).flatMap((m) => (m.role === "user" && m.data?.kind === "followup-answer" ? [m.data.followupId] : [])),
+  );
+  const freshFollowups = openFollowups.filter((f) => !answeredHere.has(f.id));
+  const pick = focusPick && focusPick.threadId === threadId ? focusPick.id : null;
+  let currentFollowup: GraphFollowup | null = null;
+  if (focusNodeId && pick !== "none") {
+    const lastAssistant = [...(view?.messages ?? [])].reverse().find((m) => m.role === "assistant");
+    const asked = lastAssistant?.data?.kind === "graph-proposal" ? normalizeFollowupText(lastAssistant.data.followUpQuestions[0] ?? "") : "";
+    currentFollowup =
+      (pick === "first"
+        ? (freshFollowups[0] ?? openFollowups[0])
+        : pick
+          ? openFollowups.find((f) => f.id === pick)
+          : asked
+            ? freshFollowups.find((f) => normalizeFollowupText(f.text) === asked)
+            : undefined) ?? null;
+  } else if (!focusNodeId && generalPick) {
+    currentFollowup = unassigned.find((f) => f.id === generalPick && f.status === "open") ?? null;
+  }
+
+  /** 프로젝트 대화의 현재 질문을 바꾼다(id·"first"·"none"). */
+  function pickFollowup(id: string | "first" | "none") {
+    if (threadId) setFocusPick({ threadId, id });
+    inputRef.current?.focus();
+  }
+
+  /** 다음 열린 질문으로(끝이면 처음으로). 상태는 바꾸지 않는다. */
+  function nextFollowup() {
+    if (openFollowups.length === 0) return;
+    const i = currentFollowup ? openFollowups.findIndex((f) => f.id === currentFollowup.id) : -1;
+    pickFollowup(openFollowups[(i + 1) % openFollowups.length]!.id);
+  }
+
+  async function changeFollowup(f: GraphFollowup, patch: { status?: "open" | "skipped"; projectNodeId?: string | null }) {
+    setFollowupBusy(f.id);
+    setError(null);
+    try {
+      await patchFollowup(f.id, patch);
+      if (patch.status === "skipped" && currentFollowup?.id === f.id) {
+        // 건너뛰면 다음 열린 질문으로(없으면 질문 없이). 버튼이 사라져도 키보드 포커스는 입력란으로.
+        const rest = openFollowups.filter((x) => x.id !== f.id);
+        const i = openFollowups.findIndex((x) => x.id === f.id);
+        const next = rest[i % Math.max(rest.length, 1)];
+        if (focusNodeId && threadId) setFocusPick({ threadId, id: next?.id ?? "none" });
+        if (!focusNodeId) setGeneralPick(null);
+        inputRef.current?.focus();
+      }
+      if (patch.status === "open" && focusNodeId && threadId) setFocusPick({ threadId, id: f.id });
+      if (patch.projectNodeId !== undefined && generalPick === f.id) setGeneralPick(null);
+      if (threadId) await loadThread(threadId).catch(() => {});
+    } catch (e) {
+      setError((e as Error).message);
+    } finally {
+      setFollowupBusy(null);
+    }
+  }
 
   function chooseProvider(id: ProviderId) {
     setProvider(id);
@@ -319,8 +424,14 @@ export function GraphChatPanel({
         setThreads((ts) => [r.thread, ...(ts ?? [])]);
         setThreadId(id);
       }
-      await api(`/api/graph/chat/threads/${encodeURIComponent(id)}/messages`, { method: "POST", json: { message: text, provider } });
+      await api(`/api/graph/chat/threads/${encodeURIComponent(id)}/messages`, {
+        method: "POST",
+        json: { message: text, provider, ...(currentFollowup ? { followupId: currentFollowup.id } : {}) },
+      });
       setInput("");
+      // 답한 뒤에는 AI가 다음에 묻는 질문이 현재 질문이 된다(답한 질문은 변경안을 적용하면 답함으로 바뀌고, 그 전에도 자동으로 다시 고르지 않는다).
+      if (focusNodeId) setFocusPick(null);
+      else setGeneralPick(null);
       clearAskQuery();
       await loadThread(id);
     } catch (e) {
@@ -371,7 +482,10 @@ export function GraphChatPanel({
         `/api/graph/chat/messages/${encodeURIComponent(messageId)}/${action}`,
         { method: "POST" },
       );
-      if (action === "apply" && r.message.status === "applied") emitGraphChanged("chat");
+      if (action === "apply" && r.message.status === "applied") {
+        emitGraphChanged("chat");
+        emitFollowupsChanged();
+      }
       await loadThread(threadId);
     } catch (e) {
       setError((e as Error).message);
@@ -394,7 +508,18 @@ export function GraphChatPanel({
     }
   }
 
+  /** 답변의 질문 칩: 목록에 같은 열린 후속 질문이 있으면 그 질문을 현재 질문으로, 없으면 입력에 질문을 붙인다. */
   function askAbout(question: string) {
+    const key = normalizeFollowupText(question);
+    const item = (focusNodeId ? openFollowups : unassigned).find((f) => f.status === "open" && normalizeFollowupText(f.text) === key);
+    if (item) {
+      if (focusNodeId) pickFollowup(item.id);
+      else {
+        setGeneralPick(item.id);
+        inputRef.current?.focus();
+      }
+      return;
+    }
     setInput((cur) => `${cur ? `${cur}\n` : ""}${question}\n→ `);
     inputRef.current?.focus();
   }
@@ -515,6 +640,36 @@ export function GraphChatPanel({
         />
       )}
 
+      {focusNodeId && view && (
+        <FocusFollowupBar
+          items={threadFollowups}
+          current={currentFollowup}
+          busyId={followupBusy}
+          detached={pick === "none"}
+          onPick={pickFollowup}
+          onNext={nextFollowup}
+          onChange={(f, status) => void changeFollowup(f, { status })}
+        />
+      )}
+
+      {!focusNodeId && unassigned.length > 0 && (
+        <UnassignedFollowups
+          items={unassigned}
+          currentId={currentFollowup?.id ?? null}
+          busyId={followupBusy}
+          projects={projects}
+          projectsError={projectsError}
+          // 펼칠 때마다 다시 읽는다(그 사이 새 Project를 적용했을 수 있다).
+          onLoadProjects={() => void loadProjects()}
+          onAnswer={(f) => {
+            setGeneralPick(f.id);
+            inputRef.current?.focus();
+          }}
+          onAssign={(f, projectNodeId) => void changeFollowup(f, { projectNodeId })}
+          onSkip={(f) => void changeFollowup(f, { status: "skipped" })}
+        />
+      )}
+
       {readyProviders.length > 1 && (
         <div className="flex flex-wrap items-center gap-2 border-b border-slate-100 px-4 py-2 text-sm text-slate-600">
           <label htmlFor="graph-chat-provider">AI 엔진</label>
@@ -575,7 +730,10 @@ export function GraphChatPanel({
               </div>
             </div>
           ) : m.role === "user" ? (
-            <div key={m.id} className="flex justify-end">
+            <div key={m.id} className="flex flex-col items-end gap-1">
+              {m.data?.kind === "followup-answer" && (
+                <p className="max-w-[85%] text-right text-xs break-words text-slate-500">후속 질문에 답함: {m.data.question}</p>
+              )}
               <p className="max-w-[85%] rounded-2xl rounded-br-sm bg-indigo-600 px-3.5 py-2 text-sm whitespace-pre-wrap break-words text-white">
                 {m.content}
               </p>
@@ -632,6 +790,16 @@ export function GraphChatPanel({
             </Button>
           </div>
         )}
+        {!focusNodeId && currentFollowup && (
+          <div className="mb-2 flex items-start gap-2 rounded-lg border border-amber-200 bg-amber-50 px-3 py-2 text-xs text-amber-900">
+            <span className="min-w-0 flex-1 break-words">
+              <span className="font-semibold">답하는 후속 질문</span> {currentFollowup.text}
+            </span>
+            <button type="button" className="shrink-0 underline" onClick={() => setGeneralPick(null)}>
+              연결 해제
+            </button>
+          </div>
+        )}
         <form
           className="flex items-end gap-2"
           onSubmit={(e) => {
@@ -659,7 +827,9 @@ export function GraphChatPanel({
             placeholder={
               pending
                 ? "답변을 기다리는 중입니다…"
-                : focusNodeId
+                : currentFollowup
+                  ? "후속 질문에 답해 주세요 (Enter 전송, Shift+Enter 줄바꿈)"
+                  : focusNodeId
                   ? "질문에 답하거나 이 프로젝트 이야기를 해 주세요 (Enter 전송, Shift+Enter 줄바꿈)"
                   : "경험을 이야기해 주세요 (Enter 전송, Shift+Enter 줄바꿈)"
             }
@@ -835,13 +1005,23 @@ function AssistantMessage({
           </div>
         )}
 
+        {proposal?.followupId && m.status === "proposed" && (
+          <p className="text-xs text-slate-500">후속 질문에 대한 답이에요. 적용하면 그 질문을 답함으로 표시합니다.</p>
+        )}
+
         {proposal?.droppedOps && proposal.droppedOps.length > 0 && (
           <details className="text-xs text-slate-500">
-            <summary className="cursor-pointer">변경안에서 뺀 항목 {proposal.droppedOps.length}개</summary>
+            <summary className="cursor-pointer">
+              변경안에서 뺀 항목 {proposal.droppedOps.length}개
+              {proposal.droppedFollowups?.length ? ` · ${proposal.droppedFollowups.length}개는 후속 질문에 추가` : ""}
+            </summary>
             <ul className="mt-1 list-disc space-y-0.5 pl-4">
               {proposal.droppedOps.map((d, i) => (
                 <li key={i} className="break-words">
                   {d}
+                  {proposal.droppedFollowups?.includes(i) && (
+                    <span className="ml-1 rounded bg-amber-50 px-1 py-px text-[11px] font-medium text-amber-800 ring-1 ring-amber-200">후속 질문에 추가</span>
+                  )}
                 </li>
               ))}
             </ul>
@@ -901,5 +1081,182 @@ function OpLineList({ lines }: { lines: string[] }) {
         </details>
       )}
     </>
+  );
+}
+
+const FOLLOWUP_KIND_NAME = { question: "AI 질문", dropped: "뺀 항목" } as const;
+
+/**
+ * 프로젝트 대화의 후속 질문 머리: '후속 질문 k/n'과 현재 질문, 건너뛰기·다음, 펼치면 전체 목록(건너뛴 질문은 다시 열기).
+ * 열린 질문이 없으면 건너뛴 질문 수만 보인다. 질문이 하나도 없으면 아무것도 보이지 않는다.
+ */
+function FocusFollowupBar({
+  items,
+  current,
+  busyId,
+  detached,
+  onPick,
+  onNext,
+  onChange,
+}: {
+  items: GraphFollowup[];
+  current: GraphFollowup | null;
+  busyId: string | null;
+  detached: boolean;
+  onPick: (id: string | "first" | "none") => void;
+  onNext: () => void;
+  onChange: (f: GraphFollowup, status: "open" | "skipped") => void;
+}) {
+  const open = items.filter((f) => f.status === "open");
+  const skipped = items.filter((f) => f.status === "skipped");
+  if (items.length === 0) return null;
+  const k = current ? open.findIndex((f) => f.id === current.id) + 1 : 0;
+  return (
+    <div className="space-y-2 border-b border-slate-100 bg-amber-50/40 px-4 py-2.5 text-sm" aria-live="polite">
+      {current ? (
+        <div className="flex flex-wrap items-start gap-2">
+          <Badge tone="warning">
+            후속 질문 {k}/{open.length}
+          </Badge>
+          <p className="min-w-0 flex-1 break-words text-slate-900">
+            {current.text}
+            {current.kind === "dropped" && current.detail && (
+              <span className="mt-0.5 block text-xs text-slate-500" title={current.detail}>
+                변경안에서 뺀 항목: {current.detail}
+              </span>
+            )}
+          </p>
+          <span className="inline-flex gap-1">
+            <Button size="sm" variant="ghost" onClick={() => onChange(current, "skipped")} loading={busyId === current.id} disabled={busyId !== null}>
+              건너뛰기
+            </Button>
+            <Button size="sm" variant="secondary" onClick={onNext} disabled={open.length < 2}>
+              다음
+            </Button>
+            <Button size="sm" variant="ghost" onClick={() => onPick("none")} title="이번 메시지는 이 질문과 상관없이 보내기">
+              이번엔 질문 없이
+            </Button>
+          </span>
+        </div>
+      ) : (
+        <div className="flex flex-wrap items-center gap-2 text-xs text-slate-600">
+          {open.length > 0 ? (
+            <>
+              <span>
+                후속 질문 {open.length}개가 남아 있어요.{detached ? " 지금은 질문과 상관없이 이야기합니다." : " 고르면 그 질문의 답으로 보냅니다."}
+              </span>
+              <Button size="sm" variant="secondary" onClick={() => onPick("first")}>
+                후속 질문 이어서 답하기
+              </Button>
+            </>
+          ) : (
+            <span>열린 후속 질문이 없어요{skipped.length > 0 ? ` · 건너뛴 질문 ${skipped.length}개` : ""}.</span>
+          )}
+        </div>
+      )}
+      <details className="text-xs text-slate-600">
+        <summary className="cursor-pointer">
+          후속 질문 목록 (열림 {open.length}
+          {skipped.length > 0 ? ` · 건너뜀 ${skipped.length}` : ""})
+        </summary>
+        <ul className="mt-1.5 max-h-48 space-y-1 overflow-y-auto">
+          {items.map((f) => (
+            <li key={f.id} className={cn("flex items-start gap-2 rounded-md px-2 py-1", f.id === current?.id && "bg-white ring-1 ring-amber-200")}>
+              <span className="shrink-0 text-slate-400">{f.status === "skipped" ? "건너뜀" : FOLLOWUP_KIND_NAME[f.kind]}</span>
+              <span className={cn("min-w-0 flex-1 break-words", f.status === "skipped" && "text-slate-400 line-through")}>{f.text}</span>
+              {f.status === "open" ? (
+                f.id !== current?.id && (
+                  <button type="button" className="shrink-0 font-medium text-indigo-700 underline" onClick={() => onPick(f.id)}>
+                    이 질문 답하기
+                  </button>
+                )
+              ) : (
+                <button
+                  type="button"
+                  className="shrink-0 font-medium text-indigo-700 underline disabled:opacity-50"
+                  onClick={() => onChange(f, "open")}
+                  disabled={busyId !== null}
+                >
+                  다시 열기
+                </button>
+              )}
+            </li>
+          ))}
+        </ul>
+      </details>
+    </div>
+  );
+}
+
+/** 일반 대화: 프로젝트 미지정 후속 질문(접힌 목록). 답하기(이 대화에서), 프로젝트 지정, 건너뛰기. */
+function UnassignedFollowups({
+  items,
+  currentId,
+  busyId,
+  projects,
+  projectsError,
+  onLoadProjects,
+  onAnswer,
+  onAssign,
+  onSkip,
+}: {
+  items: GraphFollowup[];
+  currentId: string | null;
+  busyId: string | null;
+  projects: { id: string; name: string }[] | null;
+  projectsError: boolean;
+  onLoadProjects: () => void;
+  onAnswer: (f: GraphFollowup) => void;
+  onAssign: (f: GraphFollowup, projectNodeId: string) => void;
+  onSkip: (f: GraphFollowup) => void;
+}) {
+  return (
+    <details
+      className="border-b border-slate-100 bg-amber-50/30 px-4 py-2 text-sm"
+      onToggle={(e) => {
+        if ((e.currentTarget as HTMLDetailsElement).open) onLoadProjects();
+      }}
+    >
+      <summary className="cursor-pointer text-xs font-medium text-amber-900">프로젝트 미지정 후속 질문 {items.length}개</summary>
+      <ul className="mt-2 max-h-64 space-y-2 overflow-y-auto">
+        {items.map((f) => (
+          <li key={f.id} className={cn("rounded-md bg-white px-2.5 py-2 ring-1 ring-slate-200", f.id === currentId && "ring-amber-300")}>
+            <p className="break-words text-slate-800">{f.text}</p>
+            {f.kind === "dropped" && f.detail && <p className="mt-0.5 break-words text-xs text-slate-500">변경안에서 뺀 항목: {f.detail}</p>}
+            <div className="mt-1.5 flex flex-wrap items-center gap-1.5">
+              <Button size="sm" variant="secondary" onClick={() => onAnswer(f)} disabled={f.id === currentId}>
+                {f.id === currentId ? "선택됨" : "이 대화에서 답하기"}
+              </Button>
+              {projects && projects.length > 0 && (
+                <>
+                  <label className="sr-only" htmlFor={`followup-assign-${f.id}`}>
+                    프로젝트 지정
+                  </label>
+                  <select
+                    id={`followup-assign-${f.id}`}
+                    className="h-8 min-w-0 max-w-[12rem] rounded-lg border border-slate-300 bg-white px-2 text-xs text-slate-800"
+                    value=""
+                    disabled={busyId !== null}
+                    onChange={(e) => e.target.value && onAssign(f, e.target.value)}
+                  >
+                    <option value="">프로젝트 지정…</option>
+                    {projects.map((p) => (
+                      <option key={p.id} value={p.id}>
+                        {p.name}
+                      </option>
+                    ))}
+                  </select>
+                </>
+              )}
+              {projects && projects.length === 0 && <span className="text-xs text-slate-500">지정할 프로젝트가 없습니다</span>}
+              {projectsError && <span className="text-xs text-slate-500">프로젝트 목록을 불러오지 못했습니다</span>}
+              <Button size="sm" variant="ghost" onClick={() => onSkip(f)} loading={busyId === f.id} disabled={busyId !== null}>
+                건너뛰기
+              </Button>
+            </div>
+          </li>
+        ))}
+      </ul>
+    </details>
   );
 }

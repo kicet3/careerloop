@@ -6,6 +6,7 @@
  */
 import { z } from "zod";
 import type { ExperienceCategoryId } from "./experience-categories";
+import type { FollowupAnswerData } from "./followups";
 import { type GraphOp, LlmGraphOpSchema, MAX_OPS_PER_BATCH, type NodeLabel, type RelType } from "./graph";
 import type { ReviewerId } from "./schemas";
 
@@ -49,6 +50,8 @@ export const CHAT_TAGS = {
   experienceChecklist: "experience_checklist",
   /** 프로젝트 단위 대화: 구조화할 프로젝트와 그 주변 그래프·구조화 체크리스트(graph/project-structure.ts projectFocusText) */
   focusProject: "focus_project",
+  /** 후속 질문: 이번 메시지가 답하는 질문과(있으면) 그 프로젝트의 남은 열린 질문(graph-chat.ts followupBlock) */
+  followupQuestions: "followup_questions",
   /** 그래프에 묻기: 번호를 붙인 근거 노드 표(qa-context.ts buildContext), LLM 리랭크 후보 표 */
   graphSources: "graph_sources",
   /** 면접 연습: id를 붙인 근거 줄 표(`[r1] (이력서 · 위치) 본문` 한 줄씩, domain/interview.ts InterviewSourceLine) */
@@ -141,6 +144,10 @@ export interface GraphProposalData {
   followUpQuestions: string[];
   /** 형식이 틀려 버린 연산의 사유(사용자에게 알릴 수 있다). */
   droppedOps?: string[];
+  /** droppedOps 중 후속 질문 목록(graph_followups)에 질문으로 넣은 것의 번호(0부터). */
+  droppedFollowups?: number[];
+  /** 이 변경안이 답한 후속 질문 id(사용자 메시지의 FollowupAnswerData). 적용하면 그 질문을 answered로 바꾼다. */
+  followupId?: string;
   /** 적용 결과(status='applied'일 때): 임시 ref → 새 노드 id. */
   created?: Record<string, string>;
   /** 적용 실패 사유(status='failed'일 때). */
@@ -222,7 +229,7 @@ export interface GraphAnswerData {
   debug?: RetrievalDebug;
 }
 
-export type ChatMessageData = GraphProposalData | ReviewerFeedbackData | GraphAnswerData | DocumentImportData;
+export type ChatMessageData = GraphProposalData | ReviewerFeedbackData | GraphAnswerData | DocumentImportData | FollowupAnswerData;
 
 // ---------------------------------------------------------------------------
 // API 응답 형태 (날짜는 epoch ms)

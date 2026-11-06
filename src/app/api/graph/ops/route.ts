@@ -6,6 +6,7 @@ import { BodyTooLargeError, readBodyLimited } from "@/lib/diagnoses/body";
 import { jsonError } from "@/lib/diagnoses/http";
 import { GraphOpSchema, MAX_OPS_PER_BATCH } from "@/lib/domain/graph";
 import { applyGraphOps, getCareerGraph, graphEnabled } from "@/lib/graph/service";
+import { releaseDeletedProjectFollowups } from "@/lib/chat/followups";
 
 export const runtime = "nodejs";
 
@@ -53,6 +54,9 @@ export async function POST(req: Request) {
 
   try {
     const result = await applyGraphOps(user.id, parsed.data.ops);
+    // 지운 Project의 후속 질문은 미지정으로 옮긴다(Neo4j id라 외래 키가 없다). 실패해도 편집 결과는 그대로 돌려준다.
+    const deleted = parsed.data.ops.flatMap((o) => (o.op === "deleteNode" ? [o.id] : []));
+    await releaseDeletedProjectFollowups(user.id, deleted).catch((err) => console.error("[graph ops followups]", err));
     const graph = await getCareerGraph(user.id, { personName: user.name });
     const body: ApplyOpsResponse = { ...result, graph };
     return Response.json(body, { headers: { "Cache-Control": "no-store" } });

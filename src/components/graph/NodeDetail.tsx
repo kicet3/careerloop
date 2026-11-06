@@ -18,9 +18,12 @@ export function NodeDetail({
   onApply,
   onSelect,
   onClose,
+  followupCount = 0,
 }: {
   graph: CareerGraph;
   id: string;
+  /** Project: 열린 후속 질문 수(0이면 배지를 숨긴다). */
+  followupCount?: number;
   onEdit: () => void;
   onAddEdge: () => void;
   /** 삭제 연산을 서버에 보낸다. 실패하면 오류 문구를 던진다. */
@@ -115,6 +118,18 @@ export function NodeDetail({
           <p className="min-w-0 flex-1 text-sm text-indigo-900">
             AI가 이 프로젝트의 배경·역할·한 일·기술·성과를 하나씩 물어보며 그래프로 정리해 줍니다.
           </p>
+          {followupCount > 0 && (
+            <Button
+              size="sm"
+              variant="secondary"
+              onClick={() => {
+                if (!openProjectChat(node.id, { followupId: "first" })) setError("이 화면에서는 대화를 열 수 없습니다. 경험 그래프 화면에서 다시 시도해 주세요.");
+              }}
+              aria-label={`후속 질문 ${followupCount}개 — 눌러서 이 프로젝트 대화에서 답하기`}
+            >
+              후속 질문 {followupCount}개
+            </Button>
+          )}
           <Button
             size="sm"
             onClick={() => {

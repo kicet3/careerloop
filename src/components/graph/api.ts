@@ -92,12 +92,21 @@ export function focusGraphNode(id: string, pathIds?: string[]): boolean {
 /** 같은 화면의 그래프 채팅에 프로젝트 단위 대화를 열어 달라는 window 이벤트(프로젝트 상세의 '대화로 구조화하기'). */
 export const GRAPH_CHAT_PROJECT_EVENT = "graph-chat:project";
 
+export interface ProjectChatDetail {
+  projectId: string;
+  /** 열고 나서 현재 질문으로 띄울 후속 질문 id. "first"면 그 프로젝트의 가장 오래된 열린 질문(목록의 '후속 질문 n개'). */
+  followupId?: string;
+}
+
 /**
  * 프로젝트 하나에 집중한 대화를 연다: 그 프로젝트의 최근 대화가 있으면 고르고, 없으면 새로 만든다. 도우미 패널은 경험 정리하기 탭으로 바꾼다.
- * 받은 채팅이 없으면 false.
+ * followupId를 주면 그 후속 질문을("first"면 가장 오래된 열린 질문을) 현재 질문으로 띄운다. 받은 채팅이 없으면 false.
  */
-export function openProjectChat(projectId: string): boolean {
-  const ev = new CustomEvent<{ projectId: string }>(GRAPH_CHAT_PROJECT_EVENT, { detail: { projectId }, cancelable: true });
+export function openProjectChat(projectId: string, opts: { followupId?: string } = {}): boolean {
+  const ev = new CustomEvent<ProjectChatDetail>(GRAPH_CHAT_PROJECT_EVENT, {
+    detail: { projectId, ...(opts.followupId ? { followupId: opts.followupId } : {}) },
+    cancelable: true,
+  });
   window.dispatchEvent(ev);
   return ev.defaultPrevented;
 }

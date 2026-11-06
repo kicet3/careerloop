@@ -183,7 +183,14 @@ const DATE_PROP_KEYS = new Set(["startDate", "endDate", "date"]);
  * - 숫자(모든 라벨의 addNode·updateNode, 날짜 제외): 속성 값의 숫자가 모두 문서에 있어야 한다. 대표 이름이나 성과 수치가
  *   어긋나면 연산을 빼고, 그 밖의 속성(result·summary·action·teamSize …)은 그 속성만 뺀다. 남은 속성이 없는 updateNode는 뺀다.
  */
-export function verifyAgainstDocument(ops: readonly GraphOp[], text: string): { ops: GraphOp[]; dropped: string[] } {
+/** 문서에 근거가 없어 뺀 것(후속 질문으로 바꿀 수 있다 — followup-extract.ts). keys: 뺀 속성(null이면 연산째), reason: dropped의 그 줄. */
+export interface EvidenceGap {
+  op: GraphOp;
+  keys: string[] | null;
+  reason: string;
+}
+
+export function verifyAgainstDocument(ops: readonly GraphOp[], text: string): { ops: GraphOp[]; dropped: string[]; gaps: EvidenceGap[] } {
   const docNorm = norm(text);
   const docCompany = companyKey(text);
   const docTokens = tokenize(text);
@@ -191,6 +198,11 @@ export function verifyAgainstDocument(ops: readonly GraphOp[], text: string): { 
   const docSkills = new Set(extractKeywords(text).map(skillKey));
   const kept: GraphOp[] = [];
   const dropped: string[] = [];
+  const gaps: EvidenceGap[] = [];
+  const gap = (op: GraphOp, keys: string[] | null, reason: string) => {
+    dropped.push(reason);
+    gaps.push({ op, keys, reason });
+  };
   const valueNumbersOk = (v: unknown) =>
     (typeof v !== "string" && typeof v !== "number") || numbersIn(String(v)).every((n) => docNumbers.has(n));
   const numbersOk = (props: Record<string, unknown>, keys: readonly string[]) => keys.every((k) => valueNumbersOk(props[k]));
@@ -232,7 +244,7 @@ export function verifyAgainstDocument(ops: readonly GraphOp[], text: string): { 
     // 대표 이름에 문서에 없는 숫자가 있으면 연산째 뺀다.
     if (ok && !valueNumbersOk(props[titleKey])) ok = false;
     if (!ok) {
-      dropped.push(`${describeGraphOp(op)} — 문서에서 찾지 못한 항목이라 뺐습니다`);
+      gap(op, null, `${describeGraphOp(op)} — 문서에서 찾지 못한 항목이라 뺐습니다`);
       continue;
     }
     // 그 밖의 속성: 문서에 없는 숫자가 든 속성만 뺀다(날짜 제외).
@@ -244,13 +256,13 @@ export function verifyAgainstDocument(ops: readonly GraphOp[], text: string): { 
     const nextProps = Object.fromEntries(Object.entries(props).filter(([k]) => !badKeys.includes(k)));
     const next = { ...op, props: nextProps } as GraphOp;
     if (op.op === "updateNode" && Object.keys(nextProps).length === 0) {
-      dropped.push(`${describeGraphOp(op)} — 문서에 없는 숫자가 있어 뺐습니다`);
+      gap(op, badKeys, `${describeGraphOp(op)} — 문서에 없는 숫자가 있어 뺐습니다`);
       continue;
     }
-    dropped.push(`${describeGraphOp(next)}의 ${badKeys.join(", ")} — 문서에 없는 숫자가 있어 그 속성은 뺐습니다`);
+    gap(op, badKeys, `${describeGraphOp(next)}의 ${badKeys.join(", ")} — 문서에 없는 숫자가 있어 그 속성은 뺐습니다`);
     kept.push(next);
   }
-  return { ops: kept, dropped };
+  return { ops: kept, dropped, gaps };
 }
 
 /**

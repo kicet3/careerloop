@@ -7,7 +7,8 @@ import { Card } from "@/components/ui/Card";
 import { cn } from "@/components/ui/cn";
 import { Spinner } from "@/components/ui/Spinner";
 import { type CareerGraph, type GraphOp, NODE_LABEL_META, NODE_LABELS, type NodeLabel, PERSON_ID } from "@/lib/domain/graph";
-import { emitGraphChanged, fetchGraph, GRAPH_CHANGED_EVENT, GRAPH_FOCUS_EVENT, type GraphFocusDetail, postGraphOps } from "./api";
+import { emitGraphChanged, fetchGraph, GRAPH_CHANGED_EVENT, GRAPH_FOCUS_EVENT, type GraphFocusDetail, openProjectChat, postGraphOps } from "./api";
+import { useFollowupCounts } from "./followups-client";
 import { EdgeForm } from "./EdgeForm";
 import { ExperienceChecklist } from "./ExperienceChecklist";
 import { GraphCanvas } from "./GraphCanvas";
@@ -62,6 +63,7 @@ export function CareerGraphView({
   /** 그래프에 묻기 출처에서 온 강조 경로. 다른 항목을 고르면 지운다. */
   const [highlight, setHighlight] = useState<{ id: string; ids: ReadonlySet<string> } | null>(null);
   const [focusNotice, setFocusNotice] = useState<string | null>(null);
+  const followupCounts = useFollowupCounts();
   const graphRef = useRef(graph);
   useEffect(() => {
     graphRef.current = graph;
@@ -236,7 +238,15 @@ export function CareerGraphView({
                 </div>
               </>
             ) : (
-              <GraphList graph={graph} selectedId={selectedId} onSelect={select} />
+              <GraphList
+                graph={graph}
+                selectedId={selectedId}
+                onSelect={select}
+                followupCounts={followupCounts}
+                onOpenFollowups={(projectId) => {
+                  if (!openProjectChat(projectId, { followupId: "first" })) setFocusNotice("이 화면에서는 대화를 열 수 없습니다.");
+                }}
+              />
             )}
           </div>
         )
@@ -254,6 +264,7 @@ export function CareerGraphView({
               onApply={apply}
               onSelect={select}
               onClose={() => setPanel({ kind: "none" })}
+              followupCount={followupCounts?.byProject[panel.id] ?? 0}
             />
           )}
           {panel.kind === "add" && <NodeForm graph={graph} onSubmit={apply} onCancel={() => setPanel({ kind: "none" })} />}

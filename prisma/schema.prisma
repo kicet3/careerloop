@@ -46,6 +46,7 @@ model User {
   portfolios        Portfolio[]
   llmUsageEvents    LlmUsageEvent[]
   mcpTokens         McpToken[]
+  graphFollowups    GraphFollowup[]
 
   @@index([status, createdAt], map: "users_status_idx")
   @@map("users")
@@ -331,9 +332,10 @@ model ChatThread {
   createdAt   DateTime @default(now()) @map("created_at") @db.Timestamptz(3)
   updatedAt   DateTime @default(now()) @map("updated_at") @db.Timestamptz(3)
 
-  user      User          @relation(fields: [userId], references: [id], onDelete: Cascade, map: "chat_threads_user_id_fkey")
-  diagnosis Diagnosis?    @relation(fields: [diagnosisId], references: [id], onDelete: Cascade, map: "chat_threads_diagnosis_id_fkey")
+  user      User            @relation(fields: [userId], references: [id], onDelete: Cascade, map: "chat_threads_user_id_fkey")
+  diagnosis Diagnosis?      @relation(fields: [diagnosisId], references: [id], onDelete: Cascade, map: "chat_threads_diagnosis_id_fkey")
   messages  ChatMessage[]
+  followups GraphFollowup[]
 
   @@index([userId, kind, updatedAt], map: "chat_threads_user_idx")
   @@index([diagnosisId, reviewer], map: "chat_threads_diag_idx")
@@ -354,7 +356,8 @@ model ChatMessage {
   usage     Json?
   createdAt DateTime @default(now()) @map("created_at") @db.Timestamptz(3)
 
-  thread ChatThread @relation(fields: [threadId], references: [id], onDelete: Cascade, map: "chat_messages_thread_id_fkey")
+  thread    ChatThread      @relation(fields: [threadId], references: [id], onDelete: Cascade, map: "chat_messages_thread_id_fkey")
+  followups GraphFollowup[]
 
   @@index([threadId, createdAt], map: "chat_messages_thread_idx")
   @@map("chat_messages")
@@ -696,4 +699,41 @@ model McpToken {
 
   @@index([userId, createdAt], map: "mcp_tokens_user_idx")
   @@map("mcp_tokens")
+}
+
+/// 경험 그래프 후속 질문(대화로 채울 목록): 그래프 채팅 변경안의 followUpQuestions와, 변경안에서 뺀 항목 중 사용자가 채울 수 있는 것(근거·기간·수치)을
+/// 질문으로 바꾼 것. 프로젝트 단위 대화가 하나씩 물어 채운다 — src/lib/chat/followups.ts. 탈퇴하면 FK CASCADE로 지워진다.
+model GraphFollowup {
+  id              String    @id
+  userId          String    @map("user_id")
+  /// 경험 그래프 Project 노드 id(Neo4j — FK 없음). null이면 프로젝트 미지정.
+  projectNodeId   String?   @map("project_node_id")
+  /// 근거 변경안이 새로 만들 Project의 임시 ref("new:…"). 그 변경안을 적용하면 project_node_id로 바꾸고 비운다.
+  projectRef      String?   @map("project_ref")
+  threadId        String?   @map("thread_id")
+  sourceMessageId String?   @map("source_message_id")
+  /// FollowupKind('question' | 'dropped')
+  kind            String
+  /// 사용자에게 물을 질문(300자 이하).
+  text            String
+  /// kind='dropped'일 때 원래 뺀 사유.
+  detail          String?
+  /// 이 질문이 채우는 프로젝트 구조화 항목(ProjectStructureItemId). 그 항목이 완료되면 자동으로 answered.
+  targetItem      String?   @map("target_item")
+  /// 같은 프로젝트의 열린 질문 중복 판정 키(정규화한 text).
+  dedupeKey       String    @map("dedupe_key")
+  /// FollowupStatus('open' | 'answered' | 'skipped')
+  status          String    @default("open")
+  createdAt       DateTime  @default(now()) @map("created_at") @db.Timestamptz(3)
+  updatedAt       DateTime  @default(now()) @map("updated_at") @db.Timestamptz(3)
+  resolvedAt      DateTime? @map("resolved_at") @db.Timestamptz(3)
+
+  user    User         @relation(fields: [userId], references: [id], onDelete: Cascade, map: "graph_followups_user_id_fkey")
+  thread  ChatThread?  @relation(fields: [threadId], references: [id], onDelete: SetNull, map: "graph_followups_thread_id_fkey")
+  message ChatMessage? @relation(fields: [sourceMessageId], references: [id], onDelete: SetNull, map: "graph_followups_source_message_id_fkey")
+
+  @@index([userId, status, projectNodeId], map: "graph_followups_user_idx")
+  @@index([sourceMessageId], map: "graph_followups_message_idx")
+  @@index([threadId], map: "graph_followups_thread_idx")
+  @@map("graph_followups")
 }
