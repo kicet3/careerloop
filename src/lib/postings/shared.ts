@@ -16,6 +16,7 @@ import { FeatureError } from "@/lib/api/errors";
 import { prisma, type Db, type Prisma } from "@/lib/db/client";
 import { isUniqueViolation, stripNul, stripNulDeep } from "@/lib/db/errors";
 import type { JobPostingRow, SharedPostingRow } from "@/lib/db/types";
+import { normalizeMilitaryTags, type MilitaryServiceFilter, type MilitaryServiceTag } from "@/lib/domain/military-service";
 import { POSTING_STRUCTURE_VERSION, type PostingStructure } from "@/lib/domain/posting-structure";
 import { POSTING_LIMITS, type JobPosting, type PostingCreateInput, type PostingStatus } from "@/lib/domain/postings";
 import {
@@ -24,8 +25,10 @@ import {
   type SharedPostingDetail,
   type SharedPostingSummary,
 } from "@/lib/domain/shared-postings";
+import { clampPage, LIST_PAGE_SIZE, pageCountOf, type PageInfo } from "@/lib/pagination";
 import { kstDate } from "@/lib/time/kst";
 import { toCaptureInfo } from "./capture-store";
+import { detectPostingMilitaryService, MILITARY_SERVICE_DETECTOR_VERSION, militaryServiceColumns } from "./military-service";
 import {
   DuplicatePostingError,
   getPosting,
@@ -64,8 +67,15 @@ export async function findSharedPostingByUrl(rawUrl: string, db: Db = prisma): P
   return key ? findSharedPostingByUrlKey(key, db) : null;
 }
 
+/** 저장된 병역특례 태그. 아직 계산하지 않았거나 예전 규칙으로 계산한 행이면 즉석에서 계산한다(공개 필드만). */
+function militaryTagsOf(row: SharedPostingRow, structure: PostingStructure | null): MilitaryServiceTag[] {
+  if (row.militaryServiceVersion === MILITARY_SERVICE_DETECTOR_VERSION) return normalizeMilitaryTags(row.militaryService);
+  return detectPostingMilitaryService({ roleTitle: row.roleTitle, jdText: row.jdText, structured: structure });
+}
+
 function toSummary(row: SharedPostingRow, myPostingId: string | null): SharedPostingSummary {
-  const highlights = highlightsOf(parseStoredStructure(row.structured));
+  const structure = parseStoredStructure(row.structured);
+  const highlights = highlightsOf(structure);
   return {
     id: row.id,
     url: row.url,
@@ -81,6 +91,7 @@ function toSummary(row: SharedPostingRow, myPostingId: string | null): SharedPos
     location: row.location ?? "",
     careerLevel: row.careerLevel,
     ...(highlights ? { highlights } : {}),
+    militaryService: militaryTagsOf(row, structure),
     importerCount: row.importerCount,
     fetchedAt: row.fetchedAt.getTime(),
     myPostingId,
@@ -126,6 +137,9 @@ export interface SharedPostingListOptions {
   role?: string;
   tech?: string;
   deadline?: SharedDeadlineFilter;
+  /** 병역특례: any(종류 무관 가능)·expert·industrial. all·없음이면 거르지 않는다. */
+  military?: MilitaryServiceFilter;
+  /** 0부터(listSharedPostings). listSharedPostingsPage는 1부터. */
   page?: number;
   pageSize?: number;
   viewerId?: string;
@@ -156,6 +170,8 @@ export function sharedPostingWhere(opts: SharedPostingListOptions): Prisma.Share
   } else if (opts.deadline === "soon") {
     and.push({ deadlineKind: "date", deadline: { gte: today, lte: kstDate((opts.now ?? Date.now()) + 7 * 86_400_000) } });
   }
+  if (opts.military === "any") and.push({ NOT: { militaryService: { isEmpty: true } } });
+  else if (opts.military === "expert" || opts.military === "industrial") and.push({ militaryService: { has: opts.military } });
   return { hiddenAt: opts.hidden === "only" ? { not: null } : null, ...(and.length ? { AND: and } : {}) };
 }
 
@@ -164,6 +180,7 @@ export function sharedPostingWhere(opts: SharedPostingListOptions): Prisma.Share
  * viewerId를 주면 각 공고에 내 보관함 공고 id(myPostingId)를 싣는다.
  */
 export async function listSharedPostings(opts: SharedPostingListOptions = {}): Promise<{ items: SharedPostingSummary[]; total: number }> {
+  await ensureSharedMilitaryBackfill();
   const where = sharedPostingWhere(opts);
   const size = Math.min(Math.max(opts.pageSize ?? SHARED_POSTING_PAGE_SIZE, 1), 100);
   const [rows, total] = await Promise.all([
@@ -177,6 +194,101 @@ export async function listSharedPostings(opts: SharedPostingListOptions = {}): P
   ]);
   const mine = opts.viewerId ? await myPostingIds(opts.viewerId, rows) : new Map<string, string>();
   return { items: (rows as SharedPostingRow[]).map((r) => toSummary(r, mine.get(r.id) ?? null)), total };
+}
+
+/**
+ * 공고 찾기 화면 목록: 한 쪽 12개(LIST_PAGE_SIZE), page는 1부터. 쪽 수를 넘는 page는 마지막 쪽으로 맞춘다(돌려주는 page가 실제 쪽).
+ * 정렬은 listSharedPostings와 같다(최근 읽은 순, 같으면 id 역순 — 쪽 사이에 겹치거나 빠지는 행이 없다).
+ */
+export async function listSharedPostingsPage(
+  opts: Omit<SharedPostingListOptions, "page" | "pageSize"> & { page?: number; pageSize?: number } = {},
+): Promise<{ items: SharedPostingSummary[] } & PageInfo> {
+  await ensureSharedMilitaryBackfill();
+  const pageSize = Math.min(Math.max(opts.pageSize ?? LIST_PAGE_SIZE, 1), 100);
+  const where = sharedPostingWhere(opts);
+  const total = await prisma.sharedPosting.count({ where });
+  const page = clampPage(opts.page ?? 1, total, pageSize);
+  const rows = total
+    ? await prisma.sharedPosting.findMany({ where, orderBy: [{ fetchedAt: "desc" }, { id: "desc" }], skip: (page - 1) * pageSize, take: pageSize })
+    : [];
+  const mine = opts.viewerId ? await myPostingIds(opts.viewerId, rows) : new Map<string, string>();
+  return {
+    items: (rows as SharedPostingRow[]).map((r) => toSummary(r, mine.get(r.id) ?? null)),
+    total,
+    page,
+    pageCount: pageCountOf(total, pageSize),
+    pageSize,
+  };
+}
+
+// ---------------------------------------------------------------------------
+// 병역특례 태그 지연 백필
+// ---------------------------------------------------------------------------
+
+/**
+ * 병역특례 태그를 아직 계산하지 않았거나(마이그레이션 전 행, version null) 예전 규칙으로 계산한 행을 다시 계산해 저장한다.
+ * 판정이 정규식(TS)이라 마이그레이션 SQL로는 채울 수 없어, 공고 찾기 목록을 읽을 때 앱이 조금씩 채운다(ensureSharedMilitaryBackfill).
+ * 묶음마다 읽기 1번 + 갱신 1번(UPDATE … FROM unnest)이다. 그 사이 공개 필드를 다시 쓴 행(이미 새 버전)은 건드리지 않고,
+ * updated_at도 바꾸지 않는다(내용 변경이 아님). 여러 인스턴스가 동시에 돌아도 같은 값을 쓰므로 안전하다.
+ * 한 번 부를 때 maxRows까지만 처리한다(목록 요청을 오래 붙잡지 않게). 처리한 행 수와 남은 행이 있는지를 돌려준다.
+ */
+export async function backfillSharedMilitaryService(opts: { batchSize?: number; maxRows?: number; db?: Db } = {}): Promise<{ updated: number; remaining: boolean }> {
+  const db = opts.db ?? prisma;
+  const batchSize = Math.max(opts.batchSize ?? 200, 1);
+  const maxRows = Math.max(opts.maxRows ?? batchSize, 1);
+  const version = MILITARY_SERVICE_DETECTOR_VERSION;
+  const stale = { OR: [{ militaryServiceVersion: null }, { militaryServiceVersion: { lt: version } }] };
+  let updated = 0;
+  let lastId = "";
+  while (updated < maxRows) {
+    const rows = await db.sharedPosting.findMany({
+      select: { id: true, roleTitle: true, jdText: true, structured: true },
+      where: { ...stale, id: { gt: lastId } },
+      orderBy: { id: "asc" },
+      take: Math.min(batchSize, maxRows - updated),
+    });
+    if (rows.length === 0) return { updated, remaining: false };
+    const ids = rows.map((r) => r.id);
+    // 태그에는 쉼표가 없다(MilitaryServiceTag) — 쉼표로 이어 보내고 string_to_array로 되돌린다('' → 빈 배열).
+    const tags = rows.map((r) =>
+      detectPostingMilitaryService({ roleTitle: r.roleTitle, jdText: r.jdText, structured: parseStoredStructure(r.structured) }).join(","),
+    );
+    await db.$executeRaw`
+      UPDATE "shared_postings" AS s
+      SET "military_service" = string_to_array(v.tags, ','), "military_service_version" = ${version}
+      FROM unnest(${ids}::text[], ${tags}::text[]) AS v(id, tags)
+      WHERE s."id" = v.id AND (s."military_service_version" IS NULL OR s."military_service_version" < ${version})`;
+    updated += rows.length;
+    lastId = rows[rows.length - 1].id;
+  }
+  return { updated, remaining: (await db.sharedPosting.count({ where: stale })) > 0 };
+}
+
+let militaryBackfillDone = false;
+let militaryBackfillRunning: Promise<void> | null = null;
+
+/**
+ * 목록 조회 전에 부른다. 이 인스턴스에서 백필이 끝났으면 바로 돌아온다. 아니면 한 묶음(최대 200행: 쿼리 2~3번)만 처리하고
+ * 돌아온다 — 남은 행은 다음 목록 요청들이 이어서 채운다(배포 직후 첫 요청이 수천 행을 기다리지 않게).
+ * 채워지기 전 행은 카드·상세에서는 즉석 계산으로 태그가 보이지만, '병역특례' 필터(저장된 열 기준)에는 아직 걸리지 않는다.
+ * 실패해도 목록은 읽는다(다음 요청이 다시 시도).
+ */
+async function ensureSharedMilitaryBackfill(): Promise<void> {
+  if (militaryBackfillDone) return;
+  militaryBackfillRunning ??= backfillSharedMilitaryService()
+    .then(({ remaining }) => {
+      if (!remaining) militaryBackfillDone = true;
+    })
+    .catch((err) => console.error("[shared-postings] 병역특례 태그 백필 실패", err))
+    .finally(() => {
+      militaryBackfillRunning = null;
+    });
+  await militaryBackfillRunning;
+}
+
+/** 테스트용: 이 인스턴스의 '백필 끝남' 표시를 지운다. */
+export function resetSharedMilitaryBackfillForTests(): void {
+  militaryBackfillDone = false;
 }
 
 /** 공용 공고 하나(기본 숨김 제외). includeHidden은 관리자 화면에서만 — 숨긴 공고를 다시 공개할 수 있게 한다. */
@@ -226,6 +338,8 @@ function sharedColumns(input: SharedPostingInput, now: Date) {
     workType: p.workType,
     location: orNull(p.location),
     careerLevel: p.careerLevel,
+    // 공개 필드만 판정한다(가져온 원문 sourceText는 넣지 않는다).
+    ...militaryServiceColumns({ roleTitle: p.roleTitle, jdText: p.jdText, structured: input.structure }),
     extractedBy: stripNul(input.extractedBy.slice(0, 40)) || "manual",
     fetchedAt: now,
     updatedAt: now,

@@ -4,3 +4,4 @@ export { Button, buttonClass, type ButtonProps, type ButtonSize, type ButtonVari
 export { Card, CardBody, CardHeader } from "./Card";
 export { cn } from "./cn";
 export { Spinner } from "./Spinner";
+export { Pagination } from "./Pagination";

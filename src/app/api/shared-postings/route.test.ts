@@ -86,6 +86,9 @@ describe("/api/shared-postings", () => {
     expect(body.total).toBe(1);
     expect(body.items[0]).toMatchObject({ id: s.id, myPostingId: null });
     expect(JSON.stringify(body)).not.toContain("createdBy");
+    // 병역특례 필터(태그 없는 공고는 빠진다).
+    const military = await list.GET(new Request("http://localhost/api/shared-postings?deadline=all&military=any"));
+    expect(((await military.json()) as { total: number }).total).toBe(0);
 
     const first = await save.POST(json(`/api/shared-postings/${s.id}/save`, "POST", {}), ctx(s.id));
     expect(first.status).toBe(201);
@@ -101,6 +104,7 @@ describe("/api/shared-postings", () => {
 
   it("잘못된 필터는 400, 없는 공고는 404, 로그인 없으면 401", async () => {
     expect((await list.GET(new Request("http://localhost/api/shared-postings?deadline=xx"))).status).toBe(400);
+    expect((await list.GET(new Request("http://localhost/api/shared-postings?military=xx"))).status).toBe(400);
     expect((await item.GET(new Request("http://localhost/api/shared-postings/nope"), ctx("nope"))).status).toBe(404);
     expect((await save.POST(json("/api/shared-postings/nope/save", "POST", {}), ctx("nope"))).status).toBe(404);
     state.user = null;

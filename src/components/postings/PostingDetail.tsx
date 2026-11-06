@@ -26,12 +26,14 @@ import {
   type PostingStatus,
 } from "@/lib/domain/postings";
 import type { DiagnosisStatus } from "@/lib/domain/schemas";
+import { detectPostingMilitaryService } from "@/lib/postings/military-service";
 import { hasStructureContent, isStructureStale, postingJdForPrompt } from "@/lib/postings/structure";
 import { platformLabel } from "@/lib/postings/url";
 import { saveDiagnosisPrefill } from "@/lib/resumes/prefill";
 import { formatKstDate } from "@/lib/time/kst";
 import { PostingCaptureButton } from "./PostingCapture";
 import { PostingForm } from "./PostingForm";
+import { MilitaryServiceBadges } from "./MilitaryServiceBadges";
 import { KeyFacts, PostingSections } from "./PostingSections";
 import { PostingSectionsEditor } from "./PostingSectionsEditor";
 import { usePostingImports } from "./import-jobs";
@@ -195,6 +197,10 @@ export function PostingDetail({
         <div className="min-w-0 flex-1">
           <p className="text-sm font-medium text-slate-500">{posting.company}</p>
           <h1 className="mt-0.5 text-2xl font-bold tracking-tight break-words text-slate-900">{posting.roleTitle}</h1>
+          <MilitaryServiceBadges
+            tags={detectPostingMilitaryService({ roleTitle: posting.roleTitle, jdText: posting.jdText, structured: posting.structured })}
+            className="mt-2"
+          />
           <div className="mt-2 flex flex-wrap items-center gap-2">
             <PostingStatusBadge status={posting.status} />
             <SourceLink url={posting.url} className="max-w-full" />

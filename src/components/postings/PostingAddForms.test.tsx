@@ -1,10 +1,13 @@
 import { renderToStaticMarkup } from "react-dom/server";
 import type { PostingImportJob } from "@/lib/domain/postings";
+import { EMPTY_EXPLORE_FILTERS } from "@/lib/domain/shared-postings";
 import { describe, expect, it, vi } from "vitest";
 import { ExploreAddPanel, ExploreView } from "./ExploreView";
 import { PostingAddForms } from "./PostingAddForms";
 
-vi.mock("next/navigation", () => ({ useRouter: () => ({ push: vi.fn(), refresh: vi.fn() }) }));
+vi.mock("next/navigation", () => ({ useRouter: () => ({ push: vi.fn(), replace: vi.fn(), refresh: vi.fn() }) }));
+
+const emptyList = { items: [], total: 0, page: 1, pageCount: 1, pageSize: 12 };
 
 const start = vi.fn();
 
@@ -25,7 +28,7 @@ describe("PostingAddForms(보관함 '직접 추가'·공고 찾기 '공고 추�
 
 describe("ExploreView '공고 추가'", () => {
   it("오른쪽 위에 닫힌 '공고 추가' 버튼이 있고, 입력 칸은 누르기 전에는 그리지 않는다", () => {
-    const html = renderToStaticMarkup(<ExploreView initial={{ items: [], total: 0 }} serverNow={0} aiAvailable />);
+    const html = renderToStaticMarkup(<ExploreView list={emptyList} filters={EMPTY_EXPLORE_FILTERS} serverNow={0} aiAvailable />);
     expect(html).toMatch(/<button[^>]*aria-expanded="false"[^>]*>공고 추가<\/button>/);
     expect(html).not.toContain("explore-add-panel");
     expect(html).not.toContain("링크로 가져오기");
@@ -33,7 +36,8 @@ describe("ExploreView '공고 추가'", () => {
   it("진행 중인 가져오기가 있으면 버튼에 개수를 보인다", () => {
     const html = renderToStaticMarkup(
       <ExploreView
-        initial={{ items: [], total: 0 }}
+        list={emptyList}
+        filters={EMPTY_EXPLORE_FILTERS}
         serverNow={0}
         initialImports={[{ id: "j1", url: "https://example.com/j/1", status: "analyzing", error: null, errorCode: null, postingId: null, sharedPostingId: null, refresh: false, createdAt: 0, updatedAt: 0 } satisfies PostingImportJob]}
       />,

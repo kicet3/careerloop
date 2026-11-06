@@ -1,18 +1,21 @@
 "use client";
 /**
- * 공고 찾기(공용 공고 목록): 다른 사용자가 링크로 가져오거나 직접 입력한 공고를 회사·직무·기술·마감으로 거르고, AI 없이 내 보관함에 담는다.
- * 목록은 GET /api/shared-postings(필터가 바뀌면 0쪽부터, '더 보기'로 이어 읽기), 담기는 POST /api/shared-postings/[id]/save.
+ * 공고 찾기(공용 공고 목록): 다른 사용자가 링크로 가져오거나 직접 입력한 공고를 회사·직무·기술·마감·병역특례로 거르고, AI 없이 내 보관함에 담는다.
+ * 목록은 서버가 주소의 조건·쪽(?q=&company=&role=&tech=&deadline=&military=&page=)으로 한 쪽 12개를 읽어 준다(page.tsx).
+ * 조건을 바꾸면 1쪽 주소로 바꾸고(useUrlFilters), 아래 쪽 이동 링크는 지금 조건을 그대로 싣는다. 담기는 POST /api/shared-postings/[id]/save.
  * 개인 값(상태·메모·지원 기록)은 공유되지 않는다 — 이 화면에는 공고 페이지에서 뽑은 내용만 있다.
  * 오른쪽 위 '공고 추가'는 보관함과 같은 추가 입력(링크로 가져오기 PostingImportBar · 원문 붙여넣고 AI로 추가·직접 입력 PostingAddForms)을 이 화면에 펼친다.
- * 추가한 공고는 내 보관함에 들어가고(공유 규칙은 보관함과 같다), 가져오기가 끝나면 이 목록을 다시 읽는다.
+ * 추가한 공고는 내 보관함에 들어가고(공유 규칙은 보관함과 같다), 가져오기가 끝나면 지금 쪽을 서버에서 다시 읽는다(router.refresh).
  */
 import Link from "next/link";
-import { useCallback, useEffect, useRef, useState } from "react";
-import { Alert } from "@/components/ui/Alert";
+import { useRouter } from "next/navigation";
+import { useState } from "react";
 import { Badge } from "@/components/ui/Badge";
 import { Button, buttonClass } from "@/components/ui/Button";
 import { Card } from "@/components/ui/Card";
 import { cn } from "@/components/ui/cn";
+import { Pagination } from "@/components/ui/Pagination";
+import { MILITARY_SERVICE_FILTER_LABELS, MILITARY_SERVICE_FILTERS, type MilitaryServiceFilter } from "@/lib/domain/military-service";
 import {
   EMPLOYMENT_TYPE_LABELS,
   WORK_TYPE_LABELS,
@@ -21,51 +24,40 @@ import {
   type PostingImportJob,
 } from "@/lib/domain/postings";
 import {
+  EMPTY_EXPLORE_FILTERS,
+  exploreSearchParams,
   SHARED_DEADLINE_FILTER_LABELS,
   SHARED_DEADLINE_FILTERS,
+  type ExploreFilters,
   type SharedDeadlineFilter,
   type SharedPostingSummary,
 } from "@/lib/domain/shared-postings";
+import type { PageInfo } from "@/lib/pagination";
 import { formatPostingDeadline } from "@/lib/postings/deadline";
 import { platformLabel } from "@/lib/postings/url";
 import { usePostingImports } from "./import-jobs";
+import { MilitaryServiceBadges } from "./MilitaryServiceBadges";
 import { PostingAddForms } from "./PostingAddForms";
 import { ImportingCard, PostingImportBar } from "./PostingImportBar";
 import { DeadlineBadge, inputClass, readApiError, useNow } from "./shared";
 import { SourceLink } from "./SourceLink";
+import { useUrlFilters } from "./use-url-filters";
 
-export interface ExploreFilters {
-  q: string;
-  company: string;
-  role: string;
-  tech: string;
-  deadline: SharedDeadlineFilter;
-  /** 관리자: 숨긴 공고만 보기. */
-  hiddenOnly?: boolean;
-}
-
-export const EMPTY_EXPLORE_FILTERS: ExploreFilters = { q: "", company: "", role: "", tech: "", deadline: "open" };
-
-/** 목록 요청 주소(빈 조건은 싣지 않는다). */
-export function exploreQueryString(f: ExploreFilters, page: number): string {
-  const params = new URLSearchParams();
-  for (const k of ["q", "company", "role", "tech"] as const) if (f[k].trim()) params.set(k, f[k].trim());
-  params.set("deadline", f.deadline);
-  if (f.hiddenOnly) params.set("hidden", "only");
-  if (page > 0) params.set("page", String(page));
-  return params.toString();
-}
-
-type ListResponse = { items: SharedPostingSummary[]; total: number };
+const EXPLORE_PATH = "/app/postings/explore";
+const filterQuery = (f: ExploreFilters) => exploreSearchParams(f, 1);
 
 export function ExploreView({
-  initial,
+  list,
+  filters,
   serverNow,
   isAdmin = false,
   initialImports = [],
   aiAvailable = false,
 }: {
-  initial: ListResponse;
+  /** 지금 쪽(서버가 조건·쪽으로 읽은 12개)과 쪽 정보. */
+  list: { items: SharedPostingSummary[] } & PageInfo;
+  /** 주소의 조건(입력칸 초기값). */
+  filters: ExploreFilters;
   serverNow: number;
   isAdmin?: boolean;
   /** 최근 가져오기 작업(진행 중인 것만 이어서 보여 준다). */
@@ -74,63 +66,27 @@ export function ExploreView({
   aiAvailable?: boolean;
 }) {
   const now = useNow(serverNow);
+  const router = useRouter();
   const [adding, setAdding] = useState(false);
   /** 추가 작업을 시작·완료했을 때 화면 낭독기에 알리는 문구. */
   const [announce, setAnnounce] = useState("");
-  const [filters, setFilters] = useState<ExploreFilters>(EMPTY_EXPLORE_FILTERS);
-  const [items, setItems] = useState(initial.items);
-  const [total, setTotal] = useState(initial.total);
-  const [page, setPage] = useState(0);
-  const [loading, setLoading] = useState(false);
-  const [error, setError] = useState<string | null>(null);
-  const requestNo = useRef(0);
-  const firstRun = useRef(true);
+  const { draft, setDraft, set: setFilter, pending, startTransition } = useUrlFilters({ path: EXPLORE_PATH, filters, toQuery: filterQuery });
+  /** 이 화면에서 담은 공고(서버가 다시 읽기 전까지 '보관함에서 열기'로 보인다). */
+  const [saved, setSaved] = useState<Record<string, string>>({});
+  const items = list.items.map((i) =>
+    saved[i.id] && !i.myPostingId ? { ...i, myPostingId: saved[i.id], importerCount: i.importerCount + 1 } : i,
+  );
+  const { total, page, pageCount } = list;
 
-  const load = useCallback(async (f: ExploreFilters, nextPage: number) => {
-    const no = ++requestNo.current;
-    setLoading(true);
-    setError(null);
-    try {
-      const res = await fetch(`/api/shared-postings?${exploreQueryString(f, nextPage)}`, { cache: "no-store" });
-      if (no !== requestNo.current) return;
-      if (!res.ok) {
-        setError((await readApiError(res, "공고 목록을 불러오지 못했습니다.")).error);
-        return;
-      }
-      const data = (await res.json()) as ListResponse;
-      setItems((prev) => (nextPage === 0 ? data.items : [...prev, ...data.items.filter((i) => !prev.some((p) => p.id === i.id))]));
-      setTotal(data.total);
-      setPage(nextPage);
-    } catch {
-      if (no === requestNo.current) setError("서버에 연결하지 못했습니다. 네트워크를 확인해 주세요.");
-    } finally {
-      if (no === requestNo.current) setLoading(false);
-    }
-  }, []);
-
-  // 조건이 바뀌면 잠깐 기다렸다가 0쪽부터 다시 읽는다(첫 렌더는 서버가 준 목록).
-  useEffect(() => {
-    if (firstRun.current) {
-      firstRun.current = false;
-      return;
-    }
-    const timer = setTimeout(() => void load(filters, 0), 300);
-    return () => clearTimeout(timer);
-  }, [filters, load]);
-
-  // 가져오기가 끝나면(내 보관함에 추가됨) 지금 조건으로 목록을 다시 읽는다 — 공유된 공고면 '보관함에서 열기'로 보인다.
-  const filtersRef = useRef(filters);
-  useEffect(() => {
-    filtersRef.current = filters;
-  }, [filters]);
   const [initialActive] = useState(() => initialImports.filter((j) => isPostingImportActive(j.status)));
   const imports = usePostingImports({
     initialJobs: initialActive,
     // 패널을 닫아 둔 채 끝나도 결과('추가 완료'·실패 줄)가 보이도록 패널을 다시 연다.
+    // 지금 조건·쪽을 서버에서 다시 읽는다 — 공유된 공고면 '보관함에서 열기'로 보인다.
     onCompleted: () => {
       setAdding(true);
       setAnnounce("공고를 내 보관함에 추가했습니다. 공고 추가 패널의 '추가 완료'에서 열 수 있습니다.");
-      void load(filtersRef.current, 0);
+      startTransition(() => router.refresh());
     },
     onFailed: (job) => {
       setAdding(true);
@@ -143,10 +99,14 @@ export function ExploreView({
   });
   const importing = imports.jobs.filter((j) => isPostingImportActive(j.status));
 
-  const setFilter = <K extends keyof ExploreFilters>(k: K, v: ExploreFilters[K]) => setFilters((f) => ({ ...f, [k]: v }));
-  const onSaved = (id: string, postingId: string) =>
-    setItems((prev) => prev.map((i) => (i.id === id ? { ...i, myPostingId: postingId, importerCount: i.myPostingId ? i.importerCount : i.importerCount + 1 } : i)));
-  const filtered = exploreQueryString(filters, 0) !== exploreQueryString(EMPTY_EXPLORE_FILTERS, 0);
+  const onSaved = (id: string, postingId: string) => setSaved((prev) => ({ ...prev, [id]: postingId }));
+  const filtered = filterQuery(filters) !== filterQuery(EMPTY_EXPLORE_FILTERS);
+  const hrefFor = (n: number) => {
+    const qs = exploreSearchParams(filters, n);
+    return qs ? `${EXPLORE_PATH}?${qs}` : EXPLORE_PATH;
+  };
+  const first = total === 0 ? 0 : (page - 1) * list.pageSize + 1;
+  const last = Math.min(page * list.pageSize, total);
 
   return (
     <div className="space-y-6">
@@ -183,18 +143,18 @@ export function ExploreView({
         />
       )}
 
-      <div className="grid gap-3 sm:grid-cols-2 lg:grid-cols-[minmax(0,2fr)_repeat(3,minmax(0,1fr))_auto]">
-        <FilterInput id="explore-q" label="검색" value={filters.q} onChange={(v) => setFilter("q", v)} placeholder="회사·직무·근무지·본문 검색" className="sm:col-span-2 lg:col-span-1" />
-        <FilterInput id="explore-company" label="회사" value={filters.company} onChange={(v) => setFilter("company", v)} placeholder="회사" />
-        <FilterInput id="explore-role" label="직무" value={filters.role} onChange={(v) => setFilter("role", v)} placeholder="직무" />
-        <FilterInput id="explore-tech" label="기술" value={filters.tech} onChange={(v) => setFilter("tech", v)} placeholder="기술 (예: React)" />
+      <div className="grid gap-3 sm:grid-cols-2 lg:grid-cols-[minmax(0,2fr)_repeat(3,minmax(0,1fr))_auto_auto]">
+        <FilterInput id="explore-q" label="검색" value={draft.q} onChange={(v) => setFilter("q", v)} placeholder="회사·직무·근무지·본문 검색" className="sm:col-span-2 lg:col-span-1" />
+        <FilterInput id="explore-company" label="회사" value={draft.company} onChange={(v) => setFilter("company", v)} placeholder="회사" />
+        <FilterInput id="explore-role" label="직무" value={draft.role} onChange={(v) => setFilter("role", v)} placeholder="직무" />
+        <FilterInput id="explore-tech" label="기술" value={draft.tech} onChange={(v) => setFilter("tech", v)} placeholder="기술 (예: React)" />
         <div>
           <label htmlFor="explore-deadline" className="sr-only">
             마감
           </label>
           <select
             id="explore-deadline"
-            value={filters.deadline}
+            value={draft.deadline}
             onChange={(e) => setFilter("deadline", e.target.value as SharedDeadlineFilter)}
             className={cn(inputClass, "mt-0 lg:w-44")}
           >
@@ -205,12 +165,29 @@ export function ExploreView({
             ))}
           </select>
         </div>
+        <div>
+          <label htmlFor="explore-military" className="sr-only">
+            병역특례
+          </label>
+          <select
+            id="explore-military"
+            value={draft.military}
+            onChange={(e) => setFilter("military", e.target.value as MilitaryServiceFilter)}
+            className={cn(inputClass, "mt-0 lg:w-40")}
+          >
+            {MILITARY_SERVICE_FILTERS.map((m) => (
+              <option key={m} value={m}>
+                {MILITARY_SERVICE_FILTER_LABELS[m]}
+              </option>
+            ))}
+          </select>
+        </div>
       </div>
       {isAdmin && (
         <label className="-mt-3 flex items-center gap-2 text-sm text-slate-600">
           <input
             type="checkbox"
-            checked={!!filters.hiddenOnly}
+            checked={!!draft.hiddenOnly}
             onChange={(e) => setFilter("hiddenOnly", e.target.checked)}
             className="size-4 rounded border-slate-300 text-indigo-600 focus:ring-indigo-500"
           />
@@ -218,14 +195,12 @@ export function ExploreView({
         </label>
       )}
 
-      {error && <Alert tone="error">{error}</Alert>}
-
       {items.length === 0 ? (
         <Card className="px-6 py-14 text-center">
           <p className="text-lg font-semibold text-slate-900">{filtered ? "조건에 맞는 공고가 없습니다" : "아직 공유된 공고가 없습니다"}</p>
           <p className="mx-auto mt-2 max-w-md text-sm text-slate-500">
             {filtered ? (
-              "검색어를 줄이거나 마감 조건을 '마감 전체'로 바꿔 보세요."
+              `검색어를 줄이거나 마감 조건을 '마감 전체'로${filters.military !== "all" ? ", 병역특례 조건을 '병역특례 전체'로" : ""} 바꿔 보세요.`
             ) : (
               <>
                 <Link href="/app/postings" className="font-medium text-indigo-700 hover:underline">
@@ -236,27 +211,31 @@ export function ExploreView({
             )}
           </p>
           {filtered && (
-            <Button variant="ghost" size="sm" className="mt-3" onClick={() => setFilters(EMPTY_EXPLORE_FILTERS)}>
+            <Button variant="ghost" size="sm" className="mt-3" onClick={() => setDraft(EMPTY_EXPLORE_FILTERS)}>
               조건 초기화
             </Button>
           )}
         </Card>
       ) : (
         <>
-          <ul className={cn("grid gap-3 md:grid-cols-2 xl:grid-cols-3 min-[1920px]:grid-cols-4", loading && page === 0 && "opacity-60")}>
+          <p className="-mb-3 text-xs text-slate-500" aria-live="polite">
+            {total}개 중 {first}–{last}
+            {pageCount > 1 ? ` · ${page}/${pageCount}쪽` : ""}
+          </p>
+          <ul className={cn("grid gap-3 md:grid-cols-2 xl:grid-cols-3 min-[1920px]:grid-cols-4", pending && "opacity-60")} aria-busy={pending}>
             {items.map((p) => (
               <li key={p.id}>
                 <SharedPostingCard posting={p} now={now} onSaved={onSaved} />
               </li>
             ))}
           </ul>
-          {items.length < total && (
-            <div className="flex justify-center">
-              <Button variant="secondary" loading={loading} onClick={() => void load(filters, page + 1)}>
-                더 보기 ({items.length}/{total})
-              </Button>
-            </div>
-          )}
+          <Pagination
+            page={page}
+            pageCount={pageCount}
+            hrefFor={hrefFor}
+            onNavigate={(href) => startTransition(() => router.push(href))}
+            label="공고 찾기 쪽 이동"
+          />
         </>
       )}
     </div>
@@ -378,6 +357,7 @@ function SharedPostingCard({
           {tech.length > 4 && <Badge tone="accent">+{tech.length - 4}</Badge>}
         </div>
       )}
+      <MilitaryServiceBadges tags={p.militaryService} className="mt-2" />
       <div className="mt-auto flex flex-wrap items-center justify-between gap-2 pt-4">
         <span className="flex items-center gap-1 text-xs text-slate-500">
           <SourceLink url={p.url} variant="icon" className="-ml-1.5" />

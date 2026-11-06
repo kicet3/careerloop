@@ -1,6 +1,6 @@
 import { describe, expect, it } from "vitest";
 import type { PostingImportJob } from "@/lib/domain/postings";
-import { exploreQueryString, EMPTY_EXPLORE_FILTERS } from "./ExploreView";
+import { EMPTY_EXPLORE_FILTERS, exploreSearchParams, parseExploreSearchParams } from "@/lib/domain/shared-postings";
 import { mergeImportResults, upsertImportJob } from "./import-jobs";
 
 const job = (id: string, status: PostingImportJob["status"], over: Partial<PostingImportJob> = {}): PostingImportJob => ({
@@ -53,11 +53,21 @@ describe("upsertImportJob", () => {
   });
 });
 
-describe("exploreQueryString", () => {
-  it("빈 조건은 싣지 않고 마감 조건은 항상 싣는다", () => {
-    expect(exploreQueryString(EMPTY_EXPLORE_FILTERS, 0)).toBe("deadline=open");
-    expect(exploreQueryString({ ...EMPTY_EXPLORE_FILTERS, company: " 토스 ", tech: "React", deadline: "soon" }, 2)).toBe(
-      "company=%ED%86%A0%EC%8A%A4&tech=React&deadline=soon&page=2",
+describe("exploreSearchParams(공고 찾기 주소)", () => {
+  it("빈 조건·기본 마감(마감 전)·병역특례 전체·1쪽은 싣지 않는다", () => {
+    expect(exploreSearchParams(EMPTY_EXPLORE_FILTERS)).toBe("");
+    expect(exploreSearchParams({ ...EMPTY_EXPLORE_FILTERS, company: " 토스 ", tech: "React", deadline: "soon", military: "expert" }, 2)).toBe(
+      "company=%ED%86%A0%EC%8A%A4&tech=React&deadline=soon&military=expert&page=2",
     );
+    expect(exploreSearchParams({ ...EMPTY_EXPLORE_FILTERS, deadline: "all" }, 1)).toBe("deadline=all");
+  });
+  it("주소 → 조건·쪽(틀린 값은 기본값), 다시 주소로 돌리면 같다", () => {
+    const qs = "q=ios&deadline=soon&military=industrial&page=3";
+    const parsed = parseExploreSearchParams(Object.fromEntries(new URLSearchParams(qs)));
+    expect(parsed).toEqual({ filters: { ...EMPTY_EXPLORE_FILTERS, q: "ios", deadline: "soon", military: "industrial" }, page: 3 });
+    expect(exploreSearchParams(parsed.filters, parsed.page)).toBe(qs);
+    expect(parseExploreSearchParams({ deadline: "nope", military: "x", page: "-1" })).toEqual({ filters: EMPTY_EXPLORE_FILTERS, page: 1 });
+    expect(parseExploreSearchParams({ page: "abc" }).page).toBe(1);
+    expect(parseExploreSearchParams({ hidden: "only" }).filters.hiddenOnly).toBe(true);
   });
 });

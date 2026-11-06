@@ -1,15 +1,19 @@
 "use client";
 /**
- * 공고 보관함 목록: URL 가져오기(진행 중 카드 → 끝나면 새로고침 없이 공고 카드), 직접 추가(AI 엔진이 있으면 공고 원문을 붙여넣어
+ * 공고 보관함 목록: URL 가져오기(진행 중 카드 → 끝나면 지금 쪽을 서버에서 다시 읽어 공고 카드), 직접 추가(AI 엔진이 있으면 공고 원문을 붙여넣어
  * AI가 채워 바로 추가 — 링크 없는 본문 붙여넣기 가져오기 작업, 아래에 펼쳐 쓰는 직접 입력 폼), 검색·상태·정렬·마감 임박 필터,
- * 공고 카드(마감 배지). '공고 찾기'(공용 공고)는 사이드바의 별도 메뉴다. 직접 추가 입력은 공고 찾기의 '공고 추가'와 같은 PostingAddForms다.
+ * 공고 카드(마감 배지·병역특례 태그). '공고 찾기'(공용 공고)는 사이드바의 별도 메뉴다. 직접 추가 입력은 공고 찾기의 '공고 추가'와 같은 PostingAddForms다.
+ * 목록은 서버가 주소의 조건·쪽(?q=&status=&sort=&soon=1&page=)으로 한 쪽 12개를 읽어 준다(page.tsx → listPostingsPage).
+ * 조건을 바꾸면 1쪽 주소로 바꾸고(useUrlFilters), 쪽 이동 링크는 지금 조건을 그대로 싣는다.
  */
 import Link from "next/link";
-import { useCallback, useMemo, useRef, useState } from "react";
+import { useRouter } from "next/navigation";
+import { useRef, useState } from "react";
 import { Badge } from "@/components/ui/Badge";
 import { Button } from "@/components/ui/Button";
 import { Card } from "@/components/ui/Card";
 import { cn } from "@/components/ui/cn";
+import { Pagination } from "@/components/ui/Pagination";
 import {
   EMPLOYMENT_TYPE_LABELS,
   POSTING_STATUS_LABELS,
@@ -19,63 +23,81 @@ import {
   type JobPostingSummary,
   type PostingImportJob,
 } from "@/lib/domain/postings";
+import type { PageInfo } from "@/lib/pagination";
 import { formatPostingDeadline } from "@/lib/postings/deadline";
-import { EMPTY_POSTING_FILTERS, filterPostings, POSTING_SORT_LABELS, type PostingFilters, type PostingSort } from "@/lib/postings/filter";
+import {
+  DEFAULT_POSTING_SORT,
+  EMPTY_POSTING_FILTERS,
+  POSTING_SORT_LABELS,
+  postingSearchParams,
+  type PostingFilters,
+  type PostingSort,
+} from "@/lib/postings/filter";
 import { safeSourceUrl } from "@/lib/postings/source-link";
 import { platformLabel } from "@/lib/postings/url";
 import { usePostingImports } from "./import-jobs";
+import { MilitaryServiceBadges } from "./MilitaryServiceBadges";
 import { PostingAddForms } from "./PostingAddForms";
 import { ImportingCard, PostingImportBar } from "./PostingImportBar";
 import { DeadlineBadge, inputClass, PostingStatusBadge, useNow } from "./shared";
 import { SourceLink } from "./SourceLink";
+import { useUrlFilters } from "./use-url-filters";
+
+const LIBRARY_PATH = "/app/postings";
+
+/** 주소에 싣는 화면 조건(검색·상태·마감 임박 + 정렬). */
+type LibraryQuery = PostingFilters & { sort: PostingSort };
+const libraryQuery = ({ sort, ...f }: LibraryQuery) => postingSearchParams(f, sort, 1);
 
 export function PostingsView({
-  initialItems,
+  list,
+  filters,
+  sort = DEFAULT_POSTING_SORT,
   initialImports,
   serverNow,
   aiAvailable = false,
 }: {
-  initialItems: JobPostingSummary[];
+  /** 지금 쪽(서버가 조건·쪽으로 읽은 12개)과 쪽 정보·전체 수. */
+  list: { items: JobPostingSummary[]; allCount: number; activeCount: number } & PageInfo;
+  /** 주소의 조건(입력칸 초기값). */
+  filters: PostingFilters;
+  sort?: PostingSort;
   initialImports: PostingImportJob[];
   serverNow: number;
   aiAvailable?: boolean;
 }) {
   const now = useNow(serverNow);
-  const [items, setItems] = useState(initialItems);
-  const [filters, setFilters] = useState<PostingFilters>(EMPTY_POSTING_FILTERS);
-  const [sort, setSort] = useState<PostingSort>("deadline");
+  const router = useRouter();
+  const current: LibraryQuery = { ...filters, sort };
+  const { draft, setDraft, set: setFilter, pending, startTransition } = useUrlFilters({ path: LIBRARY_PATH, filters: current, toQuery: libraryQuery });
   const [adding, setAdding] = useState(false);
   /** AI 추가를 시작한 뒤 화면 낭독기에 알리는 문구(항상 붙어 있는 라이브 영역). */
   const [announce, setAnnounce] = useState("");
   const addToggleRef = useRef<HTMLButtonElement>(null);
 
-  const reload = useCallback(async () => {
-    try {
-      const res = await fetch("/api/postings", { cache: "no-store" });
-      if (res.ok) setItems(((await res.json()) as { items: JobPostingSummary[] }).items);
-    } catch {
-      // 다음 새로고침 때 다시 읽는다.
-    }
-  }, []);
-  // 진행 중 작업만 이어서 보여 준다(지난 완료·실패는 숨김). 작업이 끝나면 목록을 다시 읽어 카드를 바로 넣는다.
+  // 진행 중 작업만 이어서 보여 준다(지난 완료·실패는 숨김). 작업이 끝나면 지금 쪽을 서버에서 다시 읽어 카드를 바로 넣는다.
   const [initialActive] = useState(() => initialImports.filter((j) => isPostingImportActive(j.status)));
-  const imports = usePostingImports({ initialJobs: initialActive, onCompleted: () => void reload() });
+  const imports = usePostingImports({ initialJobs: initialActive, onCompleted: () => startTransition(() => router.refresh()) });
   const importing = imports.jobs.filter((j) => isPostingImportActive(j.status));
 
-  const shown = useMemo(() => filterPostings(items, filters, sort, now), [items, filters, sort, now]);
+  const { items: shown, allCount, activeCount, total, page, pageCount, pageSize } = list;
   // 기본 필터(진행 중)가 숨기는 마감·보류 공고 수. 모두 마감·보류면 기본 필터로 '초기화'해도 목록이 비므로 '모두'로 연다.
-  const activeCount = useMemo(() => filterPostings(items, EMPTY_POSTING_FILTERS, sort, now).length, [items, sort, now]);
-  const hiddenByDefault = items.length - activeCount;
+  const hiddenByDefault = allCount - activeCount;
   const isDefaultFilter = !filters.query.trim() && filters.status === EMPTY_POSTING_FILTERS.status && !filters.onlyClosingSoon;
   const resetFilters: PostingFilters = activeCount > 0 ? EMPTY_POSTING_FILTERS : { ...EMPTY_POSTING_FILTERS, status: "all" };
-  const setFilter = <K extends keyof PostingFilters>(k: K, v: PostingFilters[K]) => setFilters((f) => ({ ...f, [k]: v }));
+  const hrefFor = (n: number) => {
+    const qs = postingSearchParams(filters, sort, n);
+    return qs ? `${LIBRARY_PATH}?${qs}` : LIBRARY_PATH;
+  };
+  const first = total === 0 ? 0 : (page - 1) * pageSize + 1;
+  const last = Math.min(page * pageSize, total);
 
   return (
     <div className="space-y-6">
       <div className="flex flex-wrap items-end justify-between gap-3">
         <div>
           <h1 className="text-2xl font-bold tracking-tight text-slate-900">공고 보관함</h1>
-          <p className="mt-1 text-sm text-slate-500">관심 있는 채용 공고를 모아 두고 마감일·지원 상태를 관리합니다. {items.length}개</p>
+          <p className="mt-1 text-sm text-slate-500">관심 있는 채용 공고를 모아 두고 마감일·지원 상태를 관리합니다. {allCount}개</p>
         </div>
         <Button ref={addToggleRef} variant={adding ? "secondary" : "primary"} onClick={() => {
             setAnnounce("");
@@ -113,7 +135,7 @@ export function PostingsView({
         </Card>
       )}
 
-      {items.length > 0 && (
+      {allCount > 0 && (
         <div className="grid gap-3 sm:grid-cols-2 lg:flex lg:flex-wrap lg:items-center">
           <div className="sm:col-span-2 lg:min-w-64 lg:flex-1">
             <label htmlFor="posting-search" className="sr-only">
@@ -122,7 +144,8 @@ export function PostingsView({
             <input
               id="posting-search"
               type="search"
-              value={filters.query}
+              value={draft.query}
+              maxLength={100}
               onChange={(e) => setFilter("query", e.target.value)}
               placeholder="회사·직무·근무지·메모 검색"
               className={cn(inputClass, "mt-0")}
@@ -133,7 +156,7 @@ export function PostingsView({
           </label>
           <select
             id="posting-status"
-            value={filters.status}
+            value={draft.status}
             onChange={(e) => setFilter("status", e.target.value as PostingFilters["status"])}
             className={cn(inputClass, "mt-0 lg:w-40")}
           >
@@ -148,7 +171,7 @@ export function PostingsView({
           <label className="sr-only" htmlFor="posting-sort">
             정렬
           </label>
-          <select id="posting-sort" value={sort} onChange={(e) => setSort(e.target.value as PostingSort)} className={cn(inputClass, "mt-0 lg:w-36")}>
+          <select id="posting-sort" value={draft.sort} onChange={(e) => setFilter("sort", e.target.value as PostingSort)} className={cn(inputClass, "mt-0 lg:w-36")}>
             {(Object.keys(POSTING_SORT_LABELS) as PostingSort[]).map((s) => (
               <option key={s} value={s}>
                 {POSTING_SORT_LABELS[s]}
@@ -158,7 +181,7 @@ export function PostingsView({
           <label className="flex items-center gap-2 text-sm text-slate-700 sm:col-span-2 lg:col-span-1">
             <input
               type="checkbox"
-              checked={filters.onlyClosingSoon}
+              checked={draft.onlyClosingSoon}
               onChange={(e) => setFilter("onlyClosingSoon", e.target.checked)}
               className="size-4 rounded border-slate-300 text-indigo-600 focus:ring-indigo-500"
             />
@@ -167,7 +190,7 @@ export function PostingsView({
         </div>
       )}
 
-      {importing.length > 0 && (items.length === 0 || shown.length === 0) && (
+      {importing.length > 0 && (allCount === 0 || shown.length === 0) && (
         <ul className="grid gap-3 md:grid-cols-2 xl:grid-cols-3 min-[1920px]:grid-cols-4">
           {importing.map((j) => (
             <li key={j.id}>
@@ -177,7 +200,7 @@ export function PostingsView({
         </ul>
       )}
 
-      {items.length === 0 ? (
+      {allCount === 0 ? (
         importing.length > 0 ? null : (
         <Card className="px-6 py-14 text-center">
           <p className="text-lg font-semibold text-slate-900">아직 보관한 공고가 없습니다</p>
@@ -203,25 +226,40 @@ export function PostingsView({
           ) : (
             <>
               <p className="text-sm text-slate-500">조건에 맞는 공고가 없습니다.</p>
-              <Button variant="ghost" size="sm" className="mt-3" onClick={() => setFilters(resetFilters)}>
+              <Button variant="ghost" size="sm" className="mt-3" onClick={() => setDraft({ ...resetFilters, sort: draft.sort })}>
                 {activeCount > 0 ? "필터 초기화" : "필터 초기화(모든 공고 보기)"}
               </Button>
             </>
           )}
         </Card>
       ) : (
-        <ul className="grid gap-3 md:grid-cols-2 xl:grid-cols-3 min-[1920px]:grid-cols-4">
-          {importing.map((j) => (
-            <li key={j.id}>
-              <ImportingCard job={j} />
-            </li>
-          ))}
-          {shown.map((p) => (
-            <li key={p.id}>
-              <PostingCard posting={p} now={now} />
-            </li>
-          ))}
-        </ul>
+        <>
+          <p className="-mb-3 text-xs text-slate-500" aria-live="polite">
+            {total}개 중 {first}–{last}
+            {pageCount > 1 ? ` · ${page}/${pageCount}쪽` : ""}
+          </p>
+          <ul className={cn("grid gap-3 md:grid-cols-2 xl:grid-cols-3 min-[1920px]:grid-cols-4", pending && "opacity-60")} aria-busy={pending}>
+            {/* 가져오는 중인 공고는 첫 쪽에만 보인다(끝나면 목록을 다시 읽어 제자리에 넣는다). */}
+            {page === 1 &&
+              importing.map((j) => (
+                <li key={j.id}>
+                  <ImportingCard job={j} />
+                </li>
+              ))}
+            {shown.map((p) => (
+              <li key={p.id}>
+                <PostingCard posting={p} now={now} />
+              </li>
+            ))}
+          </ul>
+          <Pagination
+            page={page}
+            pageCount={pageCount}
+            hrefFor={hrefFor}
+            onNavigate={(href) => startTransition(() => router.push(href))}
+            label="공고 보관함 쪽 이동"
+          />
+        </>
       )}
     </div>
   );
@@ -285,6 +323,7 @@ function PostingCard({ posting: p, now }: { posting: JobPostingSummary; now: num
             {!p.hasJd && <Badge tone="warning">JD 없음</Badge>}
           </div>
         )}
+        <MilitaryServiceBadges tags={p.militaryService} className="mt-2" />
       </Link>
       {/* 카드 링크 밖(형제)에 둔다 — <a> 안에 <a>를 넣지 않고, 눌러도 카드 상세로 이동하지 않는다. */}
       <SourceLink url={p.url} variant="icon" className="absolute right-2 bottom-2 sm:right-3 sm:bottom-3" />

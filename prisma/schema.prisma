@@ -179,6 +179,11 @@ model SharedPosting {
   createdBy         String?   @map("created_by")
   /// 관리자가 공고 찾기에서 숨긴 시각(개인 페이지·비공개 링크 등). 숨긴 공고는 목록·재사용에서 빠진다.
   hiddenAt          DateTime? @map("hidden_at") @db.Timestamptz(3)
+  /// 병역특례 태그(MilitaryServiceTag: expert·industrial·industrial_supplementary·industrial_active·general). 공개 필드를 쓸 때마다
+  /// detectPostingMilitaryService로 다시 계산한다(src/lib/postings/military-service.ts). 공고 찾기 '병역특례' 필터가 이 배열로 거른다.
+  militaryService        String[] @default([]) @map("military_service")
+  /// military_service를 계산한 판정 규칙 버전. null이거나 MILITARY_SERVICE_DETECTOR_VERSION보다 낮으면 목록 조회가 다시 계산한다(지연 백필).
+  militaryServiceVersion Int?     @map("military_service_version")
   /// 페이지를 마지막으로 읽은 시각.
   fetchedAt         DateTime  @map("fetched_at") @db.Timestamptz(3)
   createdAt         DateTime  @default(now()) @map("created_at") @db.Timestamptz(3)

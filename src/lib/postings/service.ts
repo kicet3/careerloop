@@ -9,6 +9,7 @@ import { Prisma as PrismaNs } from "@/generated/prisma/client";
 import { FeatureError } from "@/lib/api/errors";
 import { prisma, type Db, type Prisma } from "@/lib/db/client";
 import { isUniqueViolation, stripNul, stripNulDeep } from "@/lib/db/errors";
+import { clampPage, LIST_PAGE_SIZE, pageCountOf, type PageInfo } from "@/lib/pagination";
 import type { JobPostingRow } from "@/lib/db/types";
 import {
   POSTING_STRUCTURE_VERSION,
@@ -27,6 +28,8 @@ import {
   type PostingUpdateInput,
 } from "@/lib/domain/postings";
 import { CAPTURE_SELECT, toCaptureInfo } from "./capture-store";
+import { EMPTY_POSTING_FILTERS, filterPostings, type PostingFilters, type PostingSort } from "./filter";
+import { detectPostingMilitaryService, militaryServiceColumns } from "./military-service";
 import { composeJdText, isThin, sourceHash, structureFromText, structureInputText } from "./structure";
 import { inferPlatform, isValidUrl, normalizeUrl, publicPlatform, withScheme } from "./url";
 
@@ -105,6 +108,7 @@ function publicSharedColumns(row: Pick<JobPostingRow, PublicPostingField>) {
     location: row.location,
     careerLevel: row.careerLevel,
     platform: publicPlatform(row.platform),
+    ...militaryServiceColumns({ roleTitle: row.roleTitle, jdText: row.jdText, structured: parseStoredStructure(row.structured) }),
   };
 }
 
@@ -236,6 +240,77 @@ export async function listPostings(userId: string, opts: { status?: PostingStatu
   );
 }
 
+export interface PostingPage extends PageInfo {
+  items: JobPostingSummary[];
+  /** 조건과 상관없는 내 공고 전체 수. */
+  allCount: number;
+  /** 기본 조건(진행 중 — 마감·보류 제외)에 맞는 수. 빈 목록 안내('마감·보류 공고까지 보기')에 쓴다. */
+  activeCount: number;
+}
+
+/**
+ * 공고 보관함 화면 목록: 한 쪽 12개(LIST_PAGE_SIZE), page는 1부터(쪽 수를 넘으면 마지막 쪽). 다른 화면(새 진단·이력서·인사이트·MCP)은
+ * 전체 목록 listPostings를 그대로 쓴다.
+ * 검색·상태·마감 임박·정렬은 화면과 같은 규칙(filterPostings — 마감 임박순은 KST 마감 시각 계산이라 SQL로 옮기지 않는다)이다:
+ * 거르고 정렬하는 데 필요한 가벼운 컬럼만 모두 읽어 서버에서 거르고 정렬한 뒤, 이 쪽의 12개만 카드 컬럼(구조·JD 포함)으로 다시 읽는다.
+ * 같은 값이면 id로 순서를 고정한다. 카드에는 병역특례 태그(직무명·JD·구역으로 판정)를 싣는다.
+ */
+export async function listPostingsPage(
+  userId: string,
+  opts: { filters?: PostingFilters; sort?: PostingSort; page?: number; pageSize?: number; now?: number } = {},
+): Promise<PostingPage> {
+  const filters = opts.filters ?? EMPTY_POSTING_FILTERS;
+  const now = opts.now ?? Date.now();
+  const pageSize = Math.min(Math.max(opts.pageSize ?? LIST_PAGE_SIZE, 1), 100);
+  const light = (
+    await prisma.jobPosting.findMany({
+      select: {
+        id: true,
+        company: true,
+        roleTitle: true,
+        location: true,
+        note: true,
+        url: true,
+        status: true,
+        deadline: true,
+        deadlineTime: true,
+        deadlineKind: true,
+        createdAt: true,
+        updatedAt: true,
+      },
+      where: { userId },
+    })
+  ).map((r) => ({
+    id: r.id,
+    company: r.company,
+    roleTitle: r.roleTitle,
+    location: r.location ?? "",
+    note: r.note ?? "",
+    url: r.url ?? "",
+    status: r.status as PostingStatus,
+    deadline: r.deadline ?? "",
+    deadlineTime: r.deadlineTime ?? "",
+    deadlineKind: r.deadlineKind as JobPosting["deadlineKind"],
+    createdAt: r.createdAt.getTime(),
+    updatedAt: r.updatedAt.getTime(),
+  }));
+  const shown = filterPostings(light, filters, opts.sort ?? "deadline", now);
+  const activeCount = filterPostings(light, EMPTY_POSTING_FILTERS, "updated", now).length;
+  const total = shown.length;
+  const page = clampPage(opts.page ?? 1, total, pageSize);
+  const ids = shown.slice((page - 1) * pageSize, page * pageSize).map((r) => r.id);
+  const rows = ids.length ? await prisma.jobPosting.findMany({ select: { ...summarySelect, jdText: true }, where: { userId, id: { in: ids } } }) : [];
+  const byId = new Map(rows.map((r) => [r.id, r]));
+  const items = ids.flatMap((id) => {
+    const row = byId.get(id);
+    if (!row) return [];
+    const posting = toJobPosting({ ...(row as Omit<JobPostingRow, "sourceText" | "structuredVersion">), sourceText: null, structuredVersion: null });
+    const military = detectPostingMilitaryService({ roleTitle: row.roleTitle, jdText: row.jdText, structured: parseStoredStructure(row.structured) });
+    return [{ ...toSummary(posting, !!row.jdText?.trim()), militaryService: military }];
+  });
+  return { items, total, page, pageCount: pageCountOf(total, pageSize), pageSize, allCount: light.length, activeCount };
+}
+
 export async function getPosting(userId: string, id: string): Promise<JobPosting | null> {
   const row = await prisma.jobPosting.findFirst({ where: { id, userId }, include: { sharedPosting: { select: { ...CAPTURE_SELECT, url: true } } } });
   if (!row) return null;
@@ -322,6 +397,7 @@ export async function createPosting(
                 workType: input.workType,
                 location: orNull(input.location),
                 careerLevel: input.careerLevel,
+                ...militaryServiceColumns({ roleTitle: input.roleTitle, jdText: input.jdText, structured: structure }),
                 extractedBy: "manual",
                 createdBy: userId,
                 fetchedAt: now,

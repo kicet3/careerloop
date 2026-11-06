@@ -2,6 +2,7 @@ import type { Metadata } from "next";
 import Link from "next/link";
 import { notFound } from "next/navigation";
 import { PostingCaptureButton } from "@/components/postings/PostingCapture";
+import { MilitaryServiceBadges } from "@/components/postings/MilitaryServiceBadges";
 import { KeyFacts, PostingSections } from "@/components/postings/PostingSections";
 import { SharedPostingActions } from "@/components/postings/SharedPostingActions";
 import { SourceLink } from "@/components/postings/SourceLink";
@@ -44,6 +45,7 @@ export default async function SharedPostingPage({ params }: { params: Promise<{ 
         <div className="min-w-0 flex-1">
           <p className="text-sm font-medium text-slate-500">{posting.company}</p>
           <h1 className="mt-0.5 text-2xl font-bold tracking-tight break-words text-slate-900">{posting.roleTitle}</h1>
+          <MilitaryServiceBadges tags={posting.militaryService} className="mt-2" />
           <p className="mt-2 flex flex-wrap items-center gap-x-3 gap-y-1 text-sm text-slate-500">
             {posting.platform && <span>{platformLabel(posting.platform)}</span>}
             <span>{formatKstDate(kstDate(posting.fetchedAt), { withYear: true })} 기준</span>

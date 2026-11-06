@@ -3,6 +3,7 @@
  * URL 가져오기 작업 상태, 공고 페이지 LLM 추출 출력(PostingExtractSchema). 구역별 구조는 ./posting-structure.ts.
  * 저장은 PostgreSQL job_postings·posting_imports(prisma/schema.prisma). 마감 날짜는 KST 'YYYY-MM-DD'(src/lib/time/kst.ts).
  */
+import type { MilitaryServiceTag } from "./military-service";
 import type { PostingCaptureInfo } from "./posting-capture";
 import { z } from "zod";
 import { isValidKstDate, isValidKstTime } from "@/lib/time/kst";
@@ -240,7 +241,12 @@ export interface JobPosting {
 }
 
 /** 목록 화면용 요약(JD·구조·원문 제외). highlights는 카드 칩(기술 스택·연봉)용으로 서버가 구조에서 잘라 낸 값. */
-export type JobPostingSummary = Omit<JobPosting, "jdText" | "structured" | "sourceText"> & { hasJd: boolean; highlights?: PostingHighlights };
+export type JobPostingSummary = Omit<JobPosting, "jdText" | "structured" | "sourceText"> & {
+  hasJd: boolean;
+  highlights?: PostingHighlights;
+  /** 병역특례 태그(보관함 쪽 목록 listPostingsPage만 싣는다 — 직무명·JD·구역으로 판정). */
+  militaryService?: MilitaryServiceTag[];
+};
 
 // ---------------------------------------------------------------------------
 // URL 가져오기 작업
