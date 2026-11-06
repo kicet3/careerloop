@@ -9,6 +9,7 @@ import { WebStandardStreamableHTTPServerTransport } from "@modelcontextprotocol/
 import { hitDbLimit, MCP_REQUEST_LIMIT } from "@/lib/auth/db-rate-limit";
 import type { CareerGraph } from "@/lib/domain/graph";
 import { getCareerGraph, graphEnabled } from "@/lib/graph/service";
+import { assertGraphOwner } from "@/lib/graph/owner";
 import { authenticateMcpRequest, jsonRpcErrorBody } from "@/lib/mcp/auth";
 import { checkMcpOrigin, MCP_CORS_PREFLIGHT_HEADERS, mcpCorsHeaders } from "@/lib/mcp/origin";
 import { createCareerLoopMcpServer, type McpToolName } from "@/lib/mcp/server";
@@ -107,7 +108,8 @@ export async function POST(req: Request): Promise<Response> {
   const server = createCareerLoopMcpServer({
     user,
     graphEnabled: graphEnabled(),
-    loadGraph: () => (graphPromise ??= getCareerGraph(user.id, { personName: user.name })),
+    // 토큰 주인의 그래프만 도구 결과에 쓴다(graph/owner.ts — 다른 사용자 표시면 도구 오류).
+    loadGraph: () => (graphPromise ??= getCareerGraph(user.id, { personName: user.name }).then((g) => assertGraphOwner(g, user.id))),
     onToolResult: (_t: McpToolName, status) => {
       toolStatus = status;
     },

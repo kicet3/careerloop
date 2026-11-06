@@ -12,6 +12,7 @@ import { RESUME_SECTION_LABELS, RESUME_TEMPLATES, ResumeDraftOutputSchema, type 
 import { RewriteResultSchema } from "@/lib/domain/schemas";
 import { field, INJECTION_RULE, wrapData } from "@/lib/chat/prompt";
 import { getCareerGraph, graphEnabled, graphToText } from "@/lib/graph/service";
+import { assertGraphOwner } from "@/lib/graph/owner";
 import type { LlmClient } from "@/lib/llm";
 import { TAGS } from "@/lib/panel/prompts";
 import type { ResumeDraftSource } from "./types";
@@ -130,7 +131,7 @@ export async function loadDraftMaterial(
       return null;
     case "graph": {
       if (!graphEnabled()) throw new FeatureError("경험 그래프 저장소(Neo4j)가 설정되지 않아 그래프에서 초안을 만들 수 없습니다.", 503);
-      const graph = await getCareerGraph(user.id, { personName: user.name });
+      const graph = assertGraphOwner(await getCareerGraph(user.id, { personName: user.name }), user.id);
       if (graph.nodes.length === 0) {
         throw new FeatureError("경험 그래프가 비어 있습니다. '경험 그래프'에서 경력·경험을 먼저 정리해 주세요.", 409);
       }

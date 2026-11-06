@@ -25,6 +25,7 @@ import type { CareerGraph } from "@/lib/domain/graph";
 import type { ProviderId } from "@/lib/domain/providers";
 import { addMessage, ConcurrentMessageError, createThread, listMessages, listThreads, renameThread } from "@/lib/chat/store";
 import { assessExperienceChecklist, type ExperienceChecklist } from "@/lib/graph/completeness";
+import { assertGraphOwner } from "@/lib/graph/owner";
 import { buildContext } from "@/lib/graph/qa-context";
 import { answerK, llmRerank, MIN_K, type Ranked, rerank, shouldLlmRerank } from "@/lib/graph/rerank";
 import { INTENT_TAG, type QueryIntent, retrieve } from "@/lib/graph/retrieve";
@@ -366,7 +367,8 @@ export async function runQaReply(
     );
   try {
     deadline.throwIfAborted();
-    const graph = await untilAborted(deps.getGraph(userId, personName), deadline);
+    // 프롬프트에 넣을 그래프는 이 사용자 것이어야 한다(graph/owner.ts).
+    const graph = assertGraphOwner(await untilAborted(deps.getGraph(userId, personName), deadline), userId);
     const checklist = assessExperienceChecklist(graph);
     if (graph.nodes.length === 0) {
       return await save(EMPTY_GRAPH_ANSWER, {

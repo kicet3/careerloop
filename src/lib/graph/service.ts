@@ -24,6 +24,7 @@ import {
 } from "@/lib/domain/graph";
 import { ensureGraphSchema, getDriver, graphDatabase } from "./client";
 import { GraphOpError } from "./errors";
+import { markGraphOwner } from "./owner";
 import { planGraphOps, type PlanStep } from "./plan";
 
 export { GraphOpError, GraphUnavailableError } from "./errors";
@@ -81,7 +82,10 @@ export async function getCareerGraph(userId: string, opts: { personName?: string
       const nodes: GraphNode[] = [];
       for (const r of nodeRes.records) {
         const label = r.get("label");
-        if (isLabel(label)) nodes.push(toGraphNode(r.get("id"), label, r.get("props")));
+        const props = r.get("props");
+        // 심층 방어: MATCH가 userId로 거르지만, 다른 사용자 노드가 섞여 나오면(쿼리 회귀) 그래프 전체를 버린다.
+        if (props?.userId !== userId) throw new Error("다른 사용자의 경험 그래프 노드가 조회되었습니다.");
+        if (isLabel(label)) nodes.push(toGraphNode(r.get("id"), label, props));
       }
       const edgeRes = await tx.run(
         `MATCH (a)-[r]->(b:Career {userId: $userId})
@@ -98,7 +102,7 @@ export async function getCareerGraph(userId: string, opts: { personName?: string
         if (!isRel(type) || !ids.has(to) || (from !== PERSON_ID && !ids.has(from))) continue;
         edges.push({ id: edgeId(type, from, to), type, from, to });
       }
-      return { person: { id: PERSON_ID, name: opts.personName ?? null }, nodes, edges };
+      return markGraphOwner<CareerGraph>({ person: { id: PERSON_ID, name: opts.personName ?? null }, nodes, edges }, userId);
     });
   } finally {
     await s.close();

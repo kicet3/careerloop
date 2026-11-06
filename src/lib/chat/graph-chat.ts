@@ -64,6 +64,7 @@ import {
 } from "@/lib/chat/store";
 import { field, historyToPrompt, INJECTION_RULE, wrapData } from "@/lib/chat/prompt";
 import { applyGraphOps, getCareerGraph, graphEnabled, GraphOpError, GraphUnavailableError, graphToText } from "@/lib/graph/service";
+import { assertGraphOwner } from "@/lib/graph/owner";
 import { planGraphOps } from "@/lib/graph/plan";
 import { assessExperienceChecklist, checklistToPromptText } from "@/lib/graph/completeness";
 import { assessProjectStructure, type ProjectStructure, projectFocusText, restrictToFocus } from "@/lib/graph/project-structure";
@@ -1012,7 +1013,8 @@ export async function runGraphChatReply(
   try {
     deadline.throwIfAborted();
     const focusNodeId = (await getThread(userId, threadId))?.focusNodeId ?? null;
-    const graph = await untilAborted(deps.getGraph(userId, personName), deadline);
+    // 프롬프트에 넣을 그래프는 이 사용자 것이어야 한다(다른 사용자 표시면 LLM을 부르지 않고 실패로 남긴다).
+    const graph = assertGraphOwner(await untilAborted(deps.getGraph(userId, personName), deadline), userId);
     if ((focusNodeId && !doc && !assessProjectStructure(graph, focusNodeId)) || (repoImport && !focusNodeId)) {
       // 구조화하던 프로젝트가 지워졌다: LLM을 부르지 않고 안내만 남긴다.
       return await addMessage(
