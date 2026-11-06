@@ -52,6 +52,8 @@ export const CHAT_TAGS = {
   focusProject: "focus_project",
   /** 후속 질문: 이번 메시지가 답하는 질문과(있으면) 그 프로젝트의 남은 열린 질문(graph-chat.ts followupBlock) */
   followupQuestions: "followup_questions",
+  /** 열린 후속 질문 표(`f1. (프로젝트) 질문` 한 줄씩, graph-chat.ts openFollowupsBlock). LLM은 최근 메시지가 답한 것의 id를 answeredFollowups로 낸다. */
+  openFollowups: "open_followups",
   /** 그래프에 묻기: 번호를 붙인 근거 노드 표(qa-context.ts buildContext), LLM 리랭크 후보 표 */
   graphSources: "graph_sources",
   /** 면접 연습: id를 붙인 근거 줄 표(`[r1] (이력서 · 위치) 본문` 한 줄씩, domain/interview.ts InterviewSourceLine) */
@@ -64,6 +66,8 @@ export const CHAT_TAGS = {
   githubRepo: "github_repo",
 } as const;
 
+/** 그래프 채팅 프롬프트에 넣는 열린 후속 질문 수 상한(<open_followups>). */
+export const MAX_PROMPT_FOLLOWUPS = 15;
 /** 이력서·포트폴리오 가져오기: 한 번에 다루는 문서 글자 수, 변경안 연산 수 상한(직접 편집·채팅은 MAX_OPS_PER_BATCH). */
 export const MAX_IMPORT_CHARS = 20_000;
 export const MAX_IMPORT_OPS = 150;
@@ -85,8 +89,14 @@ export const GraphChatOutputSchema = z.object({
   ops: z.array(LlmGraphOpSchema).max(MAX_OPS_PER_BATCH).describe("그래프 변경안. 바꿀 것이 없으면 []"),
   summary: z.string().describe('변경안 한 줄 요약. ops가 비었으면 ""'),
   followUpQuestions: z.array(z.string()).max(3).describe("그래프를 채우려고 사용자에게 되물을 질문(최대 3개)"),
+  answeredFollowups: z
+    .array(z.string())
+    .max(MAX_PROMPT_FOLLOWUPS)
+    .default([])
+    .describe("<open_followups>의 질문 중 사용자의 최근 메시지(<latest_message>)가 실제로 답한 것의 id(f1, f2, …). 없으면 []"),
 });
-export type GraphChatOutput = z.infer<typeof GraphChatOutputSchema>;
+/** 입력 형태(answeredFollowups는 생략 가능 — 가져오기 출력·테스트도 같은 모양으로 쓴다). 검증 뒤에는 항상 배열이다. */
+export type GraphChatOutput = z.input<typeof GraphChatOutputSchema>;
 
 /** 이력서·포트폴리오 가져오기 LLM 출력: 그래프 채팅과 같은 모양이고 연산 상한만 크다. */
 export const GraphImportOutputSchema = z.object({
@@ -165,6 +175,11 @@ export interface GraphProposalData {
   droppedFollowups?: number[];
   /** 이 변경안이 답한 후속 질문 id(사용자 메시지의 FollowupAnswerData). 적용하면 그 질문을 answered로 바꾼다. */
   followupId?: string;
+  /**
+   * 이 답변을 만들며 바로 answered로 바꾼 후속 질문(LLM answeredFollowups — 변경안 적용과 무관). messageId는 답이 된 사용자 메시지.
+   * 화면은 "후속 질문 n개를 답한 것으로 정리했습니다"와 되돌리기(다시 열기)를 보인다.
+   */
+  resolvedFollowups?: { messageId: string; items: { id: string; text: string }[] };
   /** 적용 결과(status='applied'일 때): 임시 ref → 새 노드 id. */
   created?: Record<string, string>;
   /** 적용 실패 사유(status='failed'일 때). */

@@ -107,6 +107,7 @@ export function GraphChatPanel({
   const [generalPick, setGeneralPick] = useState<string | null>(null);
   const [unassigned, setUnassigned] = useState<GraphFollowup[]>([]);
   const [followupBusy, setFollowupBusy] = useState<string | null>(null);
+  const [reopeningMessage, setReopeningMessage] = useState<string | null>(null);
   // GitHub 가져오기: 창(열린 경우 처음 고를 저장소·프로젝트), 설정 여부(null = 확인 중), 저장소 동기화·다시 정리 진행.
   const [githubPicker, setGithubPicker] = useState<GithubPickerEventDetail | null>(null);
   const [githubConfigured, setGithubConfigured] = useState<boolean | null>(null);
@@ -402,6 +403,20 @@ export function GraphChatPanel({
     }
   }
 
+  /** 답변이 답함으로 정리한 후속 질문을 다시 연다(되돌리기). 같은 열린 질문이 이미 있으면(409) 그 질문은 그대로 두고 알린다. */
+  async function reopenResolved(messageId: string, ids: string[]) {
+    setReopeningMessage(messageId);
+    setError(null);
+    try {
+      const results = await Promise.allSettled(ids.map((id) => patchFollowup(id, { status: "open" })));
+      const failed = results.find((r): r is PromiseRejectedResult => r.status === "rejected");
+      if (failed) setError((failed.reason as Error).message);
+      if (threadId) await loadThread(threadId).catch(() => {});
+    } finally {
+      setReopeningMessage(null);
+    }
+  }
+
   function chooseProvider(id: ProviderId) {
     setProvider(id);
     window.localStorage.setItem(PROVIDER_STORAGE_KEY, id);
@@ -471,7 +486,9 @@ export function GraphChatPanel({
       if (focusNodeId) setFocusPick(null);
       else setGeneralPick(null);
       clearAskQuery();
-      await loadThread(id);
+      const v = await loadThread(id);
+      // 답이 이미 왔으면(폴링을 타지 않는다) 후속 질문 수·목록을 여기서 다시 읽게 한다 — 답변이 질문을 답함으로 정리했을 수 있다.
+      if (!v.pending) emitFollowupsChanged();
     } catch (e) {
       setError((e as Error).message);
     } finally {
@@ -858,6 +875,8 @@ export function GraphChatPanel({
               canRetry={m.id === lastId && (view?.canRetry ?? false)}
               onRetry={retry}
               retrying={sending}
+              onReopen={(ids) => void reopenResolved(m.id, ids)}
+              reopening={reopeningMessage === m.id}
             />
           ),
         )}
@@ -1103,6 +1122,8 @@ function AssistantMessage({
   canRetry,
   onRetry,
   retrying,
+  onReopen,
+  reopening,
 }: {
   message: GraphChatMessageView;
   busy: boolean;
@@ -1113,6 +1134,9 @@ function AssistantMessage({
   canRetry: boolean;
   onRetry: () => void;
   retrying: boolean;
+  /** 이 답변이 답함으로 정리한 후속 질문을 다시 연다(되돌리기). */
+  onReopen: (ids: string[]) => void;
+  reopening: boolean;
 }) {
   const replyError = m.status === "failed" && m.data === null;
   if (replyError) {
@@ -1162,7 +1186,17 @@ function AssistantMessage({
           </div>
         )}
 
-        {proposal?.followupId && m.status === "proposed" && (
+        {proposal?.resolvedFollowups && proposal.resolvedFollowups.items.length > 0 && (
+          <ResolvedFollowupsNote
+            items={proposal.resolvedFollowups.items}
+            stillAnswered={m.stillAnswered ?? null}
+            reopened={m.reopened ?? null}
+            busy={reopening}
+            onReopen={onReopen}
+          />
+        )}
+
+        {proposal?.followupId && m.status === "proposed" && !m.stillAnswered?.includes(proposal.followupId) && (
           <p className="text-xs text-slate-500">후속 질문에 대한 답이에요. 적용하면 그 질문을 답함으로 표시합니다.</p>
         )}
 
@@ -1238,6 +1272,63 @@ function OpLineList({ lines }: { lines: string[] }) {
         </details>
       )}
     </>
+  );
+}
+
+/**
+ * 답변이 바로 답함으로 정리한 후속 질문 표시: "후속 질문 n개를 답한 것으로 정리했습니다"와 되돌리기(지금도 답함인 질문을 다시 연다).
+ * stillAnswered가 null이면(상태를 못 읽음) 되돌리기를 숨긴다. 모두 지금 열려 있을 때만 "다시 열었습니다".
+ * 질문별로 열림이면 "(다시 열림)", 이 답변이 정리한 상태가 아니면(나중에 건너뜀·다른 경로로 답함·삭제) "(처리됨)".
+ */
+function ResolvedFollowupsNote({
+  items,
+  stillAnswered,
+  reopened,
+  busy,
+  onReopen,
+}: {
+  items: { id: string; text: string }[];
+  stillAnswered: string[] | null;
+  reopened: string[] | null;
+  busy: boolean;
+  onReopen: (ids: string[]) => void;
+}) {
+  const undone = reopened !== null && items.length > 0 && items.every((f) => reopened.includes(f.id));
+  return (
+    <details className="text-xs text-emerald-800">
+      <summary className="cursor-pointer">
+        {undone ? `후속 질문 ${items.length}개를 다시 열었습니다` : `후속 질문 ${items.length}개를 답한 것으로 정리했습니다`}
+        {stillAnswered && stillAnswered.length > 0 && (
+          <>
+            {" · "}
+            <button
+              type="button"
+              className="font-medium text-indigo-700 underline disabled:opacity-50"
+              disabled={busy}
+              onClick={(e) => {
+                e.preventDefault();
+                onReopen(stillAnswered);
+              }}
+            >
+              {busy ? "되돌리는 중…" : "되돌리기"}
+            </button>
+          </>
+        )}
+      </summary>
+      <ul className="mt-1 list-disc space-y-0.5 pl-4 text-slate-600">
+        {items.map((f) => (
+          <li key={f.id} className="break-words">
+            {f.text}
+            {reopened?.includes(f.id) ? (
+              <span className="ml-1 text-slate-400">(다시 열림)</span>
+            ) : (
+              stillAnswered &&
+              !stillAnswered.includes(f.id) && <span className="ml-1 text-slate-400">(처리됨)</span>
+            )}
+          </li>
+        ))}
+      </ul>
+    </details>
   );
 }
 

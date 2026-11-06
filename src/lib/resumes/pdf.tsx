@@ -13,7 +13,8 @@ import {
   type ResumeTemplate,
   type ResumeTemplateId,
 } from "@/lib/domain/resumes";
-import { period, projectStoryLines, resumeLayout, sectionTitle, splitAddMarkers } from "./layout";
+import { isExperienceEmpty, isProjectEmpty, period, projectStoryLines, resumeLayout, sectionTitle, splitAddMarkers } from "./layout";
+import { A4, mayExceedPage } from "./pagination";
 import { NO_HYPHEN, PDF_FONT, registerResumeFonts } from "./pdf-fonts";
 import { PerformancePdfDocument } from "./pdf-performance";
 
@@ -134,40 +135,83 @@ function Bullets({ s, items }: { s: S; items: string[] }) {
 
 const joinParts = (xs: string[], sep = " · ") => xs.map((x) => x.trim()).filter(Boolean).join(sep);
 
-function Section({ s, title, children }: { s: S; title: string; children: ReactNode }) {
+/**
+ * 섹션의 항목 하나. 쪽 나눔은 웹 미리보기(src/lib/resumes/pagination.ts)와 같은 규칙:
+ * 항목은 쪼개지 않고(wrap=false) 통째로 다음 쪽으로 넘기며, 한 쪽보다 클 수 있는 항목만 줄(불릿) 단위로 나눈다 —
+ * @react-pdf는 쪼개지 않는 상자가 한 쪽보다 크면 잘라 버리기 때문이다.
+ */
+interface Item {
+  el: ReactNode;
+  /** 한 쪽을 넘을 수 있는 항목 판정에 쓰는 글(어림). */
+  texts: string[];
+}
+
+/** 양식의 쪽 본문 크기(pt)와 열 폭. 웹 미리보기(ResumePreview geometry)와 같은 값. */
+function pageBox(t: ResumeTemplate, narrow: boolean) {
+  const compact = t.style.density === "compact";
+  const padX = compact ? 34 : 42;
+  const padY = compact ? 32 : 40;
+  const content = A4.widthPt - padX * 2;
+  const width = narrow ? 150 - 18 : t.style.layout === "sidebar" ? content - 150 - 16 : content;
+  return { widthPt: width, fontPt: t.style.baseFontSize, lineHeight: compact ? 1.4 : 1.5, pageHeightPt: A4.heightPt - padY * 2 };
+}
+
+/** 섹션 제목은 첫 항목과 한 상자로 묶어 같은 쪽에 둔다(첫 항목이 한 쪽을 넘을 수 있으면 제목 뒤 몇 줄만 함께). */
+function Section({ s, title, items, box }: { s: S; title: string; items: Item[]; box: ReturnType<typeof pageBox> }) {
+  const [first, ...rest] = items;
+  const head = (
+    <View style={s.sectionHead} wrap={false}>
+      <T s={s} style={s.sectionTitle}>
+        {title}
+      </T>
+    </View>
+  );
+  const firstBig = first ? mayExceedPage(first.texts, { ...box, extraLines: 2 }) : false;
   return (
     <View style={s.section}>
-      <View style={s.sectionHead} minPresenceAhead={40} wrap={false}>
-        <T s={s} style={s.sectionTitle}>
-          {title}
-        </T>
-      </View>
-      {children}
+      {first && !firstBig ? (
+        <View wrap={false}>
+          {head}
+          {first.el}
+        </View>
+      ) : (
+        <>
+          <View minPresenceAhead={40} wrap={false}>
+            {head}
+          </View>
+          {first ? <View wrap>{first.el}</View> : null}
+        </>
+      )}
+      {rest.map((it, i) => (
+        <View key={i} wrap={mayExceedPage(it.texts, box)}>
+          {it.el}
+        </View>
+      ))}
     </View>
   );
 }
 
-function SectionBody({ s, doc, k, t, narrow }: { s: S; doc: ResumeDocument; k: ResumeSectionKey; t: ResumeTemplate; narrow: boolean }) {
+function sectionItems({ s, doc, k, t, narrow }: { s: S; doc: ResumeDocument; k: ResumeSectionKey; t: ResumeTemplate; narrow: boolean }): Item[] {
   switch (k) {
     case "summary":
-      return <Rich s={s} text={doc.summary.trim()} />;
+      return [{ el: <Rich s={s} text={doc.summary.trim()} />, texts: [doc.summary] }];
     case "highlights":
-      return (
-        <View>
-          {doc.highlights
-            .filter((h) => h.title.trim() || h.context.trim())
-            .map((h, i) => (
-              <View key={i} style={{ marginBottom: 4 }} wrap={false}>
-                <Rich s={s} style={s.itemTitle} text={h.title} />
-                {h.context.trim() ? <Rich s={s} style={s.itemSub} text={h.context} /> : null}
-              </View>
-            ))}
-        </View>
-      );
+      return doc.highlights
+        .filter((h) => h.title.trim() || h.context.trim())
+        .map((h, i) => ({
+          el: (
+            <View key={i} style={{ marginBottom: 4 }}>
+              <Rich s={s} style={s.itemTitle} text={h.title} />
+              {h.context.trim() ? <Rich s={s} style={s.itemSub} text={h.context} /> : null}
+            </View>
+          ),
+          texts: [h.title, h.context],
+        }));
     case "experience":
-      return (
-        <View>
-          {doc.experience.map((e, i) => (
+      return doc.experience
+        .filter((e) => !isExperienceEmpty(e))
+        .map((e, i) => ({
+          el: (
             <View key={i} style={s.item}>
               <View style={s.itemHead} wrap={false}>
                 <Rich s={s} style={[s.itemTitle, s.grow]} text={joinParts([e.company, e.title], " | ")} />
@@ -179,13 +223,14 @@ function SectionBody({ s, doc, k, t, narrow }: { s: S; doc: ResumeDocument; k: R
               {e.scope.trim() ? <Rich s={s} text={e.scope} /> : null}
               <Bullets s={s} items={e.bullets} />
             </View>
-          ))}
-        </View>
-      );
+          ),
+          texts: [joinParts([e.company, e.title]), joinParts([e.department, e.location]), e.scope, ...e.bullets],
+        }));
     case "projects":
-      return (
-        <View>
-          {doc.projects.map((p, i) => (
+      return doc.projects
+        .filter((p) => !isProjectEmpty(p))
+        .map((p, i) => ({
+          el: (
             <View key={i} style={s.item}>
               <View style={s.itemHead} wrap={false}>
                 <Rich s={s} style={[s.itemTitle, s.grow]} text={joinParts([p.name, p.role], " | ")} />
@@ -203,50 +248,48 @@ function SectionBody({ s, doc, k, t, narrow }: { s: S; doc: ResumeDocument; k: R
                 </T>
               ) : null}
             </View>
-          ))}
-        </View>
-      );
+          ),
+          texts: [joinParts([p.name, p.role]), joinParts([p.company, p.team]), p.summary, ...projectStoryLines(p), ...p.bullets, p.evidence, p.techs.join(", ")],
+        }));
     case "skills":
-      return (
-        <View>
-          {doc.skills
-            .filter((g) => g.items.some((x) => x.trim()) || g.detail.trim())
-            .map((g, i) =>
-              t.style.skillChips ? (
-                <View key={i} style={{ marginBottom: 4 }}>
-                  {g.category.trim() ? <T s={s} style={s.skillCat}>{g.category}</T> : null}
-                  {g.detail.trim() ? <T s={s} style={s.itemSub}>{g.detail}</T> : null}
-                  <View style={s.chips}>
-                    {g.items
-                      .map((x) => x.trim())
-                      .filter(Boolean)
-                      .map((x, j) => (
-                        <T key={j} s={s} style={s.chip}>
-                          {x}
-                        </T>
-                      ))}
-                  </View>
-                </View>
-              ) : (
-                <View key={i} style={narrow ? { marginBottom: 3 } : { flexDirection: "row", marginBottom: 2 }}>
-                  {g.category.trim() ? (
-                    <T s={s} style={[s.skillCat, narrow ? undefined : { width: 90 }]}>
-                      {g.category}
+      return doc.skills
+        .filter((g) => g.items.some((x) => x.trim()) || g.detail.trim())
+        .map((g, i) => ({
+          texts: [g.category, g.detail, g.items.join(", ")],
+          el: t.style.skillChips ? (
+            <View key={i} style={{ marginBottom: 4 }}>
+              {g.category.trim() ? <T s={s} style={s.skillCat}>{g.category}</T> : null}
+              {g.detail.trim() ? <T s={s} style={s.itemSub}>{g.detail}</T> : null}
+              <View style={s.chips}>
+                {g.items
+                  .map((x) => x.trim())
+                  .filter(Boolean)
+                  .map((x, j) => (
+                    <T key={j} s={s} style={s.chip}>
+                      {x}
                     </T>
-                  ) : null}
-                  <View style={{ flex: 1 }}>
-                    <T s={s}>{joinParts([g.detail, joinParts(g.items, ", ")], " — ")}</T>
-                  </View>
-                </View>
-              ),
-            )}
-        </View>
-      );
+                  ))}
+              </View>
+            </View>
+          ) : (
+            <View key={i} style={narrow ? { marginBottom: 3 } : { flexDirection: "row", marginBottom: 2 }}>
+              {g.category.trim() ? (
+                <T s={s} style={[s.skillCat, narrow ? undefined : { width: 90 }]}>
+                  {g.category}
+                </T>
+              ) : null}
+              <View style={{ flex: 1 }}>
+                <T s={s}>{joinParts([g.detail, joinParts(g.items, ", ")], " — ")}</T>
+              </View>
+            </View>
+          ),
+        }));
     case "education":
-      return (
-        <View>
-          {doc.education.filter((e) => e.school.trim() || e.major.trim()).map((e, i) => (
-            <View key={i} style={s.item} wrap={false}>
+      return doc.education
+        .filter((e) => e.school.trim() || e.major.trim())
+        .map((e, i) => ({
+          el: (
+            <View key={i} style={s.item}>
               <T s={s} style={s.itemTitle}>
                 {e.school}
               </T>
@@ -255,33 +298,35 @@ function SectionBody({ s, doc, k, t, narrow }: { s: S; doc: ResumeDocument; k: R
               </T>
               {e.note.trim() ? <Rich s={s} text={e.note} /> : null}
             </View>
-          ))}
-        </View>
-      );
+          ),
+          texts: [e.school, e.major, e.note],
+        }));
     case "certifications":
-      return (
-        <View>
-          {doc.certifications.filter((c) => c.name.trim()).map((c, i) => (
-            <View key={i} style={{ marginBottom: 2 }} wrap={false}>
+      return doc.certifications
+        .filter((c) => c.name.trim())
+        .map((c, i) => ({
+          el: (
+            <View key={i} style={{ marginBottom: 2 }}>
               <T s={s}>
                 <Text style={{ fontWeight: 700 }}>{c.name}</Text>
                 {joinParts([c.issuer, c.date]) ? ` — ${joinParts([c.issuer, c.date])}` : ""}
               </T>
             </View>
-          ))}
-        </View>
-      );
+          ),
+          texts: [c.name, c.issuer],
+        }));
     case "extras":
-      return (
-        <View>
-          {doc.extras.map((x, i) => (
+      return doc.extras
+        .filter((x) => x.title.trim() || x.items.some((v) => v.trim()))
+        .map((x, i) => ({
+          el: (
             <View key={i} style={s.item}>
               {x.title.trim() ? <T s={s} style={s.itemTitle}>{x.title}</T> : null}
               <Bullets s={s} items={x.items} />
             </View>
-          ))}
-        </View>
-      );
+          ),
+          texts: [x.title, ...x.items],
+        }));
   }
 }
 
@@ -310,9 +355,7 @@ function ResumePdfDocument({ doc, templateId }: { doc: ResumeDocument; templateI
   );
 
   const mainSections = layout.main.map((k) => (
-    <Section key={k} s={s} title={sectionTitle(doc, k)}>
-      <SectionBody s={s} doc={doc} k={k} t={t} narrow={false} />
-    </Section>
+    <Section key={k} s={s} title={sectionTitle(doc, k)} box={pageBox(t, false)} items={sectionItems({ s, doc, k, t, narrow: false })} />
   ));
 
   return (
@@ -337,9 +380,7 @@ function ResumePdfDocument({ doc, templateId }: { doc: ResumeDocument; templateI
                 </View>
               ) : null}
               {layout.side.map((k) => (
-                <Section key={k} s={s} title={sectionTitle(doc, k)}>
-                  <SectionBody s={s} doc={doc} k={k} t={t} narrow />
-                </Section>
+                <Section key={k} s={s} title={sectionTitle(doc, k)} box={pageBox(t, true)} items={sectionItems({ s, doc, k, t, narrow: true })} />
               ))}
             </View>
             <View style={s.main}>{mainSections}</View>

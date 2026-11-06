@@ -6,6 +6,8 @@
  * - dropped: 변경안에서 뺀 항목 중 사용자가 채울 수 있는 것(문서에 근거 없음, 기간·숫자 형식 오류)을 질문으로 바꾼 것. 중복·잘못된 id·삭제 금지
  *   같은 기술적 사유는 넣지 않는다(src/lib/chat/followup-extract.ts).
  * 프로젝트 단위 대화가 그 프로젝트의 열린 질문을 하나씩 물어 채운다. 답한 변경안을 적용하면 answered, 건너뛰면 skipped(다시 열 수 있다).
+ * 그래프 채팅 답변마다 열린 질문(<open_followups>, 짧은 id)을 함께 보내고, 사용자의 최근 메시지가 답한 질문은 LLM이 answeredFollowups로
+ * 표시해 바로 answered가 된다(변경안 적용과 무관 — 메시지 data.resolvedFollowups, 화면에서 되돌리기 가능).
  */
 import type { ProjectStructureItemId } from "@/lib/graph/project-structure";
 

@@ -1,7 +1,7 @@
 /**
- * 알림 목록 합치기(순수 — 테스트 대상). 폴링으로 받은 새 알림을 앞에 붙이고 같은 id는 새 값으로 바꾼다.
+ * 알림 목록 합치기(순수 — 테스트 대상). 목록 API로 받은 알림은 같은 id를 새 값으로 바꾸고, SSE로 받은 새 알림은 처음 보는 것만 붙인다.
  */
-import type { NotificationItem } from "@/lib/domain/notifications";
+import type { NotificationItem, NotificationStreamItem } from "@/lib/domain/notifications";
 
 /** 최근 순 정렬(같은 시각이면 id 역순 — 서버 정렬과 같다). */
 function byRecent(a: NotificationItem, b: NotificationItem): number {
@@ -23,6 +23,35 @@ export function mergeNotifications(
     known.set(n.id, n);
   }
   return { items: [...known.values()].sort(byRecent).slice(0, limit), fresh: fresh.sort(byRecent) };
+}
+
+/**
+ * SSE "notification" 이벤트로 받은 알림을 합친다. 이미 아는 id는 그대로 둔다(다시 연결할 때 겹쳐 다시 오는 알림이
+ * 화면에서 먼저 읽음 처리한 상태를 되돌리지 않게). 처음 보는 알림은 서버의 readAt 그대로 붙이고(다른 탭·기기에서 이미 읽었을 수 있다),
+ * fresh는 그중 읽지 않은 것(토스트·배지 후보 — mergeNotifications와 같은 규칙). added는 목록에 새로 붙은 개수.
+ */
+export function mergeStreamNotifications(
+  prev: readonly NotificationItem[],
+  incoming: readonly NotificationStreamItem[],
+  limit = 30,
+): { items: NotificationItem[]; fresh: NotificationItem[]; added: number } {
+  const known = new Set(prev.map((n) => n.id));
+  const added: NotificationItem[] = [];
+  for (const n of incoming) {
+    if (known.has(n.id)) continue;
+    known.add(n.id);
+    added.push({ ...n, readAt: typeof n.readAt === "number" ? n.readAt : null });
+  }
+  if (added.length === 0) return { items: [...prev], fresh: [], added: 0 };
+  const fresh = added.filter((n) => n.readAt === null).sort(byRecent);
+  return { items: [...prev, ...added].sort(byRecent).slice(0, limit), fresh, added: added.length };
+}
+
+/** 스트림 재연결 커서: 마지막으로 받은 이벤트 id와 아는 알림 중 가장 최근 시각 중 큰 값. 둘 다 없으면 null. */
+export function streamSince(lastEventId: number | null, items: readonly NotificationItem[]): number | null {
+  const latest = items.length > 0 ? Math.max(...items.map((n) => n.createdAt)) : 0;
+  const since = Math.max(lastEventId ?? 0, latest);
+  return since > 0 ? since : null;
 }
 
 /** 다음 폴링의 since(가장 최근 알림 시각 - 1초 겹침, 같은 ms 알림을 놓치지 않게 — 겹친 것은 id로 거른다). 목록이 비었으면 null. */

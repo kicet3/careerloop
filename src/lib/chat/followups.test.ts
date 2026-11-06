@@ -404,7 +404,9 @@ describe("후속 질문 정리(적용·거절·삭제)", () => {
     expect((await fu.getFollowup("u1", q1!.id))!.status).toBe("open");
     await gc.startGraphChatMessage("u1", t0.id, "4명이었어요", d, { followupId: q2!.id });
     await gc.runGraphChatReply("u1", t0.id, "anthropic", null, d);
-    const block = prompts[1]!.user.slice(prompts[1]!.user.indexOf(`<${CHAT_TAGS.followupQuestions}>`));
+    // 남은 후속 질문 블록만 본다(열린 질문 전체 표 <open_followups>에는 q1도 있다 — 답했는지 판정용).
+    const user = prompts[1]!.user;
+    const block = user.slice(user.indexOf(`<${CHAT_TAGS.followupQuestions}>`), user.indexOf(`</${CHAT_TAGS.followupQuestions}>`));
     expect(block).toContain(`지금 답하는 질문: ${q2!.text}`);
     expect(block).toContain(`1. ${q3!.text}`);
     expect(block).not.toContain(q1!.text);

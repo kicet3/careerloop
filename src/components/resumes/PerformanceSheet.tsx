@@ -19,6 +19,7 @@ import {
 } from "@/lib/domain/resumes";
 import { PERFORMANCE_HEADINGS, splitAddMarkers } from "@/lib/resumes/layout";
 import "./performance-sheet.css";
+import { MOBILE_QUERY, SHEET_PAGE_GAP, useSheetPages } from "./sheet-pagination";
 
 type Doc = ResumeDocument;
 
@@ -49,6 +50,10 @@ const css = {
   name: "pf-name",
   notes: "pf-notes",
   overflow: "pf-overflow",
+  page: "pf-page",
+  pageNo: "pf-page-no",
+  pages: "pf-pages",
+  paged: "pf-paged",
   period: "pf-period",
   project: "pf-project",
   remove: "pf-remove",
@@ -63,9 +68,6 @@ const css = {
   skills: "pf-skills",
   status: "pf-status",
 } as const;
-
-/** A4 297mm에서 위아래 여백 15mm씩을 뺀 본문 높이(원본 checkFit과 같은 기준). */
-const PAGE_BODY_PX = (267 * 96) / 25.4;
 
 /** 항목 수 한도(ResumeDocumentSchema와 같다). */
 const LIMITS = {
@@ -395,34 +397,28 @@ export function PerformanceSheet({
 }) {
   const editable = !!onChange;
   const bodyRef = useRef<HTMLDivElement>(null);
-  const [fit, setFit] = useState<{ text: string; over: boolean }>({
-    text: "분량 확인 중",
-    over: false,
-  });
+  // 쪽 나눔: 한 장을 넘으면 A4 쪽 카드로 나눠 보인다(sheet-pagination.ts). PDF도 같은 자리에서 쪽이 바뀐다.
+  const pages = useSheetPages(bodyRef, doc);
+  const [fitMode, setFitMode] = useState<"pending" | "mobile" | "a4">("pending");
+  const fit =
+    fitMode === "pending"
+      ? { text: "분량 확인 중", over: false }
+      : fitMode === "mobile"
+        ? { text: "PDF는 A4로 만들어집니다", over: false }
+        : pages > 1
+          ? { text: `내용이 ${pages}쪽입니다 · 쪽 단위로 나눠 보입니다`, over: true }
+          : { text: "현재 1장 범위", over: false };
   const [focusPath, setFocusPath] = useState<string | null>(null);
 
-  // 원본 checkFit: 본문 높이가 A4 한 장(여백 제외 267mm)을 넘는지. 글꼴을 다 받은 뒤·크기가 바뀔 때마다 다시 잰다.
+  // 원본 checkFit의 화면 판정: 좁은 화면은 A4가 아닌 모바일 배치라 쪽 수 대신 안내만 보인다.
   useEffect(() => {
     if (!editable) return;
-    const el = bodyRef.current;
-    if (!el) return;
-    const check = () => {
-      if (window.innerWidth < 600) {
-        setFit({ text: "PDF는 A4로 만들어집니다", over: false });
-        return;
-      }
-      const over = el.getBoundingClientRect().height > PAGE_BODY_PX;
-      setFit({ text: over ? "내용이 1장을 넘습니다" : "현재 1장 범위", over });
-    };
+    // 쪽 나눔(sheet-pagination.ts)과 같은 기준(CSS @media max-width: 600px)으로 판정한다.
+    const mq = window.matchMedia(MOBILE_QUERY);
+    const check = () => setFitMode(mq.matches ? "mobile" : "a4");
     check();
-    const ro = new ResizeObserver(check);
-    ro.observe(el);
-    window.addEventListener("resize", check);
-    void document.fonts?.ready.then(check);
-    return () => {
-      ro.disconnect();
-      window.removeEventListener("resize", check);
-    };
+    mq.addEventListener("change", check);
+    return () => mq.removeEventListener("change", check);
   }, [editable]);
 
   // 항목을 새로 만들면(Enter·추가 버튼) 그 칸으로 커서를 옮긴다.
@@ -1016,7 +1012,24 @@ export function PerformanceSheet({
         </div>
       )}
       <div className={css.sheetWrap}>
-        <div className={css.sheet} role={editable ? "group" : undefined} aria-label={editable ? "이력서 편집 영역" : "이력서 미리보기"}>
+        <div
+          className={cn(css.sheet, pages > 1 && css.paged)}
+          role={editable ? "group" : undefined}
+          aria-label={editable ? "이력서 편집 영역" : "이력서 미리보기"}
+          data-pages={pages}
+          style={pages > 1 ? { minHeight: `calc(${pages} * 297mm + ${(pages - 1) * SHEET_PAGE_GAP}px)` } : undefined}
+        >
+          {pages > 1 && (
+            <div className={css.pages} aria-hidden>
+              {Array.from({ length: pages }, (_, i) => (
+                <div key={i} className={css.page} style={{ top: `calc(${i} * (297mm + ${SHEET_PAGE_GAP}px))` }}>
+                  <span className={css.pageNo}>
+                    {i + 1} / {pages}쪽
+                  </span>
+                </div>
+              ))}
+            </div>
+          )}
           <div className={css.body} ref={bodyRef}>
             {header}
             {show.highlights && highlights}

@@ -4,8 +4,8 @@ import "server-only";
  *
  * - 쌓기(saveProposalFollowups): 그래프 채팅 변경안이 나오면 후보(followup-extract.ts)를 저장한다. 같은 프로젝트(미지정끼리도)의 열린 질문과
  *   정규화한 글(dedupe_key)이 같으면 새로 만들지 않는다. 사용자당 열린 질문은 MAX_OPEN_FOLLOWUPS개까지.
- * - 상태: open → answered(그 질문에 답한 변경안을 적용, 또는 목표 구조화 항목이 완료) | skipped(건너뛰기). answered·skipped → open(다시 열기).
- *   변경안을 거절하면 질문은 열린 채로 남는다.
+ * - 상태: open → answered(그 질문에 답한 변경안을 적용, 목표 구조화 항목이 완료, 또는 채팅 답변에서 LLM이 최근 메시지가 답했다고 표시 —
+ *   markFollowupsAnswered) | skipped(건너뛰기). answered·skipped → open(다시 열기). 변경안을 거절해도 이미 답함으로 바뀐 질문은 그대로다.
  * - 적용 뒤(onProposalApplied): 새 Project의 ref로 귀속한 질문을 실제 id로 바꾸고, 답한 질문을 answered로, 이 변경안이 건드린 Project의
  *   목표 구조화 항목이 완료된 열린 질문도 answered로 바꾼다. 지운 Project의 질문은 미지정으로 옮긴다(Neo4j id라 외래 키가 없다).
  * - 거절·적용 실패(releasePendingRefs): 새 Project의 ref로 귀속한 그 변경안의 질문을 미지정으로 옮긴다(숨은 채 남지 않게).
@@ -128,6 +128,74 @@ export async function listFollowups(userId: string, q: ListFollowupsQuery = {}):
     take: Math.min(Math.max(q.limit ?? 100, 1), 200),
   });
   return rows.map(toFollowup);
+}
+
+/**
+ * 그래프 채팅 프롬프트에 넣을 열린 후속 질문(<open_followups>). 이 사용자의 열린·보이는(projectRef 없음) 질문만.
+ * - 프로젝트 대화(focusProjectId): 그 프로젝트의 질문(오래된 것부터).
+ * - 일반 대화: 답하는 질문(currentId)의 프로젝트 → 최근 메시지에서 이름이 나온 프로젝트(mentionedProjectIds) → 프로젝트 미지정 순.
+ * 답하는 질문(currentId — 열린 질문일 때)은 맨 앞. limit개까지.
+ */
+export async function openFollowupsForPrompt(
+  userId: string,
+  scope: { focusProjectId: string | null; mentionedProjectIds?: readonly string[]; currentId?: string | null },
+  limit: number,
+): Promise<GraphFollowup[]> {
+  if (limit <= 0) return [];
+  const base = { userId, status: "open", projectRef: null } as const;
+  const order = [{ createdAt: "asc" as const }, { id: "asc" as const }];
+  let rows: Row[];
+  if (scope.focusProjectId) {
+    rows = await prisma.graphFollowup.findMany({ where: { ...base, projectNodeId: scope.focusProjectId }, orderBy: order, take: limit + 1 });
+  } else {
+    const current = scope.currentId ? await prisma.graphFollowup.findFirst({ where: { ...base, id: scope.currentId } }) : null;
+    const projects = [...new Set([...(current?.projectNodeId ? [current.projectNodeId] : []), ...(scope.mentionedProjectIds ?? [])])];
+    const projectRows = projects.length
+      ? await prisma.graphFollowup.findMany({ where: { ...base, projectNodeId: { in: projects } }, orderBy: order, take: limit * 2 })
+      : [];
+    // 프로젝트 순서(답하는 질문의 프로젝트 → 언급 순)를 지킨다.
+    projectRows.sort((a, b) => projects.indexOf(a.projectNodeId!) - projects.indexOf(b.projectNodeId!));
+    const unassigned = await prisma.graphFollowup.findMany({ where: { ...base, projectNodeId: null }, orderBy: order, take: limit + 1 });
+    rows = [...(current ? [current] : []), ...projectRows, ...unassigned];
+  }
+  if (scope.currentId && scope.focusProjectId) {
+    const i = rows.findIndex((r) => r.id === scope.currentId);
+    if (i > 0) rows.unshift(...rows.splice(i, 1));
+  }
+  const seen = new Set<string>();
+  return rows.filter((r) => !seen.has(r.id) && seen.add(r.id)).slice(0, limit).map(toFollowup);
+}
+
+/**
+ * 채팅 답변에서 답했다고 표시한 질문을 answered로 바꾼다(이 사용자의 열린·보이는 질문만 — 남의 질문·이미 처리된 질문은 건너뛴다).
+ * 돌려주는 값: 실제로 바꾼 id(입력 순서).
+ */
+export async function markFollowupsAnswered(userId: string, ids: readonly string[]): Promise<string[]> {
+  const unique = [...new Set(ids)];
+  if (unique.length === 0) return [];
+  const now = new Date();
+  const done: string[] = [];
+  for (const id of unique) {
+    const res = await prisma.graphFollowup.updateMany({
+      where: { id, userId, status: "open", projectRef: null },
+      data: { status: "answered", resolvedAt: now, updatedAt: now },
+    });
+    if (res.count > 0) done.push(id);
+  }
+  return done;
+}
+
+/** 이 사용자 질문들의 지금 상태와 처리 시각(id → {status, resolvedAt ms}). 없는 id는 빠진다. */
+export async function followupStatuses(
+  userId: string,
+  ids: readonly string[],
+): Promise<Map<string, { status: FollowupStatus; resolvedAt: number | null }>> {
+  if (ids.length === 0) return new Map();
+  const rows = await prisma.graphFollowup.findMany({
+    where: { userId, id: { in: [...new Set(ids)] } },
+    select: { id: true, status: true, resolvedAt: true },
+  });
+  return new Map(rows.map((r) => [r.id, { status: r.status as FollowupStatus, resolvedAt: r.resolvedAt?.getTime() ?? null }]));
 }
 
 /** 열린 후속 질문 수(프로젝트별·미지정). */

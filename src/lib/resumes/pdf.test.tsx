@@ -68,3 +68,22 @@ describe("resumePdfFileName", () => {
     );
   });
 });
+
+describe("쪽 나눔(긴 이력서)", () => {
+  const pageCount = (pdf: Uint8Array) => (new TextDecoder("latin1").decode(pdf).match(/\/Type\s*\/Page[^s]/g) ?? []).length;
+  const longResume = () => {
+    const doc = makeSampleResume();
+    doc.experience = Array.from({ length: 10 }, (_, i) => ({
+      ...doc.experience[0]!,
+      company: `회사 ${i + 1}`,
+      bullets: Array.from({ length: 5 }, (_, j) => `${j + 1}. 결제 API의 응답 시간을 측정하고 병목 구간을 개선해 처리량을 늘렸습니다.`),
+    }));
+    return doc;
+  };
+
+  it.each(RESUME_TEMPLATE_IDS)("%s 양식: 한 장을 넘는 이력서는 여러 쪽 PDF가 된다", async (id) => {
+    const pdf = await renderResumePdf(longResume(), id);
+    expect(pageCount(pdf)).toBeGreaterThan(1);
+    if (process.env.RESUME_PDF_OUT) writeFileSync(`${process.env.RESUME_PDF_OUT}/resume-${id}-long.pdf`, pdf);
+  }, 60_000);
+});

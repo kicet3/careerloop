@@ -58,6 +58,41 @@
   font-size: 10pt;
   line-height: 1.6;
 }
+/*
+ * 쪽 나눔(sheet-pagination.ts): 한 장을 넘으면 시트 바탕을 지우고 A4 쪽 카드(297mm, 간격 28px = SHEET_PAGE_GAP)를 뒤에 깐다.
+ * 본문은 그대로 한 흐름이고, 다음 쪽으로 넘길 블록 앞에 여백을 넣어 쪽 카드 위치에 맞춘다.
+ */
+.pf-sheet.pf-paged {
+  background: transparent;
+  box-shadow: none;
+}
+.pf-pages {
+  position: absolute;
+  inset: 0;
+  z-index: 0;
+  pointer-events: none;
+}
+.pf-page {
+  position: absolute;
+  left: 0;
+  right: 0;
+  height: 297mm;
+  background: var(--paper);
+  box-shadow: 0 8px 30px #23344916;
+}
+.pf-page-no {
+  position: absolute;
+  right: 0;
+  bottom: -21px;
+  font-size: 11px;
+  line-height: 1;
+  color: var(--muted);
+  font-variant-numeric: tabular-nums;
+}
+.pf-sheet.pf-paged .pf-body {
+  position: relative;
+  z-index: 1;
+}
 .pf-header {
   padding-bottom: 17px;
 }
@@ -440,5 +475,8 @@
   }
   .pf-field:empty::before {
     content: none;
+  }
+  .pf-page-no {
+    display: none;
   }
 }

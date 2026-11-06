@@ -39,6 +39,33 @@ export interface NotificationListResponse {
   unreadCount: number;
 }
 
+/**
+ * GET /api/notifications/stream(SSE) 이벤트. 저장·목록·읽음은 DB(위 API)가 기준이고, 스트림은 새 알림과 읽지 않은 수만 알린다.
+ * - "notification": data는 NotificationStreamItem(JSON), id는 커서(ms).
+ * - "unread": data는 { unreadCount }, id는 커서. 연결 직후와 값이 바뀔 때.
+ * 커서는 서버가 보낸 가장 최근 알림의 createdAt(ms)이다. 다시 연결하면 Last-Event-ID(또는 ?since=)로 그 뒤부터 받는다.
+ */
+export const NOTIFICATION_STREAM_EVENTS = { notification: "notification", unread: "unread" } as const;
+
+/**
+ * 스트림의 "notification" 이벤트 본문. 커서 뒤에 생긴 알림이라도 다른 탭·기기에서 이미 읽었을 수 있어 readAt을 함께 싣는다
+ * (클라이언트는 readAt이 null인 것만 토스트·배지 후보로 삼는다).
+ */
+export type NotificationStreamItem = NotificationItem;
+
+/** "unread" 이벤트 본문. */
+export interface NotificationStreamUnread {
+  unreadCount: number;
+}
+
+/** 스트림 커서(ms) 읽기. 숫자가 아니면 null. */
+export function parseStreamCursor(raw: string | null | undefined): number | null {
+  const s = raw?.trim() ?? "";
+  if (!/^\d{1,15}$/.test(s)) return null;
+  const n = Number(s);
+  return Number.isSafeInteger(n) && n > 0 ? n : null;
+}
+
 /** 실패 알림인가(아이콘·색 구분). */
 export function isFailureNotification(kind: NotificationKind): boolean {
   return kind.endsWith("-failed");

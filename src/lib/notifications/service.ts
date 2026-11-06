@@ -1,7 +1,7 @@
 import "server-only";
 /**
  * 앱 안 알림 저장소(notifications). 오래 걸리는 백그라운드 작업(AI 이력서 초안·진단·공고 가져오기·면접 질문)이 끝나면
- * notify()로 만들고, 상단 알림 버튼(NotificationBell)이 GET /api/notifications를 폴링한다.
+ * notify()로 만들고, 상단 알림 버튼(NotificationBell)이 GET /api/notifications로 목록을 받고 GET /api/notifications/stream(SSE)으로 새 알림을 받는다.
  *
  * - 모든 조회·변경은 userId로 소유를 건다(남의 알림은 보이지도, 읽음 처리되지도 않는다).
  * - 새 알림을 넣을 때 사용자당 최근 MAX_NOTIFICATIONS_PER_USER개만 남기고 지운다.
@@ -107,6 +107,23 @@ export async function listNotifications(
     prisma.notification.count({ where: { userId, readAt: null } }),
   ]);
   return { items: rows.map(toItem), unreadCount };
+}
+
+/**
+ * after(ms) 뒤에 만든 내 알림을 오래된 순으로(SSE 스트림이 커서 다음 것을 보낼 때). limit개까지.
+ */
+export async function listNotificationsAfter(userId: string, after: number, limit: number = NOTIFICATION_LIST_LIMIT): Promise<NotificationItem[]> {
+  const rows = await prisma.notification.findMany({
+    where: { userId, createdAt: { gt: new Date(Math.max(0, after)) } },
+    orderBy: [{ createdAt: "asc" }, { id: "asc" }],
+    take: Math.min(Math.max(1, limit), 100),
+  });
+  return rows.map(toItem);
+}
+
+/** 읽지 않은 내 알림 수. */
+export async function countUnreadNotifications(userId: string): Promise<number> {
+  return prisma.notification.count({ where: { userId, readAt: null } });
 }
 
 /** 읽음 처리. ids를 주면 그 알림만(남의 것은 건너뛴다), "all"이면 모두. 바꾼 개수. */

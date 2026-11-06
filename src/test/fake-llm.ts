@@ -491,7 +491,20 @@ function fakeOutput(stage: StageKey, ctx: Ctx): StageOutputs[StageKey] {
 // 파이프라인 밖 기능(task)의 가짜 출력 — 프롬프트의 CHAT_TAGS 태그에서 자료를 읽는다.
 // ---------------------------------------------------------------------------
 
+/**
+ * 가짜 answeredFollowups: 최근 메시지에 적힌 `#answered:<id>` 표시를 그대로 낸다(목록에 없는 id도 — 서버가 거르는지 시험한다).
+ * 표시가 없으면 [] — 사용자가 답한 것을 알아보는 판단은 실제 LLM의 몫이다.
+ */
+function fakeAnsweredFollowups(message: string): string[] {
+  return [...message.matchAll(/#answered:([\w-]+)/g)].map((m) => m[1]!).slice(0, 15);
+}
+
 function fakeGraphChat(user: string): GraphChatOutput {
+  const out = fakeGraphChatBody(user);
+  return { ...out, answeredFollowups: fakeAnsweredFollowups(extractTag(user, CHAT_TAGS.latestMessage) ?? "") };
+}
+
+function fakeGraphChatBody(user: string): GraphChatOutput {
   const message = (extractTag(user, CHAT_TAGS.latestMessage) ?? "").trim();
   if (!message) {
     return { reply: "어떤 경험을 정리할까요? 회사·프로젝트·맡은 일·결과를 편하게 말씀해 주세요.", ops: [], summary: "", followUpQuestions: [] };
