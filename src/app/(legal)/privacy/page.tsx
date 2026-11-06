@@ -277,9 +277,16 @@ export default function PrivacyPage() {
           버전을 이 페이지에서 볼 수 있게 합니다.
         </p>
         <ul>
-          <li>{PRIVACY_VERSION}: 최초 제정</li>
-          <li>외부 AI 앱 연결(MCP) 토큰 정보 항목과 이용자 요청에 따른 경험 그래프 전달 안내 추가(2·5항, 시행일 변경 없음)</li>
-          <li>GitHub 연동(이용자가 고른 저장소 정보로 경험 그래프 정리) 항목·보유 기간·중단 방법 추가, AI 처리 국외 이전 항목에 GitHub 저장소 정보 추가(2·3·5·7항, 시행일 변경 없음)</li>
+          <li>
+            {PRIVACY_VERSION}: AI 기능 이용 기록, 외부 AI 앱 연결(MCP) 토큰 정보와 이용자 요청에 따른 경험 그래프 전달, GitHub 연동(이용자가 고른 저장소
+            정보로 경험 그래프 정리) 항목·보유 기간·중단 방법 추가, AI 처리 국외 이전 항목에 GitHub 저장소 정보 추가(2·3·5·7항)
+          </li>
+          <li>
+            2026-11-06: 최초 제정 —{" "}
+            <Link href="/privacy/2026-11-06" className="text-indigo-700 underline underline-offset-2">
+              이전 판 보기
+            </Link>
+          </li>
         </ul>
         <p className="text-xs text-slate-500">
           함께 보기:{" "}

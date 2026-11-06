@@ -31,7 +31,7 @@ export interface ConsentDoc {
 /** 이용약관 시행일 겸 버전. /terms 화면 머리말과 변경 이력이 이 값을 쓴다. */
 export const TERMS_VERSION = "2026-11-06";
 /** 개인정보 처리방침 시행일 겸 버전. /privacy 화면과 가입 화면의 수집·이용·국외이전 안내가 이 값을 쓴다. */
-export const PRIVACY_VERSION = "2026-11-06";
+export const PRIVACY_VERSION = "2026-11-07";
 /** 광고성 정보 수신 동의 문구 버전. */
 export const MARKETING_VERSION = "2026-11-06";
 /** 만 14세 이상 확인 문구 버전. */
