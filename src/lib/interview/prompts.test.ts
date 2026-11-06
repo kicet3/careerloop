@@ -48,6 +48,16 @@ describe("질문 생성 프롬프트", () => {
     expect(buildInterviewQuestionsPrompt(snapshot(true)).user).toContain("공고 요건과 서류를 잇는 질문");
   });
 
+  it("링크 포트폴리오: 설명(p 줄)이 있으면 '링크만 있음'이라 하지 않는다", () => {
+    const withNote = snapshot(false);
+    withNote.portfolio = { kind: "url", fileName: null, url: "https://me.dev", truncated: false };
+    const a = buildInterviewQuestionsPrompt(withNote).user;
+    expect(a).not.toContain("링크만 있음");
+    expect(a).toContain("지원자가 직접 쓴 설명");
+    const linkOnly = { ...withNote, lines: withNote.lines.filter((l) => l.doc !== "portfolio") };
+    expect(buildInterviewQuestionsPrompt(linkOnly).user).toContain("링크만 있음");
+  });
+
   it("system은 자료가 바뀌어도 같다(캐시 접두사)", () => {
     expect(buildInterviewQuestionsPrompt(snapshot(true)).system).toBe(buildInterviewQuestionsPrompt(snapshot(false)).system);
   });

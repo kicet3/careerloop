@@ -3,6 +3,7 @@ import { NewInterviewForm, type InterviewResumeOption } from "@/components/inter
 import { SessionList } from "@/components/interview/SessionList";
 import { Card, CardBody, CardHeader } from "@/components/ui/Card";
 import { requireUser } from "@/lib/auth/session";
+import { portfolioReadable } from "@/lib/domain/portfolios";
 import { listSessions } from "@/lib/interview/store";
 import { listResumes } from "@/lib/resumes/service";
 
@@ -27,8 +28,8 @@ export default async function InterviewPage({ searchParams }: { searchParams: Se
       roleTitle: r.roleTitle,
       postingId: r.postingId,
       hasJd: !!r.jdText?.trim(),
-      portfolioLabel: r.portfolio ? (r.portfolio.kind === "file" ? (r.portfolio.fileName ?? "파일") : "링크") : null,
-      portfolioReadable: r.portfolio?.kind === "file",
+      portfolioLabel: r.portfolio ? r.portfolio.title : null,
+      portfolioReadable: !!r.portfolio && portfolioReadable(r.portfolio),
       versionNo: r.currentVersionNo,
     }));
 

@@ -17,6 +17,7 @@ import {
   type ResumeTemplateId,
 } from "@/lib/domain/resumes";
 import { SourceLink } from "@/components/postings/SourceLink";
+import type { PortfolioPickOption } from "@/lib/domain/portfolios";
 import { POSTING_STATUS_LABELS } from "@/lib/domain/postings";
 import { SELF_HOSTED_UPLOAD_LIMITS, VERCEL_UPLOAD_LIMITS, type UploadLimits } from "@/lib/ingest/upload-limits";
 import { countAddMarkers, resumeToText } from "@/lib/resumes/layout";
@@ -58,6 +59,7 @@ export function ResumeEditor({
   currentVersionId,
   posting: initialPosting = null,
   uploadLimits = SELF_HOSTED_UPLOAD_LIMITS,
+  portfolios = [],
 }: {
   resume: ResumeMeta;
   versions: ResumeVersionMeta[];
@@ -67,6 +69,8 @@ export function ResumeEditor({
   posting?: ResumePostingLink | null;
   /** 서버가 정한 업로드 상한(포트폴리오 파일은 이것과 4MB 중 작은 값). */
   uploadLimits?: UploadLimits;
+  /** 내 포트폴리오 보관함(첨부 칸에서 고른다). */
+  portfolios?: PortfolioPickOption[];
 }) {
   const router = useRouter();
   // meta.templateId는 화면에서 고른 양식(저장 전일 수 있음), savedTemplateId는 서버에 저장된 양식.
@@ -359,8 +363,9 @@ export function ResumeEditor({
       targetRole: meta.roleTitle,
       jdText: meta.jdText ?? "",
     };
-    // 첨부 포트폴리오도 함께 넘긴다(파일은 뽑아 둔 글, 링크는 주소). 못 읽으면 포트폴리오 없이 진행한다.
+    // 첨부 포트폴리오도 함께 넘긴다(파일은 뽑아 둔 글, 링크는 주소, 적어 둔 설명). 못 읽으면 포트폴리오 없이 진행한다.
     if (meta.portfolio?.kind === "url" && meta.portfolio.url) prefill.portfolioUrl = meta.portfolio.url;
+    if (meta.portfolio?.description) prefill.portfolioNote = meta.portfolio.description;
     if (meta.portfolio?.kind === "file") {
       setBusy("view");
       try {
@@ -577,6 +582,7 @@ export function ResumeEditor({
       <ResumePortfolioCard
         resumeId={meta.id}
         portfolio={meta.portfolio}
+        library={portfolios}
         maxBytes={Math.min(uploadLimits.perFileBytes, VERCEL_UPLOAD_LIMITS.perFileBytes)}
         onChange={(resume) => setMeta((m) => ({ ...resume, templateId: m.templateId }))}
       />

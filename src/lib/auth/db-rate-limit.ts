@@ -28,8 +28,11 @@ export const INTERVIEW_GENERATE_LIMIT: DbRateLimit = { bucket: "interview-genera
 export const INTERVIEW_FEEDBACK_LIMIT: DbRateLimit = { bucket: "interview-feedback", limit: 20, windowMs: 10 * 60_000 };
 /** 면접 답변 피드백: 사용자당 24시간 120회(하루 비용 상한). 위 10분 제한과 함께 센다. */
 export const INTERVIEW_FEEDBACK_DAILY_LIMIT: DbRateLimit = { bucket: "interview-feedback-day", limit: 120, windowMs: 24 * 60 * 60_000 };
-/** 이력서 포트폴리오 파일 올리기(텍스트 추출): 사용자당 24시간 30회. URL 첨부·삭제는 세지 않는다. */
-export const RESUME_PORTFOLIO_UPLOAD_LIMIT: DbRateLimit = { bucket: "resume-portfolio", limit: 30, windowMs: 24 * 60 * 60_000 };
+/**
+ * 포트폴리오 파일 올리기(텍스트 추출) — 보관함에 새로 올리기·내용 바꾸기·이력서 화면에서 바로 올리기를 함께 센다: 사용자당 24시간 30회.
+ * 링크 첨부·이름 고치기·삭제는 세지 않는다. 버킷 이름은 예전 이력서 첨부 업로드와 같다(이어서 센다).
+ */
+export const PORTFOLIO_UPLOAD_LIMIT: DbRateLimit = { bucket: "resume-portfolio", limit: 30, windowMs: 24 * 60 * 60_000 };
 /** 공고 원문 캡처 '다시 시도': 사용자당 24시간 10회(헤드리스 브라우저 1회가 무겁다). */
 export const POSTING_CAPTURE_RETRY_LIMIT: DbRateLimit = { bucket: "posting-capture-retry", limit: 10, windowMs: 24 * 60 * 60_000 };
 /** 공고 원문 캡처: 공용 공고(key=sharedPostingId)당 1시간 3회(여러 사용자가 같은 공고를 연달아 다시 찍지 않게). 자동 캡처도 센다. */

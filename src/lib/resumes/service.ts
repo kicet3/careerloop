@@ -12,14 +12,14 @@ import { customAlphabet } from "nanoid";
 import { FeatureError } from "@/lib/api/errors";
 import { prisma, type Prisma, type Tx } from "@/lib/db/client";
 import { isUniqueViolation, stripNul } from "@/lib/db/errors";
-import type { CompanyResume, ResumeVersion } from "@/lib/db/types";
+import type { CompanyResume, PortfolioRow, ResumeVersion } from "@/lib/db/types";
+import { portfolioKeysInUse, toPortfolioInfo } from "@/lib/portfolios/service";
 import {
   DEFAULT_RESUME_APPLY_STATUS,
   GENERAL_RESUME_DEFAULT_TITLE,
   parseResumeDocument,
   resumeApplyStatusOf,
   RESUME_APPLY_STATUSES,
-  RESUME_PORTFOLIO_KINDS,
   ResumeDocumentSchema,
   type ResumeDocument,
   type ResumeKind,
@@ -47,20 +47,16 @@ const newId = customAlphabet("0123456789ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmn
 
 export const RESUME_NOT_FOUND = "이력서를 찾을 수 없습니다.";
 
-/** 행의 포트폴리오 컬럼 → 화면 정보. 종류가 비었거나 모르는 값이면 null. */
-export function toPortfolioInfo(row: CompanyResume): ResumePortfolioInfo | null {
-  const kind = RESUME_PORTFOLIO_KINDS.find((k) => k === row.portfolioKind);
-  if (!kind) return null;
-  return {
-    kind,
-    fileName: kind === "file" ? (row.portfolioFileName ?? null) : null,
-    url: kind === "url" ? (row.portfolioUrl ?? null) : null,
-    chars: kind === "file" ? (row.portfolioChars ?? null) : null,
-    updatedAt: row.portfolioUpdatedAt?.getTime() ?? null,
-  };
+/** 이력서 행 + 첨부 포트폴리오(보관함 항목). 이력서를 읽는 쿼리는 RESUME_INCLUDE로 함께 읽는다. */
+export type ResumeRow = CompanyResume & { portfolio: PortfolioRow | null };
+export const RESUME_INCLUDE = { portfolio: true } as const;
+
+/** 첨부 포트폴리오 → 화면 정보(없으면 null). */
+export function resumePortfolioInfo(row: ResumeRow): ResumePortfolioInfo | null {
+  return row.portfolio ? toPortfolioInfo(row.portfolio) : null;
 }
 
-export function toResumeMeta(row: CompanyResume): ResumeMeta {
+export function toResumeMeta(row: ResumeRow): ResumeMeta {
   const kind: ResumeKind = row.kind === "general" ? "general" : "company";
   return {
     id: row.id,
@@ -76,7 +72,7 @@ export function toResumeMeta(row: CompanyResume): ResumeMeta {
     applyStatus: resumeApplyStatusOf(kind, row.applyStatus),
     applyStatusChangedAt: row.applyStatusChangedAt?.getTime() ?? null,
     submittedApplicationId: row.submittedApplicationId ?? null,
-    portfolio: toPortfolioInfo(row),
+    portfolio: resumePortfolioInfo(row),
     createdAt: row.createdAt.getTime(),
     updatedAt: row.updatedAt.getTime(),
   };
@@ -90,9 +86,9 @@ export function versionStorageKey(userId: string, resumeId: string, versionNo: n
   return userKey(userId, "resumes", resumeId, `v${versionNo}.json`);
 }
 
-async function ownedRow(userId: string, resumeId: string): Promise<CompanyResume | null> {
-  const row = await prisma.companyResume.findFirst({ where: { id: resumeId, userId } });
-  return (row as CompanyResume | null) ?? null;
+async function ownedRow(userId: string, resumeId: string): Promise<ResumeRow | null> {
+  const row = await prisma.companyResume.findFirst({ where: { id: resumeId, userId }, include: RESUME_INCLUDE });
+  return (row as ResumeRow | null) ?? null;
 }
 
 export function defaultResumeTitle(company: string, roleTitle: string): string {
@@ -135,7 +131,8 @@ export async function listResumes(
     where: { AND: [{ userId, ...(opts.kind ? { kind: opts.kind } : {}) }, resumeStatusWhere(opts.status)] },
     orderBy: [{ updatedAt: "desc" }, { id: "desc" }],
     take: MAX_RESUMES_PER_USER,
-  })) as CompanyResume[];
+    include: RESUME_INCLUDE,
+  })) as ResumeRow[];
   if (rows.length === 0) return [];
   const stats = await prisma.resumeVersion.groupBy({
     by: ["resumeId"],
@@ -453,8 +450,8 @@ export async function updateResumeMeta(userId: string, resumeId: string, patch: 
   if (patch.jdText !== undefined) set.jdText = stripNul(patch.jdText?.trim() || null);
   if (patch.templateId !== undefined) set.templateId = patch.templateId;
   if (patch.title !== undefined) set.title = stripNul(patch.title);
-  const [row] = await prisma.companyResume.updateManyAndReturn({ where: { id: resumeId, userId }, data: set });
-  return row ? toResumeMeta(row as CompanyResume) : null;
+  const [row] = await prisma.companyResume.updateManyAndReturn({ where: { id: resumeId, userId }, data: set, include: RESUME_INCLUDE });
+  return row ? toResumeMeta(row as ResumeRow) : null;
 }
 
 /** 고른 버전 본문을 새 버전으로 복사한다. 이력서·버전이 없으면 null. */
@@ -477,7 +474,9 @@ export async function deleteResume(userId: string, resumeId: string): Promise<bo
   if (count === 0) return false;
   try {
     for (const k of await listByPrefix(userPrefix(userId, "resumes", resumeId))) keys.add(k);
-    for (const k of keys) await deleteObject(k);
+    // 예전 이력서 첨부에서 보관함으로 옮긴 포트폴리오는 이 이력서 접두사의 텍스트 키를 그대로 쓴다 — 그 키는 남긴다.
+    const inUse = await portfolioKeysInUse(userId, [...keys]);
+    for (const k of keys) if (!inUse.has(k)) await deleteObject(k);
   } catch (err) {
     console.error("[deleteResume] 저장소 객체 삭제 실패", resumeId, err);
   }

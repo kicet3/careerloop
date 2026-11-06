@@ -1,16 +1,13 @@
 import { featureErrorResponse } from "@/lib/api/errors";
-import { hitDbLimit, RESUME_PORTFOLIO_UPLOAD_LIMIT } from "@/lib/auth/db-rate-limit";
 import { assertSameOrigin, requireApiUser } from "@/lib/auth/session";
-import { BodyTooLargeError, readFormDataLimited } from "@/lib/diagnoses/body";
 import { MAX_PORTFOLIO_CHARS as DIAGNOSIS_PORTFOLIO_CHARS } from "@/lib/diagnoses/form";
-import { jsonError } from "@/lib/diagnoses/http";
-import { MAX_RESUME_PORTFOLIO_CHARS } from "@/lib/domain/resumes";
-import { extractText, IngestError } from "@/lib/ingest/extract";
-import { formatMb, uploadLimitsFor, VERCEL_UPLOAD_LIMITS } from "@/lib/ingest/upload-limits";
+import type { PortfolioInfo } from "@/lib/domain/portfolios";
+import { isMultipart, PORTFOLIO_PREVIEW_CHARS, portfolioNotFound, readPortfolioUpload, truncatedWarning } from "@/lib/portfolios/http";
+import { assertPortfolioRoom, createPortfolioFromFile, createPortfolioFromUrl } from "@/lib/portfolios/service";
 import { readJsonInput, resumeNotFound } from "@/lib/resumes/http";
-import { getPortfolioText, removePortfolio, setPortfolioFile, setPortfolioUrl } from "@/lib/resumes/portfolio";
+import { attachPortfolio, detachPortfolio, getResumePortfolioText } from "@/lib/resumes/portfolio";
 import { getResumeMeta } from "@/lib/resumes/service";
-import { ResumePortfolioUrlSchema } from "@/lib/resumes/types";
+import { ResumePortfolioAttachSchema } from "@/lib/resumes/types";
 
 export const runtime = "nodejs";
 // PDF·HWP 추출이 길어질 수 있다(extract.ts PDF_TIME_BUDGET_MS 15초).
@@ -18,26 +15,16 @@ export const maxDuration = 60;
 
 type Ctx = { params: Promise<{ id: string }> };
 
-/** 미리보기 글자 수. */
-const PREVIEW_CHARS = 600;
-
-/** 포트폴리오 파일 한 개 상한: 서버 업로드 상한과 4MB(Vercel 요청 본문 4.5MB) 중 작은 값. */
-function portfolioLimits() {
-  const limits = uploadLimitsFor();
-  const perFile = Math.min(limits.perFileBytes, VERCEL_UPLOAD_LIMITS.perFileBytes);
-  return { perFile, maxBody: Math.min(limits.maxBodyBytes, VERCEL_UPLOAD_LIMITS.maxBodyBytes) };
-}
-
 /**
- * 첨부 정보 + 글자 수 + 앞부분 미리보기. ?include=text면 진단 프리필용 본문(진단 포트폴리오 상한까지)도 싣는다.
- * 포트폴리오가 없으면 { info: null, chars: 0, preview: "" }.
+ * 첨부 정보(보관함 포트폴리오, 설명 포함) + 글자 수 + 앞부분 미리보기. ?include=text면 진단 프리필용 본문(진단 포트폴리오 상한까지)도 싣는다.
+ * 첨부가 없으면 { info: null, chars: 0, preview: "" }.
  */
 export async function GET(req: Request, { params }: Ctx) {
   const user = await requireApiUser();
   if (user instanceof Response) return user;
   const { id } = await params;
   try {
-    const got = await getPortfolioText(user.id, id);
+    const got = await getResumePortfolioText(user.id, id);
     if (!got) return resumeNotFound();
     const text = got.text ?? "";
     const includeText = new URL(req.url).searchParams.get("include") === "text";
@@ -45,7 +32,7 @@ export async function GET(req: Request, { params }: Ctx) {
       {
         info: got.info,
         chars: text.length,
-        preview: text.slice(0, PREVIEW_CHARS),
+        preview: text.slice(0, PORTFOLIO_PREVIEW_CHARS),
         ...(includeText ? { text: text.slice(0, DIAGNOSIS_PORTFOLIO_CHARS) } : {}),
       },
       { headers: { "Cache-Control": "no-store" } },
@@ -56,10 +43,11 @@ export async function GET(req: Request, { params }: Ctx) {
 }
 
 /**
- * 포트폴리오 붙이기·바꾸기(이력서당 하나 — 있던 파일·URL은 대체).
- * - multipart/form-data: file(PDF·DOCX·HWP·HWPX·HTML·TXT·MD, 4MB 이하). 글만 뽑아 저장하고 원본 파일은 보관하지 않는다.
- *   사용자당 24시간 30회(RESUME_PORTFOLIO_UPLOAD_LIMIT). → { resume, truncated, warnings }
- * - application/json: { url }(http/https). 서버는 그 주소를 열지 않는다. → { resume }
+ * 포트폴리오 붙이기·바꾸기(이력서당 하나 — 있던 첨부는 대체되고, 보관함의 이전 포트폴리오는 그대로 남는다).
+ * - application/json { portfolioId }: 내 보관함의 포트폴리오를 붙인다(남의 것·없는 것은 404). → { resume }
+ * - application/json { url, title?, description? }: 링크로 보관함에 새 포트폴리오를 만들어 붙인다. → { resume, portfolio }
+ * - multipart/form-data: file(+ 선택 title·description). 보관함에 새로 올리고 붙인다. 업로드 레이트 리밋(PORTFOLIO_UPLOAD_LIMIT)을 센다.
+ *   → { resume, portfolio, truncated, warnings }
  */
 export async function PUT(req: Request, { params }: Ctx) {
   const forbidden = assertSameOrigin(req);
@@ -70,58 +58,36 @@ export async function PUT(req: Request, { params }: Ctx) {
   try {
     // 본문을 읽기 전에 내 이력서인지 먼저 본다.
     if (!(await getResumeMeta(user.id, id))) return resumeNotFound();
-    const contentType = req.headers.get("content-type") ?? "";
 
-    if (!contentType.toLowerCase().startsWith("multipart/form-data")) {
-      const { url } = await readJsonInput(req, ResumePortfolioUrlSchema, 8 * 1024);
-      const resume = await setPortfolioUrl(user.id, id, url);
-      if (!resume) return resumeNotFound();
-      return Response.json({ resume });
+    let created: PortfolioInfo;
+    let extra: { truncated?: boolean; warnings?: string[] } = {};
+    if (!isMultipart(req)) {
+      const input = await readJsonInput(req, ResumePortfolioAttachSchema, 16 * 1024);
+      if ("portfolioId" in input) {
+        const r = await attachPortfolio(user.id, id, input.portfolioId);
+        if (!r.ok) return r.reason === "resume_not_found" ? resumeNotFound() : portfolioNotFound();
+        return Response.json({ resume: r.resume });
+      }
+      created = await createPortfolioFromUrl(user.id, input);
+    } else {
+      // 꽉 찼으면 업로드 횟수를 쓰거나 텍스트를 뽑기 전에 409(실제 상한은 만들 때 잠금 안에서 다시 확인한다).
+      await assertPortfolioRoom(user.id);
+      const upload = await readPortfolioUpload(req, user.id);
+      if (upload instanceof Response) return upload;
+      const saved = await createPortfolioFromFile(user.id, upload);
+      created = saved.portfolio;
+      extra = { truncated: saved.truncated, warnings: saved.truncated ? [...upload.warnings, truncatedWarning()] : upload.warnings };
     }
-
-    const { perFile, maxBody } = portfolioLimits();
-    const limit = await hitDbLimit(RESUME_PORTFOLIO_UPLOAD_LIMIT, user.id);
-    if (!limit.ok) {
-      return Response.json(
-        { error: "오늘 올릴 수 있는 포트폴리오 파일 수를 넘었습니다. 내일 다시 시도하거나 링크로 붙여 주세요." },
-        { status: 429, headers: { "Retry-After": String(limit.retryAfterSec) } },
-      );
-    }
-    let form: FormData;
-    try {
-      form = await readFormDataLimited(req, maxBody);
-    } catch (err) {
-      if (err instanceof BodyTooLargeError) return jsonError(`파일이 너무 큽니다. ${formatMb(perFile)} 이하 파일만 올릴 수 있습니다.`, 413);
-      return jsonError("요청 형식이 올바르지 않습니다. multipart/form-data로 보내 주세요.", 400);
-    }
-    const f = form.get("file");
-    if (!f || typeof f !== "object" || !("arrayBuffer" in f) || f.size === 0) return jsonError("올릴 포트폴리오 파일을 골라 주세요.", 400);
-    const file = f as File;
-    let extracted: { text: string; warnings: string[] };
-    try {
-      extracted = await extractText(
-        { name: file.name, type: file.type, bytes: new Uint8Array(await file.arrayBuffer()) },
-        { maxBytes: perFile, maxChars: MAX_RESUME_PORTFOLIO_CHARS + 1000 },
-      );
-    } catch (err) {
-      if (err instanceof IngestError) return jsonError(err.message, err.status);
-      throw err;
-    }
-    const saved = await setPortfolioFile(user.id, id, { fileName: file.name || "portfolio", text: extracted.text });
-    if (!saved) return resumeNotFound();
-    const warnings = [...extracted.warnings];
-    if (saved.truncated) {
-      warnings.push(
-        `포트폴리오가 길어 앞부분 ${MAX_RESUME_PORTFOLIO_CHARS.toLocaleString("ko-KR")}자만 저장했습니다. 지원 직무와 관련 있는 부분을 앞에 두면 좋습니다.`,
-      );
-    }
-    return Response.json({ resume: saved.resume, truncated: saved.truncated, warnings });
+    // 새로 만든 포트폴리오는 보관함에 남는다(이력서가 그 사이 지워졌어도).
+    const r = await attachPortfolio(user.id, id, created.id);
+    if (!r.ok) return r.reason === "resume_not_found" ? resumeNotFound() : portfolioNotFound();
+    return Response.json({ resume: r.resume, portfolio: created, ...extra });
   } catch (err) {
     return featureErrorResponse(err, "PUT /api/resumes/[id]/portfolio");
   }
 }
 
-/** 포트폴리오 떼기(저장한 글도 지운다). → { resume } */
+/** 첨부 떼기. 보관함의 포트폴리오와 저장한 글은 지우지 않는다. → { resume } */
 export async function DELETE(req: Request, { params }: Ctx) {
   const forbidden = assertSameOrigin(req);
   if (forbidden) return forbidden;
@@ -129,7 +95,7 @@ export async function DELETE(req: Request, { params }: Ctx) {
   if (user instanceof Response) return user;
   const { id } = await params;
   try {
-    const resume = await removePortfolio(user.id, id);
+    const resume = await detachPortfolio(user.id, id);
     if (!resume) return resumeNotFound();
     return Response.json({ resume });
   } catch (err) {

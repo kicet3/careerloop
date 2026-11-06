@@ -7,7 +7,7 @@ describe("공용 공고 먼저 마이그레이션", () => {
   it("공용 공고가 없는 보관 공고마다 공개 필드만 담은 공용 공고를 만들어 연결한다", async () => {
     const all = migrationSql();
     const idx = all.findIndex((sql) => sql.includes('"_shared_backfill"'));
-    expect(idx).toBe(all.length - 1);
+    expect(idx).toBeGreaterThan(0);
     const db = new PGlite();
     try {
       for (const sql of all.slice(0, idx)) await db.exec(sql);

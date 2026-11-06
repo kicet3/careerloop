@@ -7,6 +7,7 @@
  * 예전 저장본은 upgradeResumeDocument가 빈 값으로 채운 뒤 검증한다(parseResumeDocument).
  */
 import { z } from "zod";
+import { MAX_PORTFOLIO_TEXT_CHARS, PORTFOLIO_KINDS, type PortfolioInfo, type PortfolioKind } from "./portfolios";
 
 // ---------------------------------------------------------------------------
 // 문서 구조
@@ -279,22 +280,14 @@ export function resumeApplyStatusOf(kind: ResumeKind, raw: string | null | undef
   return (RESUME_APPLY_STATUSES as readonly string[]).includes(raw ?? "") ? (raw as ResumeApplyStatus) : DEFAULT_RESUME_APPLY_STATUS;
 }
 
-/** 이력서 첨부 포트폴리오(이력서당 하나): 올린 파일에서 뽑은 텍스트 또는 URL. */
-export const RESUME_PORTFOLIO_KINDS = ["file", "url"] as const;
-export type ResumePortfolioKind = (typeof RESUME_PORTFOLIO_KINDS)[number];
+/** 이력서 첨부 포트폴리오(이력서당 하나): 포트폴리오 보관함(src/lib/domain/portfolios.ts)의 항목을 가리킨다. */
+export const RESUME_PORTFOLIO_KINDS = PORTFOLIO_KINDS;
+export type ResumePortfolioKind = PortfolioKind;
 /** 저장하는 포트폴리오 텍스트 상한(글자). 넘으면 앞부분만 저장하고 truncated로 알린다. */
-export const MAX_RESUME_PORTFOLIO_CHARS = 60_000;
+export const MAX_RESUME_PORTFOLIO_CHARS = MAX_PORTFOLIO_TEXT_CHARS;
 
-export interface ResumePortfolioInfo {
-  kind: ResumePortfolioKind;
-  /** kind 'file'의 원래 파일 이름. */
-  fileName: string | null;
-  /** kind 'url'의 주소(http/https). */
-  url: string | null;
-  /** 저장한 텍스트 글자 수(kind 'file'). */
-  chars: number | null;
-  updatedAt: number | null;
-}
+/** 이력서에 첨부한 보관함 포트폴리오. */
+export type ResumePortfolioInfo = PortfolioInfo;
 
 export const RESUME_VERSION_SOURCES = ["ai", "manual"] as const;
 export type ResumeVersionSource = (typeof RESUME_VERSION_SOURCES)[number];

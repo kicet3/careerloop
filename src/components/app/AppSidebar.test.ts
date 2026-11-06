@@ -20,3 +20,19 @@ describe("사이드바 공고 메뉴", () => {
     expect(active("/app/postings/explorer")).toEqual(["공고 보관함"]);
   });
 });
+
+describe("사이드바 서류 메뉴", () => {
+  it("서류 그룹은 이력서 다음에 포트폴리오", () => {
+    const items = GROUPS.find((g) => g.label === "서류")!.items;
+    expect(items.map((i) => i.label)).toEqual(["이력서", "포트폴리오"]);
+    expect(items[1]!.href).toBe("/app/portfolios");
+    expect(items[1]!.icon).toBeTruthy();
+  });
+
+  it("포트폴리오 목록·상세는 포트폴리오만 활성", () => {
+    expect(active("/app/portfolios")).toEqual(["포트폴리오"]);
+    expect(active("/app/portfolios/abc")).toEqual(["포트폴리오"]);
+    expect(active("/app/resumes/abc")).toEqual(["이력서"]);
+    expect(active("/app/portfoliosx")).toEqual([]);
+  });
+});

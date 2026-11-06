@@ -43,7 +43,7 @@ import { INTERACTIVE_LLM_TIMEOUT_MS, withLlmDeadline } from "@/lib/llm/deadline"
 import { stageErrorMessage } from "@/lib/panel/runner";
 import { getPosting } from "@/lib/postings/service";
 import { listProviderOptions, resolveRequestedProvider } from "@/lib/providers/options";
-import { getPortfolioText } from "@/lib/resumes/portfolio";
+import { getResumePortfolioText } from "@/lib/resumes/portfolio";
 import { getResumeMeta, getVersionDocument } from "@/lib/resumes/service";
 import { buildInterviewFeedbackPrompt, buildInterviewQuestionsPrompt, feedbackContextLines } from "./prompts";
 import { normalizeGeneratedQuestions, resumeSourceLines, textSourceLines } from "./source";
@@ -190,8 +190,12 @@ export async function startInterviewSession(
 
   let portfolio: BuildSnapshotInput["portfolio"] = null;
   if (input.includePortfolio && meta.portfolio) {
-    const got = await getPortfolioText(userId, input.resumeId);
-    if (got?.info) portfolio = { kind: got.info.kind, fileName: got.info.fileName, url: got.info.url, text: got.text };
+    const got = await getResumePortfolioText(userId, input.resumeId);
+    if (got?.info) {
+      // 사용자가 적은 역할·결과 메모를 본문 앞에 둔다(링크만 있는 포트폴리오도 메모가 있으면 근거로 쓴다).
+      const text = [got.info.description?.trim(), got.text?.trim()].filter(Boolean).join("\n\n") || null;
+      portfolio = { kind: got.info.kind, fileName: got.info.fileName, url: got.info.url, text };
+    }
   }
 
   const now = deps.now?.() ?? Date.now();

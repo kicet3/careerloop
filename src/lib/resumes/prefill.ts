@@ -5,6 +5,7 @@
  * 새 진단 폼(NewDiagnosisForm, portfolio 담당)이 마운트될 때 takeDiagnosisPrefill()을 불러 값을 채우면 된다.
  * 공고 상세의 "이 공고로 진단"도 같은 통로를 쓴다 — 이력서 없이 직무·JD·postingId만 넘긴다(진단이 공고에 연결된다).
  */
+import { MAX_PORTFOLIO_DESCRIPTION_CHARS } from "@/lib/domain/portfolios";
 import { MAX_RESUME_JD_CHARS, MAX_RESUME_META_CHARS } from "./types";
 
 const PREFILL_KEY = "rp:new-diagnosis-prefill";
@@ -40,6 +41,13 @@ export interface DiagnosisPrefill {
   portfolioFileName?: string;
   /** 이력서에 붙인 포트폴리오 링크(진단 폼의 '링크·설명' 칸에 채운다). */
   portfolioUrl?: string;
+  /** 그 포트폴리오에 사용자가 적은 설명(진단 폼의 '링크·설명' 칸에 링크 다음으로 채운다). */
+  portfolioNote?: string;
+}
+
+/** 진단 폼 '링크·설명' 칸에 채울 글: 링크(있으면) 다음 줄에 사용자가 적은 설명. 둘 다 없으면 "". */
+export function portfolioNoteText(p: { kind: string; url: string | null; description: string | null }): string {
+  return [p.kind === "url" ? p.url?.trim() : "", p.description?.trim()].filter(Boolean).join("\n");
 }
 
 /** 프리필 포트폴리오 글 → 진단 폼에 올릴 .txt 파일 이름("포트폴리오.pdf" → "포트폴리오.pdf.txt"). */
@@ -74,6 +82,7 @@ export function saveDiagnosisPrefill(p: DiagnosisPrefill, store: StorageLike | n
         portfolioText: p.portfolioText?.slice(0, MAX_PREFILL_PORTFOLIO_CHARS) || undefined,
         portfolioFileName: p.portfolioFileName?.slice(0, 200) || undefined,
         portfolioUrl: safeHttpUrl(p.portfolioUrl) ?? undefined,
+        portfolioNote: p.portfolioNote?.trim().slice(0, MAX_PORTFOLIO_DESCRIPTION_CHARS) || undefined,
         at: now,
       }),
     );
@@ -111,6 +120,8 @@ export function takeDiagnosisPrefill(store: StorageLike | null = storage(), now 
     }
     const portfolioUrl = safeHttpUrl(str(v.portfolioUrl, 2048));
     if (portfolioUrl) out.portfolioUrl = portfolioUrl;
+    const portfolioNote = str(v.portfolioNote, MAX_PORTFOLIO_DESCRIPTION_CHARS).trim();
+    if (portfolioNote) out.portfolioNote = portfolioNote;
     return out.resumeText.trim() || out.postingId ? out : null;
   } catch {
     return null;

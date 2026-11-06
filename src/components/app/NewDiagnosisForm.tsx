@@ -9,7 +9,8 @@ import { Card } from "@/components/ui/Card";
 import { NO_ENGINE_MESSAGE, PROVIDER_DATA_DESTINATION, type ProviderId, type ProviderOption } from "@/lib/domain/providers";
 import type { Situation } from "@/lib/domain/schemas";
 import { formatMb, SELF_HOSTED_UPLOAD_LIMITS, totalUploadError, uploadLimitMessage, type UploadLimits } from "@/lib/ingest/upload-limits";
-import { prefillPortfolioFileName, takeDiagnosisPrefill } from "@/lib/resumes/prefill";
+import { PORTFOLIO_KIND_LABELS, portfolioSourceLabel, type PortfolioInfo, type PortfolioPickOption } from "@/lib/domain/portfolios";
+import { portfolioNoteText, prefillPortfolioFileName, takeDiagnosisPrefill } from "@/lib/resumes/prefill";
 import { saveCreationWarnings } from "./creation-warnings";
 import { FileDrop, UPLOAD_ACCEPT, UPLOAD_FORMATS_LABEL } from "./FileDrop";
 import { SegmentedTabs } from "./Tabs";
@@ -67,6 +68,10 @@ type Mode = "file" | "text";
 type ResumeMode = Mode | "saved";
 /** 지원할 자리 고르는 방법: 직무·JD 직접 입력 / 내 보관함 공고 / 공고 링크로 가져오기. */
 type TargetMode = "manual" | "library" | "url";
+/** 포트폴리오 넣는 방법: 파일 올리기 / 포트폴리오 보관함에서 선택. */
+type PortfolioMode = "file" | "library";
+/** 포트폴리오 칸을 자동으로 채우는 곳: 서류에서 고른 이력서의 첨부, 보관함에서 고른 포트폴리오, 이력서 화면의 "이 이력서로 진단". */
+type PortfolioFillSource = "saved" | "library" | "prefill";
 
 const TARGET_MODES: { key: TargetMode; name: string; description: string }[] = [
   { key: "manual", name: "직접 입력", description: "직무와 JD를 직접 넣습니다." },
@@ -80,6 +85,7 @@ export function NewDiagnosisForm({
   uploadLimits = SELF_HOSTED_UPLOAD_LIMITS,
   postings = [],
   resumes = [],
+  portfolios = [],
 }: {
   providers: ProviderOption[];
   defaultProvider: ProviderId | null;
@@ -89,6 +95,8 @@ export function NewDiagnosisForm({
   postings?: PostingPickOption[];
   /** 내 이력서(서류 탭). '서류에서 선택'에서 고르면 현재 버전 내용과 첨부 포트폴리오를 채운다. */
   resumes?: DiagnosisResumeOption[];
+  /** 내 포트폴리오 보관함. '포트폴리오에서 선택'에서 고르면 뽑아 둔 글과 설명을 채운다. */
+  portfolios?: PortfolioPickOption[];
 }) {
   const perFile = formatMb(uploadLimits.perFileBytes);
   const router = useRouter();
@@ -113,6 +121,10 @@ export function NewDiagnosisForm({
   const [notes, setNotes] = useState("");
   const [portfolioFile, setPortfolioFile] = useState<File | null>(null);
   const [portfolioText, setPortfolioText] = useState("");
+  const [portfolioMode, setPortfolioMode] = useState<PortfolioMode>("file");
+  const [libraryPortfolioId, setLibraryPortfolioId] = useState("");
+  const [libraryLoading, setLibraryLoading] = useState(false);
+  const [libraryNote, setLibraryNote] = useState<string | null>(null);
 
   const [fileError, setFileError] = useState<{ resume?: string; jd?: string; portfolio?: string }>({});
   const [error, setError] = useState<string | null>(null);
@@ -135,12 +147,16 @@ export function NewDiagnosisForm({
   useEffect(() => {
     postingRef.current = posting;
   }, [posting]);
-  /** 앞서 '서류에서 선택'이 채운 값(다른 이력서를 고르거나 불러오기에 실패하면 이것만 지운다). */
-  const savedFillRef = useRef<{ resumeText: string | null; portfolioFile: File | null; portfolioText: string | null }>({
-    resumeText: null,
-    portfolioFile: null,
-    portfolioText: null,
-  });
+  /** 앞서 '서류에서 선택'이 채운 이력서 글(다른 이력서를 고르거나 불러오기에 실패하면 이것만 지운다). */
+  const savedResumeTextRef = useRef<string | null>(null);
+  /**
+   * 포트폴리오 칸을 마지막으로 채운 곳('서류에서 선택'·'포트폴리오에서 선택'·이력서 화면 프리필)과 그때 넣은 값.
+   * 새 출처가 채우면 이전 출처가 넣은 값(사용자가 그 뒤 고치지 않은 것)을 먼저 지운다 — 두 출처가 섞여 제출되지 않게.
+   */
+  const portfolioFillRef = useRef<{ source: PortfolioFillSource; file: File | null; text: string | null } | null>(null);
+  /** 포트폴리오 불러오기 순번: 늦게 끝난 옛 요청이 더 최근에 고른 값을 덮지 않게(마지막으로 고른 것이 이긴다). */
+  const portfolioSeqRef = useRef(0);
+  const portfolioAppliedSeqRef = useRef(0);
 
   function selectPosting(p: JobPosting, note: string | null) {
     postingRef.current = { id: p.id, label: `${p.company} · ${p.roleTitle}` };
@@ -153,11 +169,114 @@ export function NewDiagnosisForm({
   /** 서류의 이력서 고르기: 현재 버전을 글로 바꿔 붙여넣기 칸에 채우고, 첨부 포트폴리오·연결 공고도 가져온다. */
   /** 앞서 불러온 이력서가 채운 값만 지운다(사용자가 그 뒤 직접 바꾼 값은 둔다). */
   function clearSavedFill() {
-    const prev = savedFillRef.current;
-    if (prev.resumeText !== null) setResumeText((cur) => (cur === prev.resumeText ? "" : cur));
-    if (prev.portfolioFile) setPortfolioFile((cur) => (cur === prev.portfolioFile ? null : cur));
-    if (prev.portfolioText !== null) setPortfolioText((cur) => (cur === prev.portfolioText ? "" : cur));
-    savedFillRef.current = { resumeText: null, portfolioFile: null, portfolioText: null };
+    const prev = savedResumeTextRef.current;
+    if (prev !== null) setResumeText((cur) => (cur === prev ? "" : cur));
+    savedResumeTextRef.current = null;
+    clearPortfolioFill("saved");
+  }
+
+  /**
+   * 마지막 출처가 채운 포트폴리오 값을 지운다(source를 주면 그 출처일 때만). 사용자가 그 뒤 고친 값은 둔다.
+   * 보관함 선택이었으면 선택·안내도, 프리필이었으면 프리필 안내도 함께 지운다.
+   */
+  function clearPortfolioFill(source?: PortfolioFillSource) {
+    const prev = portfolioFillRef.current;
+    if (!prev || (source && prev.source !== source)) return;
+    if (prev.file) setPortfolioFile((cur) => (cur === prev.file ? null : cur));
+    if (prev.text !== null) setPortfolioText((cur) => (cur === prev.text ? "" : cur));
+    portfolioFillRef.current = null;
+    if (prev.source === "library") {
+      setLibraryPortfolioId("");
+      setLibraryNote(null);
+    }
+    if (prev.source === "prefill") setPrefilledPortfolio(false);
+  }
+
+  /** 새 불러오기 순번. 사용자가 직접 파일을 바꾸거나 선택을 뺄 때도 올려, 진행 중인 불러오기가 나중에 덮어쓰지 않게 한다. */
+  function nextPortfolioSeq(): number {
+    return ++portfolioSeqRef.current;
+  }
+
+  /**
+   * seq 순번의 불러오기 결과로 포트폴리오 칸을 채운다. 그보다 나중에 고른 값이 이미 들어갔으면 false(버린다).
+   * 이전 출처가 넣은 값은 지우고, 파일은 이 출처의 것으로 바꾼다(없으면 비운다). 링크·설명은 이 출처에 있을 때만 바꾼다.
+   */
+  function applyPortfolioFill(seq: number, source: PortfolioFillSource, file: File | null, text: string | null): boolean {
+    if (seq <= portfolioAppliedSeqRef.current) return false;
+    portfolioAppliedSeqRef.current = seq;
+    clearPortfolioFill();
+    setPortfolioFile(file);
+    if (file) setFileError((p) => ({ ...p, portfolio: undefined }));
+    if (text) setPortfolioText(text);
+    portfolioFillRef.current = { source, file, text: text || null };
+    return true;
+  }
+
+  /** 보관함 선택 빼기: 그 선택이 넣은 파일·링크·설명만 지운다(사용자가 직접 올린 파일·쓴 글은 둔다). */
+  function removeLibraryPortfolio() {
+    portfolioAppliedSeqRef.current = nextPortfolioSeq();
+    clearPortfolioFill("library");
+    setLibraryPortfolioId("");
+    setLibraryNote(null);
+  }
+
+  /** 사용자가 직접 파일을 올리거나 지웠다: 진행 중인 불러오기는 버리고, 보관함 선택은 더 이상 이 파일이 아니므로 푼다. */
+  function onOwnPortfolioFile(f: File | null) {
+    portfolioAppliedSeqRef.current = nextPortfolioSeq();
+    const prev = portfolioFillRef.current;
+    if (prev) portfolioFillRef.current = { ...prev, file: null };
+    if (prev?.source === "library") {
+      setLibraryPortfolioId("");
+      setLibraryNote(null);
+    }
+    setPortfolioFile(f);
+  }
+
+  /** 보관함 포트폴리오 고르기: 뽑아 둔 글은 .txt 파일로 넣고(서버가 같은 추출기로 읽는다), 링크·설명은 '링크·설명' 칸에 채운다. */
+  async function loadLibraryPortfolio(id: string) {
+    const seq = nextPortfolioSeq();
+    // 앞서 고른 보관함 포트폴리오가 넣은 값은 바로 지운다(clearPortfolioFill이 선택을 비우므로 그 뒤에 새 선택을 둔다).
+    clearPortfolioFill("library");
+    setLibraryPortfolioId(id);
+    setLibraryNote(null);
+    setError(null);
+    if (!id) {
+      portfolioAppliedSeqRef.current = seq;
+      return;
+    }
+    setLibraryLoading(true);
+    // 더 나중에 고른 값이 이미 들어갔으면 이 선택은 버린다(선택 칸이 아직 이 항목이면 비운다).
+    const dropSelection = () => setLibraryPortfolioId((cur) => (cur === id ? "" : cur));
+    try {
+      const res = await fetch(`/api/portfolios/${encodeURIComponent(id)}?include=text`, { cache: "no-store" });
+      const data = res.ok ? ((await res.json().catch(() => null)) as { portfolio?: PortfolioInfo; text?: string } | null) : null;
+      if (!data?.portfolio) {
+        setError("포트폴리오를 불러오지 못했습니다.");
+        dropSelection();
+        return;
+      }
+      const pf = data.portfolio;
+      const parts: string[] = [];
+      const file = data.text ? new File([data.text], prefillPortfolioFileName(pf.fileName ?? pf.title), { type: "text/plain" }) : null;
+      if (data.text) parts.push(`뽑아 둔 글 ${data.text.length.toLocaleString("ko-KR")}자`);
+      const note = portfolioNoteText(pf);
+      if (note) parts.push(pf.kind === "url" ? "링크·설명" : "설명");
+      if (!applyPortfolioFill(seq, "library", file, note || null)) {
+        dropSelection();
+        return;
+      }
+      setLibraryPortfolioId(id);
+      setLibraryNote(
+        parts.length
+          ? `‘${pf.title}’ 포트폴리오를 넣었습니다(${parts.join(" · ")}).`
+          : `‘${pf.title}’에는 넣을 글이 없습니다. 포트폴리오 화면에서 파일을 다시 올리거나 설명을 적어 주세요.`,
+      );
+    } catch {
+      setError("포트폴리오를 불러오지 못했습니다. 네트워크를 확인해 주세요.");
+      dropSelection();
+    } finally {
+      setLibraryLoading(false);
+    }
   }
 
   async function loadSavedResume(id: string) {
@@ -167,6 +286,7 @@ export function NewDiagnosisForm({
     // 다른 이력서로 바꾸면 앞 이력서의 내용·포트폴리오가 딸려 가지 않게 지운다.
     clearSavedFill();
     if (!id) return;
+    const seq = nextPortfolioSeq();
     setSavedLoading(true);
     // 실패하면 고르기를 비워 같은 이력서를 다시 고를 수 있게 한다(사용자가 쓴 글은 지우지 않는다).
     const fail = (message: string) => {
@@ -182,22 +302,20 @@ export function NewDiagnosisForm({
       }
       const text = resumeToText(detail.current.document, detail.resume.templateId);
       setResumeText(text);
-      savedFillRef.current.resumeText = text;
+      savedResumeTextRef.current = text;
       const notes: string[] = [`v${detail.current.versionNo} 내용을 가져왔습니다.`];
+      // 이력서에 붙인 보관함 포트폴리오: 뽑아 둔 글은 파일로, 링크·설명은 '링크·설명' 칸에.
       const pf = detail.resume.portfolio;
-      if (pf?.kind === "url" && pf.url) {
-        setPortfolioText(pf.url);
-        savedFillRef.current.portfolioText = pf.url;
-        notes.push("첨부 포트폴리오 링크를 채웠습니다.");
-      } else if (pf?.kind === "file") {
-        const r = await fetch(`/api/resumes/${encodeURIComponent(id)}/portfolio?include=text`).catch(() => null);
-        const data = r?.ok ? ((await r.json().catch(() => null)) as { text?: string } | null) : null;
-        if (data?.text) {
-          const file = new File([data.text], prefillPortfolioFileName(pf.fileName ?? undefined), { type: "text/plain" });
-          setPortfolioFile(file);
-          savedFillRef.current.portfolioFile = file;
-          notes.push("첨부 포트폴리오를 함께 넣었습니다.");
+      // 그 사이 다른 포트폴리오를 골랐으면(보관함 선택·직접 올리기) 그것을 두고 이 이력서의 포트폴리오는 넣지 않는다.
+      if (pf) {
+        const note = portfolioNoteText(pf) || null;
+        let file: File | null = null;
+        if (pf.kind === "file") {
+          const r = await fetch(`/api/resumes/${encodeURIComponent(id)}/portfolio?include=text`).catch(() => null);
+          const data = r?.ok ? ((await r.json().catch(() => null)) as { text?: string } | null) : null;
+          if (data?.text) file = new File([data.text], prefillPortfolioFileName(pf.fileName ?? pf.title), { type: "text/plain" });
         }
+        if ((file || note) && applyPortfolioFill(seq, "saved", file, note)) notes.push(`첨부 포트폴리오(${pf.title})를 함께 넣었습니다.`);
       }
       // 연결 공고가 있고 아직 지원할 자리를 안 골랐으면 그 공고를 고른다(불러오는 사이 사용자가 고른 공고는 덮어쓰지 않는다).
       if (detail.resume.postingId && !postingRef.current) {
@@ -247,16 +365,19 @@ export function NewDiagnosisForm({
       if (p.postingId) setPrefillJd({ postingId: p.postingId, text: p.jdText });
     }
     // 이력서에 붙인 포트폴리오: 뽑아 둔 글은 .txt 파일로 올리고(서버가 같은 추출기로 읽는다), 링크는 '링크·설명' 칸에 채운다.
-    if (p.portfolioText?.trim()) {
-      setPortfolioFile(new File([p.portfolioText], prefillPortfolioFileName(p.portfolioFileName), { type: "text/plain" }));
-      setPrefilledPortfolio(true);
-    }
-    if (p.portfolioUrl) {
-      setPortfolioText(p.portfolioUrl);
+    const prefillFile = p.portfolioText?.trim()
+      ? new File([p.portfolioText], prefillPortfolioFileName(p.portfolioFileName), { type: "text/plain" })
+      : null;
+    const note = [p.portfolioUrl, p.portfolioNote].filter(Boolean).join("\n");
+    if (prefillFile || note) {
+      // 프리필도 한 출처로 기록해 두어, 뒤에 다른 포트폴리오를 고르면 이 값이 섞이지 않고 지워진다.
+      applyPortfolioFill(nextPortfolioSeq(), "prefill", prefillFile, note || null);
       setPrefilledPortfolio(true);
     }
     setPrefilled(true);
     /* eslint-enable react-hooks/set-state-in-effect */
+    // 마운트 때 한 번만 읽는다(applyPortfolioFill은 상태 setter와 ref만 쓴다).
+    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
 
   const hasResume = resumeMode === "file" ? !!resumeFile : resumeText.trim().length > 0;
@@ -282,7 +403,7 @@ export function NewDiagnosisForm({
       setError("지원할 공고를 골라 주세요.");
       return;
     }
-    if (savedLoading) return;
+    if (savedLoading || libraryLoading) return;
     if (!targetRole.trim()) {
       setError("지원 직무를 입력해 주세요.");
       return;
@@ -437,18 +558,69 @@ export function NewDiagnosisForm({
               인용 확인은 이력서 원문만 대상으로 합니다.
             </p>
             <div className="mt-3 space-y-3">
-              <FileDrop
-                maxBytes={uploadLimits.perFileBytes}
-                file={portfolioFile}
-                accept={PORTFOLIO_ACCEPT}
-                label="포트폴리오 파일을 끌어다 놓거나 눌러서 선택"
-                hint={`${UPLOAD_FORMATS_LABEL}, ${perFile} 이하. 글자를 읽을 수 있는 파일만 반영되며, 긴 파일은 앞부분만 씁니다.`}
-                onChange={(f, err) => {
-                  setPortfolioFile(f);
-                  setFileError((p) => ({ ...p, portfolio: err ?? undefined }));
-                }}
+              <SegmentedTabs
+                label="포트폴리오 입력 방식"
+                value={portfolioMode}
+                onChange={setPortfolioMode}
+                options={[
+                  { value: "file", label: "파일 올리기" },
+                  { value: "library", label: "포트폴리오에서 선택" },
+                ]}
               />
-              {fileError.portfolio && <p className="text-sm text-red-600">{fileError.portfolio}</p>}
+              {portfolioMode === "file" ? (
+                <>
+                  <FileDrop
+                    maxBytes={uploadLimits.perFileBytes}
+                    file={portfolioFile}
+                    accept={PORTFOLIO_ACCEPT}
+                    label="포트폴리오 파일을 끌어다 놓거나 눌러서 선택"
+                    hint={`${UPLOAD_FORMATS_LABEL}, ${perFile} 이하. 글자를 읽을 수 있는 파일만 반영되며, 긴 파일은 앞부분만 씁니다.`}
+                    onChange={(f, err) => {
+                      onOwnPortfolioFile(f);
+                      setFileError((p) => ({ ...p, portfolio: err ?? undefined }));
+                    }}
+                  />
+                  {fileError.portfolio && <p className="text-sm text-red-600">{fileError.portfolio}</p>}
+                </>
+              ) : portfolios.length === 0 ? (
+                <p className="rounded-lg bg-slate-50 px-3 py-2.5 text-sm text-slate-600">
+                  보관한 포트폴리오가 없습니다.{" "}
+                  <Link href="/app/portfolios" className="font-medium text-indigo-700 hover:underline">
+                    포트폴리오
+                  </Link>
+                  에서 추가하거나 파일을 올려 주세요.
+                </p>
+              ) : (
+                <div>
+                  <label htmlFor="library-portfolio" className="block text-sm font-medium text-slate-800">
+                    내 포트폴리오
+                  </label>
+                  <select
+                    id="library-portfolio"
+                    value={libraryPortfolioId}
+                    disabled={libraryLoading}
+                    onChange={(e) => void loadLibraryPortfolio(e.target.value)}
+                    className={inputClass}
+                  >
+                    <option value="">포트폴리오를 고르세요</option>
+                    {portfolios.map((p) => (
+                      <option key={p.id} value={p.id}>
+                        {p.title} ({PORTFOLIO_KIND_LABELS[p.kind]} · {portfolioSourceLabel(p)})
+                      </option>
+                    ))}
+                  </select>
+                  {libraryLoading && <p className="mt-2 text-sm text-indigo-700">불러오는 중…</p>}
+                  {libraryNote && <p className="mt-2 text-sm text-emerald-700">{libraryNote}</p>}
+                  {libraryPortfolioId && !libraryLoading && (
+                    <p className="mt-1 text-xs text-slate-500">
+                      {portfolioFile ? <>넣은 파일: {portfolioFile.name} </> : null}
+                      <button type="button" onClick={removeLibraryPortfolio} className="font-medium text-indigo-700 hover:underline">
+                        선택 빼기
+                      </button>
+                    </p>
+                  )}
+                </div>
+              )}
               <div>
                 <label htmlFor="portfolioText" className="block text-sm font-medium text-slate-800">
                   링크·설명

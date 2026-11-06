@@ -3,6 +3,7 @@
  * 문서 구조·양식은 src/lib/domain/resumes.ts, 저장은 service.ts(메타 PostgreSQL + 본문 저장소).
  */
 import { z } from "zod";
+import { CreatePortfolioUrlSchema } from "@/lib/domain/portfolios";
 import type { PostingStatus } from "@/lib/domain/postings";
 import {
   ResumeApplyStatusSchema,
@@ -126,22 +127,15 @@ export const ChangeResumeStatusSchema = z.object({
 });
 export type ChangeResumeStatusInput = z.infer<typeof ChangeResumeStatusSchema>;
 
-/** PUT /api/resumes/[id]/portfolio (JSON) — URL 첨부. 파일은 같은 경로에 multipart(file 필드)로. */
-export const ResumePortfolioUrlSchema = z.object({
-  url: z
-    .string()
-    .trim()
-    .max(2048)
-    .refine((v) => {
-      try {
-        const u = new URL(v);
-        return u.protocol === "https:" || u.protocol === "http:";
-      } catch {
-        return false;
-      }
-    }, "http:// 또는 https:// 로 시작하는 주소를 입력해 주세요."),
-});
-export type ResumePortfolioUrlInput = z.infer<typeof ResumePortfolioUrlSchema>;
+/**
+ * PUT /api/resumes/[id]/portfolio (JSON): { portfolioId }면 보관함의 포트폴리오를 붙이고, { url, title?, description? }면 링크로 보관함에
+ * 새 포트폴리오를 만들어 붙인다. 파일은 같은 경로에 multipart(file·title·description)로.
+ */
+export const ResumePortfolioAttachSchema = z.union([
+  z.object({ portfolioId: z.string().trim().min(1, "붙일 포트폴리오를 골라 주세요.").max(64) }).strict(),
+  CreatePortfolioUrlSchema.strict(),
+]);
+export type ResumePortfolioAttachInput = z.infer<typeof ResumePortfolioAttachSchema>;
 
 /** GET /api/resumes?status= 목록 필터. 'general'은 공용 이력서만. */
 export const RESUME_LIST_STATUS_FILTERS = ["all", "draft", "applying", "submitted", "general"] as const;
@@ -170,7 +164,7 @@ export interface ResumeMeta {
   applyStatusChangedAt: number | null;
   /** '지원 완료'로 바꿀 때 만들거나 연결한 지원 기록. */
   submittedApplicationId: string | null;
-  /** 첨부 포트폴리오(없으면 null). 본문 텍스트는 싣지 않는다(getPortfolioText). */
+  /** 첨부한 보관함 포트폴리오(없으면 null). 본문 텍스트는 싣지 않는다(resumes/portfolio.ts getResumePortfolioText). */
   portfolio: ResumePortfolioInfo | null;
   createdAt: number;
   updatedAt: number;

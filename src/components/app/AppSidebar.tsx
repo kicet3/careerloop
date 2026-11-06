@@ -1,7 +1,7 @@
 "use client";
 
 /**
- * 앱 주 메뉴(진단·경력·서류·지원[공고 찾기·공고 보관함·지원 현황]·면접 그룹) + 하단 계정 메뉴(계정 설정·AI 연결·로그아웃). 넓은 화면(lg 이상, 1024px~)은 왼쪽 고정 사이드바(아이콘만 보이는 접힌 모드 지원),
+ * 앱 주 메뉴(진단·경력·서류[이력서·포트폴리오]·지원[공고 찾기·공고 보관함·지원 현황]·면접 그룹) + 하단 계정 메뉴(계정 설정·AI 연결·로그아웃). 넓은 화면(lg 이상, 1024px~)은 왼쪽 고정 사이드바(아이콘만 보이는 접힌 모드 지원),
  * 좁은 화면은 상단 얇은 바 + 햄버거 → 왼쪽 서랍(오버레이). 인쇄할 때는 둘 다 숨긴다.
  */
 import Link from "next/link";
@@ -9,7 +9,6 @@ import { usePathname } from "next/navigation";
 import { useEffect, useId, useRef, useState, useSyncExternalStore, type ReactNode } from "react";
 import { cn } from "@/components/ui/cn";
 import { AccountMenu } from "./AccountMenu";
-import { BusinessInfo } from "./BusinessInfo";
 import { EnvBadge } from "./EnvBadge";
 import { Logo } from "./Logo";
 
@@ -41,7 +40,13 @@ export const GROUPS: NavGroup[] = [
     ],
   },
   { label: "경력", items: [{ href: "/app/graph", label: "경력 그래프", icon: <GraphIcon />, match: under("/app/graph") }] },
-  { label: "서류", items: [{ href: "/app/resumes", label: "이력서", icon: <DocIcon />, match: under("/app/resumes") }] },
+  {
+    label: "서류",
+    items: [
+      { href: "/app/resumes", label: "이력서", icon: <DocIcon />, match: under("/app/resumes") },
+      { href: "/app/portfolios", label: "포트폴리오", icon: <FolderIcon />, match: under("/app/portfolios") },
+    ],
+  },
   {
     label: "지원",
     items: [
@@ -204,8 +209,6 @@ export function AppSidebar({
               placement={collapsed ? "right" : "top"}
               showConnections={showConnections}
             />
-            {/* 접힌 모드(w-16)는 폭이 좁아 사업자 정보를 숨긴다. */}
-            {!collapsed && <BusinessInfo compact className="mt-1.5 px-2" />}
           </div>
         </aside>
       </div>
@@ -222,7 +225,6 @@ export function AppSidebar({
           <NavList groups={groups} pathname={pathname} collapsed={false} className="flex-1 overflow-y-auto" onNavigate={closeDrawer} />
           <div className="border-t border-slate-100 px-3 py-2">
             <AccountMenu email={email} name={name} showConnections={showConnections} onNavigate={closeDrawer} />
-            <BusinessInfo compact className="mt-1.5 px-2" />
           </div>
         </Drawer>
       )}
@@ -462,6 +464,15 @@ function DocIcon() {
     <Svg>
       <path d="M14 3.5H7a2 2 0 0 0-2 2v13a2 2 0 0 0 2 2h10a2 2 0 0 0 2-2V8.5z" />
       <path d="M14 3.5v5h5M9 13h6M9 16.5h4" />
+    </Svg>
+  );
+}
+
+function FolderIcon() {
+  return (
+    <Svg>
+      <path d="M3.5 7a2 2 0 0 1 2-2h4l2 2.5h7a2 2 0 0 1 2 2V17a2 2 0 0 1-2 2h-13a2 2 0 0 1-2-2z" />
+      <path d="M8 13.5h8" />
     </Svg>
   );
 }

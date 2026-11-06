@@ -21,7 +21,7 @@ export interface InterviewResumeOption {
   postingId: string | null;
   hasJd: boolean;
   portfolioLabel: string | null;
-  /** 파일 포트폴리오만 내용을 읽어 근거로 쓴다(링크는 AI가 열어 보지 못한다). */
+  /** 파일 포트폴리오나 설명을 적은 포트폴리오만 근거로 쓴다(링크는 AI가 열어 보지 못한다). */
   portfolioReadable: boolean;
   versionNo: number | null;
 }
@@ -128,7 +128,7 @@ export function NewInterviewForm({ resumes, initialResumeId }: { resumes: Interv
             ) : selected.portfolioReadable ? (
               <span className="text-slate-500"> · {selected.portfolioLabel}</span>
             ) : (
-              " · 링크는 내용을 읽지 못해 질문에 반영되지 않습니다(파일로 첨부하면 근거로 씁니다)"
+              " · 링크는 내용을 읽지 못해 질문에 반영되지 않습니다(파일로 올리거나 포트폴리오 설명을 적으면 근거로 씁니다)"
             )}
           </span>
         </label>

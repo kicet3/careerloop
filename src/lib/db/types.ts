@@ -22,7 +22,8 @@ import type {
   InterviewSessionStatus,
 } from "@/lib/domain/interview";
 import type { PostingCaptureMime, PostingCaptureStatus } from "@/lib/domain/posting-capture";
-import type { ResumeApplyStatus, ResumeKind, ResumePortfolioKind, ResumeTemplateId, ResumeVersionSource } from "@/lib/domain/resumes";
+import type { PortfolioKind } from "@/lib/domain/portfolios";
+import type { ResumeApplyStatus, ResumeKind, ResumeTemplateId, ResumeVersionSource } from "@/lib/domain/resumes";
 import type { ConsentSource, ConsentType } from "@/lib/legal/consents";
 import type { UserRole, UserStatus } from "@/lib/domain/users";
 import type { DiagnosisStatus, ReviewerId, Situation, StageKey, StageStatus } from "@/lib/domain/schemas";
@@ -85,8 +86,10 @@ export type ChatMessageRow = Narrow<
 
 export type CompanyResume = Narrow<
   P.CompanyResume,
-  { kind: ResumeKind; templateId: ResumeTemplateId; applyStatus: ResumeApplyStatus | null; portfolioKind: ResumePortfolioKind | null }
+  { kind: ResumeKind; templateId: ResumeTemplateId; applyStatus: ResumeApplyStatus | null }
 >;
+
+export type PortfolioRow = Narrow<P.Portfolio, { kind: PortfolioKind }>;
 
 export type ResumeVersion = Narrow<P.ResumeVersion, { source: ResumeVersionSource }>;
 

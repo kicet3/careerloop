@@ -43,6 +43,7 @@ model User {
   applications      Application[]
   interviewSessions InterviewSession[]
   interviewAnswers  InterviewAnswer[]
+  portfolios        Portfolio[]
 
   @@index([status, createdAt], map: "users_status_idx")
   @@map("users")
@@ -385,17 +386,8 @@ model CompanyResume {
   /// '지원 완료'로 바꿀 때 만들거나 연결한 지원 기록. 되돌리기·화면 링크용. 지원을 지우면 null.
   submittedApplicationId String?   @map("submitted_application_id")
 
-  /// 첨부 포트폴리오(이력서당 하나). ResumePortfolioKind('file' | 'url'). null이면 없음.
-  portfolioKind      String?   @map("portfolio_kind")
-  /// 올린 파일 이름(kind='file').
-  portfolioFileName  String?   @map("portfolio_file_name")
-  /// 포트폴리오 주소(kind='url', http/https만).
-  portfolioUrl       String?   @map("portfolio_url")
-  /// 파일에서 뽑은 텍스트의 저장소 키 users/<u>/resumes/<id>/portfolio.txt(kind='file'). 원본 파일은 보관하지 않는다.
-  portfolioTextKey   String?   @map("portfolio_text_key")
-  /// 뽑은 텍스트 글자 수(화면 표시·프롬프트 예산).
-  portfolioChars     Int?      @map("portfolio_chars")
-  portfolioUpdatedAt DateTime? @map("portfolio_updated_at") @db.Timestamptz(3)
+  /// 첨부 포트폴리오(이력서당 하나, 포트폴리오 보관함 portfolios의 항목). 포트폴리오를 지우면 null.
+  portfolioId            String?   @map("portfolio_id")
 
   user                 User               @relation(fields: [userId], references: [id], onDelete: Cascade, map: "company_resumes_user_id_fkey")
   posting              JobPosting?        @relation(fields: [postingId], references: [id], onDelete: SetNull, map: "company_resumes_posting_id_fkey")
@@ -404,13 +396,45 @@ model CompanyResume {
   versions             ResumeVersion[]
   applications         Application[]      @relation("ApplicationResume")
   submittedApplication Application?       @relation("ResumeSubmittedApplication", fields: [submittedApplicationId], references: [id], onDelete: SetNull, map: "company_resumes_submitted_application_id_fkey")
+  portfolio            Portfolio?         @relation(fields: [portfolioId], references: [id], onDelete: SetNull, map: "company_resumes_portfolio_id_fkey")
   interviewSessions    InterviewSession[]
 
   @@index([userId, applyStatus, updatedAt], map: "company_resumes_user_status_idx")
   @@index([userId, kind, updatedAt], map: "company_resumes_user_kind_idx")
   @@index([userId, updatedAt], map: "company_resumes_user_idx")
   @@index([postingId], map: "company_resumes_posting_idx")
+  @@index([portfolioId], map: "company_resumes_portfolio_idx")
   @@map("company_resumes")
+}
+
+/// 포트폴리오 보관함(사용자당 MAX_PORTFOLIOS_PER_USER개). 이력서는 이 중 하나를 첨부한다(company_resumes.portfolio_id).
+/// 파일은 원본을 보관하지 않고 뽑은 텍스트만 저장소에 둔다. URL은 주소만 저장한다(서버가 열지 않는다).
+model Portfolio {
+  id          String   @id
+  userId      String   @map("user_id")
+  /// 목록에 보일 이름(120자 이내).
+  title       String
+  /// 사용자가 적은 역할·결과 메모(2000자 이내). 면접 질문·진단에 포트폴리오와 함께 넘어간다.
+  description String?
+  /// PortfolioKind('file' | 'url')
+  kind        String
+  /// 올린 파일 이름(kind='file').
+  fileName    String?  @map("file_name")
+  /// 포트폴리오 주소(kind='url', http/https만).
+  url         String?
+  /// 뽑은 텍스트의 저장소 키 users/<u>/portfolios/<id>/text-<꼬리>.txt(kind='file'). 예전 이력서 첨부에서 옮긴 항목은
+  /// users/<u>/resumes/<이력서 id>/portfolio-<꼬리>.txt를 그대로 쓴다(이력서를 지울 때 이 키는 남긴다).
+  textKey     String?  @map("text_key")
+  /// 뽑은 텍스트 글자 수(kind='file').
+  chars       Int?
+  createdAt   DateTime @default(now()) @map("created_at") @db.Timestamptz(3)
+  updatedAt   DateTime @default(now()) @map("updated_at") @db.Timestamptz(3)
+
+  user    User            @relation(fields: [userId], references: [id], onDelete: Cascade, map: "portfolios_user_id_fkey")
+  resumes CompanyResume[]
+
+  @@index([userId, updatedAt], map: "portfolios_user_idx")
+  @@map("portfolios")
 }
 
 model ResumeVersion {

@@ -20,6 +20,7 @@ let svc: typeof import("./service");
 let store: typeof import("./store");
 let resumes: typeof import("@/lib/resumes/service");
 let portfolio: typeof import("@/lib/resumes/portfolio");
+let portfolios: typeof import("@/lib/portfolios/service");
 let tdb: TestDb;
 let companyId: string;
 let generalId: string;
@@ -51,13 +52,18 @@ beforeAll(async () => {
   store = await import("./store");
   resumes = await import("@/lib/resumes/service");
   portfolio = await import("@/lib/resumes/portfolio");
+  portfolios = await import("@/lib/portfolios/service");
   await tdb.prisma.jobPosting.create({
     data: { id: "jp1", userId: "ua", company: "토스", roleTitle: "백엔드", url: "https://toss.im/career/1", jdText: "주요 업무: 결제 정산 시스템 개발과 운영\n자격 요건: Kotlin 3년 이상" },
   });
   const base = { templateId: "classic" as const, document: doc(), source: "manual" as const };
   companyId = (await resumes.createResume("ua", { ...base, company: "토스", roleTitle: "백엔드", postingId: "jp1" })).resume.id;
   generalId = (await resumes.createResume("ua", { ...base, kind: "general", company: "", roleTitle: "" })).resume.id;
-  await portfolio.setPortfolioFile("ua", companyId, { fileName: "포트폴리오.pdf", text: "정산 개편 프로젝트의 배경과 목표, 측정 지표를 정리한 문서입니다.\n월말 정산 지연 건수를 3개월 동안 추적했습니다." });
+  const pf = await portfolios.createPortfolioFromFile("ua", {
+    fileName: "포트폴리오.pdf",
+    text: "정산 개편 프로젝트의 배경과 목표, 측정 지표를 정리한 문서입니다.\n월말 정산 지연 건수를 3개월 동안 추적했습니다.",
+  });
+  expect((await portfolio.attachPortfolio("ua", companyId, pf.portfolio.id)).ok).toBe(true);
 });
 afterAll(async () => {
   await tdb.close();
@@ -168,6 +174,20 @@ describe("면접 연습 흐름", () => {
 
     const g = await svc.startInterviewSession("ua", { resumeId: generalId, includePortfolio: true });
     expect(g.session).toMatchObject({ hasPosting: false, targetLabel: null });
+  });
+
+  it("링크 포트폴리오: 설명이 있으면 설명을 근거로 쓰고, 없으면 포트폴리오 줄이 없다", async () => {
+    const link = await portfolios.createPortfolioFromUrl("ua", { url: "https://me.dev/pay" });
+    expect((await portfolio.attachPortfolio("ua", generalId, link.id)).ok).toBe(true);
+    const bare = await svc.startInterviewSession("ua", { resumeId: generalId, includePortfolio: true });
+    expect(bare.session.hasPortfolio).toBe(false);
+
+    await portfolios.updatePortfolio("ua", link.id, { description: "결제 대시보드를 혼자 설계하고 만들었습니다. 정산 문의가 절반으로 줄었습니다." });
+    const withNote = await svc.startInterviewSession("ua", { resumeId: generalId, includePortfolio: true });
+    expect(withNote.session.hasPortfolio).toBe(true);
+    const snap = (await store.loadSourceSnapshot("ua", withNote.session.id))!;
+    expect(snap.lines.filter((l) => l.doc === "portfolio").map((l) => l.text).join(" ")).toContain("정산 문의가 절반으로");
+    await portfolio.detachPortfolio("ua", generalId);
   });
 
   it("소유·입력 확인: 남의 이력서 404, 남의 공고 404, 빈 이력서 409", async () => {

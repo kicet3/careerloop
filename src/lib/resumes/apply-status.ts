@@ -33,7 +33,7 @@ import { prisma } from "@/lib/db/client";
 import type { CompanyResume } from "@/lib/db/types";
 import { POSTING_STATUSES, type PostingStatus } from "@/lib/domain/postings";
 import { resumeApplyStatusOf, type ResumeApplyStatus } from "@/lib/domain/resumes";
-import { toResumeMeta } from "./service";
+import { RESUME_INCLUDE, toResumeMeta, type ResumeRow } from "./service";
 import type { ChangeResumeStatusInput, ChangeResumeStatusResult } from "./types";
 
 export const GENERAL_RESUME_STATUS_ERROR = "공용 이력서에는 지원 상태가 없습니다.";
@@ -41,8 +41,8 @@ export const RESUME_STATUS_CONFLICT = "다른 곳에서 이 이력서의 지원 
 
 type AppLink = ChangeResumeStatusResult["application"];
 
-async function ownedRow(userId: string, resumeId: string): Promise<CompanyResume | null> {
-  return ((await prisma.companyResume.findFirst({ where: { id: resumeId, userId } })) as CompanyResume | null) ?? null;
+async function ownedRow(userId: string, resumeId: string): Promise<ResumeRow | null> {
+  return ((await prisma.companyResume.findFirst({ where: { id: resumeId, userId }, include: RESUME_INCLUDE })) as ResumeRow | null) ?? null;
 }
 
 async function postingStatusOf(userId: string, postingId: string | null): Promise<PostingStatus | null> {

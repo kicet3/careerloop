@@ -4,6 +4,8 @@ import { NewDiagnosisForm } from "@/components/app/NewDiagnosisForm";
 import { SensitiveInfoNotice } from "@/components/app/SensitiveInfoNotice";
 import { requireUser } from "@/lib/auth/session";
 import { uploadLimitsFor } from "@/lib/ingest/upload-limits";
+import { toPortfolioPickOption } from "@/lib/domain/portfolios";
+import { listPortfolios } from "@/lib/portfolios/service";
 import { listPostings } from "@/lib/postings/service";
 import { listProviderOptions, pickDefault } from "@/lib/providers/options";
 import { listResumes } from "@/lib/resumes/service";
@@ -13,7 +15,12 @@ export const dynamic = "force-dynamic";
 
 export default async function NewDiagnosisPage() {
   const user = await requireUser("/app/new");
-  const [options, postings, resumes] = await Promise.all([listProviderOptions(), listPostings(user.id), listResumes(user.id)]);
+  const [options, postings, resumes, portfolios] = await Promise.all([
+    listProviderOptions(),
+    listPostings(user.id),
+    listResumes(user.id),
+    listPortfolios(user.id),
+  ]);
   return (
     <div>
       <h1 className="text-2xl font-bold tracking-tight text-slate-900">새 진단</h1>
@@ -47,6 +54,7 @@ export default async function NewDiagnosisPage() {
           roleTitle: r.roleTitle,
           updatedAt: r.updatedAt,
         }))}
+        portfolios={portfolios.map(toPortfolioPickOption)}
       />
     </div>
   );

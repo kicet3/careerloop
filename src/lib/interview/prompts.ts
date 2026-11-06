@@ -64,9 +64,10 @@ export function buildInterviewQuestionsPrompt(snapshot: InterviewSourceSnapshot)
   const hasJd = snapshot.lines.some((l) => l.doc === "posting");
   const company = snapshot.posting?.company || r.company;
   const role = snapshot.posting?.roleTitle || r.roleTitle;
+  const portfolioLines = snapshot.lines.filter((l) => l.doc === "portfolio").length;
   const docs = [
     `이력서 ${snapshot.lines.filter((l) => l.doc === "resume").length}줄`,
-    `포트폴리오 ${snapshot.lines.filter((l) => l.doc === "portfolio").length}줄${snapshot.portfolio?.truncated ? "(앞부분만)" : ""}`,
+    `포트폴리오 ${portfolioLines}줄${snapshot.portfolio?.truncated ? "(앞부분만)" : ""}`,
     `채용 공고 ${snapshot.lines.filter((l) => l.doc === "posting").length}줄`,
   ].join(", ");
   const user = [
@@ -76,7 +77,14 @@ export function buildInterviewQuestionsPrompt(snapshot: InterviewSourceSnapshot)
     field("지원 직무", role || "(이력서에서 판단)"),
     field("채용 공고", hasJd ? "있음 — job 질문 대신 공고 요건과 서류를 잇는 질문" : "없음 — job(직무 일반) 질문 3~5개 포함"),
     ...(snapshot.portfolio?.kind === "url" && snapshot.portfolio.url
-      ? [field("포트폴리오", "링크만 있음(내용은 읽지 못했다 — 링크 너머 내용을 추측하지 않는다)")]
+      ? [
+          field(
+            "포트폴리오",
+            portfolioLines > 0
+              ? "링크 + 지원자가 직접 쓴 설명(p 줄은 그 설명이다 — 링크 너머 내용은 읽지 못했으니 추측하지 않는다)"
+              : "링크만 있음(내용은 읽지 못했다 — 링크 너머 내용을 추측하지 않는다)",
+          ),
+        ]
       : []),
     field("근거 줄 수", docs),
     "",
