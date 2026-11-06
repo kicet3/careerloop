@@ -15,7 +15,7 @@ import {
 
 const DEFAULT_MAX_CHARS = 12_000;
 
-/** 속성 값 상한을 줄여 가며 맞춰 본다(0이면 속성 없이 이름만). */
+/** 속성 값 상한을 줄여 가며 맞춰 본다(0이면 속성 없이 이름만). opts.propCaps로 바꿀 수 있다(프로젝트 단위 대화는 더 길게). */
 const PROP_CAPS = [200, 120, 60, 30, 0] as const;
 
 function propsText(node: GraphNode, cap: number): string {
@@ -23,7 +23,11 @@ function propsText(node: GraphNode, cap: number): string {
   const titleKey = NODE_TITLE_KEY[node.label];
   const parts = Object.entries(node.props as Record<string, unknown>)
     .filter(([k, v]) => k !== titleKey && v !== undefined && v !== null && v !== "")
-    .map(([k, v]) => `${k}=${(Array.isArray(v) ? v.join("|") : String(v)).replace(/\s+/g, " ").slice(0, cap)}`);
+    .map(([k, v]) => {
+      const full = (Array.isArray(v) ? v.join("|") : String(v)).replace(/\s+/g, " ");
+      // 잘린 값에는 표시를 남긴다 — LLM이 잘린 값을 원문으로 알고 덮어쓰지 않게.
+      return `${k}=${full.length > cap ? `${full.slice(0, cap)}…(잘림)` : full}`;
+    });
   return parts.length ? ` (${parts.join(", ")})` : "";
 }
 
@@ -42,7 +46,7 @@ const joinSections = (secs: Section[]) => secs.map((sec) => [sec.header, ...sec.
  * (학력·자격증)이 먼저 사라진다. 그래서 (1) 속성 값을 짧게 줄여 가며 전체를 맞춰 보고, (2) 그래도 넘치면 라벨·관계 구역마다
  * 몫을 나눠 각 구역의 앞부분을 남기고 구역별로 무엇을 몇 개 생략했는지 적는다.
  */
-export function graphToText(graph: CareerGraph, opts: { maxChars?: number } = {}): string {
+export function graphToText(graph: CareerGraph, opts: { maxChars?: number; propCaps?: readonly number[] } = {}): string {
   const maxChars = opts.maxChars ?? DEFAULT_MAX_CHARS;
   if (graph.nodes.length === 0) return "(아직 정리된 경력·경험이 없다)";
   const byId = new Map(graph.nodes.map((n) => [n.id, n]));
@@ -64,7 +68,7 @@ export function graphToText(graph: CareerGraph, opts: { maxChars?: number } = {}
     return secs;
   };
 
-  for (const cap of PROP_CAPS) {
+  for (const cap of opts.propCaps ?? PROP_CAPS) {
     const text = joinSections(sectionsWith(cap));
     if (text.length <= maxChars) return text;
   }

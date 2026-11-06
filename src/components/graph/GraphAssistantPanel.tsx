@@ -3,12 +3,12 @@
  * 그래프 화면의 채팅 도우미: "경험 정리하기"(경험 대화·이력서 가져오기 → 변경안) | "경험 질문하기"(그래프 근거 Q&A, 출처 표기) 탭.
  * 배치는 children(render prop)이 정한다 — GraphWorkspace가 탭 줄은 위 전체 폭에, 탭 내용은 왼쪽 열에 둔다.
  * 두 패널을 모두 마운트한 채 hidden으로 숨긴다 — 입력·폴링 상태가 유지되고, 그래프 만들기의 GRAPH_CHAT_ASK_EVENT 리스너도 살아 있다.
- * 체크리스트·그래프에 묻기의 '채우기' 버튼(askGraphChat)이 오면 그래프 만들기 탭으로 바꾼다.
+ * 체크리스트·그래프에 묻기의 '채우기' 버튼(askGraphChat), 프로젝트 상세의 '대화로 구조화하기'(openProjectChat)가 오면 그래프 만들기 탭으로 바꾼다.
  */
 import { useEffect, useState, type ReactNode } from "react";
 import { cn } from "@/components/ui";
 import type { UploadLimits } from "@/lib/ingest/upload-limits";
-import { GRAPH_CHAT_ASK_EVENT } from "./api";
+import { GRAPH_CHAT_ASK_EVENT, GRAPH_CHAT_PROJECT_EVENT } from "./api";
 import { GraphChatPanel } from "./GraphChatPanel";
 import { GraphQaPanel } from "./GraphQaPanel";
 
@@ -36,7 +36,11 @@ export function GraphAssistantPanel({
   useEffect(() => {
     const onAsk = () => setTab("build");
     window.addEventListener(GRAPH_CHAT_ASK_EVENT, onAsk);
-    return () => window.removeEventListener(GRAPH_CHAT_ASK_EVENT, onAsk);
+    window.addEventListener(GRAPH_CHAT_PROJECT_EVENT, onAsk);
+    return () => {
+      window.removeEventListener(GRAPH_CHAT_ASK_EVENT, onAsk);
+      window.removeEventListener(GRAPH_CHAT_PROJECT_EVENT, onAsk);
+    };
   }, []);
 
   const tabs = (

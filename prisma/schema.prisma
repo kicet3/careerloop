@@ -326,6 +326,8 @@ model ChatThread {
   /// ReviewerId
   reviewer    String?
   title       String
+  /// 프로젝트 단위 그래프 채팅: 집중하는 경험 그래프 Project 노드 id(Neo4j — FK 없음). 일반 대화는 null.
+  focusNodeId String?  @map("focus_node_id")
   createdAt   DateTime @default(now()) @map("created_at") @db.Timestamptz(3)
   updatedAt   DateTime @default(now()) @map("updated_at") @db.Timestamptz(3)
 

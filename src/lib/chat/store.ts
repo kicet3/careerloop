@@ -26,6 +26,7 @@ export function toChatThread(row: ChatThreadRow): ChatThread {
     diagnosisId: row.diagnosisId ?? null,
     reviewer: row.reviewer ?? null,
     title: row.title,
+    focusNodeId: row.focusNodeId ?? null,
     createdAt: row.createdAt.getTime(),
     updatedAt: row.updatedAt.getTime(),
   };
@@ -53,6 +54,8 @@ export async function createThread(input: {
   title: string;
   diagnosisId?: string | null;
   reviewer?: ReviewerId | null;
+  /** 프로젝트 단위 그래프 채팅(kind='graph')의 Project 노드 id. */
+  focusNodeId?: string | null;
 }): Promise<ChatThread> {
   if (input.kind === "reviewer" && (!input.diagnosisId || !input.reviewer)) {
     throw new Error("심사위원 채팅에는 diagnosisId와 reviewer가 필요합니다");
@@ -66,6 +69,8 @@ export async function createThread(input: {
       title: stripNul(input.title).slice(0, 200),
       diagnosisId: input.diagnosisId ?? null,
       reviewer: input.reviewer ?? null,
+      // 일반 대화는 컬럼을 비워 둔다(기본 NULL) — 값이 있을 때만 넣는다.
+      ...(input.focusNodeId ? { focusNodeId: input.focusNodeId } : {}),
       createdAt: now,
       updatedAt: now,
     },
@@ -79,13 +84,20 @@ export async function getThread(userId: string, threadId: string): Promise<ChatT
   return row ? toChatThread(asThread(row)) : null;
 }
 
-/** 최근 갱신 순. diagnosisId·reviewer를 주면 그 진단·심사위원의 스레드만. */
+/** 최근 갱신 순. diagnosisId·reviewer를 주면 그 진단·심사위원의 스레드만, focusNodeId를 주면 그 프로젝트 대화만. */
 export async function listThreads(
   userId: string,
-  filter: { kind?: ChatThreadKind; diagnosisId?: string | null; reviewer?: ReviewerId | null; limit?: number } = {},
+  filter: {
+    kind?: ChatThreadKind;
+    diagnosisId?: string | null;
+    reviewer?: ReviewerId | null;
+    focusNodeId?: string;
+    limit?: number;
+  } = {},
 ): Promise<ChatThread[]> {
   const where: Prisma.ChatThreadWhereInput = { userId };
   if (filter.kind) where.kind = filter.kind;
+  if (filter.focusNodeId !== undefined) where.focusNodeId = filter.focusNodeId;
   if (filter.diagnosisId !== undefined) where.diagnosisId = filter.diagnosisId;
   if (filter.reviewer !== undefined) where.reviewer = filter.reviewer;
   const rows = await prisma.chatThread.findMany({

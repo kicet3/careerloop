@@ -47,6 +47,8 @@ export const CHAT_TAGS = {
   postingPage: "posting_page",
   /** 경험 체크리스트(checklistToPromptText 결과) */
   experienceChecklist: "experience_checklist",
+  /** 프로젝트 단위 대화: 구조화할 프로젝트와 그 주변 그래프·구조화 체크리스트(graph/project-structure.ts projectFocusText) */
+  focusProject: "focus_project",
   /** 그래프에 묻기: 번호를 붙인 근거 노드 표(qa-context.ts buildContext), LLM 리랭크 후보 표 */
   graphSources: "graph_sources",
   /** 면접 연습: id를 붙인 근거 줄 표(`[r1] (이력서 · 위치) 본문` 한 줄씩, domain/interview.ts InterviewSourceLine) */
@@ -232,6 +234,8 @@ export interface ChatThread {
   diagnosisId: string | null;
   reviewer: ReviewerId | null;
   title: string;
+  /** 프로젝트 단위 그래프 채팅이면 집중하는 Project 노드 id. 일반 대화는 null. */
+  focusNodeId: string | null;
   createdAt: number;
   updatedAt: number;
 }

@@ -5,6 +5,7 @@ import { Alert } from "@/components/ui/Alert";
 import { Button } from "@/components/ui/Button";
 import { cn } from "@/components/ui/cn";
 import { type CareerGraph, type GraphOp, NODE_LABEL_META, nodeDisplayName, PERSON_ID, REL_RULES } from "@/lib/domain/graph";
+import { openProjectChat } from "./api";
 import { displayProps, edgesOf, endpointLabel, endpointName, nodePeriod } from "./model";
 import { LABEL_STYLE } from "./styles";
 
@@ -108,6 +109,22 @@ export function NodeDetail({
           </ul>
         )}
       </div>
+
+      {node?.label === "Project" && (
+        <div className="flex flex-wrap items-center gap-2 rounded-lg border border-indigo-100 bg-indigo-50/60 px-3 py-2.5">
+          <p className="min-w-0 flex-1 text-sm text-indigo-900">
+            AI가 이 프로젝트의 배경·역할·한 일·기술·성과를 하나씩 물어보며 그래프로 정리해 줍니다.
+          </p>
+          <Button
+            size="sm"
+            onClick={() => {
+              if (!openProjectChat(node.id)) setError("이 화면에서는 대화를 열 수 없습니다. 경험 그래프 화면에서 다시 시도해 주세요.");
+            }}
+          >
+            이 프로젝트 대화로 구조화하기
+          </Button>
+        </div>
+      )}
 
       {error && <Alert tone="error">{error}</Alert>}
 

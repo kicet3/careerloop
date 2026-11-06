@@ -499,6 +499,25 @@ function fakeGraphChat(user: string): GraphChatOutput {
   const title = firstLine.length > 60 ? `${firstLine.slice(0, 60)}…` : firstLine;
   const skills = [...new Set((message.match(TECH_RE) ?? []).map((t) => t.trim()).filter((t) => t.length >= 2))].slice(0, 3);
   const blank = { ref: "", id: "", label: "" as const, props: [], type: "" as const, from: "", to: "" };
+  // 프로젝트 단위 대화: 그 프로젝트의 action을 채우고 기술을 프로젝트에 잇는다. 질문은 체크리스트의 '물을 질문' 하나.
+  const focus = extractTag(user, CHAT_TAGS.focusProject);
+  const projectId = focus ? /구조화할 프로젝트: \[([^\]]+)\]/.exec(focus)?.[1] : undefined;
+  if (projectId) {
+    const question = /물을 질문: (.+?) 넣을 곳:/.exec(focus!)?.[1];
+    const ops: GraphChatOutput["ops"] = [
+      { ...blank, op: "updateNode", id: projectId, label: "Project", props: [{ key: "action", value: message.slice(0, 500) }] },
+      ...skills.flatMap((name, i): GraphChatOutput["ops"] => [
+        { ...blank, op: "addNode", ref: `new:skill${i}`, label: "Skill", props: [{ key: "name", value: name }] },
+        { ...blank, op: "addEdge", type: "USED_SKILL", from: projectId, to: `new:skill${i}` },
+      ]),
+    ];
+    return {
+      reply: `말씀하신 내용을 프로젝트의 한 일로 정리했어요.${question ? ` ${question}` : ""}`,
+      ops,
+      summary: `프로젝트 한 일 보강${skills.length ? `, 기술 ${skills.length}개 연결` : ""}`,
+      followUpQuestions: question ? [question] : [],
+    };
+  }
   const ops: GraphChatOutput["ops"] = [
     {
       ...blank,

@@ -44,6 +44,10 @@ vi.mock("@/lib/graph/service", async () => {
       for (const s of steps) {
         if (s.kind === "create") g.nodes.push({ id: s.id, label: s.label, props: s.props, createdAt: 0, updatedAt: 0 } as CareerGraph["nodes"][number]);
         if (s.kind === "link") g.edges.push({ id: edgeId(s.type, s.from, s.to), type: s.type, from: s.from, to: s.to });
+        if (s.kind === "update") {
+          const n = g.nodes.find((x) => x.id === s.id);
+          if (n) n.props = { ...n.props, ...s.props } as typeof n.props;
+        }
       }
       graphs.set(userId, g);
       return { created, applied: steps.length };
@@ -160,6 +164,39 @@ describe("그래프 채팅 API", () => {
     const bad = new Request("http://localhost/x", { method: "POST", headers: { origin: "http://localhost", host: "localhost" }, body: "{not json" });
     expect((await messagesRoute.POST(bad, p({ threadId }))).status).toBe(400);
     expect(afterQueue).toHaveLength(0);
+  });
+
+  it("프로젝트 단위 대화: focusNodeId로 스레드를 만들고, 변경안은 그 프로젝트에 붙는다", async () => {
+    graphs.set("a", {
+      nodes: [{ id: "p1", label: "Project", props: { name: "결제 개선" }, createdAt: 0, updatedAt: 0 }],
+      edges: [{ id: "WORKED_ON:me:p1", type: "WORKED_ON", from: "me", to: "p1" }],
+    });
+    expect((await threadsRoute.POST(post("/api/graph/chat/threads", { focusNodeId: "nope" }))).status).toBe(404);
+    const created = await threadsRoute.POST(post("/api/graph/chat/threads", { focusNodeId: "p1" }));
+    expect(created.status).toBe(201);
+    const { thread } = (await created.json()) as { thread: { id: string; title: string; focusNodeId: string } };
+    expect(thread).toMatchObject({ title: "결제 개선", focusNodeId: "p1" });
+    const threadId = thread.id;
+    // reuse=true: 그 프로젝트의 최근 대화를 돌려준다(200, created=false)
+    const reused = await threadsRoute.POST(post("/api/graph/chat/threads", { focusNodeId: "p1", reuse: true }));
+    expect(reused.status).toBe(200);
+    expect(await reused.json()).toMatchObject({ created: false, thread: { id: threadId } });
+
+    let view = await (await threadRoute.GET(new Request("http://localhost"), p({ threadId }))).json();
+    expect(view.focus).toMatchObject({ nodeId: "p1", exists: true, structure: { done: 0, total: 7, next: "background" } });
+
+    await messagesRoute.POST(post("/x", { message: "Go와 Kafka로 정산 배치를 스트리밍으로 바꿨어요" }), p({ threadId }));
+    await flushAfter();
+    view = await (await threadRoute.GET(new Request("http://localhost"), p({ threadId }))).json();
+    const proposal = view.messages.at(-1);
+    expect(proposal.status).toBe("proposed");
+    expect(proposal.data.ops.every((o: GraphOp) => (o.op === "addEdge" ? o.from === "p1" : o.op === "updateNode" ? o.id === "p1" : true))).toBe(true);
+    expect(proposal.data.followUpQuestions).toHaveLength(1);
+    expect((await applyRoute.POST(post("/x"), p({ messageId: proposal.id }))).status).toBe(200);
+    view = await (await threadRoute.GET(new Request("http://localhost"), p({ threadId }))).json();
+    // 한 일 + 사용 기술이 채워졌다
+    expect(view.focus.structure.done).toBe(2);
+    graphs.delete("a");
   });
 
   it("다시 시도할 것이 없으면 409, 이름 바꾸기·삭제", async () => {

@@ -61,6 +61,7 @@ import { field, historyToPrompt, INJECTION_RULE, wrapData } from "@/lib/chat/pro
 import { applyGraphOps, getCareerGraph, graphEnabled, GraphOpError, GraphUnavailableError, graphToText } from "@/lib/graph/service";
 import { planGraphOps } from "@/lib/graph/plan";
 import { assessExperienceChecklist, checklistToPromptText } from "@/lib/graph/completeness";
+import { assessProjectStructure, type ProjectStructure, projectFocusText, restrictToFocus } from "@/lib/graph/project-structure";
 import { storyTagName } from "@/lib/domain/experience-categories";
 import { skillKey } from "@/lib/skills/dictionary";
 import { modelGuide } from "./graph-guide";
@@ -86,6 +87,8 @@ import { kstToday } from "@/lib/time/kst";
 export const REPLY_TIMEOUT_MS = 270_000;
 /** 마지막 사용자 메시지가 이보다 오래됐는데 답이 없으면 '응답 없음'으로 보고 다시 시도를 허용한다. */
 export const STALE_AFTER_MS = 330_000;
+/** 프로젝트 단위 대화에서 그 프로젝트가 그래프에서 지워졌을 때의 답. */
+export const FOCUS_MISSING_REPLY = "구조화하던 프로젝트를 그래프에서 찾을 수 없습니다. 지워졌다면 새 대화를 시작하거나 다른 프로젝트를 골라 주세요.";
 /** 새 스레드 기본 제목(첫 메시지로 바뀐다). */
 export const DEFAULT_THREAD_TITLE = "새 대화";
 /** 프롬프트에 넣는 그래프 요약 상한(글자). */
@@ -121,6 +124,14 @@ ${modelGuide()}
 15. <${CHAT_TAGS.resume}>·<${CHAT_TAGS.portfolio}>가 있으면 사용자가 이 대화에서 앞서 올린 문서다. 사용자가 그 문서의 내용을 넣어 달라고 하면 문서에 글자로 있는 사실만 쓴다.
 
 ${INJECTION_RULE}`;
+
+/** 프로젝트 단위 대화(스레드에 focusNodeId가 있을 때) 시스템 프롬프트에 덧붙이는 규칙. */
+export const GRAPH_CHAT_FOCUS_RULES = `프로젝트 단위 대화 규칙(위 규칙보다 우선한다):
+P1. 이 대화는 <${CHAT_TAGS.focusProject}>의 '구조화할 프로젝트' 하나를 깊게 정리하는 인터뷰다. 사용자의 답을 그 프로젝트의 배경·문제, 내 역할, 한 일, 사용 기술, 성과, 기간·소속, 배운 점으로 나눠 넣는다.
+P2. 질문은 한 번에 하나만 한다. 질문은 followUpQuestions에 정확히 1개(모두 채웠으면 0개)만 넣고, 화면이 따로 보여 주므로 reply에 같은 질문을 되풀이하지 않는다. 사용자가 방금 답한 항목을 먼저 정리하고, 그다음 프로젝트 구조화 체크리스트에서 '다음에 물을 항목'(빠진 항목 중 가장 앞)을 묻는다. 다만 이 대화에서 사용자가 모른다·없다·넘어가자고 한 항목은 다시 묻지 않고 그다음 미완료 항목으로 넘어간다(성과 수치가 없다고 하면 정성 결과만 result에 넣고 수치를 지어내지 않는다). 수치·기간처럼 구체적으로 답할 수 있게 묻는다. 위 규칙 2·13의 전체 경험 체크리스트 질문은 이 대화에서는 하지 않는다.
+P3. 모든 연산은 이 프로젝트에 붙는다: 프로젝트 속성은 updateNode(id는 그 프로젝트 id)로, 새 노드는 같은 변경안에서 이 프로젝트(또는 이 프로젝트에 이은 새 노드)와 관계로 잇는다. 기술은 이 프로젝트 -USED_SKILL-> Skill, 수치 성과는 이 프로젝트 -ACHIEVED-> Achievement, 따로 떼어 낼 일화는 Experience -RELATED_TO-> 이 프로젝트(+ me -HAS_EXPERIENCE-> Experience), 소속은 Role -WORKED_ON-> 이 프로젝트 또는 이 프로젝트 -PART_OF-> Company|Experience|Education.
+P4. 새 Project를 만들지 않고, 이 프로젝트와 관련 없는 노드를 고치거나 지우지 않는다. 사용자가 다른 프로젝트·경험을 이야기하면 ops 없이 일반 대화에서 정리하라고 안내한다. 이 범위를 벗어난 연산은 서버가 뺀다.
+P5. 기존 속성 값이 있으면 사용자가 새로 말한 내용을 더해 다시 쓴다(지우지 않는다). 프로젝트 속성은 '이 프로젝트의 현재 속성(원문 그대로)'을 기준으로 다시 쓴다. 값 끝에 '…(잘림)'이 붙은 속성은 원문이 아니므로 그 값을 바탕으로 다시 쓰지 않는다. 합친 값이 속성 상한(situation·action·result·learned 1000자)을 넘으면 뜻을 잃지 않게 요약해 줄인다. 사용자가 말하지 않은 내용은 채우지 않는다.`;
 
 /** 프롬프트용 대화 이력: 답변 실패 메시지와 그 직전 사용자 메시지(다시 보낸 것), 그리고 이번 메시지는 뺀다. */
 export function conversationForPrompt(messages: readonly ChatMessage[]): Pick<ChatMessage, "role" | "content">[] {
@@ -166,9 +177,12 @@ export function buildGraphChatPrompt(input: {
   messages: readonly ChatMessage[];
   latestMessage: string;
   today?: Date;
+  /** 프로젝트 단위 대화: 구조화할 Project 노드 id(그래프에 있어야 한다 — 없으면 일반 대화처럼 만든다). */
+  focusProjectId?: string | null;
 }): { system: string; user: string } {
   // 날짜는 한국 시간 기준(UTC로 자르면 KST 00:00~09:00에 하루 전 날짜가 들어간다).
   const today = kstToday(input.today ?? Date.now());
+  const focusText = input.focusProjectId ? projectFocusText(input.graph, input.focusProjectId) : null;
   // 그래프가 바뀌지 않는 동안 같은 앞부분(본인 이름·그래프)을 캐시 접두사로 두고, 날짜·대화·최근 메시지는 구분자 뒤에 둔다.
   const user = [
     field("본인 이름", input.graph.person.name ?? "(모름)"),
@@ -178,6 +192,7 @@ export function buildGraphChatPrompt(input: {
     "",
     "경험 체크리스트(빠진 필수 항목부터):",
     wrapData(CHAT_TAGS.experienceChecklist, checklistToPromptText(assessExperienceChecklist(input.graph))),
+    ...(focusText ? ["", "이 대화에서 구조화할 프로젝트(모든 변경안은 이 프로젝트에 붙인다):", wrapData(CHAT_TAGS.focusProject, focusText)] : []),
     ...latestDocumentBlock(input.messages),
     STAGE_TASK_DELIMITER,
     field("오늘 날짜", today),
@@ -188,7 +203,7 @@ export function buildGraphChatPrompt(input: {
     "사용자의 최근 메시지(이것을 바탕으로 답하고 변경안을 만든다):",
     wrapData(CHAT_TAGS.latestMessage, input.latestMessage),
   ].join("\n");
-  return { system: GRAPH_CHAT_SYSTEM, user };
+  return { system: focusText ? `${GRAPH_CHAT_SYSTEM}\n\n${GRAPH_CHAT_FOCUS_RULES}` : GRAPH_CHAT_SYSTEM, user };
 }
 
 // ---------------------------------------------------------------------------
@@ -372,6 +387,8 @@ export interface ProposalOptions {
   maxOps?: number;
   /** 문서 가져오기: 문서 원문. 주면 삭제 연산을 빼고 문서에 없는 항목을 거른다(verifyAgainstDocument). */
   sourceText?: string;
+  /** 프로젝트 단위 대화: 이 Project에 붙는 연산만 남긴다(restrictToFocus). */
+  focusNodeId?: string | null;
 }
 
 /** LLM 출력 → assistant 메시지(내용·data·상태). 남은 연산이 없으면 상태 null(일반 답변). */
@@ -389,14 +406,24 @@ export function proposalFromOutput(
   // 가져오기는 기존 값을 지우거나 덮어쓰지 않는다(비어 있던 속성만 보강, 소재 분류는 합친다).
   const guarded = imported ? guardImportUpdates(deduped.ops, graph) : { ops: deduped.ops, dropped: [] };
   const merged = mergeCategoryUpdates(guarded.ops, graph);
-  const validated = validateAgainstGraph(merged.ops.slice(0, maxOps), graph, { maxOps });
-  const droppedOps = [...noDeletes.dropped, ...verified.dropped, ...guarded.dropped, ...converted.errors, ...merged.notes, ...validated.dropped];
+  const focused = opts.focusNodeId ? restrictToFocus(merged.ops, graph, opts.focusNodeId) : { ops: merged.ops, dropped: [] };
+  const validated = validateAgainstGraph(focused.ops.slice(0, maxOps), graph, { maxOps });
+  const droppedOps = [
+    ...noDeletes.dropped,
+    ...verified.dropped,
+    ...guarded.dropped,
+    ...converted.errors,
+    ...merged.notes,
+    ...focused.dropped,
+    ...validated.dropped,
+  ];
   const data: GraphProposalData = {
     kind: "graph-proposal",
     ...(imported ? { source: "document-import" as const } : {}),
     ops: validated.ops,
     summary: validated.ops.length > 0 ? output.summary.trim().slice(0, 300) || `${validated.ops.length}개 변경` : "",
-    followUpQuestions: output.followUpQuestions.map((q) => q.trim()).filter(Boolean).slice(0, 3),
+    // 프로젝트 단위 대화는 한 번에 한 질문만(P2) — 서버에서도 자른다.
+    followUpQuestions: output.followUpQuestions.map((q) => q.trim()).filter(Boolean).slice(0, opts.focusNodeId ? 1 : 3),
     ...(droppedOps.length > 0 || deduped.merged.length > 0
       ? { droppedOps: [...deduped.merged, ...droppedOps].slice(0, imported ? 40 : 20) }
       : {}),
@@ -477,6 +504,39 @@ export function createGraphThread(userId: string, title?: string | null): Promis
   return createThread({ userId, kind: "graph", title: t || DEFAULT_THREAD_TITLE });
 }
 
+/** 프로젝트 단위 대화 새 스레드: 그 Project가 내 그래프에 있어야 한다(없으면 404). 제목은 프로젝트 이름. */
+export async function createFocusedGraphThread(
+  userId: string,
+  projectId: string,
+  deps: Pick<GraphChatDeps, "getGraph"> = defaultGraphChatDeps,
+): Promise<ChatThread> {
+  assertGraphEnabled();
+  const graph = await deps.getGraph(userId, null);
+  const structure = assessProjectStructure(graph, projectId);
+  if (!structure) throw new FeatureError("프로젝트를 찾을 수 없습니다. 그래프를 새로 고친 뒤 다시 시도해 주세요.", 404);
+  const title = structure.projectName.replace(/\s+/g, " ").trim().slice(0, 80) || DEFAULT_THREAD_TITLE;
+  return createThread({ userId, kind: "graph", title, focusNodeId: projectId });
+}
+
+/**
+ * 프로젝트 단위 대화 열기: 그 프로젝트의 가장 최근 대화가 있으면 그것을, 없으면 새로 만든다. 목록(최근 50개)에 없는 오래된 대화도
+ * 서버에서 찾으므로 같은 프로젝트 대화가 겹쳐 생기지 않는다. 프로젝트가 그래프에 없으면 404.
+ */
+export async function openFocusedGraphThread(
+  userId: string,
+  projectId: string,
+  deps: Pick<GraphChatDeps, "getGraph"> = defaultGraphChatDeps,
+): Promise<{ thread: ChatThread; created: boolean }> {
+  assertGraphEnabled();
+  const graph = await deps.getGraph(userId, null);
+  if (!assessProjectStructure(graph, projectId)) {
+    throw new FeatureError("프로젝트를 찾을 수 없습니다. 그래프를 새로 고친 뒤 다시 시도해 주세요.", 404);
+  }
+  const [latest] = await listThreads(userId, { kind: "graph", focusNodeId: projectId, limit: 1 });
+  if (latest) return { thread: latest, created: false };
+  return { thread: await createFocusedGraphThread(userId, projectId, { getGraph: async () => graph }), created: true };
+}
+
 export async function renameGraphThread(userId: string, threadId: string, title: string): Promise<ChatThread> {
   await requireGraphThread(userId, threadId);
   const t = title.replace(/\s+/g, " ").trim().slice(0, 80);
@@ -488,9 +548,18 @@ export async function renameGraphThread(userId: string, threadId: string, title:
 /** 화면용 메시지: 변경안 연산을 사람이 읽을 줄로 함께 내려 준다. */
 export type GraphChatMessageView = ChatMessage & { opLines?: string[] };
 
+/** 프로젝트 단위 대화의 프로젝트 상태. 그래프를 읽지 못하면 exists=null(알 수 없음), 지워졌으면 false. */
+export interface GraphThreadFocus {
+  nodeId: string;
+  exists: boolean | null;
+  structure: ProjectStructure | null;
+}
+
 export interface GraphThreadView extends ThreadReplyState {
   thread: ChatThread;
   messages: GraphChatMessageView[];
+  /** 프로젝트 단위 대화일 때만. */
+  focus?: GraphThreadFocus;
 }
 
 export async function getGraphThreadView(
@@ -503,8 +572,8 @@ export async function getGraphThreadView(
   const messages = (await listMessages(userId, threadId)) ?? [];
   const withOps = messages.filter((m) => m.data?.kind === "graph-proposal" && m.data.ops.length > 0);
   let graph: CareerGraph | null = null;
-  if (withOps.length > 0 && graphEnabled()) {
-    // 노드 이름 표시용일 뿐이라 그래프를 못 읽어도 대화는 보여 준다.
+  if ((withOps.length > 0 || thread.focusNodeId) && graphEnabled()) {
+    // 노드 이름·구조화 진행도 표시용일 뿐이라 그래프를 못 읽어도 대화는 보여 준다.
     graph = await deps.getGraph(userId, personName).catch(() => null);
   }
   const view: GraphChatMessageView[] = messages.map((m) => {
@@ -514,7 +583,12 @@ export async function getGraphThreadView(
     const ops = m.data.ops;
     return { ...m, opLines: ops.map((op) => describeGraphOp(op, graph, ops)) };
   });
-  return { thread, messages: view, ...replyState(messages, deps.now()) };
+  let focus: GraphThreadFocus | undefined;
+  if (thread.focusNodeId) {
+    const structure = graph ? assessProjectStructure(graph, thread.focusNodeId) : null;
+    focus = { nodeId: thread.focusNodeId, exists: graph ? structure !== null : null, structure };
+  }
+  return { thread, messages: view, ...replyState(messages, deps.now()), ...(focus ? { focus } : {}) };
 }
 
 /** 사용자 메시지를 저장한다(답변은 runGraphChatReply). 답을 기다리는 중이면 409. */
@@ -539,6 +613,8 @@ export async function startGraphImportMessage(
   deps: Pick<GraphChatDeps, "now"> = defaultGraphChatDeps,
 ): Promise<ChatMessage> {
   assertGraphEnabled();
+  const thread = await requireGraphThread(userId, threadId);
+  if (thread.focusNodeId) throw new FeatureError("프로젝트 대화에서는 이력서·포트폴리오를 가져올 수 없습니다. 일반 대화에서 가져와 주세요.", 400);
   const { content, data } = importMessage(doc);
   const title = `자료 가져오기: ${doc.fileName ?? DOC_KIND_NAMES[doc.docKind]}`;
   return startUserMessage(userId, threadId, { content, data, title, kind: "graph", limit: GRAPH_IMPORT_LIMIT }, deps);
@@ -664,7 +740,16 @@ export async function runGraphChatReply(
   const doc = latest.data?.kind === "document-import" ? latest.data : null;
   try {
     deadline.throwIfAborted();
+    const focusNodeId = (await getThread(userId, threadId))?.focusNodeId ?? null;
     const graph = await untilAborted(deps.getGraph(userId, personName), deadline);
+    if (focusNodeId && !doc && !assessProjectStructure(graph, focusNodeId)) {
+      // 구조화하던 프로젝트가 지워졌다: LLM을 부르지 않고 안내만 남긴다.
+      return await addMessage(
+        userId,
+        { threadId, role: "assistant", content: FOCUS_MISSING_REPLY, data: null, status: null },
+        { expectLastId: latest.id },
+      );
+    }
     const client = deps.createClient(provider, { userId, referenceId: threadId });
     let proposal: ReturnType<typeof proposalFromOutput>;
     let usage;
@@ -682,7 +767,7 @@ export async function runGraphChatReply(
       usage = res.usage;
       proposal = proposalFromOutput(res.output, graph, { maxOps: MAX_IMPORT_OPS, sourceText: doc.text });
     } else {
-      const prompt = buildGraphChatPrompt({ graph, messages, latestMessage: latest.content, today: new Date(deps.now()) });
+      const prompt = buildGraphChatPrompt({ graph, messages, latestMessage: latest.content, today: new Date(deps.now()), focusProjectId: focusNodeId });
       const res = await client.generate({
         task: "graph-chat",
         system: prompt.system,
@@ -692,7 +777,7 @@ export async function runGraphChatReply(
         signal: deadline,
       });
       usage = res.usage;
-      proposal = proposalFromOutput(res.output, graph);
+      proposal = proposalFromOutput(res.output, graph, { focusNodeId });
     }
     // 저장 직전에도 마지막 메시지가 여전히 이 사용자 메시지일 때만 답을 단다(중복 실행·그 사이 새 메시지면 버린다).
     return await addMessage(
