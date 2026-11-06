@@ -140,6 +140,14 @@ export function inferPlatform(raw: string): string {
   return (hit ? hit[0] : host).slice(0, 40);
 }
 
+/**
+ * 공용 공고에 올려도 되는 플랫폼 값: 알려진 채용 플랫폼 식별자만, 그 밖(호스트 이름 — 사내·비공개 주소일 수 있다)은 null.
+ * 직접 입력 공고는 주소를 공유하지 않으므로 호스트 이름도 내보내지 않는다.
+ */
+export function publicPlatform(platform: string | null | undefined): string | null {
+  return platform && PLATFORM_HOSTS.some(([id]) => id === platform) ? platform : null;
+}
+
 /** 화면 표시용 플랫폼 이름. */
 export function platformLabel(platform: string): string {
   return PLATFORM_LABELS[platform] ?? platform;

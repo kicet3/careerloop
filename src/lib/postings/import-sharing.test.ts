@@ -78,7 +78,7 @@ describe("가져오기 → 공고 찾기", () => {
         data: { id: `old${i}`, userId: "ub", url: `https://jobs.example/old/${i}`, status: "failed", attempts: 1, createdAt: at, updatedAt: at },
       });
     }
-    const r = await imports.createImport("ub", s.url);
+    const r = await imports.createImport("ub", s.url!);
     expect(r.fromShared).toBe(true);
     // 바로 담은 행은 세지 않으므로 아직 한 번 더 가져올 수 있다.
     const next = await imports.createImport("ub", "https://jobs.example/new");

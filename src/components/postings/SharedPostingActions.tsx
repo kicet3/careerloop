@@ -21,7 +21,8 @@ export function SharedPostingActions({
   hidden = false,
 }: {
   sharedId: string;
-  url: string;
+  /** 공고 주소. 직접 입력으로 만든 공용 공고는 null(다시 가져오기 없음). */
+  url: string | null;
   myPostingId: string | null;
   isAdmin: boolean;
   /** 관리자가 숨긴 공고(관리자만 이 화면을 본다). */
@@ -50,6 +51,7 @@ export function SharedPostingActions({
   }
 
   async function refresh() {
+    if (!url) return;
     const message = mine
       ? "공고 페이지를 다시 읽어 최신 내용으로 갱신할까요? 하루 가져오기 횟수 1회를 쓰고, 내 보관함에 담긴 이 공고의 구역 내용도 새 내용으로 바뀝니다(상태·메모는 그대로)."
       : "공고 페이지를 다시 읽어 최신 내용으로 가져올까요? 하루 가져오기 횟수 1회를 쓰고, 이 공고가 내 보관함에도 담깁니다.";
@@ -94,7 +96,7 @@ export function SharedPostingActions({
             내 보관함에 담기
           </Button>
         )}
-        {!hidden && (
+        {!hidden && url && (
           <Button variant="secondary" loading={refreshing} disabled={busy !== null || refreshing} onClick={() => void refresh()}>
             다시 가져오기
           </Button>

@@ -26,7 +26,7 @@ import { extractPosting } from "./extract";
 import { fetchPostingPage, type FetchDeps } from "./fetch";
 import { safePostingAiError } from "./http";
 import { postingPageText } from "./page-text";
-import { createPosting, DuplicatePostingError, findPostingIdByUrl } from "./service";
+import { createPosting, DuplicatePostingError, findPostingIdByUrl, releaseMovedShared } from "./service";
 import { findSharedPostingByUrlKey, refreshSharedImporterCount, saveSharedToLibrary, syncPostingFromShared, upsertSharedPosting } from "./shared";
 import { normalizeUrl, parsePostingUrl, PostingUrlError } from "./url";
 
@@ -195,8 +195,12 @@ export async function listRecentImports(userId: string, opts: { limit?: number; 
  * 다시 가져오기: 내 공고를 공용 공고에 연결하고 그 내용으로 맞춘다(상태·메모는 그대로). 그 사이 공고를 지웠으면 null(새로 만든다).
  */
 async function refreshOwnPosting(userId: string, postingId: string, sharedId: string): Promise<string | null> {
+  const before = await prisma.jobPosting.findFirst({ select: { sharedPostingId: true }, where: { id: postingId, userId } });
   const { count } = await prisma.jobPosting.updateMany({ where: { id: postingId, userId }, data: { sharedPostingId: sharedId } });
   if (count === 0) return null;
+  // 다른 공용 공고(직접 입력으로 만든 것 등)에서 옮겨 왔으면 그 공용 공고는 지우지 않고 정리한다(담은 수를 다시 세고,
+  // 내가 직접 입력으로 만들어 남은 사람이 없으면 숨긴다 — 더는 고칠 수 없는 사본이 공고 찾기에 남지 않게).
+  if (before?.sharedPostingId && before.sharedPostingId !== sharedId) await releaseMovedShared(userId, before.sharedPostingId);
   const synced = await syncPostingFromShared(userId, postingId);
   return synced?.id ?? null;
 }

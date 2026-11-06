@@ -73,8 +73,10 @@ const FIT_VIEW = {
   missing: { label: "미충족", tone: "negative" as const },
 };
 
-export default async function Home() {
-  const user = await getCurrentUser();
+export default async function Home({ searchParams }: { searchParams: Promise<{ [key: string]: string | string[] | undefined }> }) {
+  const [user, query] = await Promise.all([getCurrentUser(), searchParams]);
+  // 회원 탈퇴 직후(DeleteAccount가 /?withdrawn=1로 보낸다). 로그인 상태면 탈퇴가 끝난 것이 아니므로 보이지 않는다.
+  const withdrawn = !user && query.withdrawn === "1";
   const primaryHref = user ? "/app/new" : "/signup";
   const primaryLabel = user ? "새 진단 시작" : "무료로 시작하기";
 
@@ -103,6 +105,13 @@ export default async function Home() {
       </header>
 
       <main className="flex-1">
+        {withdrawn && (
+          <div className="border-b border-emerald-200 bg-emerald-50">
+            <p role="status" className="mx-auto max-w-5xl px-4 py-3 text-sm text-emerald-900 sm:px-6">
+              회원 탈퇴가 완료되었습니다. 계정과 개인 데이터를 모두 삭제했습니다. 그동안 이용해 주셔서 감사합니다.
+            </p>
+          </div>
+        )}
         {/* 히어로 */}
         <section className="border-b border-slate-200 bg-white">
           <div className="mx-auto max-w-5xl px-4 py-16 sm:px-6 sm:py-24">

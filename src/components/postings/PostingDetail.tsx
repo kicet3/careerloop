@@ -68,6 +68,8 @@ export function PostingDetail({
   const router = useRouter();
   const now = useNow(serverNow);
   const [posting, setPosting] = useState(initial);
+  // 원문 캡처는 URL로 만든 공용 공고에만 있다(직접 입력 공용 공고는 capture 없음). 수정 응답에는 capture가 실리지 않으므로 처음 값으로 정한다.
+  const [capturable] = useState(() => !!initial.capture);
   const [editing, setEditing] = useState<"meta" | "sections" | null>(null);
   const [error, setError] = useState<string | null>(null);
   const [busy, setBusy] = useState<"status" | "delete" | null>(null);
@@ -196,7 +198,7 @@ export function PostingDetail({
           <div className="mt-2 flex flex-wrap items-center gap-2">
             <PostingStatusBadge status={posting.status} />
             <SourceLink url={posting.url} className="max-w-full" />
-            {posting.sharedPostingId && (
+            {posting.sharedPostingId && capturable && (
               <PostingCaptureButton
                 key={posting.capture?.capturedAt ?? posting.capture?.status ?? "none"}
                 apiBase={`/api/postings/${encodeURIComponent(posting.id)}`}

@@ -1,4 +1,4 @@
-/** 회원 탈퇴(PGlite + 로컬 저장소): DB CASCADE, 저장소 접두사, 그래프 실패 시 중단, 공용 공고는 남고 created_by만 null. */
+/** 회원 탈퇴(PGlite + 로컬 저장소): DB CASCADE, 저장소 접두사, 그래프 실패 시 중단, 공용 공고(URL·직접 입력)는 남고 created_by만 null. */
 import { existsSync, mkdtempSync } from "node:fs";
 import { tmpdir } from "node:os";
 import path from "node:path";
@@ -58,5 +58,40 @@ describe("deleteAccount", () => {
     expect(await storage.listByPrefix(storage.userPrefix("ua"))).toEqual([]);
     expect(existsSync(path.join(storageDir, "users", "ub", "resumes", "r1", "v1.json"))).toBe(true);
     expect(await account.deleteAccount("ua", { deleteGraph: graph })).toEqual({ ok: false, reason: "not_found" });
+  });
+
+  it("직접 입력·URL 공용 공고는 모두 남고(created_by null) 담은 수를 다시 센다 — 메모·상태 등 개인 데이터는 지운다", async () => {
+    const { PostingCreateInputSchema } = await import("@/lib/domain/postings");
+    const service = await import("@/lib/postings/service");
+    const shared = await import("@/lib/postings/shared");
+    for (const id of ["uc", "ud"]) await tdb.prisma.user.create({ data: { id, email: `${id}@x.com`, status: "approved" } });
+    const input = (over: Record<string, unknown>) =>
+      PostingCreateInputSchema.parse({ company: "회사", roleTitle: "직무", jdText: "주요 업무\n- 개발", note: "uc의 메모", status: "applied", ...over });
+    const manual = await service.createPosting("uc", input({}));
+    await tdb.prisma.sharedPosting.create({
+      data: { id: "sp-url", urlKey: "y.com/1", url: "https://y.com/1", company: "y", roleTitle: "r", extractedBy: "anthropic", createdBy: "uc", fetchedAt: new Date() },
+    });
+    const byUrl = await shared.saveSharedToLibrary("uc", "sp-url");
+    await shared.saveSharedToLibrary("ud", manual.sharedPostingId!);
+    await tdb.prisma.application.create({ data: { id: "app-uc", userId: "uc", company: "회사", roleTitle: "직무", postingId: manual.id } });
+    expect(await tdb.prisma.sharedPosting.findUniqueOrThrow({ where: { id: manual.sharedPostingId! } })).toMatchObject({ importerCount: 2 });
+
+    expect(await account.deleteAccount("uc", { deleteGraph: async () => {}, deleteStorage: async () => {} })).toEqual({ ok: true });
+    expect(await tdb.prisma.user.count({ where: { id: "uc" } })).toBe(0);
+    expect(await tdb.prisma.jobPosting.count({ where: { userId: "uc" } })).toBe(0);
+    expect(await tdb.prisma.jobPosting.count({ where: { id: byUrl.posting.id } })).toBe(0);
+    expect(await tdb.prisma.application.count({ where: { userId: "uc" } })).toBe(0);
+    expect(await tdb.prisma.sharedPosting.findUniqueOrThrow({ where: { id: manual.sharedPostingId! } })).toMatchObject({
+      createdBy: null,
+      importerCount: 1,
+      url: null,
+      company: "회사",
+    });
+    expect(await tdb.prisma.sharedPosting.findUniqueOrThrow({ where: { id: "sp-url" } })).toMatchObject({ createdBy: null, importerCount: 0 });
+    const left = JSON.stringify(await tdb.prisma.sharedPosting.findMany());
+    expect(left).not.toContain("uc의 메모");
+    // 담은 다른 사용자의 사본은 그대로, 공고 찾기에도 계속 보인다.
+    expect(await tdb.prisma.jobPosting.count({ where: { userId: "ud", sharedPostingId: manual.sharedPostingId } })).toBe(1);
+    expect((await shared.listSharedPostings()).items.map((i) => i.id)).toContain(manual.sharedPostingId);
   });
 });

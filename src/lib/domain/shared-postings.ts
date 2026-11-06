@@ -1,6 +1,6 @@
 /**
  * 공용 공고(공고 찾기) 응답 형태(클라이언트·서버 공용). 저장은 shared_postings(src/lib/postings/shared.ts).
- * URL 가져오기 결과만 공유한다 — 공고 페이지에서 뽑은 값만 있고 누가 가져왔는지·개인 메모·상태는 없다.
+ * URL 가져오기 결과와 직접 입력 공고의 공개 필드를 공유한다 — 누가 가져왔는지(만들었는지)·개인 메모·상태는 없다.
  */
 import { z } from "zod";
 import type { PostingCaptureInfo } from "./posting-capture";
@@ -9,8 +9,9 @@ import type { CareerLevel, DeadlineKind, EmploymentType, WorkType } from "./post
 
 export interface SharedPostingSummary {
   id: string;
-  url: string;
-  urlKey: string;
+  /** 공고 페이지 주소. 직접 입력으로 만든 공용 공고는 null(원문 링크·다시 가져오기·캡처 없음). */
+  url: string | null;
+  urlKey: string | null;
   platform: string;
   company: string;
   roleTitle: string;

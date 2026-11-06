@@ -1,6 +1,6 @@
 "use client";
 /**
- * 공고 찾기(공용 공고 목록): 다른 사용자가 링크로 가져온 공고를 회사·직무·기술·마감으로 거르고, AI 없이 내 보관함에 담는다.
+ * 공고 찾기(공용 공고 목록): 다른 사용자가 링크로 가져오거나 직접 입력한 공고를 회사·직무·기술·마감으로 거르고, AI 없이 내 보관함에 담는다.
  * 목록은 GET /api/shared-postings(필터가 바뀌면 0쪽부터, '더 보기'로 이어 읽기), 담기는 POST /api/shared-postings/[id]/save.
  * 개인 값(상태·메모·지원 기록)은 공유되지 않는다 — 이 화면에는 공고 페이지에서 뽑은 내용만 있다.
  */
@@ -20,7 +20,6 @@ import {
 } from "@/lib/domain/shared-postings";
 import { formatPostingDeadline } from "@/lib/postings/deadline";
 import { platformLabel } from "@/lib/postings/url";
-import { PostingsTabs } from "./PostingsTabs";
 import { DeadlineBadge, inputClass, readApiError, useNow } from "./shared";
 import { SourceLink } from "./SourceLink";
 
@@ -99,10 +98,9 @@ export function ExploreView({ initial, serverNow, isAdmin = false }: { initial: 
   return (
     <div className="space-y-6">
       <div>
-        <PostingsTabs active="explore" />
-        <h1 className="mt-3 text-2xl font-bold tracking-tight text-slate-900">공고 찾기</h1>
+        <h1 className="text-2xl font-bold tracking-tight text-slate-900">공고 찾기</h1>
         <p className="mt-1 max-w-prose text-sm text-slate-500">
-          CareerLoop 사용자들이 링크로 가져온 공고입니다. 담으면 AI 분석 없이 바로 내 보관함에 들어가고, 상태·메모는 나만 봅니다. {total}개
+          CareerLoop 사용자들이 링크로 가져오거나 직접 입력한 공고입니다. 담으면 AI 분석 없이 바로 내 보관함에 들어가고, 상태·메모는 나만 봅니다. {total}개
         </p>
       </div>
 

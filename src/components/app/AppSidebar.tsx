@@ -1,7 +1,7 @@
 "use client";
 
 /**
- * 앱 주 메뉴(진단·경력·서류·지원·면접 그룹) + 하단 계정 메뉴(계정 설정·AI 연결·로그아웃). 넓은 화면(lg 이상, 1024px~)은 왼쪽 고정 사이드바(아이콘만 보이는 접힌 모드 지원),
+ * 앱 주 메뉴(진단·경력·서류·지원[공고 찾기·공고 보관함·지원 현황]·면접 그룹) + 하단 계정 메뉴(계정 설정·AI 연결·로그아웃). 넓은 화면(lg 이상, 1024px~)은 왼쪽 고정 사이드바(아이콘만 보이는 접힌 모드 지원),
  * 좁은 화면은 상단 얇은 바 + 햄버거 → 왼쪽 서랍(오버레이). 인쇄할 때는 둘 다 숨긴다.
  */
 import Link from "next/link";
@@ -32,7 +32,7 @@ interface NavGroup {
   items: NavItem[];
 }
 
-const GROUPS: NavGroup[] = [
+export const GROUPS: NavGroup[] = [
   {
     label: "진단",
     items: [
@@ -45,7 +45,14 @@ const GROUPS: NavGroup[] = [
   {
     label: "지원",
     items: [
-      { href: "/app/postings", label: "공고 보관함", icon: <BookmarkIcon />, match: under("/app/postings") },
+      // 공고 찾기(공용 공고)는 보관함과 별도 메뉴 — /app/postings/explore 아래는 보관함을 활성으로 표시하지 않는다.
+      { href: "/app/postings/explore", label: "공고 찾기", icon: <SearchIcon />, match: under("/app/postings/explore") },
+      {
+        href: "/app/postings",
+        label: "공고 보관함",
+        icon: <BookmarkIcon />,
+        match: (p) => under("/app/postings")(p) && !under("/app/postings/explore")(p),
+      },
       { href: "/app/applications", label: "지원 현황", icon: <BoardIcon />, match: under("/app/applications") },
     ],
   },
@@ -463,6 +470,15 @@ function BookmarkIcon() {
   return (
     <Svg>
       <path d="M7 3.5h10a1.5 1.5 0 0 1 1.5 1.5v15.5L12 16.5l-6.5 4V5A1.5 1.5 0 0 1 7 3.5z" />
+    </Svg>
+  );
+}
+
+function SearchIcon() {
+  return (
+    <Svg>
+      <circle cx="11" cy="11" r="6.5" />
+      <path d="M16 16l4.5 4.5" />
     </Svg>
   );
 }

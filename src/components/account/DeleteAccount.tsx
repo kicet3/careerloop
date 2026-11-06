@@ -82,7 +82,7 @@ export function DeleteAccountButton({ variant = "danger" }: { variant?: "danger"
             <li>동의 기록</li>
           </ul>
           <p className="text-xs text-slate-500">
-            URL로 가져와 ‘공고 찾기’에 공유된 공고 내용(공개 채용공고)은 남지만, 회원님과의 연결은 삭제됩니다.
+            ‘공고 찾기’에 공유된 공고 내용(URL로 가져오거나 직접 입력한 채용공고)은 남지만, 회원님과의 연결은 삭제됩니다. 메모·지원 상태는 삭제됩니다.
           </p>
           <div>
             <label htmlFor={inputId} className="mb-1.5 block font-medium text-slate-800">

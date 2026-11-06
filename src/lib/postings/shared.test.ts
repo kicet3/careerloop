@@ -91,7 +91,7 @@ describe("보관함 담기", () => {
   it("숨긴 공고는 찾기·담기에서 빠진다", async () => {
     const s = await seedShared();
     expect(await shared.setSharedPostingHidden(s.id, true)).toBe(true);
-    expect(await shared.findSharedPostingByUrl(s.url)).toBeNull();
+    expect(await shared.findSharedPostingByUrl(s.url!)).toBeNull();
     expect((await shared.listSharedPostings()).total).toBe(0);
     await expect(shared.saveSharedToLibrary("ub", s.id)).rejects.toMatchObject({ status: 404 });
   });

@@ -7,7 +7,7 @@ import "server-only";
 import { nanoid } from "nanoid";
 import { Prisma as PrismaNs } from "@/generated/prisma/client";
 import { FeatureError } from "@/lib/api/errors";
-import { prisma, type Prisma } from "@/lib/db/client";
+import { prisma, type Db, type Prisma } from "@/lib/db/client";
 import { isUniqueViolation, stripNul, stripNulDeep } from "@/lib/db/errors";
 import type { JobPostingRow } from "@/lib/db/types";
 import {
@@ -28,7 +28,7 @@ import {
 } from "@/lib/domain/postings";
 import { CAPTURE_SELECT, toCaptureInfo } from "./capture-store";
 import { composeJdText, isThin, sourceHash, structureFromText, structureInputText } from "./structure";
-import { inferPlatform, isValidUrl, normalizeUrl, withScheme } from "./url";
+import { inferPlatform, isValidUrl, normalizeUrl, publicPlatform, withScheme } from "./url";
 
 /** 사용자당 보관 공고 수 상한. */
 export const MAX_POSTINGS_PER_USER = 500;
@@ -57,6 +57,70 @@ function structureColumns(s: PostingStructure | null): { structured: Prisma.Inpu
   return s ? { structured: stripNulDeep(s) as unknown as Prisma.InputJsonValue, structuredVersion: POSTING_STRUCTURE_VERSION } : { structured: PrismaNs.DbNull, structuredVersion: null };
 }
 
+
+/** 보관함에 담은 사용자 수를 다시 센다(job_postings.shared_posting_id 기준). shared.ts가 다시 내보낸다. */
+export async function refreshSharedImporterCount(sharedId: string, db: Db = prisma): Promise<number> {
+  const n = await db.jobPosting.count({ where: { sharedPostingId: sharedId } });
+  await db.sharedPosting.updateMany({ where: { id: sharedId }, data: { importerCount: n } });
+  return n;
+}
+
+/**
+ * 보관 공고를 다른 공용 공고로 옮긴 뒤 이전 공용 공고를 정리한다. 담은 사용자 수를 다시 세고, 그 사용자가 직접 입력으로 만든
+ * 공용 공고(url 없음)에 남은 사람이 없으면 숨긴다 — 더는 고칠 길이 없는 사본이 공고 찾기에 남지 않게(지우지는 않는다).
+ */
+export async function releaseMovedShared(userId: string, sharedId: string, db: Db = prisma): Promise<void> {
+  const n = await refreshSharedImporterCount(sharedId, db);
+  if (n > 0) return;
+  await db.sharedPosting.updateMany({ where: { id: sharedId, url: null, createdBy: userId, hiddenAt: null }, data: { hiddenAt: new Date() } });
+}
+
+/** 공용 공고에 올려도 되는 공개 필드(메모·상태·원문·주소 같은 개인 값은 넣지 않는다. 플랫폼은 알려진 채용 플랫폼만). */
+type PublicPostingField =
+  | "company"
+  | "roleTitle"
+  | "jdText"
+  | "structured"
+  | "structuredVersion"
+  | "deadline"
+  | "deadlineTime"
+  | "deadlineKind"
+  | "employmentType"
+  | "workType"
+  | "location"
+  | "careerLevel"
+  | "platform";
+
+/** 보관 공고 행 → 직접 입력 공용 공고의 공개 컬럼. */
+function publicSharedColumns(row: Pick<JobPostingRow, PublicPostingField>) {
+  return {
+    company: row.company,
+    roleTitle: row.roleTitle,
+    jdText: row.jdText,
+    structured: row.structured === null ? PrismaNs.DbNull : (row.structured as Prisma.InputJsonValue),
+    structuredVersion: row.structuredVersion,
+    deadline: row.deadline,
+    deadlineTime: row.deadlineTime,
+    deadlineKind: row.deadlineKind,
+    employmentType: row.employmentType,
+    workType: row.workType,
+    location: row.location,
+    careerLevel: row.careerLevel,
+    platform: publicPlatform(row.platform),
+  };
+}
+
+/**
+ * 직접 입력으로 만든 공용 공고(url 없음)를 만든 사람이 자기 보관 공고를 고치면 공개 필드를 공용 공고에도 맞춘다.
+ * URL 가져오기로 만든 공용 공고(url 있음)나 남이 만든 공용 공고는 건드리지 않는다(그건 '다시 가져오기'만 바꾼다).
+ */
+async function syncManualShared(userId: string, row: JobPostingRow, db: Db = prisma): Promise<void> {
+  if (!row.sharedPostingId) return;
+  await db.sharedPosting.updateMany({
+    where: { id: row.sharedPostingId, url: null, createdBy: userId },
+    data: { ...publicSharedColumns(row), updatedAt: new Date() },
+  });
+}
 
 /**
  * 행 → 공고. 저장된 구조가 없거나 읽을 수 없으면 jdText를 정규식으로 즉석 구조화한다(source 'regex', 저장하지 않음 —
@@ -176,18 +240,21 @@ export async function listPostings(userId: string, opts: { status?: PostingStatu
 }
 
 export async function getPosting(userId: string, id: string): Promise<JobPosting | null> {
-  const row = await prisma.jobPosting.findFirst({ where: { id, userId }, include: { sharedPosting: { select: CAPTURE_SELECT } } });
+  const row = await prisma.jobPosting.findFirst({ where: { id, userId }, include: { sharedPosting: { select: { ...CAPTURE_SELECT, url: true } } } });
   if (!row) return null;
   const { sharedPosting, ...rest } = row;
   const posting = toJobPosting(rest as JobPostingRow);
-  // URL 가져오기·공고 찾기에서 담은 공고: 공용 공고의 원문 캡처 상태를 싣는다.
-  return sharedPosting ? { ...posting, capture: toCaptureInfo(sharedPosting as Parameters<typeof toCaptureInfo>[0]) } : posting;
+  // URL로 만든 공용 공고에 연결된 공고: 원문 캡처 상태를 싣는다(직접 입력 공용 공고는 찍을 페이지가 없다).
+  return sharedPosting?.url ? { ...posting, capture: toCaptureInfo(sharedPosting as Parameters<typeof toCaptureInfo>[0]) } : posting;
 }
 
 /**
  * 새 공고. 중복 URL → DuplicatePostingError(409), 상한 초과 → 409.
  * structure를 주지 않으면(직접 입력) jdText를 정규식으로 구조화해 저장한다(source 'regex'). sourceText는 URL 가져오기의 원문.
- * sharedPostingId: URL 가져오기·공고 찾기에서 담은 공고의 공용 공고 id(직접 입력은 생략). 사용자 수는 호출자가 refreshSharedImporterCount로 다시 센다.
+ * 공용 공고 먼저: sharedPostingId(URL 가져오기가 먼저 저장한 공용 공고)를 주면 그것에 연결하고, 사용자 수는 호출자가
+ * refreshSharedImporterCount로 다시 센다. 주지 않으면(직접 입력) 같은 트랜잭션에서 공용 공고를 먼저 만들고 연결한다 —
+ * 같은 주소(url_key)의 공용 공고가 공고 찾기에 있으면 새로 만들지 않고 그것에 연결한다. 직접 입력 공용 공고는 주소 없이
+ * (url·url_key null, extracted_by 'manual') 공개 필드만 담는다(메모·상태는 보관 공고에만). 사용자 수도 함께 센다.
  */
 export async function createPosting(
   userId: string,
@@ -207,8 +274,8 @@ export async function createPosting(
   }
   const now = new Date();
   const structure = opts.structure !== undefined ? opts.structure : input.jdText.trim() ? structureFromText(input.jdText, now.getTime()) : null;
-  try {
-    const row = await prisma.jobPosting.create({
+  const insert = async (db: Db, sharedPostingId: string) =>
+    db.jobPosting.create({
       data: {
         id: nanoid(),
         userId,
@@ -228,11 +295,52 @@ export async function createPosting(
         careerLevel: input.careerLevel,
         note: orNull(input.note),
         extractedBy: stripNul(opts.extractedBy?.slice(0, 40)) || "manual",
-        sharedPostingId: opts.sharedPostingId ?? null,
+        sharedPostingId,
         createdAt: now,
         updatedAt: now,
       },
     });
+  try {
+    const given = opts.sharedPostingId;
+    const row = given
+      ? await insert(prisma, given)
+      : await prisma.$transaction(async (tx) => {
+          const linked = urls.urlKey
+            ? // 숨긴 공용 공고도 찾는다: 관리자가 숨긴 주소(개인 페이지·비공개 링크)는 그것에 연결해 숨긴 채로 두고, 보이는 사본을 만들지 않는다.
+              await tx.sharedPosting.findFirst({ select: { id: true }, where: { urlKey: urls.urlKey } })
+            : null;
+          let sharedId = linked?.id;
+          if (!sharedId) {
+            sharedId = nanoid();
+            await tx.sharedPosting.create({
+              data: {
+                id: sharedId,
+                url: null,
+                urlKey: null,
+                company: stripNul(input.company),
+                roleTitle: stripNul(input.roleTitle),
+                platform: publicPlatform(urls.platform),
+                jdText: orNull(input.jdText),
+                ...structureColumns(structure),
+                deadline: orNull(input.deadline),
+                deadlineTime: orNull(input.deadlineTime),
+                deadlineKind: input.deadlineKind,
+                employmentType: input.employmentType,
+                workType: input.workType,
+                location: orNull(input.location),
+                careerLevel: input.careerLevel,
+                extractedBy: "manual",
+                createdBy: userId,
+                fetchedAt: now,
+                createdAt: now,
+                updatedAt: now,
+              },
+            });
+          }
+          const created = await insert(tx, sharedId);
+          await refreshSharedImporterCount(sharedId, tx);
+          return created;
+        });
     return toJobPosting(row as JobPostingRow);
   } catch (err) {
     // 동시에 같은 URL을 저장한 경우(unique(user_id, url_key)).
@@ -272,6 +380,25 @@ function userStructure(
   });
   const jdText = jdComposed ? composeJdText(base) : (opts.jdText ?? current.jdText);
   return { ...base, sourceHash: sourceHash(structureInputText({ jdText, sourceText: current.sourceText, structured: base })) };
+}
+
+/** 공용 공고에 올라가는 필드를 고치는 수정인가(상태·메모만 바꾸면 공용 공고를 건드리지 않는다). */
+function touchesPublicFields(patch: PostingUpdateInput): boolean {
+  const keys: (keyof PostingUpdateInput)[] = [
+    "company",
+    "roleTitle",
+    "jdText",
+    "structured",
+    "deadline",
+    "deadlineTime",
+    "deadlineKind",
+    "employmentType",
+    "workType",
+    "location",
+    "careerLevel",
+    "url",
+  ];
+  return keys.some((k) => patch[k] !== undefined);
 }
 
 /**
@@ -332,8 +459,14 @@ export async function updatePosting(userId: string, id: string, patch: PostingUp
   }
 
   try {
-    const [row] = await prisma.jobPosting.updateManyAndReturn({ where: { id, userId }, data: set });
-    return row ? toJobPosting(row as JobPostingRow) : null;
+    // 보관 공고와 직접 입력 공용 공고를 함께 바꾼다(한쪽만 바뀌어 공고 찾기에 예전 내용이 남지 않게).
+    const row = await prisma.$transaction(async (tx) => {
+      const [updated] = await tx.jobPosting.updateManyAndReturn({ where: { id, userId }, data: set });
+      if (updated && touchesPublicFields(patch)) await syncManualShared(userId, updated as JobPostingRow, tx);
+      return updated;
+    });
+    if (!row) return null;
+    return toJobPosting(row as JobPostingRow);
   } catch (err) {
     if (set.urlKey && isUniqueViolation(err)) {
       const existing = await findByUrlKey(userId, set.urlKey, id);
@@ -358,21 +491,24 @@ export async function setPostingStructure(
   const data: Prisma.JobPostingUpdateManyMutationInput = { ...structureColumns(saved), updatedAt: new Date() };
   if (composed) data.jdText = composed;
   else if (opts.composeJd && opts.rawText?.trim()) data.jdText = stripNul(opts.rawText.slice(0, POSTING_LIMITS.jdText));
-  const [row] = await prisma.jobPosting.updateManyAndReturn({ where: { id, userId }, data });
-  return row ? toJobPosting(row as JobPostingRow) : null;
+  const row = await prisma.$transaction(async (tx) => {
+    const [updated] = await tx.jobPosting.updateManyAndReturn({ where: { id, userId }, data });
+    if (updated) await syncManualShared(userId, updated as JobPostingRow, tx);
+    return updated;
+  });
+  if (!row) return null;
+  return toJobPosting(row as JobPostingRow);
 }
 
 /**
  * 공고 삭제. 연결된 진단·이력서·지원·가져오기의 postingId는 FK의 ON DELETE SET NULL로 null이 된다(각자의 사본은 남는다).
+ * 공용 공고는 지우지 않는다(다른 사용자가 담았거나 공고 찾기에서 계속 보인다) — 담은 사용자 수만 다시 센다.
  */
 export async function deletePosting(userId: string, id: string): Promise<boolean> {
   const row = await prisma.jobPosting.findFirst({ select: { sharedPostingId: true }, where: { id, userId } });
   const { count } = await prisma.jobPosting.deleteMany({ where: { id, userId } });
   // 공고 찾기의 'N명이 담음'을 다시 센다(지운 공고가 공용 공고에 연결돼 있었으면).
-  if (count > 0 && row?.sharedPostingId) {
-    const { refreshSharedImporterCount } = await import("./shared");
-    await refreshSharedImporterCount(row.sharedPostingId);
-  }
+  if (count > 0 && row?.sharedPostingId) await refreshSharedImporterCount(row.sharedPostingId);
   return count > 0;
 }
 

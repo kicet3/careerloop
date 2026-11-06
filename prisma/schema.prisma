@@ -121,7 +121,8 @@ model JobPosting {
   note              String?
   /// 'manual' 또는 AI 추출 엔진(ProviderId).
   extractedBy       String   @default("manual") @map("extracted_by")
-  /// URL 가져오기로 만든(또는 공고 찾기에서 담은) 공고면 공용 공고 id. 직접 입력은 null(공유하지 않는다).
+  /// 공용 공고 id. 공용 공고가 먼저 만들어지고 보관 공고가 그것을 가리킨다(URL 가져오기·공고 찾기·직접 입력 모두).
+  /// 공용 공고는 지우지 않으므로 사실상 항상 있다(예전 FK 규칙 SET NULL은 그대로).
   sharedPostingId   String?  @map("shared_posting_id")
   createdAt         DateTime @default(now()) @map("created_at") @db.Timestamptz(3)
   updatedAt         DateTime @default(now()) @map("updated_at") @db.Timestamptz(3)
@@ -145,10 +146,10 @@ model JobPosting {
 /// 같은 URL을 다시 가져오면 LLM을 부르지 않고 이 행을 복사한다. '다시 가져오기'(refresh)만 페이지를 다시 읽어 이 행을 갱신한다.
 model SharedPosting {
   id                String    @id
-  /// normalizeUrl(url). 전역 유일.
-  urlKey            String    @unique(map: "shared_postings_url_key_unique") @map("url_key")
-  /// 최종(리다이렉트 뒤) 주소.
-  url               String
+  /// normalizeUrl(url). 전역 유일. 직접 입력으로 만든 공용 공고는 null(URL로 다시 쓰지 않는다 — NULL은 여러 개 허용).
+  urlKey            String?   @unique(map: "shared_postings_url_key_unique") @map("url_key")
+  /// 최종(리다이렉트 뒤) 주소. 직접 입력으로 만든 공용 공고는 null.
+  url               String?
   platform          String?
   company           String
   roleTitle         String    @map("role_title")
@@ -166,11 +167,11 @@ model SharedPosting {
   workType          String    @default("unknown") @map("work_type")
   location          String?
   careerLevel       String    @default("unknown") @map("career_level")
-  /// AI 추출 엔진(ProviderId).
+  /// AI 추출 엔진(ProviderId). 직접 입력으로 만든 공용 공고는 'manual'.
   extractedBy       String    @map("extracted_by")
   /// 이 공고를 보관함에 둔 사용자 수(job_postings.shared_posting_id 개수). refreshSharedImporterCount가 다시 센다.
   importerCount     Int       @default(0) @map("importer_count")
-  /// 처음 가져온 사용자(관리·남용 대응용, 화면에 내보내지 않는다). 탈퇴하면 null.
+  /// 처음 가져온(또는 직접 입력한) 사용자(관리·남용 대응·직접 입력 공고 동기화용, 화면에 내보내지 않는다). 탈퇴하면 null.
   createdBy         String?   @map("created_by")
   /// 관리자가 공고 찾기에서 숨긴 시각(개인 페이지·비공개 링크 등). 숨긴 공고는 목록·재사용에서 빠진다.
   hiddenAt          DateTime? @map("hidden_at") @db.Timestamptz(3)

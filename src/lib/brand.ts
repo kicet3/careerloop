@@ -26,7 +26,7 @@ export const BUSINESS: Readonly<BusinessInfo> = {
   representative: "이현대",
   registrationNumber: "335-17-02746",
   /** 사업장 주소 — 실제 값으로 채울 것(비어 있으면 표시하지 않음) */
-  address: "",
+  address: "서울특별시 관악구 조원로8길 10",
   email: "support@snowlink.team",
   phone: "010-4953-4821",
 };

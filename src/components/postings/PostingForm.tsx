@@ -1,6 +1,7 @@
 "use client";
 /**
- * 공고 직접 추가·수정 폼(메타·JD 원문). 수정은 바뀐 필드만 PATCH로 보낸다. 같은 URL의 공고가 이미 있으면(409) 그 공고 링크를 보여 준다.
+ * 공고 직접 추가·수정 폼(메타·JD 원문). 추가하면 서버가 공용 공고(공고 찾기)를 먼저 만들고 보관 공고를 연결한다(메모·상태·주소는 공유 안 함).
+ * 수정은 바뀐 필드만 PATCH로 보낸다. 같은 URL의 공고가 이미 있으면(409) 그 공고 링크를 보여 준다.
  * 저장하면 서버가 JD를 제목 기준으로 바로 구역에 나눈다. AI 엔진이 있으면 'AI로 섹션 정리'(기본 켜짐)를 골라 저장 뒤
  * 부모가 POST /api/postings/[id]/structure를 부르게 한다(onSaved의 structure).
  */
@@ -318,6 +319,12 @@ export function PostingForm({
           </div>
         </div>
       </div>
+      {!posting && (
+        <p className="text-xs text-slate-500">
+          추가한 공고의 내용(회사·직무·JD·마감·근무 조건)은 &lsquo;공고 찾기&rsquo;에 공유되어 다른 회원도 볼 수 있습니다. 메모·상태·공고 주소는 공유되지 않으며,
+          누가 추가했는지도 보이지 않습니다.
+        </p>
+      )}
       <div className="flex flex-wrap justify-end gap-2">
         <Button variant="ghost" onClick={onCancel} disabled={saving}>
           취소

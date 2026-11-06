@@ -2,18 +2,33 @@
 
 import Link from "next/link";
 import { useRouter } from "next/navigation";
-import { useEffect, useState } from "react";
+import { useEffect, useRef, useState } from "react";
 import { Alert } from "@/components/ui/Alert";
 import { Button } from "@/components/ui/Button";
 import { Card } from "@/components/ui/Card";
 import { NO_ENGINE_MESSAGE, PROVIDER_DATA_DESTINATION, type ProviderId, type ProviderOption } from "@/lib/domain/providers";
-import { SITUATION_LABELS } from "@/lib/domain/reviewers";
-import { SITUATIONS, type Situation } from "@/lib/domain/schemas";
+import type { Situation } from "@/lib/domain/schemas";
 import { formatMb, SELF_HOSTED_UPLOAD_LIMITS, totalUploadError, uploadLimitMessage, type UploadLimits } from "@/lib/ingest/upload-limits";
 import { prefillPortfolioFileName, takeDiagnosisPrefill } from "@/lib/resumes/prefill";
 import { saveCreationWarnings } from "./creation-warnings";
 import { FileDrop, UPLOAD_ACCEPT, UPLOAD_FORMATS_LABEL } from "./FileDrop";
 import { SegmentedTabs } from "./Tabs";
+import { fetchPosting, PostingTargetPicker } from "@/components/postings/PostingTargetPicker";
+import type { PostingPickOption } from "@/components/resumes/NewResumeForm";
+import type { JobPosting } from "@/lib/domain/postings";
+import { resumeToText } from "@/lib/resumes/layout";
+import type { ResumeDetail } from "@/lib/resumes/types";
+
+/** '서류에서 선택'으로 고를 수 있는 내 이력서(목록에 필요한 값만). */
+export interface DiagnosisResumeOption {
+  id: string;
+  title: string;
+  /** 'general'(공용) 또는 회사 지정. */
+  kind: "general" | "company";
+  company: string;
+  roleTitle: string;
+  updatedAt: number;
+}
 
 const RESUME_ACCEPT = UPLOAD_ACCEPT;
 const JD_ACCEPT = UPLOAD_ACCEPT;
@@ -40,13 +55,6 @@ export const DIAGNOSIS_FORM_FIELDS = {
   postingId: "postingId",
 } as const;
 
-const SITUATION_HINTS: Record<Situation, string> = {
-  general: "같은 직무·업계로 지원",
-  career_change: "다른 직무나 업계로 옮기려는 경우",
-  new_grad: "인턴·프로젝트·학업 위주 이력서",
-  rewrite_check: "한 번 손본 이력서를 다시 확인",
-};
-
 const STATUS_FALLBACK: Record<number, string> = {
   400: "입력 내용을 확인해 주세요.",
   401: "로그인이 필요합니다.",
@@ -55,16 +63,32 @@ const STATUS_FALLBACK: Record<number, string> = {
 };
 
 type Mode = "file" | "text";
+/** 이력서 넣는 방법: 파일 / 서류(내 이력서)에서 선택 / 직접 붙여넣기. */
+type ResumeMode = Mode | "saved";
+/** 지원할 자리 고르는 방법: 직무·JD 직접 입력 / 내 보관함 공고 / 공고 링크로 가져오기. */
+type TargetMode = "manual" | "library" | "url";
+
+const TARGET_MODES: { key: TargetMode; name: string; description: string }[] = [
+  { key: "manual", name: "직접 입력", description: "직무와 JD를 직접 넣습니다." },
+  { key: "library", name: "공고 보관함", description: "보관한 공고를 검색해 고릅니다." },
+  { key: "url", name: "공고 링크로", description: "링크를 넣으면 보관함에 담고 바로 고릅니다." },
+];
 
 export function NewDiagnosisForm({
   providers,
   defaultProvider,
   uploadLimits = SELF_HOSTED_UPLOAD_LIMITS,
+  postings = [],
+  resumes = [],
 }: {
   providers: ProviderOption[];
   defaultProvider: ProviderId | null;
   /** 서버가 정한 업로드 상한(Vercel은 요청 본문 4.5MB 때문에 더 작다). */
   uploadLimits?: UploadLimits;
+  /** 내 보관함 공고(최근 수정 순). '공고 보관함'에서 고른다. */
+  postings?: PostingPickOption[];
+  /** 내 이력서(서류 탭). '서류에서 선택'에서 고르면 현재 버전 내용과 첨부 포트폴리오를 채운다. */
+  resumes?: DiagnosisResumeOption[];
 }) {
   const perFile = formatMb(uploadLimits.perFileBytes);
   const router = useRouter();
@@ -74,14 +98,18 @@ export function NewDiagnosisForm({
   const isCli = provider === "claude-cli" || provider === "codex-cli";
   const hasCliOptions = providers.some((p) => p.id === "claude-cli" || p.id === "codex-cli");
 
-  const [resumeMode, setResumeMode] = useState<Mode>("file");
+  const [resumeMode, setResumeMode] = useState<ResumeMode>("file");
+  const [savedResumeId, setSavedResumeId] = useState("");
+  const [savedLoading, setSavedLoading] = useState(false);
+  const [savedNote, setSavedNote] = useState<string | null>(null);
   const [resumeFile, setResumeFile] = useState<File | null>(null);
   const [resumeText, setResumeText] = useState("");
   const [targetRole, setTargetRole] = useState("");
   const [jdMode, setJdMode] = useState<Mode>("text");
   const [jdFile, setJdFile] = useState<File | null>(null);
   const [jdText, setJdText] = useState("");
-  const [situation, setSituation] = useState<Situation>("general");
+  // 지원 상황은 화면에서 고르지 않는다(기본 '일반'). 서버 스키마는 그대로 받는다.
+  const situation: Situation = "general";
   const [notes, setNotes] = useState("");
   const [portfolioFile, setPortfolioFile] = useState<File | null>(null);
   const [portfolioText, setPortfolioText] = useState("");
@@ -94,13 +122,119 @@ export function NewDiagnosisForm({
   const [prefilledPortfolio, setPrefilledPortfolio] = useState(false);
   /** 공고 보관함의 "이 공고로 진단"에서 왔으면 그 공고(진단이 공고에 연결된다). */
   const [posting, setPosting] = useState<{ id: string; label: string } | null>(null);
+  /** 고른 공고 전체(JD 미리보기·전송용). 직접 입력이면 null. */
+  const [postingDetail, setPostingDetail] = useState<JobPosting | null>(null);
+  const [targetMode, setTargetMode] = useState<TargetMode>(postings.length > 0 ? "library" : "manual");
+  const [targetNote, setTargetNote] = useState<string | null>(null);
+  const [importing, setImporting] = useState(false);
+  const fromPosting = targetMode !== "manual";
+  /** 이력서 화면에서 공고와 함께 넘어온 JD(그 공고를 골랐을 때만 대신 쓴다). */
+  const [prefillJd, setPrefillJd] = useState<{ postingId: string; text: string } | null>(null);
+  /** 비동기 이력서 불러오기가 끝났을 때 최신 선택을 보려고 둔다(렌더 시점 값이 아니라). */
+  const postingRef = useRef(posting);
+  useEffect(() => {
+    postingRef.current = posting;
+  }, [posting]);
+  /** 앞서 '서류에서 선택'이 채운 값(다른 이력서를 고르거나 불러오기에 실패하면 이것만 지운다). */
+  const savedFillRef = useRef<{ resumeText: string | null; portfolioFile: File | null; portfolioText: string | null }>({
+    resumeText: null,
+    portfolioFile: null,
+    portfolioText: null,
+  });
+
+  function selectPosting(p: JobPosting, note: string | null) {
+    postingRef.current = { id: p.id, label: `${p.company} · ${p.roleTitle}` };
+    setPosting(postingRef.current);
+    setPostingDetail(p);
+    setTargetRole(p.roleTitle);
+    setTargetNote(note);
+    setError(null);
+  }
+  /** 서류의 이력서 고르기: 현재 버전을 글로 바꿔 붙여넣기 칸에 채우고, 첨부 포트폴리오·연결 공고도 가져온다. */
+  /** 앞서 불러온 이력서가 채운 값만 지운다(사용자가 그 뒤 직접 바꾼 값은 둔다). */
+  function clearSavedFill() {
+    const prev = savedFillRef.current;
+    if (prev.resumeText !== null) setResumeText((cur) => (cur === prev.resumeText ? "" : cur));
+    if (prev.portfolioFile) setPortfolioFile((cur) => (cur === prev.portfolioFile ? null : cur));
+    if (prev.portfolioText !== null) setPortfolioText((cur) => (cur === prev.portfolioText ? "" : cur));
+    savedFillRef.current = { resumeText: null, portfolioFile: null, portfolioText: null };
+  }
+
+  async function loadSavedResume(id: string) {
+    setSavedResumeId(id);
+    setSavedNote(null);
+    setError(null);
+    // 다른 이력서로 바꾸면 앞 이력서의 내용·포트폴리오가 딸려 가지 않게 지운다.
+    clearSavedFill();
+    if (!id) return;
+    setSavedLoading(true);
+    // 실패하면 고르기를 비워 같은 이력서를 다시 고를 수 있게 한다(사용자가 쓴 글은 지우지 않는다).
+    const fail = (message: string) => {
+      setError(message);
+      setSavedResumeId("");
+    };
+    try {
+      const res = await fetch(`/api/resumes/${encodeURIComponent(id)}`, { cache: "no-store" });
+      const detail = res.ok ? ((await res.json().catch(() => null)) as ResumeDetail | null) : null;
+      if (!detail?.current) {
+        fail(detail ? "이 이력서에는 저장된 버전이 없습니다. 편집 화면에서 먼저 저장해 주세요." : "이력서를 불러오지 못했습니다.");
+        return;
+      }
+      const text = resumeToText(detail.current.document, detail.resume.templateId);
+      setResumeText(text);
+      savedFillRef.current.resumeText = text;
+      const notes: string[] = [`v${detail.current.versionNo} 내용을 가져왔습니다.`];
+      const pf = detail.resume.portfolio;
+      if (pf?.kind === "url" && pf.url) {
+        setPortfolioText(pf.url);
+        savedFillRef.current.portfolioText = pf.url;
+        notes.push("첨부 포트폴리오 링크를 채웠습니다.");
+      } else if (pf?.kind === "file") {
+        const r = await fetch(`/api/resumes/${encodeURIComponent(id)}/portfolio?include=text`).catch(() => null);
+        const data = r?.ok ? ((await r.json().catch(() => null)) as { text?: string } | null) : null;
+        if (data?.text) {
+          const file = new File([data.text], prefillPortfolioFileName(pf.fileName ?? undefined), { type: "text/plain" });
+          setPortfolioFile(file);
+          savedFillRef.current.portfolioFile = file;
+          notes.push("첨부 포트폴리오를 함께 넣었습니다.");
+        }
+      }
+      // 연결 공고가 있고 아직 지원할 자리를 안 골랐으면 그 공고를 고른다(불러오는 사이 사용자가 고른 공고는 덮어쓰지 않는다).
+      if (detail.resume.postingId && !postingRef.current) {
+        const full = await fetchPosting(detail.resume.postingId);
+        if (full && !postingRef.current) {
+          setTargetMode("library");
+          selectPosting(full, "이력서에 연결된 공고를 골랐습니다.");
+        }
+      } else if (detail.resume.roleTitle) {
+        const role = detail.resume.roleTitle;
+        setTargetRole((cur) => (cur.trim() ? cur : role));
+      }
+      setSavedNote(notes.join(" "));
+    } catch {
+      fail("이력서를 불러오지 못했습니다. 네트워크를 확인해 주세요.");
+    } finally {
+      setSavedLoading(false);
+    }
+  }
+
+  function clearPosting() {
+    postingRef.current = null;
+    setPosting(null);
+    setPostingDetail(null);
+    setTargetNote(null);
+  }
 
   // 이력서 화면의 "이 이력서로 진단"이 sessionStorage로 넘긴 값(한 번 읽고 지운다). 저장소는 마운트 뒤에만 읽을 수 있다.
   useEffect(() => {
     const p = takeDiagnosisPrefill();
     if (!p) return;
     /* eslint-disable react-hooks/set-state-in-effect -- 외부 저장소(sessionStorage)에서 한 번 읽는다 */
-    if (p.postingId) setPosting({ id: p.postingId, label: p.postingLabel ?? "" });
+    if (p.postingId) {
+      setPosting({ id: p.postingId, label: p.postingLabel ?? "" });
+      setTargetMode("library");
+      void fetchPosting(p.postingId).then((full) => full && setPostingDetail(full));
+    }
     if (p.resumeText.trim()) {
       setResumeMode("text");
       setResumeText(p.resumeText);
@@ -109,6 +243,8 @@ export function NewDiagnosisForm({
     if (p.jdText.trim()) {
       setJdMode("text");
       setJdText(p.jdText);
+      // 공고와 함께 왔으면 그 공고를 골랐을 때만(공고에 본문이 없으면) 이 JD를 쓴다.
+      if (p.postingId) setPrefillJd({ postingId: p.postingId, text: p.jdText });
     }
     // 이력서에 붙인 포트폴리오: 뽑아 둔 글은 .txt 파일로 올리고(서버가 같은 추출기로 읽는다), 링크는 '링크·설명' 칸에 채운다.
     if (p.portfolioText?.trim()) {
@@ -124,16 +260,29 @@ export function NewDiagnosisForm({
   }, []);
 
   const hasResume = resumeMode === "file" ? !!resumeFile : resumeText.trim().length > 0;
-  const hasJd = jdMode === "file" ? !!jdFile : jdText.trim().length > 0;
+  /** 고른 공고로 보낼 JD: 공고 본문, 없으면 그 공고와 함께 넘어온 JD. 직접 입력 칸의 JD는 섞지 않는다. */
+  const postingJd = fromPosting && posting ? postingDetail?.jdText?.trim() || (prefillJd?.postingId === posting.id ? prefillJd.text.trim() : "") : "";
+  const hasJd = fromPosting
+    ? !!postingJd
+    : jdMode === "file"
+      ? !!jdFile
+      : jdText.trim().length > 0;
   const hasPortfolio = !!portfolioFile || portfolioText.trim().length > 0;
 
   async function onSubmit(e: React.FormEvent<HTMLFormElement>) {
     e.preventDefault();
     setError(null);
     if (!hasResume) {
-      setError(resumeMode === "file" ? "이력서 파일을 올려 주세요." : "이력서 내용을 붙여넣어 주세요.");
+      setError(
+        resumeMode === "file" ? "이력서 파일을 올려 주세요." : resumeMode === "saved" ? "서류에서 이력서를 골라 주세요." : "이력서 내용을 붙여넣어 주세요.",
+      );
       return;
     }
+    if (fromPosting && !posting) {
+      setError("지원할 공고를 골라 주세요.");
+      return;
+    }
+    if (savedLoading) return;
     if (!targetRole.trim()) {
       setError("지원 직무를 입력해 주세요.");
       return;
@@ -144,7 +293,7 @@ export function NewDiagnosisForm({
     }
 
     const tooBig = totalUploadError(
-      [resumeMode === "file" ? resumeFile : null, jdMode === "file" ? jdFile : null, portfolioFile],
+      [resumeMode === "file" ? resumeFile : null, !fromPosting && jdMode === "file" ? jdFile : null, portfolioFile],
       uploadLimits,
     );
     if (tooBig) {
@@ -157,14 +306,17 @@ export function NewDiagnosisForm({
     if (resumeMode === "file" && resumeFile) fd.set(F.resumeFile, resumeFile);
     else fd.set(F.resumeText, resumeText);
     fd.set(F.targetRole, targetRole.trim());
-    if (jdMode === "file" && jdFile) fd.set(F.jdFile, jdFile);
+    if (fromPosting) {
+      // 고른 공고의 JD를 보낸다(비면 서버가 공고의 JD 원문으로 채운다). 직접 입력 칸에 남은 JD는 보내지 않는다.
+      if (postingJd) fd.set(F.jdText, postingJd);
+    } else if (jdMode === "file" && jdFile) fd.set(F.jdFile, jdFile);
     else if (jdText.trim()) fd.set(F.jdText, jdText);
     fd.set(F.situation, situation);
     if (notes.trim()) fd.set(F.notes, notes.trim());
     if (portfolioFile) fd.set(F.portfolioFile, portfolioFile);
     if (portfolioText.trim()) fd.set(F.portfolioText, portfolioText.trim());
     fd.set(F.provider, provider);
-    if (posting) fd.set(F.postingId, posting.id);
+    if (fromPosting && posting) fd.set(F.postingId, posting.id);
 
     setSubmitting(true);
     try {
@@ -202,20 +354,24 @@ export function NewDiagnosisForm({
             : `이력서 화면에서 내용${prefilledPortfolio ? "과 첨부 포트폴리오" : ""}를 가져와 채웠습니다. 확인한 뒤 진단을 시작하세요.`}
         </Alert>
       )}
-      {/* 1. 이력서 */}
-      <Card data-half className="flex flex-col p-5 sm:p-6">
+      {/* 1. 이력서 + 포트폴리오 */}
+      <Card data-half className="flex min-h-[40rem] flex-col p-5 sm:p-6">
         <SectionTitle step={1} title="이력서" required />
-        <div className="mt-4 space-y-3">
+        <div className="mt-4 flex flex-1 flex-col gap-3">
           <SegmentedTabs
             label="이력서 입력 방식"
             value={resumeMode}
-            onChange={setResumeMode}
+            onChange={(m) => {
+              setResumeMode(m);
+              setSavedNote(null);
+            }}
             options={[
               { value: "file", label: "파일 올리기" },
+              { value: "saved", label: "서류에서 선택" },
               { value: "text", label: "직접 붙여넣기" },
             ]}
           />
-          {resumeMode === "file" ? (
+          {resumeMode === "file" && (
             <FileDrop
               maxBytes={uploadLimits.perFileBytes}
               file={resumeFile}
@@ -227,24 +383,155 @@ export function NewDiagnosisForm({
                 setFileError((p) => ({ ...p, resume: err ?? undefined }));
               }}
             />
-          ) : (
+          )}
+          {resumeMode === "saved" &&
+            (resumes.length === 0 ? (
+              <p className="rounded-lg bg-slate-50 px-3 py-2.5 text-sm text-slate-600">
+                아직 만든 이력서가 없습니다.{" "}
+                <Link href="/app/resumes/new" className="font-medium text-indigo-700 hover:underline">
+                  새 이력서
+                </Link>
+                를 만들거나 파일·붙여넣기를 써 주세요.
+              </p>
+            ) : (
+              <div>
+                <label htmlFor="saved-resume" className="block text-sm font-medium text-slate-800">
+                  내 이력서
+                </label>
+                <select
+                  id="saved-resume"
+                  value={savedResumeId}
+                  disabled={savedLoading}
+                  onChange={(e) => void loadSavedResume(e.target.value)}
+                  className={inputClass}
+                >
+                  <option value="">이력서를 고르세요</option>
+                  {resumes.map((r) => (
+                    <option key={r.id} value={r.id}>
+                      {r.kind === "general" ? `[공용] ${r.title}` : `${r.title} (${r.company} · ${r.roleTitle})`}
+                    </option>
+                  ))}
+                </select>
+                {savedLoading && <p className="mt-2 text-sm text-indigo-700">불러오는 중…</p>}
+                {savedNote && <p className="mt-2 text-sm text-emerald-700">{savedNote}</p>}
+              </div>
+            ))}
+          {(resumeMode === "text" || (resumeMode === "saved" && resumeText)) && (
             <textarea
               aria-label="이력서 내용"
               value={resumeText}
               onChange={(e) => setResumeText(e.target.value)}
-              rows={12}
+              rows={resumeMode === "saved" ? 10 : 16}
               placeholder="이력서 전체를 붙여넣어 주세요. 문장은 고치지 말고 그대로 넣어야 심사위원이 정확히 인용합니다."
-              className={textareaClass}
+              className={`${textareaClass} flex-1`}
             />
           )}
           {fileError.resume && <p className="text-sm text-red-600">{fileError.resume}</p>}
+
+          <div className="mt-2 border-t border-slate-100 pt-4">
+            <h3 className="text-sm font-semibold text-slate-900">
+              포트폴리오 <span className="font-normal text-slate-400">(선택)</span>
+            </h3>
+            <p className="mt-1 text-sm text-slate-500">
+              함께 내면 이력서와 <strong className="font-medium text-slate-700">별개 자료</strong>로 참고해, 이력서에 빠진 근거를 옮길 방향을 알려 줍니다.
+              인용 확인은 이력서 원문만 대상으로 합니다.
+            </p>
+            <div className="mt-3 space-y-3">
+              <FileDrop
+                maxBytes={uploadLimits.perFileBytes}
+                file={portfolioFile}
+                accept={PORTFOLIO_ACCEPT}
+                label="포트폴리오 파일을 끌어다 놓거나 눌러서 선택"
+                hint={`${UPLOAD_FORMATS_LABEL}, ${perFile} 이하. 글자를 읽을 수 있는 파일만 반영되며, 긴 파일은 앞부분만 씁니다.`}
+                onChange={(f, err) => {
+                  setPortfolioFile(f);
+                  setFileError((p) => ({ ...p, portfolio: err ?? undefined }));
+                }}
+              />
+              {fileError.portfolio && <p className="text-sm text-red-600">{fileError.portfolio}</p>}
+              <div>
+                <label htmlFor="portfolioText" className="block text-sm font-medium text-slate-800">
+                  링크·설명
+                </label>
+                <textarea
+                  id="portfolioText"
+                  value={portfolioText}
+                  onChange={(e) => setPortfolioText(e.target.value)}
+                  maxLength={PORTFOLIO_NOTE_MAX}
+                  rows={3}
+                  placeholder={"예: https://github.com/me/payments — 결제 정산 배치를 Kotlin으로 재작성, 처리 시간 4시간 → 40분.\n링크는 열어 보지 못하므로 프로젝트 내용·역할·결과를 함께 적어 주세요."}
+                  className={textareaClass}
+                />
+                <p className="mt-1 text-right text-xs text-slate-400">
+                  {portfolioText.length}/{PORTFOLIO_NOTE_MAX}
+                </p>
+              </div>
+            </div>
+          </div>
         </div>
       </Card>
 
       {/* 2. 지원 직무 + JD */}
-      <Card data-half className="flex flex-col p-5 sm:p-6">
+      <Card data-half className="flex min-h-[40rem] flex-col p-5 sm:p-6">
         <SectionTitle step={2} title="지원할 자리" />
-        <div className="mt-4 space-y-5">
+        <div className="mt-4 grid gap-2 sm:grid-cols-3" role="radiogroup" aria-label="지원할 자리 고르는 방법">
+          {TARGET_MODES.map((t) => (
+            <label
+              key={t.key}
+              className="flex cursor-pointer items-start gap-2.5 rounded-lg border border-slate-200 px-3 py-2.5 has-[:checked]:border-indigo-500 has-[:checked]:bg-indigo-50/60"
+            >
+              <input
+                type="radio"
+                name="target"
+                value={t.key}
+                checked={targetMode === t.key}
+                onChange={() => {
+                  setTargetMode(t.key);
+                  // 고르는 방법을 바꾸면 링크 가져오기 화면이 사라지므로 진행 중 표시도 푼다.
+                  setImporting(false);
+                  if (t.key === "manual") clearPosting();
+                }}
+                className="mt-1 accent-indigo-600"
+              />
+              <span className="min-w-0">
+                <span className="block text-sm font-medium text-slate-900">{t.name}</span>
+                <span className="block text-xs text-slate-500">{t.description}</span>
+              </span>
+            </label>
+          ))}
+        </div>
+        {fromPosting && posting && (
+          <div className="mt-4 rounded-lg border border-indigo-200 bg-indigo-50/60 px-3 py-2.5">
+            <div className="flex flex-wrap items-center justify-between gap-2">
+              <div className="min-w-0">
+                <p className="text-xs font-medium text-indigo-700">고른 공고</p>
+                <p className="truncate text-sm font-semibold text-slate-900">{posting.label || "보관한 공고"}</p>
+              </div>
+              <div className="flex items-center gap-3 text-sm">
+                <Link href={`/app/postings/${posting.id}`} target="_blank" className="text-slate-500 hover:text-slate-800 hover:underline">
+                  공고 보기 ↗
+                </Link>
+                <button type="button" onClick={clearPosting} className="font-medium text-indigo-700 hover:underline">
+                  다른 공고 고르기
+                </button>
+              </div>
+            </div>
+            {postingDetail && (
+              <p className="mt-1.5 text-xs text-slate-600">
+                {postingJd
+                  ? `이 공고의 JD(${postingJd.length.toLocaleString()}자)로 적합도를 분석합니다. 진단은 이 공고에 연결됩니다.`
+                  : "이 공고에 JD 본문이 없어 직무명으로 요건을 추정합니다. 공고 상세에서 JD를 채우면 더 정확합니다."}
+              </p>
+            )}
+            {targetNote && <p className="mt-1 text-xs text-emerald-700">{targetNote}</p>}
+          </div>
+        )}
+        {fromPosting && !posting && (
+          <div className="mt-4">
+            <PostingTargetPicker key={targetMode} mode={targetMode} options={postings} onSelect={selectPosting} onBusyChange={setImporting} />
+          </div>
+        )}
+        <div className={fromPosting && !posting ? "hidden" : "mt-4 space-y-5"}>
           <div>
             <label htmlFor="targetRole" className="block text-sm font-medium text-slate-800">
               지원 직무 <span className="text-red-600">*</span>
@@ -260,6 +547,7 @@ export function NewDiagnosisForm({
             />
           </div>
 
+          {!fromPosting && (
           <div>
             <div className="flex flex-wrap items-center justify-between gap-2">
               <span className="block text-sm font-medium text-slate-800">
@@ -303,46 +591,23 @@ export function NewDiagnosisForm({
               )}
               {fileError.jd && <p className="mt-2 text-sm text-red-600">{fileError.jd}</p>}
             </div>
-            {!hasJd && (
-              <Alert tone="warning" className="mt-3">
-                JD 없이도 진단할 수 있지만, 이때는 직무명만으로 요건을 <strong>추정</strong>합니다. 적합도 점수와 키워드
-                심사의 정확도가 크게 떨어지고 보고서에 &lsquo;추정&rsquo;으로 표시됩니다.
-              </Alert>
-            )}
           </div>
+          )}
+          {(!fromPosting || posting) && !hasJd && (
+            <Alert tone="warning">
+              JD 없이도 진단할 수 있지만, 이때는 직무명만으로 요건을 <strong>추정</strong>합니다. 적합도 점수와 키워드
+              심사의 정확도가 크게 떨어지고 보고서에 &lsquo;추정&rsquo;으로 표시됩니다.
+            </Alert>
+          )}
         </div>
       </Card>
 
-      {/* 3. 상황·메모 */}
-      <Card data-half className="flex flex-col p-5 sm:p-6">
-        <SectionTitle step={3} title="상황과 메모" />
-        <fieldset className="mt-4">
-          <legend className="text-sm font-medium text-slate-800">지원 상황</legend>
-          <div className="mt-2 grid gap-2 sm:grid-cols-2">
-            {SITUATIONS.map((s) => (
-              <label
-                key={s}
-                className="flex cursor-pointer items-start gap-3 rounded-lg border border-slate-200 px-3 py-2.5 has-[:checked]:border-indigo-500 has-[:checked]:bg-indigo-50/60"
-              >
-                <input
-                  type="radio"
-                  name="situation"
-                  value={s}
-                  checked={situation === s}
-                  onChange={() => setSituation(s)}
-                  className="mt-1 accent-indigo-600"
-                />
-                <span>
-                  <span className="block text-sm font-medium text-slate-900">{SITUATION_LABELS[s]}</span>
-                  <span className="block text-xs text-slate-500">{SITUATION_HINTS[s]}</span>
-                </span>
-              </label>
-            ))}
-          </div>
-        </fieldset>
-        <div className="mt-5">
-          <label htmlFor="notes" className="block text-sm font-medium text-slate-800">
-            메모 <span className="font-normal text-slate-400">(선택)</span>
+      {/* 3. 메모 */}
+      <Card className="p-5 sm:p-6">
+        <SectionTitle step={3} title="메모" optional />
+        <div className="mt-4">
+          <label htmlFor="notes" className="sr-only">
+            메모
           </label>
           <textarea
             id="notes"
@@ -350,62 +615,17 @@ export function NewDiagnosisForm({
             onChange={(e) => setNotes(e.target.value)}
             maxLength={2000}
             rows={3}
-            placeholder="예: 마케팅 3년 후 데이터 분석으로 전환 중. 공백기 6개월은 부트캠프 수료."
+            placeholder="심사위원이 알아야 할 사정이 있으면 적어 주세요. 예: 마케팅 3년 후 데이터 분석으로 전환 중. 공백기 6개월은 부트캠프 수료."
             className={textareaClass}
           />
           <p className="mt-1 text-right text-xs text-slate-400">{notes.length}/2000</p>
         </div>
       </Card>
 
-      {/* 4. 포트폴리오(선택) */}
-      <Card data-half className="flex flex-col p-5 sm:p-6">
-        <SectionTitle step={4} title="포트폴리오" optional />
-        <p className="mt-2 text-sm text-slate-500">
-          포트폴리오를 함께 내면 심사위원 7명과 적합도·재작성·개선 방향이 이력서와 <strong className="font-medium text-slate-700">별개 자료</strong>로
-          참고합니다. 이력서에 빠진 근거를 찾아 옮길 방향을 알려 주며, 인용 확인은 이력서 원문만 대상으로 합니다.
-        </p>
-        <div className="mt-4 space-y-4">
-          <div>
-            <span className="block text-sm font-medium text-slate-800">포트폴리오 파일</span>
-            <div className="mt-1.5">
-              <FileDrop
-                maxBytes={uploadLimits.perFileBytes}
-                file={portfolioFile}
-                accept={PORTFOLIO_ACCEPT}
-                label="포트폴리오 파일을 끌어다 놓거나 눌러서 선택"
-                hint={`${UPLOAD_FORMATS_LABEL}, ${perFile} 이하. 글자를 읽을 수 있는 파일만 반영되며, 긴 파일은 앞부분만 씁니다.`}
-                onChange={(f, err) => {
-                  setPortfolioFile(f);
-                  setFileError((p) => ({ ...p, portfolio: err ?? undefined }));
-                }}
-              />
-            </div>
-            {fileError.portfolio && <p className="mt-2 text-sm text-red-600">{fileError.portfolio}</p>}
-          </div>
-          <div>
-            <label htmlFor="portfolioText" className="block text-sm font-medium text-slate-800">
-              링크·설명
-            </label>
-            <textarea
-              id="portfolioText"
-              value={portfolioText}
-              onChange={(e) => setPortfolioText(e.target.value)}
-              maxLength={PORTFOLIO_NOTE_MAX}
-              rows={4}
-              placeholder={"예: https://github.com/me/payments — 결제 정산 배치를 Kotlin으로 재작성, 처리 시간 4시간 → 40분.\n링크는 열어 보지 못하므로 프로젝트 내용·역할·결과를 함께 적어 주세요."}
-              className={textareaClass}
-            />
-            <p className="mt-1 text-right text-xs text-slate-400">
-              {portfolioText.length}/{PORTFOLIO_NOTE_MAX}
-            </p>
-          </div>
-        </div>
-      </Card>
-
       {/* 5. AI 엔진 */}
       {(providers.length > 1 || hasCliOptions) && (
         <Card className="p-5 sm:p-6">
-          <SectionTitle step={5} title="AI 엔진" />
+          <SectionTitle step={4} title="AI 엔진" />
           <fieldset className="mt-4">
             <legend className="sr-only">심사에 쓸 AI 엔진</legend>
             <div className="grid gap-2 sm:grid-cols-2">
@@ -469,7 +689,7 @@ export function NewDiagnosisForm({
         <p className="text-sm text-slate-500 sm:mr-auto">
           시작하면 약 {isCli ? "5~15분" : "3~5분"} 걸립니다. 창을 닫아도 진단은 계속됩니다.
         </p>
-        <Button type="submit" size="lg" loading={submitting}>
+        <Button type="submit" size="lg" loading={submitting} disabled={importing || savedLoading}>
           {submitting ? "업로드 중…" : "심사 시작"}
         </Button>
       </div>

@@ -83,6 +83,8 @@ export async function requestCapture(sharedPostingId: string, opts: { force?: bo
   const { count } = await prisma.sharedPosting.updateMany({
     where: {
       id: sharedPostingId,
+      // 직접 입력 공용 공고(url 없음)는 찍을 페이지가 없다.
+      url: { not: null },
       OR: [
         { captureStatus: null },
         { captureStatus: "failed", captureAttempts: { lt: POSTING_CAPTURE.maxAttempts } },
@@ -101,12 +103,13 @@ export async function claimCapture(sharedPostingId: string, now: number = Date.n
   const [row] = await prisma.sharedPosting.updateManyAndReturn({
     where: {
       id: sharedPostingId,
+      url: { not: null },
       OR: [{ captureStatus: "pending" }, { captureStatus: "running", captureStartedAt: { lt: staleBefore } }],
     },
     data: { captureStatus: "running", captureStartedAt: new Date(now), captureAttempts: { increment: 1 } },
     select: { url: true, captureAttempts: true },
   });
-  return row ? { url: row.url, attempt: row.captureAttempts } : null;
+  return row?.url ? { url: row.url, attempt: row.captureAttempts } : null;
 }
 
 export interface CaptureResult {
@@ -161,17 +164,20 @@ export async function getCaptureObject(sharedPostingId: string): Promise<{ key: 
 
 /**
  * 캡처를 볼 수 있는지: 관리자, 공고 찾기에 보이는(숨기지 않은) 공고, 또는 이 공용 공고를 보관함에 담은 사용자.
- * (승인·동의 확인은 requireApiUser가 이미 했다.)
+ * 직접 입력 공용 공고(url 없음)는 캡처 대상이 아니라 false(라우트는 404). (승인·동의 확인은 requireApiUser가 이미 했다.)
  */
 export async function canViewCapture(userId: string, sharedPostingId: string, opts: { isAdmin?: boolean } = {}): Promise<boolean> {
-  const row = await prisma.sharedPosting.findUnique({ where: { id: sharedPostingId }, select: { hiddenAt: true } });
-  if (!row) return false;
+  const row = await prisma.sharedPosting.findUnique({ where: { id: sharedPostingId }, select: { hiddenAt: true, url: true } });
+  if (!row?.url) return false;
   if (opts.isAdmin || !row.hiddenAt) return true;
   return (await prisma.jobPosting.count({ where: { userId, sharedPostingId } })) > 0;
 }
 
-/** 내 보관 공고 → 공용 공고 id(캡처 대상). 직접 입력 공고·남의 공고면 null. */
+/** 내 보관 공고 → 공용 공고 id(캡처 대상). URL 없는(직접 입력) 공용 공고에 연결된 공고·남의 공고면 null. */
 export async function sharedIdForPosting(userId: string, postingId: string): Promise<string | null> {
-  const p = await prisma.jobPosting.findFirst({ where: { id: postingId, userId }, select: { sharedPostingId: true } });
-  return p?.sharedPostingId ?? null;
+  const p = await prisma.jobPosting.findFirst({
+    where: { id: postingId, userId },
+    select: { sharedPostingId: true, sharedPosting: { select: { url: true } } },
+  });
+  return p?.sharedPosting?.url ? p.sharedPostingId : null;
 }

@@ -3,7 +3,6 @@ import { notFound } from "next/navigation";
 import Link from "next/link";
 import { DeleteAccountButton } from "@/components/account/DeleteAccount";
 import { MarketingConsent } from "@/components/account/MarketingConsent";
-import { PasswordForm } from "@/components/app/PasswordForm";
 import { formatDateTime } from "@/components/app/stages";
 import { Card, CardBody, CardHeader } from "@/components/ui";
 import { getAccountInfo } from "@/lib/auth/account";
@@ -39,8 +38,7 @@ export default async function AccountPage() {
           계정
         </h1>
         <p className="mt-1 text-sm text-slate-500">
-          가입은 Google 계정으로만 합니다. 비밀번호를 정하면 이메일로도 로그인할
-          수 있습니다.
+          가입과 로그인은 Google 계정으로만 합니다.
         </p>
       </div>
 
@@ -60,25 +58,7 @@ export default async function AccountPage() {
             <dd className="text-slate-900">
               {info.googleLinked ? "연결됨" : "연결 안 됨"}
             </dd>
-            <dt className="text-slate-500">이메일 로그인</dt>
-            <dd className="text-slate-900">
-              {info.hasPassword ? "사용 중" : "비밀번호 미설정"}
-            </dd>
           </dl>
-        </CardBody>
-      </Card>
-
-      <Card>
-        <CardHeader
-          title={info.hasPassword ? "비밀번호 변경" : "비밀번호 설정"}
-          description={
-            info.hasPassword
-              ? "변경하면 지금 기기를 뺀 다른 기기의 로그인은 모두 해제됩니다."
-              : `설정하면 ${info.email}과 이 비밀번호로 로그인할 수 있습니다.`
-          }
-        />
-        <CardBody>
-          <PasswordForm hasPassword={info.hasPassword} />
         </CardBody>
       </Card>
 

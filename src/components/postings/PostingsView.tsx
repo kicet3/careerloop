@@ -1,7 +1,7 @@
 "use client";
 /**
  * 공고 보관함 목록: URL 가져오기(진행 중 카드 → 끝나면 새로고침 없이 공고 카드), 직접 추가, 검색·상태·정렬·마감 임박 필터,
- * 공고 카드(마감 배지). 위쪽 탭으로 '공고 찾기'(공용 공고)로 간다.
+ * 공고 카드(마감 배지). '공고 찾기'(공용 공고)는 사이드바의 별도 메뉴다.
  */
 import Link from "next/link";
 import { useRouter } from "next/navigation";
@@ -26,7 +26,6 @@ import { platformLabel } from "@/lib/postings/url";
 import { PostingForm } from "./PostingForm";
 import { usePostingImports } from "./import-jobs";
 import { ImportingCard, PostingImportBar } from "./PostingImportBar";
-import { PostingsTabs } from "./PostingsTabs";
 import { DeadlineBadge, inputClass, PostingStatusBadge, useNow } from "./shared";
 import { SourceLink } from "./SourceLink";
 
@@ -73,8 +72,7 @@ export function PostingsView({
     <div className="space-y-6">
       <div className="flex flex-wrap items-end justify-between gap-3">
         <div>
-          <PostingsTabs active="library" />
-          <h1 className="mt-3 text-2xl font-bold tracking-tight text-slate-900">공고 보관함</h1>
+          <h1 className="text-2xl font-bold tracking-tight text-slate-900">공고 보관함</h1>
           <p className="mt-1 text-sm text-slate-500">관심 있는 채용 공고를 모아 두고 마감일·지원 상태를 관리합니다. {items.length}개</p>
         </div>
         <Button variant={adding ? "secondary" : "primary"} onClick={() => setAdding((a) => !a)} aria-expanded={adding}>

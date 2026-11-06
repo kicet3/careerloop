@@ -1,19 +1,16 @@
 "use client";
 
 import Link from "next/link";
-import { useRouter } from "next/navigation";
 import { useEffect, useState } from "react";
 import { ConsentChecklist } from "@/components/legal/ConsentChecklist";
 import { EMPTY_CONSENT_CHECKS, requiredConsentsChecked, type ConsentChecks } from "@/lib/legal/consents";
 
 type Mode = "login" | "signup";
-type FieldErrors = Partial<Record<"email" | "password", string>>;
 
 /**
  * 가입은 Google로만. 가입 화면은 동의 목록(필수 체크 전에는 버튼 비활성)을 폼으로 POST /api/auth/google에 보내고,
  * 서버가 동의를 서명 쿠키에 담아 Google로 보낸다(콜백이 동의 기록을 남긴다). 로그인 화면의 Google 버튼은 GET 링크 —
- * 동의 기록이 없는 새 사용자는 로그인 뒤 /consent 화면을 거친다. 로그인은 Google 또는 이메일·비밀번호
- * (Google로 가입한 뒤 계정 설정에서 비밀번호를 정한 사용자).
+ * 동의 기록이 없는 새 사용자는 로그인 뒤 /consent 화면을 거친다. 로그인도 Google로만 한다(이메일·비밀번호 로그인 없음).
  * `next`는 서버 페이지에서 safeNextPath()로 검증된 값만 받는다. `googleEnabled`·`error`도 서버 페이지가 정한다.
  */
 export function AuthForm({
@@ -27,10 +24,7 @@ export function AuthForm({
   googleEnabled: boolean;
   error?: string | null;
 }) {
-  const router = useRouter();
-  const [pending, setPending] = useState(false);
-  const [formError, setFormError] = useState<string | null>(error);
-  const [fieldErrors, setFieldErrors] = useState<FieldErrors>({});
+  const formError = error;
   const [consents, setConsents] = useState<ConsentChecks>(EMPTY_CONSENT_CHECKS);
   const [redirecting, setRedirecting] = useState(false);
   // Google 화면에서 뒤로 오면(bfcache 복원) '이동 중' 상태를 풀어 다시 누를 수 있게 한다.
@@ -51,44 +45,6 @@ export function AuthForm({
     next === "/app"
       ? switchBase
       : `${switchBase}?next=${encodeURIComponent(next)}`;
-
-  async function onSubmit(e: React.FormEvent<HTMLFormElement>) {
-    e.preventDefault();
-    if (pending) return;
-    const data = new FormData(e.currentTarget);
-    setPending(true);
-    setFormError(null);
-    setFieldErrors({});
-    try {
-      const res = await fetch("/api/auth/login", {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({
-          email: String(data.get("email") ?? ""),
-          password: String(data.get("password") ?? ""),
-        }),
-      });
-      if (res.ok) {
-        router.push(next);
-        router.refresh();
-        return;
-      }
-      const json = (await res.json().catch(() => null)) as {
-        error?: string;
-        fieldErrors?: FieldErrors;
-      } | null;
-      setFieldErrors(json?.fieldErrors ?? {});
-      setFormError(
-        json?.fieldErrors
-          ? null
-          : (json?.error ??
-              "요청을 처리하지 못했습니다. 잠시 후 다시 시도해 주세요."),
-      );
-    } catch {
-      setFormError("네트워크 오류가 발생했습니다. 연결을 확인해 주세요.");
-    }
-    setPending(false);
-  }
 
   return (
     <div className="space-y-5">
@@ -124,7 +80,7 @@ export function AuthForm({
             {!googleEnabled
               ? "Google 로그인이 설정되지 않아 지금은 가입할 수 없습니다. 관리자에게 문의해 주세요."
               : requiredConsentsChecked(consents)
-                ? "가입하면 관리자 승인 후 이용할 수 있습니다. 가입 후 계정 설정에서 비밀번호를 정하면 이메일로도 로그인할 수 있습니다."
+                ? "가입하면 관리자 승인 후 이용할 수 있습니다."
                 : "필수 항목을 모두 체크하면 Google로 가입할 수 있습니다."}
           </p>
         </form>
@@ -136,44 +92,7 @@ export function AuthForm({
               Google 로그인이 설정되지 않았습니다.
             </p>
           )}
-          <div
-            className="flex items-center gap-3 text-xs text-slate-400"
-            aria-hidden="true"
-          >
-            <span className="h-px flex-1 bg-slate-200" />
-            또는 이메일로
-            <span className="h-px flex-1 bg-slate-200" />
-          </div>
-          <form onSubmit={onSubmit} noValidate className="space-y-4">
-            <Field
-              name="email"
-              label="이메일"
-              type="email"
-              autoComplete="email"
-              required
-              error={fieldErrors.email}
-            />
-            <Field
-              name="password"
-              label="비밀번호"
-              type="password"
-              autoComplete="current-password"
-              required
-              maxLength={128}
-              error={fieldErrors.password}
-            />
-            <button
-              type="submit"
-              disabled={pending}
-              className="w-full rounded-lg bg-indigo-600 px-4 py-2.5 text-sm font-semibold text-white shadow-sm transition hover:bg-indigo-700 focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-indigo-600 disabled:cursor-not-allowed disabled:opacity-60"
-            >
-              {pending ? "로그인 중…" : "이메일로 로그인"}
-            </button>
-            <p className="text-center text-xs text-slate-500">
-              이메일 로그인은 Google로 가입한 뒤 계정 설정에서 비밀번호를 정한
-              경우에 쓸 수 있습니다.
-            </p>
-          </form>
+          <p className="text-center text-xs text-slate-500">CareerLoop는 Google 계정으로만 로그인할 수 있습니다.</p>
         </>
       )}
       <p className="text-center text-sm text-slate-600">
@@ -262,61 +181,5 @@ function GoogleMark() {
         d="M43.6 20.5H42V20H24v8h11.3c-.8 2.2-2.2 4.2-4.1 5.6l6.2 5.2C37 39.2 44 34 44 24c0-1.3-.1-2.4-.4-3.5z"
       />
     </svg>
-  );
-}
-
-function Field({
-  name,
-  label,
-  hint,
-  description,
-  error,
-  ...input
-}: {
-  name: string;
-  label: string;
-  hint?: string;
-  description?: string;
-  error?: string;
-} & Omit<React.InputHTMLAttributes<HTMLInputElement>, "name">) {
-  const id = `field-${name}`;
-  const describedBy = error
-    ? `${id}-error`
-    : description
-      ? `${id}-desc`
-      : undefined;
-  return (
-    <div>
-      <label
-        htmlFor={id}
-        className="mb-1.5 flex items-baseline justify-between text-sm font-medium text-slate-800"
-      >
-        {label}
-        {hint && (
-          <span className="text-xs font-normal text-slate-400">{hint}</span>
-        )}
-      </label>
-      <input
-        id={id}
-        name={name}
-        aria-invalid={error ? true : undefined}
-        aria-describedby={describedBy}
-        className={`block w-full rounded-lg border bg-white px-3 py-2 text-sm text-slate-900 shadow-xs placeholder:text-slate-400 focus:outline-none focus:ring-2 ${
-          error
-            ? "border-red-400 focus:border-red-500 focus:ring-red-100"
-            : "border-slate-300 focus:border-indigo-500 focus:ring-indigo-100"
-        }`}
-        {...input}
-      />
-      {error ? (
-        <p id={`${id}-error`} className="mt-1.5 text-xs text-red-600">
-          {error}
-        </p>
-      ) : description ? (
-        <p id={`${id}-desc`} className="mt-1.5 text-xs text-slate-500">
-          {description}
-        </p>
-      ) : null}
-    </div>
   );
 }
