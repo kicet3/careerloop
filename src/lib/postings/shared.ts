@@ -30,7 +30,6 @@ import {
   DuplicatePostingError,
   getPosting,
   highlightsOf,
-  MAX_POSTINGS_PER_USER,
   parseStoredStructure,
   refreshSharedImporterCount,
   releaseMovedShared,
@@ -314,10 +313,6 @@ export async function saveSharedToLibrary(
     return { posting: (await getPosting(userId, existing.id))!, created: false };
   }
 
-  const n = await prisma.jobPosting.count({ where: { userId } });
-  if (n >= MAX_POSTINGS_PER_USER) {
-    throw new FeatureError(`공고는 ${MAX_POSTINGS_PER_USER}개까지 보관할 수 있습니다. 마감된 공고를 정리해 주세요.`, 409);
-  }
   const now = new Date();
   try {
     const created = await prisma.jobPosting.create({

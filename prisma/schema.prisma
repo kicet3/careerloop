@@ -407,7 +407,7 @@ model CompanyResume {
   @@map("company_resumes")
 }
 
-/// 포트폴리오 보관함(사용자당 MAX_PORTFOLIOS_PER_USER개). 이력서는 이 중 하나를 첨부한다(company_resumes.portfolio_id).
+/// 포트폴리오 보관함(개수 제한 없음). 이력서는 이 중 하나를 첨부한다(company_resumes.portfolio_id).
 /// 파일은 원본을 보관하지 않고 뽑은 텍스트만 저장소에 둔다. URL은 주소만 저장한다(서버가 열지 않는다).
 model Portfolio {
   id          String   @id

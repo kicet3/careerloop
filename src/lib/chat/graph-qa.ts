@@ -47,7 +47,7 @@ import { historyToPrompt, INJECTION_RULE, wrapData } from "./prompt";
 
 export const DEFAULT_QA_THREAD_TITLE = "새 질문";
 /** 그래프가 비어 있을 때 LLM 없이 바로 답한다. */
-export const EMPTY_GRAPH_ANSWER = "아직 그래프가 비어 있어요. '그래프 만들기'에서 이력서를 올리거나 경험을 이야기해 주세요.";
+export const EMPTY_GRAPH_ANSWER = "아직 그래프가 비어 있어요. '경험 정리하기'에서 이력서를 올리거나 경험을 이야기해 주세요.";
 /** 디버그 정보는 개발 환경에서만 저장·반환한다. */
 const debugEnabled = () => process.env.NODE_ENV !== "production";
 

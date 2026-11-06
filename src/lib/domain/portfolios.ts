@@ -7,8 +7,6 @@ import { z } from "zod";
 export const PORTFOLIO_KINDS = ["file", "url"] as const;
 export type PortfolioKind = (typeof PORTFOLIO_KINDS)[number];
 
-/** 사용자당 보관할 수 있는 포트폴리오 수. */
-export const MAX_PORTFOLIOS_PER_USER = 30;
 export const MAX_PORTFOLIO_TITLE_CHARS = 120;
 /** 사용자가 적는 역할·결과 메모. 진단의 '링크·설명'(5000자)에 주소와 함께 들어가도 넘지 않는 길이. */
 export const MAX_PORTFOLIO_DESCRIPTION_CHARS = 2000;

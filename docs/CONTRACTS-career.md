@@ -424,6 +424,6 @@ POST /api/graph/qa/threads/[id]/retry            { provider } → 202 · 409 다
 - `GraphProposalData.source?: "chat" | "document-import"` — 가져오기 변경안만 적용 상한 `MAX_IMPORT_OPS`(150). 직접 편집 API는 60 그대로.
 - `toGraphOps(llmOps, { max? })`, `planGraphOps(existing, ops, newId, { maxOps? })`, `applyGraphOps(userId, ops, { maxOps? })`.
 - `LLM_TASKS`에 `graph-import`·`graph-qa`·`graph-qa-rerank`. 환경 변수 `GRAPH_QA_LLM_RERANK`(off | on, 기본: API 엔진만).
-- 그래프 화면 오른쪽은 `GraphAssistantPanel`(`initialMessage`, `initialTab`(`?tab=qa`), `uploadLimits`) — "그래프 만들기" | "그래프에 묻기".
+- 그래프 화면 오른쪽은 `GraphAssistantPanel`(`initialMessage`, `initialTab`(`?tab=qa`), `uploadLimits`) — "경험 정리하기" | "경험 질문하기".
   window 이벤트 `career-graph:focus`(`focusGraphNode(id, pathIds?)`)로 출처 칩이 그래프 노드를 고르고 경로를 강조한다.
   체크리스트 루트 id는 `experience-checklist`.

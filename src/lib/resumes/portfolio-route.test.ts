@@ -6,7 +6,6 @@ import { mkdtempSync } from "node:fs";
 import { tmpdir } from "node:os";
 import path from "node:path";
 import { afterAll, beforeAll, beforeEach, describe, expect, it, vi } from "vitest";
-import { MAX_PORTFOLIOS_PER_USER } from "@/lib/domain/portfolios";
 import { emptyResumeDocument } from "@/lib/domain/resumes";
 import { createTestDb, type TestDb } from "@/test/db";
 
@@ -131,13 +130,12 @@ describe("PUT·GET·DELETE /api/resumes/[id]/portfolio", () => {
     expect((await portfolioRoute.PUT(putJson(companyId, { url: "https://me.dev" }), ctx(companyId))).status).toBe(200);
   });
 
-  it("보관함이 꽉 차면 새로 만들기는 409(파일은 읽기 전에 — 업로드 횟수를 쓰지 않는다), 있는 항목 붙이기는 된다", async () => {
+  it("포트폴리오가 많아도 새로 만들어 붙일 수 있고, 있는 항목 붙이기도 된다(개수 제한 없음)", async () => {
     await tdb.prisma.portfolio.createMany({
-      data: Array.from({ length: MAX_PORTFOLIOS_PER_USER }, (_, i) => ({ id: `p${i}`, userId: "ua", title: `p${i}`, kind: "url", url: "https://a.dev" })),
+      data: Array.from({ length: 45 }, (_, i) => ({ id: `p${i}`, userId: "ua", title: `p${i}`, kind: "url", url: "https://a.dev" })),
     });
-    expect((await portfolioRoute.PUT(upload(companyId, "p.md", PORTFOLIO), ctx(companyId))).status).toBe(409);
-    expect(await tdb.prisma.rateEvent.count()).toBe(0);
-    expect((await portfolioRoute.PUT(putJson(companyId, { url: "https://me.dev" }), ctx(companyId))).status).toBe(409);
+    expect((await portfolioRoute.PUT(upload(companyId, "p.md", PORTFOLIO), ctx(companyId))).status).toBe(200);
+    expect((await portfolioRoute.PUT(putJson(companyId, { url: "https://me.dev" }), ctx(companyId))).status).toBe(200);
     expect((await portfolioRoute.PUT(putJson(companyId, { portfolioId: "p0" }), ctx(companyId))).status).toBe(200);
   });
 });

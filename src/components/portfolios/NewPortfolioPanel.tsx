@@ -5,7 +5,6 @@ import { useState } from "react";
 import { Alert } from "@/components/ui/Alert";
 import { Button } from "@/components/ui/Button";
 import { Card } from "@/components/ui/Card";
-import { MAX_PORTFOLIOS_PER_USER } from "@/lib/domain/portfolios";
 import { PortfolioContentForm } from "./PortfolioContentForm";
 
 /** 보관함 화면의 '새 포트폴리오' 버튼 + 올리기 폼. 만들면 서버 화면을 새로 그린다. */
@@ -14,7 +13,6 @@ export function NewPortfolioPanel({ maxBytes, count, startOpen }: { maxBytes: nu
   const [open, setOpen] = useState(startOpen);
   const [notice, setNotice] = useState<string | null>(null);
   const [warnings, setWarnings] = useState<string[]>([]);
-  const full = count >= MAX_PORTFOLIOS_PER_USER;
 
   return (
     <div className="space-y-3">
@@ -26,11 +24,9 @@ export function NewPortfolioPanel({ maxBytes, count, startOpen }: { maxBytes: nu
               setNotice(null);
               setWarnings([]);
             }}
-            disabled={full}
           >
             새 포트폴리오
           </Button>
-          {full && <span className="text-sm text-slate-500">포트폴리오는 {MAX_PORTFOLIOS_PER_USER}개까지 보관할 수 있습니다.</span>}
         </div>
       )}
       {open && (

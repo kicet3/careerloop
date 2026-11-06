@@ -3,7 +3,7 @@ import { assertSameOrigin, requireApiUser } from "@/lib/auth/session";
 import { MAX_PORTFOLIO_CHARS as DIAGNOSIS_PORTFOLIO_CHARS } from "@/lib/diagnoses/form";
 import type { PortfolioInfo } from "@/lib/domain/portfolios";
 import { isMultipart, PORTFOLIO_PREVIEW_CHARS, portfolioNotFound, readPortfolioUpload, truncatedWarning } from "@/lib/portfolios/http";
-import { assertPortfolioRoom, createPortfolioFromFile, createPortfolioFromUrl } from "@/lib/portfolios/service";
+import { createPortfolioFromFile, createPortfolioFromUrl } from "@/lib/portfolios/service";
 import { readJsonInput, resumeNotFound } from "@/lib/resumes/http";
 import { attachPortfolio, detachPortfolio, getResumePortfolioText } from "@/lib/resumes/portfolio";
 import { getResumeMeta } from "@/lib/resumes/service";
@@ -70,8 +70,6 @@ export async function PUT(req: Request, { params }: Ctx) {
       }
       created = await createPortfolioFromUrl(user.id, input);
     } else {
-      // 꽉 찼으면 업로드 횟수를 쓰거나 텍스트를 뽑기 전에 409(실제 상한은 만들 때 잠금 안에서 다시 확인한다).
-      await assertPortfolioRoom(user.id);
       const upload = await readPortfolioUpload(req, user.id);
       if (upload instanceof Response) return upload;
       const saved = await createPortfolioFromFile(user.id, upload);

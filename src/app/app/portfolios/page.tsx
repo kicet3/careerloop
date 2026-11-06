@@ -2,7 +2,6 @@ import type { Metadata } from "next";
 import { NewPortfolioPanel } from "@/components/portfolios/NewPortfolioPanel";
 import { PortfolioItem } from "@/components/portfolios/PortfolioItem";
 import { requireUser } from "@/lib/auth/session";
-import { MAX_PORTFOLIOS_PER_USER } from "@/lib/domain/portfolios";
 import { portfolioUploadLimits } from "@/lib/portfolios/http";
 import { listPortfolios } from "@/lib/portfolios/service";
 
@@ -21,7 +20,7 @@ export default async function PortfoliosPage() {
         <h1 className="text-2xl font-bold tracking-tight text-slate-900">포트폴리오</h1>
         <p className="mt-1 max-w-3xl text-sm text-slate-500">
           포트폴리오를 파일이나 링크로 모아 두고 이력서마다 하나씩 골라 붙입니다. 붙인 포트폴리오는 면접 연습 질문과 진단에 함께 쓰입니다. 파일은 글만 뽑아
-          저장하고 원본은 보관하지 않습니다. {items.length}/{MAX_PORTFOLIOS_PER_USER}개
+          저장하고 원본은 보관하지 않습니다. {items.length}개
         </p>
       </div>
 

@@ -1,6 +1,6 @@
 import "server-only";
 /**
- * 포트폴리오 보관함(portfolios). 사용자마다 MAX_PORTFOLIOS_PER_USER개까지 보관하고, 이력서는 그중 하나를 첨부한다
+ * 포트폴리오 보관함(portfolios). 사용자마다 개수 제한 없이 보관하고, 이력서는 그중 하나를 첨부한다
  * (company_resumes.portfolio_id, 포트폴리오를 지우면 FK SET NULL로 떨어진다).
  *
  * - 파일은 원본을 보관하지 않고 ingest(src/lib/ingest/extract.ts)로 뽑은 텍스트만 저장소 users/<u>/portfolios/<id>/text-<꼬리>.txt에
@@ -13,7 +13,6 @@ import "server-only";
  */
 import { randomUUID } from "node:crypto";
 import { customAlphabet } from "nanoid";
-import { FeatureError } from "@/lib/api/errors";
 import type { Prisma } from "@/generated/prisma/client";
 import { prisma } from "@/lib/db/client";
 import { stripNul } from "@/lib/db/errors";
@@ -23,7 +22,6 @@ import {
   MAX_PORTFOLIO_TEXT_CHARS,
   MAX_PORTFOLIO_TITLE_CHARS,
   MAX_PORTFOLIO_URL_CHARS,
-  MAX_PORTFOLIOS_PER_USER,
   PORTFOLIO_KINDS,
   type PortfolioInfo,
   type PortfolioListItem,
@@ -115,30 +113,8 @@ export function defaultPortfolioTitle(source: { fileName?: string | null; url?: 
   return "포트폴리오";
 }
 
-function roomError(): FeatureError {
-  return new FeatureError(`포트폴리오는 ${MAX_PORTFOLIOS_PER_USER}개까지 보관할 수 있습니다. 쓰지 않는 포트폴리오를 지워 주세요.`, 409);
-}
-
-/**
- * 새로 만들 자리가 있는지 미리 본다(잠금 없음). 업로드 라우트가 레이트 리밋·텍스트 추출 전에 불러 꽉 찬 사용자의 업로드 횟수와
- * 추출 시간을 아낀다. 실제 상한은 createRow가 잠금 안에서 다시 확인한다. 꽉 찼으면 FeatureError(409).
- */
-export async function assertPortfolioRoom(userId: string): Promise<void> {
-  const n = await prisma.portfolio.count({ where: { userId } });
-  if (n >= MAX_PORTFOLIOS_PER_USER) throw roomError();
-}
-
-/**
- * 상한 확인과 행 만들기를 한 트랜잭션에서 한다. READ COMMITTED에서는 동시 요청이 모두 count를 통과할 수 있으므로
- * 사용자별 트랜잭션 advisory lock으로 줄 세운다(트랜잭션이 끝나면 풀려 Transaction pooler에서도 안전).
- */
 async function createRow(userId: string, data: Omit<Prisma.PortfolioUncheckedCreateInput, "userId">): Promise<PortfolioRow> {
-  return prisma.$transaction(async (tx) => {
-    await tx.$executeRaw`SELECT pg_advisory_xact_lock(hashtext(${`portfolio-create:${userId}`}))`;
-    const n = await tx.portfolio.count({ where: { userId } });
-    if (n >= MAX_PORTFOLIOS_PER_USER) throw roomError();
-    return (await tx.portfolio.create({ data: { ...data, userId } })) as PortfolioRow;
-  });
+  return (await prisma.portfolio.create({ data: { ...data, userId } })) as PortfolioRow;
 }
 
 // ---------------------------------------------------------------------------
@@ -149,8 +125,7 @@ async function createRow(userId: string, data: Omit<Prisma.PortfolioUncheckedCre
 export async function listPortfolios(userId: string): Promise<PortfolioListItem[]> {
   const rows = await prisma.portfolio.findMany({
     where: { userId },
-    // 상한(MAX_PORTFOLIOS_PER_USER)보다 많이 있을 수 있으므로(예전 이력서 첨부에서 옮긴 항목은 이력서 수만큼) 자르지 않는다 —
-    // 보이지 않는 항목은 지울 수도 없다.
+    // 개수 상한이 없으므로 자르지 않는다 — 보이지 않는 항목은 지울 수도 없다.
     orderBy: [{ updatedAt: "desc" }, { id: "desc" }],
     include: { resumes: { select: { id: true, title: true, kind: true }, where: { userId }, orderBy: { updatedAt: "desc" } } },
   });
@@ -196,7 +171,6 @@ export async function createPortfolioFromFile(
   userId: string,
   input: NewPortfolioMeta & { fileName: string; text: string },
 ): Promise<{ portfolio: PortfolioInfo; truncated: boolean }> {
-  await assertPortfolioRoom(userId);
   const id = newId();
   const fileName = cleanFileName(input.fileName);
   const { text, truncated } = cleanText(input.text);

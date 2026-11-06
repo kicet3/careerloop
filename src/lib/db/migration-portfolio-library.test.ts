@@ -1,7 +1,6 @@
 /** 20261110000000_portfolio_library: 이력서 첨부 포트폴리오를 보관함(portfolios)으로 옮기고 portfolio_id로 잇는다, 예전 컬럼 삭제. */
 import { PGlite } from "@electric-sql/pglite";
 import { describe, expect, it } from "vitest";
-import { MAX_PORTFOLIOS_PER_USER } from "@/lib/domain/portfolios";
 import { migrationSql } from "@/test/db";
 
 describe("포트폴리오 보관함 마이그레이션", () => {
@@ -73,13 +72,13 @@ describe("포트폴리오 보관함 마이그레이션", () => {
     }
   });
 
-  it("한 사용자의 이력서가 상한(MAX_PORTFOLIOS_PER_USER)보다 많아도 모두 옮긴다(목록은 자르지 않는다)", async () => {
+  it("한 사용자의 이력서가 많아도 모두 옮긴다(목록은 자르지 않는다)", async () => {
     const all = migrationSql();
     const idx = all.findIndex((sql) => sql.includes('"_portfolio_backfill"'));
     const db = new PGlite();
     try {
       for (const sql of all.slice(0, idx)) await db.exec(sql);
-      const n = MAX_PORTFOLIOS_PER_USER + 10;
+      const n = 40;
       const values = Array.from(
         { length: n },
         (_, i) => `('r${i}', 'u', 'company', 'A', 'B', 'classic', 'A B ${i}', '2026-01-01', 'url', NULL, 'https://a${i}.dev', NULL, NULL, NULL)`,

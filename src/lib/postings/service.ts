@@ -30,8 +30,6 @@ import { CAPTURE_SELECT, toCaptureInfo } from "./capture-store";
 import { composeJdText, isThin, sourceHash, structureFromText, structureInputText } from "./structure";
 import { inferPlatform, isValidUrl, normalizeUrl, publicPlatform, withScheme } from "./url";
 
-/** 사용자당 보관 공고 수 상한. */
-export const MAX_POSTINGS_PER_USER = 500;
 export const POSTING_NOT_FOUND = "공고를 찾을 수 없습니다.";
 
 /** 같은 URL의 공고가 이미 있다(409). 화면은 existingId로 기존 공고를 열어 준다. */
@@ -225,7 +223,6 @@ export async function listPostings(userId: string, opts: { status?: PostingStatu
       select: summarySelect,
       where,
       orderBy: [{ updatedAt: "desc" }, { id: "desc" }],
-      take: MAX_POSTINGS_PER_USER,
     }),
     // JD 원문을 읽지 않고 '본문 있음'만 안다(빈 문자열은 저장하지 않으므로 not null이면 있음).
     prisma.jobPosting.findMany({ select: { id: true }, where: { ...where, jdText: { not: null }, NOT: { jdText: "" } } }),
@@ -249,7 +246,7 @@ export async function getPosting(userId: string, id: string): Promise<JobPosting
 }
 
 /**
- * 새 공고. 중복 URL → DuplicatePostingError(409), 상한 초과 → 409.
+ * 새 공고. 중복 URL → DuplicatePostingError(409). 보관 개수 상한은 없다.
  * structure를 주지 않으면(직접 입력) jdText를 정규식으로 구조화해 저장한다(source 'regex'). sourceText는 URL 가져오기의 원문.
  * 공용 공고 먼저: sharedPostingId(URL 가져오기가 먼저 저장한 공용 공고)를 주면 그것에 연결하고, 사용자 수는 호출자가
  * refreshSharedImporterCount로 다시 센다. 주지 않으면(직접 입력) 같은 트랜잭션에서 공용 공고를 먼저 만들고 연결한다 —
@@ -267,10 +264,6 @@ export async function createPosting(
   if (urls.urlKey) {
     const existing = await findByUrlKey(userId, urls.urlKey);
     if (existing) throw new DuplicatePostingError(existing);
-  }
-  const n = await prisma.jobPosting.count({ where: { userId } });
-  if (n >= MAX_POSTINGS_PER_USER) {
-    throw new FeatureError(`공고는 ${MAX_POSTINGS_PER_USER}개까지 보관할 수 있습니다. 마감된 공고를 정리해 주세요.`, 409);
   }
   const now = new Date();
   const structure = opts.structure !== undefined ? opts.structure : input.jdText.trim() ? structureFromText(input.jdText, now.getTime()) : null;

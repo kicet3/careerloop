@@ -3,7 +3,7 @@ import { mkdtempSync } from "node:fs";
 import { tmpdir } from "node:os";
 import path from "node:path";
 import { afterAll, beforeAll, beforeEach, describe, expect, it, vi } from "vitest";
-import { MAX_PORTFOLIOS_PER_USER, type PortfolioInfo, type PortfolioListItem } from "@/lib/domain/portfolios";
+import { type PortfolioInfo, type PortfolioListItem } from "@/lib/domain/portfolios";
 import { emptyResumeDocument } from "@/lib/domain/resumes";
 import { createTestDb, type TestDb } from "@/test/db";
 
@@ -83,14 +83,12 @@ describe("/api/portfolios", () => {
     expect((await listRoute.POST(new Request(BASE, { method: "POST", body: new FormData() }))).status).toBe(400);
   });
 
-  it(`상한 ${MAX_PORTFOLIOS_PER_USER}개를 넘으면 409, 파일 업로드는 레이트 리밋 429`, async () => {
+  it("개수 제한 없음(많이 있어도 201), 파일 업로드는 레이트 리밋 429", async () => {
     await tdb.prisma.portfolio.createMany({
-      data: Array.from({ length: MAX_PORTFOLIOS_PER_USER }, (_, i) => ({ id: `p${i}`, userId: "ua", title: `p${i}`, kind: "url", url: "https://a.dev" })),
+      data: Array.from({ length: 45 }, (_, i) => ({ id: `p${i}`, userId: "ua", title: `p${i}`, kind: "url", url: "https://a.dev" })),
     });
-    expect((await listRoute.POST(json(BASE, "POST", { url: "https://x.dev" }))).status).toBe(409);
-    // 꽉 찼으면 파일은 읽기 전에 409 — 오늘 업로드 횟수를 쓰지 않는다.
-    expect((await listRoute.POST(uploadReq(BASE, "POST", "a.md", TEXT))).status).toBe(409);
-    expect(await tdb.prisma.rateEvent.count()).toBe(0);
+    expect((await listRoute.POST(json(BASE, "POST", { url: "https://x.dev" }))).status).toBe(201);
+    expect((await listRoute.POST(uploadReq(BASE, "POST", "a.md", TEXT))).status).toBe(201);
     state.user = { id: "ub" };
     for (let i = 0; i < limits.PORTFOLIO_UPLOAD_LIMIT.limit; i++) await limits.hitDbLimit(limits.PORTFOLIO_UPLOAD_LIMIT, "ub");
     const res = await listRoute.POST(uploadReq(BASE, "POST", "a.md", TEXT));

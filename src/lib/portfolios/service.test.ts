@@ -3,7 +3,7 @@ import { mkdtempSync, rmSync } from "node:fs";
 import { tmpdir } from "node:os";
 import path from "node:path";
 import { afterAll, beforeAll, beforeEach, describe, expect, it, vi } from "vitest";
-import { MAX_PORTFOLIO_TEXT_CHARS, MAX_PORTFOLIOS_PER_USER } from "@/lib/domain/portfolios";
+import { MAX_PORTFOLIO_TEXT_CHARS } from "@/lib/domain/portfolios";
 import { emptyResumeDocument } from "@/lib/domain/resumes";
 import { createTestDb, type TestDb } from "@/test/db";
 
@@ -100,41 +100,14 @@ describe("포트폴리오 보관함", () => {
     expect(await keyOf(p.id)).toBeNull();
   });
 
-  it(`사용자당 ${MAX_PORTFOLIOS_PER_USER}개까지(넘으면 409)`, async () => {
-    await tdb.prisma.portfolio.createMany({
-      data: Array.from({ length: MAX_PORTFOLIOS_PER_USER }, (_, i) => ({ id: `p${i}`, userId: "ua", title: `p${i}`, kind: "url", url: "https://a.dev" })),
-    });
-    await expect(svc.createPortfolioFromUrl("ua", { url: "https://a.dev" })).rejects.toMatchObject({ status: 409 });
-    await expect(svc.createPortfolioFromFile("ua", { fileName: "a.md", text: "x" })).rejects.toMatchObject({ status: 409 });
-    // 다른 사용자는 영향 없음
-    await expect(svc.createPortfolioFromUrl("ub", { url: "https://a.dev" })).resolves.toMatchObject({ kind: "url" });
-  });
-
-  it("상한은 동시에 만들어도 넘지 않는다(사용자별 잠금 안에서 확인)", async () => {
-    await tdb.prisma.portfolio.createMany({
-      data: Array.from({ length: MAX_PORTFOLIOS_PER_USER - 2 }, (_, i) => ({ id: `p${i}`, userId: "ua", title: `p${i}`, kind: "url", url: "https://a.dev" })),
-    });
-    const before = new Set(await storage.listByPrefix("users/ua/portfolios/"));
-    const results = await Promise.allSettled([
-      ...Array.from({ length: 5 }, () => svc.createPortfolioFromUrl("ua", { url: "https://a.dev" })),
-      ...Array.from({ length: 3 }, (_, i) => svc.createPortfolioFromFile("ua", { fileName: `f${i}.md`, text: "본문" })),
-    ]);
-    expect(results.filter((r) => r.status === "fulfilled")).toHaveLength(2);
-    for (const r of results) if (r.status === "rejected") expect(r.reason).toMatchObject({ status: 409 });
-    expect(await tdb.prisma.portfolio.count({ where: { userId: "ua" } })).toBe(MAX_PORTFOLIOS_PER_USER);
-    // 거절된 파일 만들기는 저장해 둔 글을 남기지 않는다.
-    const keys = (await tdb.prisma.portfolio.findMany({ where: { userId: "ua", textKey: { not: null } }, select: { textKey: true } })).map((r) => r.textKey);
-    const added = (await storage.listByPrefix("users/ua/portfolios/")).filter((k) => !before.has(k));
-    expect(added.sort()).toEqual(keys.sort());
-  });
-
-  it("목록은 상한보다 많은 항목(예전 첨부에서 옮긴 것)도 모두 보여 준다", async () => {
-    const n = MAX_PORTFOLIOS_PER_USER + 5;
+  it("개수 제한이 없다: 많이 있어도 새로 만들 수 있고 목록은 모두 보여 준다", async () => {
+    const n = 45;
     await tdb.prisma.portfolio.createMany({
       data: Array.from({ length: n }, (_, i) => ({ id: `p${i}`, userId: "ua", title: `p${i}`, kind: "url", url: "https://a.dev" })),
     });
-    expect(await svc.listPortfolios("ua")).toHaveLength(n);
-    await expect(svc.createPortfolioFromUrl("ua", { url: "https://a.dev" })).rejects.toMatchObject({ status: 409 });
+    await expect(svc.createPortfolioFromUrl("ua", { url: "https://a.dev" })).resolves.toMatchObject({ kind: "url" });
+    await expect(svc.createPortfolioFromFile("ua", { fileName: "a.md", text: "x" })).resolves.toMatchObject({ portfolio: { kind: "file" } });
+    expect(await svc.listPortfolios("ua")).toHaveLength(n + 2);
   });
 
   it("지우기: 붙인 이력서에서 떨어지고(이력서는 남는다) 저장한 글도 지운다, 남의 것은 null", async () => {

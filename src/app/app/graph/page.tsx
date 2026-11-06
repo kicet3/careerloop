@@ -19,7 +19,7 @@ export default async function GraphPage({ searchParams }: { searchParams: Promis
   const params = await searchParams;
   const askRaw = params.ask;
   const ask = (typeof askRaw === "string" ? askRaw.trim().slice(0, MAX_CHAT_MESSAGE_CHARS) : "") || undefined;
-  // ?tab=qa — '그래프에 묻기' 탭으로 연다.
+  // ?tab=qa — '경험 질문하기' 탭으로 연다.
   const tab = params.tab === "qa" ? "qa" : undefined;
 
   if (!graphEnabled()) {
@@ -52,7 +52,7 @@ export default async function GraphPage({ searchParams }: { searchParams: Promis
       <div className="grid gap-6 xl:grid-cols-[minmax(0,1fr)_clamp(22rem,32%,36rem)] xl:items-start">
         <CareerGraphView initialGraph={initialGraph} initialError={initialError} />
         <div className="min-w-0 space-y-6">
-          <section id="graph-chat" aria-label="경력 그래프 만들기·묻기" className="min-w-0 scroll-mt-20">
+          <section id="graph-chat" aria-label="경험 정리하기·경험 질문하기" className="min-w-0 scroll-mt-20">
             <GraphAssistantPanel initialMessage={ask} initialTab={tab} uploadLimits={uploadLimitsFor()} />
           </section>
           <section aria-label="공고 대비 부족한 기술" className="min-w-0">
