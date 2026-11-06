@@ -2,7 +2,8 @@ import "server-only";
 /**
  * 앱 안 알림 저장소(notifications). 오래 걸리는 백그라운드 작업(AI 이력서 초안·진단·공고 가져오기·면접 질문)이 끝나면
  * notify()로 만들고, 상단 알림 버튼(NotificationBell)이 앱 틀을 불러올 때·패널을 열 때 GET /api/notifications로 목록을 받는다
- * (실시간 수신 없음. 배지 첫 값은 앱 레이아웃이 countUnreadNotifications()로 센다. SSE 스트림은 NOTIFICATIONS_SSE=1일 때만).
+ * (배지 첫 값은 앱 레이아웃이 countUnreadNotifications()로 센다. SSE 스트림은 NOTIFICATIONS_SSE=1일 때만).
+ * Supabase Realtime이 설정돼 있으면 만든 뒤 비공개 채널로 알림 id만 보내, 열린 탭이 바로 다시 받는다(./realtime.ts, docs/REALTIME.md).
  *
  * - 모든 조회·변경은 userId로 소유를 건다(남의 알림은 보이지도, 읽음 처리되지도 않는다).
  * - 새 알림을 넣을 때 사용자당 최근 MAX_NOTIFICATIONS_PER_USER개만 남기고 지운다.
@@ -11,6 +12,7 @@ import "server-only";
 import { nanoid } from "nanoid";
 import { prisma } from "@/lib/db/client";
 import { stripNul } from "@/lib/db/errors";
+import { broadcastNotificationCreated } from "@/lib/notifications/realtime";
 import {
   MAX_NOTIFICATION_BODY_CHARS,
   MAX_NOTIFICATION_TITLE_CHARS,
@@ -64,6 +66,9 @@ export async function createNotification(userId: string, n: NewNotification, now
     },
   });
   await pruneNotifications(userId);
+  // 저장(커밋)된 뒤 열린 탭에 알린다. 설정이 없으면 바로 끝나고, 실패·시간 초과(2초)여도 던지지 않는다.
+  // 서버리스 함수가 응답 뒤 멈출 수 있어 기다린다(백그라운드 작업 경로라 사용자 응답을 늦추지 않는다).
+  await broadcastNotificationCreated(userId, row.id);
   return toItem(row);
 }
 

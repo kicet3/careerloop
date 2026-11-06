@@ -11,7 +11,7 @@ import { cliProvidersEnabled } from "@/lib/providers/cli";
 /**
  * 앱 화면 틀: 넓은 화면(lg 이상)은 왼쪽 고정 사이드바 + 본문 위 얇은 상단 바(알림 버튼) + 본문 전체 폭,
  * 좁은 화면은 상단 얇은 바(메뉴·로고·알림 버튼) + 서랍 메뉴. 새 알림 토스트는 화면 오른쪽 아래에 하나만 그린다.
- * 알림 배지의 첫 값(읽지 않은 수)은 여기서 센다 — 실시간 수신이 없어 새로고침하면 서버 값으로 맞는다.
+ * 알림 배지의 첫 값(읽지 않은 수)은 여기서 센다 — 새로고침하면 서버 값으로 맞는다(Supabase Realtime이 설정돼 있으면 새 알림은 바로 받는다).
  * 본문 폭은 제한하지 않는다 — 각 화면이 그리드로 넓은 화면을 나눠 쓴다.
  */
 export default async function AppLayout({ children }: { children: React.ReactNode }) {

@@ -124,4 +124,37 @@ describe("알림 API", () => {
     expect((await list()).status).toBe(401);
     expect((await read({ all: true })).status).toBe(401);
   });
+
+  it("Supabase Realtime이 설정돼 있으면 저장 뒤 내 topic에 id만 보내고, 보내기가 실패해도 알림은 남는다", async () => {
+    const env = {
+      NEXT_PUBLIC_SUPABASE_URL: "https://abc.supabase.co",
+      NEXT_PUBLIC_SUPABASE_ANON_KEY: "anon",
+      SUPABASE_SERVICE_ROLE_KEY: "sb_secret_x",
+      SUPABASE_JWT_SECRET: "secret",
+    };
+    for (const [k, v] of Object.entries(env)) vi.stubEnv(k, v);
+    const sent: unknown[] = [];
+    const fetchMock = vi.fn(async (_url: string, init: RequestInit) => {
+      // 보낼 때 이미 저장돼 있어야 한다(클라이언트가 바로 다시 받는다).
+      sent.push({ body: JSON.parse(String(init.body)), stored: await tdb.prisma.notification.count({ where: { userId: "ua" } }) });
+      return new Response(null, { status: 202 });
+    });
+    vi.stubGlobal("fetch", fetchMock);
+    try {
+      const n = await svc.createNotification("ua", { kind: "interview-ready", title: "비밀 제목", body: "비밀 본문" }, at(1));
+      expect(sent).toEqual([
+        { body: { messages: [{ topic: "notifications:ua", event: "notification", payload: { id: n.id }, private: true }] }, stored: 1 },
+      ]);
+      const err = vi.spyOn(console, "error").mockImplementation(() => {});
+      fetchMock.mockImplementationOnce(async () => {
+        throw new TypeError("fetch failed");
+      });
+      const m = await svc.createNotification("ua", { kind: "interview-ready", title: "b" }, at(2));
+      expect(await tdb.prisma.notification.findUnique({ where: { id: m.id } })).not.toBeNull();
+      err.mockRestore();
+    } finally {
+      vi.unstubAllEnvs();
+      vi.unstubAllGlobals();
+    }
+  });
 });

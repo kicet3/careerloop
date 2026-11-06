@@ -143,6 +143,20 @@ describe("알림 저장소(새로고침·패널 열기 때만 받기)", () => {
     expect(vi.getTimerCount()).toBe(0);
   });
 
+  it("pollNotificationsLive(실시간 신호): 요청 중이면 끝난 뒤 한 번 더 받는다 — 신호가 여러 번이어도 뒤따르는 요청은 하나, 새 것은 토스트", async () => {
+    subscribe(() => {});
+    await vi.advanceTimersByTimeAsync(0);
+    fetchMock.mockImplementationOnce(async () => Response.json({ items: [], unreadCount: 1 }));
+    fetchMock.mockImplementationOnce(async () => Response.json({ items: [n("d", 4000)], unreadCount: 2 }));
+    void store.pollNotifications();
+    void store.pollNotificationsLive();
+    void store.pollNotificationsLive();
+    await vi.advanceTimersByTimeAsync(0);
+    expect(fetchMock).toHaveBeenCalledTimes(3);
+    expect(store.getNotificationState()).toMatchObject({ unreadCount: 2 });
+    expect(store.getNotificationState().toasts.map((x) => x.id)).toEqual(["d"]);
+  });
+
   it("읽음 처리는 화면 먼저 반영하고 POST /read 하나만 보낸다", async () => {
     subscribe(() => {});
     await vi.advanceTimersByTimeAsync(0);

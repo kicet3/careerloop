@@ -1,8 +1,9 @@
 "use client";
 /**
  * 알림 상태(탭 하나에 하나). 상단 알림 버튼은 넓은 화면·좁은 화면에 하나씩 그려지지만 이 저장소를 함께 써서 요청은 한 번만 한다.
- * - 알림은 DB가 기준이다. 실시간으로 받지 않는다 — 주기 폴링·SSE·탭 표시/포커스 때 다시 받기는 없다.
- *   새 알림은 사용자가 새로고침(앱 틀을 다시 불러오기)하거나 알림 패널을 열 때 보인다.
+ * - 알림은 DB가 기준이다. 주기 폴링·SSE·탭 표시/포커스 때 다시 받기는 없다.
+ *   새 알림은 사용자가 새로고침(앱 틀을 다시 불러오기)하거나 알림 패널을 열 때 보인다. Supabase Realtime이 설정돼 있으면
+ *   새 알림 신호(알림 id뿐)가 올 때 pollNotificationsLive()로 바로 받는다(./realtime.ts — NotificationsProvider가 연결한다).
  * - 받는 때: (1) 앱 틀이 그려질 때 한 번(새로고침, 또는 앱 밖에 갔다가 돌아와 틀이 다시 그려질 때 — GET /api/notifications, 서버가 끊긴 작업도 함께 정리한다),
  *   (2) 알림 패널을 열 때(전체 다시 받기), (3) pokeNotifications()/markNotificationsReadByLink()를 부를 때(다른 화면이
  *   작업이 끝난 걸 직접 확인했을 때 한 번).
@@ -71,6 +72,23 @@ export function pollNotifications(opts: { full?: boolean } = {}): Promise<void> 
     inflight = null;
   });
   return inflight;
+}
+
+let queued: Promise<void> | null = null;
+
+/**
+ * 실시간 신호(새 알림 id)를 받았을 때: 새 알림을 받는다. 이미 요청 중이면 그 요청이 신호 전에 시작됐을 수 있어 끝난 뒤 한 번 더 받는다
+ * (신호가 여러 번 와도 뒤따르는 요청은 하나).
+ */
+export function pollNotificationsLive(): Promise<void> {
+  if (!inflight) return pollNotifications();
+  if (!queued) {
+    queued = inflight.then(() => {
+      queued = null;
+      return pollNotifications();
+    });
+  }
+  return queued;
 }
 
 /**
