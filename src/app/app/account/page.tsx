@@ -1,8 +1,8 @@
 import type { Metadata } from "next";
-import { NameForm } from "@/components/account/NameForm";
 import { notFound } from "next/navigation";
 import Link from "next/link";
 import { DeleteAccountButton } from "@/components/account/DeleteAccount";
+import { LoginInfoCard } from "@/components/account/LoginInfoCard";
 import { GithubConnection } from "@/components/account/GithubConnection";
 import { MarketingConsent } from "@/components/account/MarketingConsent";
 import { formatDateTime } from "@/components/app/stages";
@@ -57,23 +57,7 @@ export default async function AccountPage({ searchParams }: { searchParams: Prom
         </p>
       </div>
 
-      <Card>
-        <CardHeader title="로그인 정보" />
-        <CardBody>
-          <dl className="grid max-w-lg grid-cols-[7rem_1fr] items-start gap-y-2 text-sm">
-            <dt className="text-slate-500">이메일</dt>
-            <dd className="break-all text-slate-900">{info.email}</dd>
-            <dt className="pt-1 text-slate-500">이름</dt>
-            <dd>
-              <NameForm initialName={info.name} />
-            </dd>
-            <dt className="text-slate-500">Google</dt>
-            <dd className="text-slate-900">
-              {info.googleLinked ? "연결됨" : "연결 안 됨"}
-            </dd>
-          </dl>
-        </CardBody>
-      </Card>
+      <LoginInfoCard email={info.email} name={info.name} googleLinked={info.googleLinked} />
 
       <Card>
         <CardHeader
