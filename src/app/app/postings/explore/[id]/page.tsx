@@ -83,6 +83,11 @@ export default async function SharedPostingPage({ params }: { params: Promise<{ 
         ) : (
           <p className="text-sm text-slate-500">구역으로 정리된 내용이 없습니다. 원문을 확인하세요.</p>
         )}
+        {s?.translatedFrom && (
+          <p className="text-xs text-slate-500">
+            {s.translatedFrom === "en" ? "영문" : "외국어"} 공고를 한국어로 옮겨 저장했습니다.{posting.sourceText ? " 아래에서 번역 전 원문을 볼 수 있습니다." : ""}
+          </p>
+        )}
         <p className="text-xs text-slate-500">
           {manual
             ? "사용자가 직접 입력한 공고입니다. 지원 전에 회사 채용 페이지에서 조건과 마감 시각을 확인하세요."
@@ -90,7 +95,7 @@ export default async function SharedPostingPage({ params }: { params: Promise<{ 
         </p>
         {raw.trim() && (
           <details className="rounded-xl border border-slate-200 bg-white p-4 text-sm shadow-sm">
-            <summary className="cursor-pointer font-medium text-slate-800">{manual ? "공고 본문 보기" : "가져온 원문 보기"}</summary>
+            <summary className="cursor-pointer font-medium text-slate-800">{manual ? "공고 본문 보기" : s?.translatedFrom ? "원문 보기(번역 전)" : "가져온 원문 보기"}</summary>
             <p className="mt-3 max-h-[480px] overflow-auto leading-relaxed break-words whitespace-pre-wrap text-slate-700">{raw}</p>
           </details>
         )}

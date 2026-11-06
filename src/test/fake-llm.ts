@@ -594,12 +594,12 @@ function fakeResumeDraft(user: string): ResumeDraftOutput {
 
 /** 가짜 구역 추출: "주요 업무"·"자격 요건"·"우대 사항"·"복리후생"·"채용 절차" 제목 아래 줄을 그대로 복사한다. */
 const FAKE_SECTION_HEADINGS: [RegExp, keyof PostingSectionsLlm][] = [
-  [/^(?:주요|담당)\s*업무/, "duties"],
-  [/^(?:자격\s*요건|필수\s*(?:요건|사항)|지원\s*자격)/, "requirements"],
-  [/^우대/, "preferred"],
-  [/^(?:복리\s*후생|복지|혜택)/, "benefits"],
-  [/^(?:전형\s*절차|채용\s*절차)/, "process"],
-  [/^(?:회사\s*소개|기업\s*소개)/, "companyIntro"],
+  [/^(?:주요|담당)\s*업무|^(?:responsibilities|what you(?:'|’)ll do)$/i, "duties"],
+  [/^(?:자격\s*요건|필수\s*(?:요건|사항)|지원\s*자격)|^(?:requirements|qualifications)$/i, "requirements"],
+  [/^우대|^(?:nice to have|preferred qualifications)$/i, "preferred"],
+  [/^(?:복리\s*후생|복지|혜택)|^(?:benefits|perks)$/i, "benefits"],
+  [/^(?:전형\s*절차|채용\s*절차)|^(?:hiring|interview) process$/i, "process"],
+  [/^(?:회사\s*소개|기업\s*소개)|^about us$/i, "companyIntro"],
 ];
 
 function fakeSections(lines: string[], summary: string): PostingSectionsLlm {
@@ -630,7 +630,7 @@ function fakeSections(lines: string[], summary: string): PostingSectionsLlm {
       current = heading[1] as ListKey;
       continue;
     }
-    const salary = /^(?:연봉|급여)\s*[:：]\s*(.+)$/.exec(line);
+    const salary = /^(?:연봉|급여|salary|compensation)\s*[:：]\s*(.+)$/i.exec(line);
     if (salary) {
       out.salary = salary[1]!.slice(0, 120);
       current = null;
@@ -643,7 +643,9 @@ function fakeSections(lines: string[], summary: string): PostingSectionsLlm {
     if (current && line) (out[current] as string[]).push(line.slice(0, 300));
   }
   const listed = [...out.duties, ...out.requirements, ...out.preferred].join("\n");
-  out.techStack = [...new Set((listed.match(TECH_RE) ?? []).map((t) => t.trim()).filter((t) => t.length >= 2))].slice(0, 30);
+  // 영문 공고는 라틴 낱말이 모두 기술처럼 잡히므로 비워 둔다(근거 검증이 기술 사전으로 채운다).
+  const english = !/[가-힣]/.test(listed);
+  out.techStack = english ? [] : [...new Set((listed.match(TECH_RE) ?? []).map((t) => t.trim()).filter((t) => t.length >= 2))].slice(0, 30);
   return out;
 }
 
@@ -663,9 +665,10 @@ function fakePostingExtract(user: string): PostingExtract {
     }
     return null;
   };
-  const company = find(/^(?:회사|회사명|기업|기업명)\s*[:：]\s*(.+)$/);
-  const role = find(/^(?:직무|모집\s*직무|포지션|모집\s*분야)\s*[:：]\s*(.+)$/);
-  const deadlineLine = lines.find((l) => /마감|접수\s*기간|지원\s*기간/.test(l)) ?? "";
+  // 영문 공고도 읽는다("Company: …", "Role: …", "Location: …", "Apply by …").
+  const company = find(/^(?:회사|회사명|기업|기업명|company)\s*[:：]\s*(.+)$/i);
+  const role = find(/^(?:직무|모집\s*직무|포지션|모집\s*분야|role|position|job title)\s*[:：]\s*(.+)$/i);
+  const deadlineLine = lines.find((l) => /마감|접수\s*기간|지원\s*기간|deadline|apply by/i.test(l)) ?? "";
   const date = /(20\d{2})\s*[.\-/년]\s*(\d{1,2})\s*[.\-/월]\s*(\d{1,2})/.exec(deadlineLine);
   const time = /(\d{1,2}):(\d{2})/.exec(deadlineLine);
   const pad = (v: string) => v.padStart(2, "0");
@@ -695,9 +698,9 @@ function fakePostingExtract(user: string): PostingExtract {
     companyEvidence: fakeEvidence ? "본문에 없는 회사 문구" : company.line.slice(0, 500),
     roleTitle: role.value.slice(0, 300),
     roleEvidence: fakeEvidence ? "본문에 없는 직무 문구" : role.line.slice(0, 500),
-    employmentType: has(/인턴/) ? "intern" : has(/계약직/) ? "contract" : has(/정규직/) ? "full_time" : "unknown",
-    workType: has(/원격|리모트/) ? "remote" : has(/하이브리드/) ? "hybrid" : "unknown",
-    location: find(/^(?:근무지|근무\s*지역|위치)\s*[:：]\s*(.+)$/)?.value.slice(0, 300) ?? "",
+    employmentType: has(/인턴/) ? "intern" : has(/계약직/) ? "contract" : has(/정규직|full-time/i) ? "full_time" : "unknown",
+    workType: has(/원격|리모트/) ? "remote" : has(/하이브리드|hybrid/i) ? "hybrid" : "unknown",
+    location: find(/^(?:근무지|근무\s*지역|위치|location)\s*[:：]\s*(.+)$/i)?.value.slice(0, 300) ?? "",
     careerLevel: has(/신입/) ? "entry" : has(/경력\s*무관/) ? "any" : has(/경력/) ? "experienced" : "unknown",
     deadline: date ? `${date[1]}-${pad(date[2]!)}-${pad(date[3]!)}` : "",
     deadlineTime: date && time ? `${pad(time[1]!)}:${time[2]}` : "",
@@ -705,6 +708,37 @@ function fakePostingExtract(user: string): PostingExtract {
     rolling: has(/상시\s*채용|채용\s*시\s*마감/),
     sections: fakeSections(lines, `${company.value} ${role.value} 포지션입니다.`.replace(/\d+/g, "").slice(0, 300)),
   };
+}
+
+/** 가짜 번역에서 바꾸는 영어 낱말(대소문자 무시, 낱말 단위). 숫자·고유명사는 그대로 남는다. */
+const FAKE_KO_WORDS: [RegExp, string][] = [
+  [/\bsenior\b/gi, "시니어"],
+  [/\bbackend\b/gi, "백엔드"],
+  [/\bfrontend\b/gi, "프론트엔드"],
+  [/\bengineer\b/gi, "엔지니어"],
+  [/\bremote\b/gi, "원격"],
+  [/\bseoul\b/gi, "서울"],
+  [/\bexperience\b/gi, "경험"],
+  [/\byears\b/gi, "년"],
+];
+
+/** 가짜 번역: 아는 낱말만 바꾸고, 한글이 하나도 없으면 앞에 '(번역) '을 붙인다(개수·순서·숫자·이름은 그대로). */
+function fakeKo(text: string): string {
+  if (!text) return text;
+  let out = text;
+  for (const [re, ko] of FAKE_KO_WORDS) out = out.replace(re, ko);
+  return /[가-힣]/.test(out) ? out : `(번역) ${out}`;
+}
+
+/** 가짜 공고 번역(task 'posting-translate'): <posting_page>의 JSON 값을 같은 키·같은 개수로 fakeKo. */
+function fakePostingTranslate(user: string): unknown {
+  const raw = extractTag(user, CHAT_TAGS.postingPage) ?? "{}";
+  const input = JSON.parse(raw) as Record<string, unknown>;
+  const out: Record<string, unknown> = {};
+  for (const [k, v] of Object.entries(input)) {
+    out[k] = Array.isArray(v) ? v.map((x) => fakeKo(String(x))) : fakeKo(String(v ?? ""));
+  }
+  return out;
 }
 
 /**
@@ -880,6 +914,8 @@ function fakeTaskOutput(task: LlmTask, user: string): unknown {
       return fakeResumeDraft(user);
     case "posting-extract":
       return fakePostingExtract(user);
+    case "posting-translate":
+      return fakePostingTranslate(user);
     case "graph-import":
       return fakeGraphImport(user);
     case "graph-qa":

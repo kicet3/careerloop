@@ -370,6 +370,8 @@ function userStructure(
     jdComposed,
     sourceHash: "",
     extractedAt: opts.now,
+    // 한국어로 옮긴 공고를 고친 경우에도 원문이 외국어라는 표시(원문 보기 안내)는 남긴다.
+    ...(prev?.translatedFrom ? { translatedFrom: prev.translatedFrom } : {}),
   });
   const jdText = jdComposed ? composeJdText(base) : (opts.jdText ?? current.jdText);
   return { ...base, sourceHash: sourceHash(structureInputText({ jdText, sourceText: current.sourceText, structured: base })) };

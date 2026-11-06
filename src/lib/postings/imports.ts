@@ -338,7 +338,10 @@ export async function runImport(importId: string, deps: RunImportDeps = {}): Pro
   };
 
   const controller = new AbortController();
-  const timer = setTimeout(() => controller.abort(new ImportTimeoutError()), deps.timeLimitMs ?? IMPORT_TIME_LIMIT_MS);
+  const timeLimitMs = deps.timeLimitMs ?? IMPORT_TIME_LIMIT_MS;
+  // 번역은 이 시각 전에 스스로 끝낸다 — 늦어지면 근거 검증을 마친 원문을 저장한다(translate.ts).
+  const deadlineAt = Date.now() + timeLimitMs;
+  const timer = setTimeout(() => controller.abort(new ImportTimeoutError()), timeLimitMs);
   const signal = controller.signal;
   try {
     const pasted = deps.pastedText !== undefined;
@@ -440,7 +443,7 @@ export async function runImport(importId: string, deps: RunImportDeps = {}): Pro
     const llm = deps.llm ?? createLlmClient(provider!, { userId: claimed.userId, referenceId: claimed.id });
     const extract = async (target: { url: string; pageText: string }) => {
       try {
-        return await extractPosting(target, llm, { signal });
+        return await extractPosting(target, llm, { signal, deadlineAt });
       } catch (err) {
         // 200으로 온 보안 검사 페이지(표식 없이 문구만 남은 경우)는 '공고 아님'으로 끝난다 — 차단 안내로 바꾼다.
         if (err instanceof PostingExtractError && looksLikeChallengeText(target.pageText)) {

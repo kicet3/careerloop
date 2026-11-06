@@ -355,6 +355,12 @@ export function PostingDetail({
               )}
             </Alert>
           )}
+          {structure?.translatedFrom && (
+            <p className="text-xs text-slate-500" data-testid="posting-translated-hint">
+              {structure.translatedFrom === "en" ? "영문" : "외국어"} 공고를 한국어로 옮겨 저장했습니다.
+              {posting.sourceText ? " 아래 '원문 보기'에서 원래 공고를 확인할 수 있습니다." : ""}
+            </p>
+          )}
           {structure?.source === "llm" && hasSections && (
             <p className="text-xs text-slate-500">AI가 원문 문구를 구역별로 옮겼습니다. 지원 전에 원문에서 조건과 마감 시각을 확인하세요.</p>
           )}
@@ -397,7 +403,7 @@ export function PostingDetail({
 
           {editedJd && <TextBlock title="JD(수정본)" text={editedJd} defaultOpen={stale} />}
           {rawText.trim() && (
-            <TextBlock title={posting.sourceText ? "가져온 원문" : "JD 원문"} text={rawText} defaultOpen={!hasSections && editing !== "sections"} />
+            <TextBlock title={posting.sourceText ? (structure?.translatedFrom ? "원문 보기(번역 전)" : "가져온 원문") : "JD 원문"} text={rawText} defaultOpen={!hasSections && editing !== "sections"} />
           )}
         </div>
         <div className="min-w-0 space-y-6">

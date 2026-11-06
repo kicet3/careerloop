@@ -24,6 +24,7 @@ import type { LlmClient } from "@/lib/llm";
 import { isValidDeadlineDate, isValidDeadlineTime } from "./deadline";
 import { evidenceChecker } from "./evidence";
 import { composeJdText, groundStructure, isThin } from "./structure";
+import { translateStructure } from "./translate";
 
 /** 이보다 짧은 본문은 로그인·차단·빈 페이지로 본다. */
 export const MIN_PAGE_TEXT_CHARS = 150;
@@ -137,11 +138,41 @@ export function postingFromFacts(
   return { posting, structure, sourceText };
 }
 
-/** 본문 → LLM 추출 → 근거 검증. 실패는 PostingExtractError(사용자용) 또는 LLM 오류. */
+/**
+ * 근거 검증을 마친 공고가 외국어면 직무명·근무지·구역을 한국어로 옮기고 jdText를 다시 조합한다(translate.ts).
+ * 회사명·기술 스택·마감·원문(sourceText)은 그대로. 한국어 공고면 LLM을 부르지 않는다. 번역 실패는 원문 그대로.
+ */
+export async function koreanizeExtracted(
+  extracted: ExtractedPosting,
+  llm: LlmClient,
+  opts: { signal?: AbortSignal; deadlineAt?: number } = {},
+): Promise<ExtractedPosting> {
+  const { posting, structure, sourceText } = extracted;
+  const t = await translateStructure(structure, llm, {
+    signal: opts.signal,
+    deadlineAt: opts.deadlineAt,
+    roleTitle: posting.roleTitle,
+    location: posting.location,
+    company: posting.company,
+    sourceText,
+  });
+  if (!t.translatedFrom) return extracted;
+  const jdText = structure.jdComposed ? composeJdText(t.structure) || posting.jdText : posting.jdText;
+  return {
+    posting: PostingCreateInputSchema.parse({ ...posting, roleTitle: t.roleTitle || posting.roleTitle, location: t.location, jdText }),
+    structure: t.structure,
+    sourceText,
+  };
+}
+
+/**
+ * 본문 → LLM 추출 → 근거 검증 → (외국어면) 한국어로 옮기기. 실패는 PostingExtractError(사용자용) 또는 LLM 오류.
+ * 근거 검증은 언제나 원문 기준이고, 번역은 검증을 통과한 값에만 한다.
+ */
 export async function extractPosting(
   page: { url: string; pageText: string },
   llm: LlmClient,
-  opts: { signal?: AbortSignal } = {},
+  opts: { signal?: AbortSignal; translate?: boolean; deadlineAt?: number } = {},
 ): Promise<ExtractedPosting & { facts: PostingExtract; model: string }> {
   const pageText = page.pageText.slice(0, POSTING_LIMITS.jdText);
   if (pageText.length < MIN_PAGE_TEXT_CHARS) {
@@ -159,14 +190,19 @@ export async function extractPosting(
     // 공고마다 한 번만 보내는 본문이라 캐시에 써 두어도 다시 읽히지 않는다(쓰기 할증만 붙는다).
     cacheUser: false,
   });
-  return { ...postingFromFacts(result.output, { url: page.url, pageText }), facts: result.output, model: result.model };
+  const verified = postingFromFacts(result.output, { url: page.url, pageText });
+  const saved = opts.translate === false ? verified : await koreanizeExtracted(verified, llm, { signal: opts.signal, deadlineAt: opts.deadlineAt });
+  return { ...saved, facts: result.output, model: result.model };
 }
 
-/** 공고 본문 → 구역만 LLM으로 추출 → 근거 검증(source 'llm', jdComposed false — 조합 여부는 호출자가 정한다). */
+/**
+ * 공고 본문 → 구역만 LLM으로 추출 → 근거 검증(source 'llm', jdComposed false — 조합 여부는 호출자가 정한다)
+ * → (외국어면) 구역을 한국어로 옮기기(translatedFrom). 근거 검증은 원문 기준.
+ */
 export async function extractStructure(
   text: string,
   llm: LlmClient,
-  opts: { signal?: AbortSignal; now?: number } = {},
+  opts: { signal?: AbortSignal; now?: number; translate?: boolean; company?: string; deadlineAt?: number } = {},
 ): Promise<{ structure: PostingStructure; model: string }> {
   const input = text.slice(0, POSTING_LIMITS.jdText);
   if (input.trim().length < 20) throw new PostingExtractError("정리할 공고 본문이 없습니다. JD 원문을 먼저 붙여넣어 주세요.");
@@ -180,5 +216,13 @@ export async function extractStructure(
     signal: opts.signal,
     cacheUser: false,
   });
-  return { structure: groundStructure(result.output.sections, input, opts.now), model: result.model };
+  const grounded = groundStructure(result.output.sections, input, opts.now);
+  if (opts.translate === false) return { structure: grounded, model: result.model };
+  const t = await translateStructure(grounded, llm, {
+    signal: opts.signal,
+    company: opts.company,
+    sourceText: input,
+    deadlineAt: opts.deadlineAt,
+  });
+  return { structure: t.structure, model: result.model };
 }

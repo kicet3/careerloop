@@ -167,7 +167,7 @@ storageKind(): "r2" | "local"; StorageKeyError(status 400)
 ### LLM — `src/lib/llm`
 
 ```ts
-type LlmTask = "graph-chat" | "reviewer-chat" | "resume-draft" | "posting-extract"     // LLM_TASKS (§7)
+type LlmTask = "graph-chat" | "reviewer-chat" | "resume-draft" | "posting-extract" | "posting-translate" | …  // LLM_TASKS (§7)
 createLlmClient(provider).generate({ task, system, user, schema, effort, maxTokens?, signal? })  // TaskRequest
 // 파이프라인은 그대로 { stage, ... } (GenerateRequest). LlmClient.generate는 LlmRequest = GenerateRequest | TaskRequest
 requestLabel(req): string
@@ -355,6 +355,24 @@ InsightsResponse { responseRate; funnel; resumePerformance; companies; suggestio
   `마감`·`접수 기간` 줄의 `2026.11.20 18:00` 같은 날짜·시각을 읽는다. 근거(*Evidence)는 본문 줄 그대로.
   회사·직무 줄이 없으면 `isJobPosting:false`. 본문에 `[가짜:근거없음]`이 있으면 회사·직무 근거를 본문에 없는 말로 내 근거 검증 실패를 시험할 수 있다.
   `상시 채용`/`채용 시 마감` → `rolling:true`. `정규직`/`계약직`/`인턴`, `신입`/`경력`/`경력 무관`, `원격`/`하이브리드`를 키워드로 고른다.
+
+### 7-5a. LLM — task `posting-translate`(외국어 공고 → 한국어 저장)
+
+- `src/lib/postings/translate.ts`. 근거 검증(`postingFromFacts`·`groundStructure`)은 언제나 원문 기준으로 끝낸 뒤, 검증을 통과한 값
+  (직무명·근무지·요약·구역 항목·연봉/근무시간 문구)만 `PostingTranslationSchema`로 같은 키·같은 개수로 옮긴다. 회사명·기술 스택·마감은 옮기지 않는다.
+- 언어 판정 `detectPostingLanguage`(LLM 없음): 한글 1자 = 라틴 3자로 환산한 한글 비중 < 0.2이고 외국 문자 ≥ 40일 때만 외국어
+  (`en` 라틴 문자 / `other`). 영어 기술 이름이 섞인 한국어 공고는 번역하지 않는다(호출 없음).
+- 검사 `applyTranslation`: 배열 개수가 다르면 그 구역 전체, 항목이 비었거나·길이 상한 초과·원문 길이 × 1.2 + 12자 초과·
+  숫자 변경(예외: 원문에 숫자가 붙은 날짜로 나온 영어 달("Dec 1", "May 2026")의 그 달 숫자와 원문에 낱말로 나온 수 one~twelve만 허용 — 조동사 may 등은 예외 아님)·
+  원문에 표기 그대로(대소문자 구분) 나온 기술 이름/회사명 누락이면 그 항목만 원문 값. 하나라도 바뀌면 `structured.translatedFrom`(`en`|`other`)을 남기고 jdText를 다시 조합한다.
+  원문은 `sourceText` 그대로(원문 보기·'다시 정리'). 공용 공고의 공개 필드도 같은 한국어 값.
+- 번역 호출 실패(LLM 오류)는 원문 그대로 저장하고 서버 로그에 경고만 남긴다(가져오기는 완료). 번역은 자체 시간 상한
+  (`TRANSLATE_TIME_LIMIT_MS` 90초, 호출자 전체 상한 `deadlineAt` − 여유 10초 안)을 쓰고, 여기에 걸리거나 남은 시간이 15초 미만이면
+  번역 없이 검증된 원문을 저장한다(가져오기 180초·다시 정리 240초 상한이 번역 때문에 터져 추출 결과를 버리지 않게).
+  호출자 signal의 취소·시간 초과만 그대로 던진다. 출력 예산은 추출과 같은 24k 토큰.
+  '다시 정리'(`extractStructure`)도 같은 번역을 거친다(구역만 — 직무명·근무지 컬럼은 그대로).
+- 가짜 출력: 아는 낱말(Senior·Backend·Engineer·Remote·Seoul …)만 바꾸고 한글이 없으면 `(번역) `을 붙인다(개수·숫자·이름 유지).
+  가짜 추출은 `Company: …`/`Role: …`/`Location: …`와 영문 구역 제목(Responsibilities·Requirements·Nice to have·Benefits)도 읽는다.
 
 ### 7-6. 담당별 권장 시그니처(명세 요약 — 담당이 세부를 정하되 교차 지점은 지킨다)
 

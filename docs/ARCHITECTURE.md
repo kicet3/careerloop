@@ -341,7 +341,8 @@ docker compose --env-file .env.local -p resume-career up -d neo4j
   엔진이 없으면 작업을 만들기 전에 409. 실행은 `after()`에서 `runImport`: 조건부 UPDATE(`attempts`+1)로 한 번만 차지, 1회 180초 상한,
   5분 넘게 멈춘 작업은 조회 때 다시 실행, 3회 뒤 실패. 페이지 읽기(`fetch.ts`)는 사설·루프백·CGNAT·링크로컬·ULA를 막고(DNS 결과 전부 검사,
   검사한 주소로만 접속), 리다이렉트 3회마다 재검사, 2MB·20초. JSON-LD JobPosting을 본문 앞에 붙이고 LLM task `posting-extract`로 사실을 뽑은 뒤,
-  회사·직무 근거가 본문에 없으면 실패, 마감일·시각은 근거 문구에 있을 때만 저장. 사용자에게는 보여도 되는 오류 문구만 남긴다.
+  회사·직무 근거가 본문에 없으면 실패, 마감일·시각은 근거 문구에 있을 때만 저장. 외국어(주로 영어) 공고는 근거 검증 뒤 검증된 값만
+  task `posting-translate`로 한국어로 옮겨 저장한다(원문은 sourceText, `structured.translatedFrom`, translate.ts). 사용자에게는 보여도 되는 오류 문구만 남긴다.
   제한: 동시 3건, 분당 6회(메모리). 하루 횟수 제한은 없다.
 - **내 경력과 대조** — 공고 상세의 `PostingMatchCard`(`GET /api/postings/[id]/match`), 그래프 화면의 `SkillGapPanel`(`GET /api/insights/skills`).
   LLM 없이 계산한다. 요구 기술은 그 공고에 연결된 진단의 JD 분석(단계 완료분) 키워드, 없거나 추정이면 공고 본문에서 사전(`src/lib/skills/dictionary.ts`)으로 뽑고
