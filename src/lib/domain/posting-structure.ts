@@ -69,6 +69,11 @@ export const PostingStructureSchema = z.object({
   /** 구조를 만든 입력 텍스트의 해시(sourceHash). 원문이 바뀌었는지 판단한다. */
   sourceHash: z.string().max(32),
   extractedAt: z.number().int(),
+  /**
+   * 외국어 공고를 한국어로 옮겨 저장했으면 원문 언어(en: 라틴 문자 — 대부분 영어, other: 그 밖의 외국어). 항목은 원문에서
+   * 근거 검증한 뒤 옮긴 것이고 원문은 sourceText에 그대로 있다(src/lib/postings/translate.ts). 없으면 원문 그대로 저장.
+   */
+  translatedFrom: z.enum(["en", "other"]).optional(),
 });
 export type PostingStructure = z.infer<typeof PostingStructureSchema>;
 
@@ -126,6 +131,31 @@ export const PostingSectionsLlmSchema = z.object({
   notes: copied(STRUCTURE_LIMITS.notes, "위 구역에 넣지 못한 기타 안내"),
 });
 export type PostingSectionsLlm = z.infer<typeof PostingSectionsLlmSchema>;
+
+/**
+ * 외국어 공고 번역(task 'posting-translate')의 LLM 출력: 근거 검증을 마친 값을 같은 키·같은 개수로 한국어로 옮긴 것.
+ * 개수·길이·숫자·고유명사 검사는 translate.ts가 항목마다 하고, 맞지 않는 항목은 원문 값으로 둔다.
+ */
+export const PostingTranslationSchema = z.object({
+  roleTitle: z.string().describe("모집 직무명 번역. 입력이 빈 문자열이면 빈 문자열"),
+  location: z.string().describe("근무지 번역. 입력이 빈 문자열이면 빈 문자열"),
+  summary: z.string(),
+  companyIndustry: z.string(),
+  companySize: z.string(),
+  salary: z.string(),
+  workHours: z.string(),
+  companyIntro: z.array(z.string()),
+  duties: z.array(z.string()),
+  requirements: z.array(z.string()),
+  preferred: z.array(z.string()),
+  conditionsOther: z.array(z.string()),
+  benefits: z.array(z.string()),
+  process: z.array(z.string()),
+  documents: z.array(z.string()),
+  applyMethod: z.array(z.string()),
+  notes: z.array(z.string()),
+});
+export type PostingTranslation = z.infer<typeof PostingTranslationSchema>;
 
 /** 구역만 다시 정리할 때(POST /api/postings/[id]/structure)의 LLM 출력. */
 export const PostingSectionsOnlySchema = z.object({ sections: PostingSectionsLlmSchema });

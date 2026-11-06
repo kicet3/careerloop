@@ -33,7 +33,6 @@ import { prisma, type Prisma } from "@/lib/db/client";
 import { stripNul } from "@/lib/db/errors";
 import type { PostingImportRow, SharedPostingRow } from "@/lib/db/types";
 import {
-  DAILY_POSTING_IMPORT_LIMIT,
   POSTING_BLOCKED_ERROR,
   type PostingImportJob,
   type PostingImportStatus,
@@ -187,16 +186,7 @@ async function createImportRow(
     if (active.filter((r) => !isImportStale(toImportJob(r), now)).length >= MAX_ACTIVE_IMPORTS) {
       throw new FeatureError("진행 중인 공고 가져오기가 많습니다. 끝난 뒤 다시 시도하세요.", 409);
     }
-    // 공용 공고를 바로 담은 행(실행 없이 completed, attempts 0)은 세지 않는다.
-    const recent = await tx.postingImport.count({
-      where: { userId, createdAt: { gte: new Date(now - 86_400_000) }, NOT: { status: "completed", attempts: 0 } },
-    });
-    if (recent >= DAILY_POSTING_IMPORT_LIMIT) {
-      throw new FeatureError(
-        `공고 가져오기(링크·원문 붙여넣기)는 하루 ${DAILY_POSTING_IMPORT_LIMIT}번까지 할 수 있습니다. 직접 입력으로 추가하거나 내일 다시 시도하세요.`,
-        429,
-      );
-    }
+    // 하루 횟수 제한은 두지 않는다(동시 진행 수와 분당 연속 요청 제한만 남긴다).
     const at = new Date(now);
     const row = await tx.postingImport.create({
       data: {

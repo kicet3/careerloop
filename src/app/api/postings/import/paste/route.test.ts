@@ -6,7 +6,7 @@ import { mkdtempSync } from "node:fs";
 import { tmpdir } from "node:os";
 import path from "node:path";
 import { afterAll, beforeAll, beforeEach, describe, expect, it, vi } from "vitest";
-import { DAILY_POSTING_IMPORT_LIMIT, POSTING_LIMITS } from "@/lib/domain/postings";
+import { POSTING_LIMITS } from "@/lib/domain/postings";
 import { createTestDb, type TestDb } from "@/test/db";
 
 vi.mock("server-only", () => ({}));
@@ -172,7 +172,7 @@ describe("POST /api/postings/import/paste", () => {
       expect(await tdb.prisma.postingImport.count({ where: { userId: "ue" } })).toBe(0);
     });
 
-    it("출처 403·로그인 401·하루 횟수 429", async () => {
+    it("출처 403·로그인 401, 하루 횟수 제한은 없다", async () => {
       state.crossSite = true;
       expect((await post({ pageText })).status).toBe(403);
       state.crossSite = false;
@@ -181,11 +181,9 @@ describe("POST /api/postings/import/paste", () => {
       state.user = { id: "uf", email: "uf@x.com", name: null };
       const at = new Date();
       await tdb.prisma.postingImport.createMany({
-        data: Array.from({ length: DAILY_POSTING_IMPORT_LIMIT }, (_, i) => ({ id: `uf-old${i}`, userId: "uf", url: "", status: "failed", attempts: 1, createdAt: at, updatedAt: at })),
+        data: Array.from({ length: 25 }, (_, i) => ({ id: `uf-old${i}`, userId: "uf", url: "", status: "failed", attempts: 1, createdAt: at, updatedAt: at })),
       });
-      const limited = await post({ pageText });
-      expect(limited.status).toBe(429);
-      expect(state.afterTasks).toHaveLength(0);
+      expect((await post({ pageText })).status).toBe(202);
     });
   });
 });

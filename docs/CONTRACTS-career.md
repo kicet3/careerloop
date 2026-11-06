@@ -293,7 +293,7 @@ EMPLOYMENT_TYPES = ["full_time","contract","intern","new_grad","freelance","othe
 WORK_TYPES = ["onsite","hybrid","remote","unknown"]; WORK_TYPE_LABELS
 CAREER_LEVELS = ["entry","experienced","senior","manager","any","unknown"]; CAREER_LEVEL_LABELS
 POSTING_LIMITS = { company:150, roleTitle:250, url:2048, jdText:30000, location:300, note:6000, platform:40 }
-DAILY_POSTING_IMPORT_LIMIT = 20       // 최근 24시간 posting_imports 행 수
+(하루 가져오기 횟수 제한 없음 — 동시 3건·분당 6회만)
 
 PostingCreateInputSchema (strict; company·roleTitle 필수, 나머지 기본값. deadlineKind 생략 시 deadline 있으면 'date' 아니면 'unspecified')
 PostingUpdateInputSchema (strict partial, 빈 객체 거절) — 서비스가 기존 행과 합친 뒤 postingDeadlineError로 다시 검사
@@ -372,7 +372,7 @@ src/lib/postings/page-text.ts postingPageText(html): string (JSON-LD JobPosting 
 src/lib/postings/extract.ts   extractPosting({ url, pageText }, llm, { signal? }): Promise<{ facts; posting: PostingCreateInput }>  // 근거 검증
 src/lib/postings/service.ts   listPostings(userId, opts?); getPosting(userId, id): JobPosting|null; createPosting(userId, input, { extractedBy? });
                               updatePosting(userId, id, patch); deletePosting(userId, id): boolean   // 중복 urlKey → FeatureError(409) + 기존 id
-src/lib/postings/imports.ts   createImport(userId, url): PostingImportJob (하루 20회); runImport(importId, { llm?, fetchImpl? }); getImport(userId, id)
+src/lib/postings/imports.ts   createImport(userId, url): PostingImportJob (하루 제한 없음); runImport(importId, { llm?, fetchImpl? }); getImport(userId, id)
 // applications
 src/lib/applications/service.ts  listApplications(userId, { postingId? }); getApplication(userId, id): ApplicationDetail|null;
                                  createApplication(userId, input); updateApplication(userId, id, patch); changeStage(userId, id, input);

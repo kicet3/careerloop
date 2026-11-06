@@ -3,7 +3,7 @@
  * 본문 붙여넣어 가져오기가 URL 가져오기와 같은 경로(근거 검증·구조화·중복·하루 횟수)를 타되 링크 공용 공고로는 올리지 않는지.
  */
 import { afterAll, beforeAll, beforeEach, describe, expect, it, vi } from "vitest";
-import { DAILY_POSTING_IMPORT_LIMIT, POSTING_BLOCKED_ERROR } from "@/lib/domain/postings";
+import { POSTING_BLOCKED_ERROR } from "@/lib/domain/postings";
 import { createTestDb, type TestDb } from "@/test/db";
 import { FakeLlmClient } from "@/test/fake-llm";
 
@@ -169,16 +169,6 @@ describe("본문 붙여넣어 가져오기", () => {
     expect(await tdb.prisma.jobPosting.count({ where: { userId: "ua" } })).toBe(0);
   });
 
-  it("하루 가져오기 횟수를 링크 가져오기와 같이 센다", async () => {
-    const at = new Date();
-    for (let i = 0; i < DAILY_POSTING_IMPORT_LIMIT; i++) {
-      await tdb.prisma.postingImport.create({
-        data: { id: `old${i}`, userId: "ua", url: `https://jobs.example/old/${i}`, status: "failed", attempts: 1, createdAt: at, updatedAt: at },
-      });
-    }
-    await expect(imports.createImport("ua", URL_A, { pasted: true })).rejects.toMatchObject({ status: 429 });
-  });
-
   it("붙여넣기 가져오기 뒤에는 원문 캡처를 시도하지 않는다", async () => {
     const r = await imports.createImport("ua", URL_A, { pasted: true });
     const capture = vi.fn();
@@ -250,16 +240,6 @@ describe("원문만 붙여넣기(링크 없음, '직접 추가'의 AI 추가)", 
     expect(fetchPage).not.toHaveBeenCalled();
     expect(spy).not.toHaveBeenCalled();
     expect(await imports.getImport("ua", r.job.id)).toMatchObject({ status: "failed", error: imports.TEXT_IMPORT_INTERRUPTED_ERROR });
-  });
-
-  it("하루 가져오기 횟수를 같이 센다(429)", async () => {
-    const at = new Date();
-    for (let i = 0; i < DAILY_POSTING_IMPORT_LIMIT; i++) {
-      await tdb.prisma.postingImport.create({
-        data: { id: `old${i}`, userId: "ua", url: "", status: "failed", attempts: 1, createdAt: at, updatedAt: at },
-      });
-    }
-    await expect(imports.createImport("ua", "", { pasted: true })).rejects.toMatchObject({ status: 429 });
   });
 
   it("원문 캡처를 시도하지 않는다", async () => {

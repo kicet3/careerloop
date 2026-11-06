@@ -83,8 +83,6 @@ export const POSTING_LIMITS = {
   platform: 40,
 } as const;
 
-/** 사용자별 하루 URL 가져오기 횟수(KST 자정 기준이 아니라 최근 24시간). */
-export const DAILY_POSTING_IMPORT_LIMIT = 20;
 
 // ---------------------------------------------------------------------------
 // 입력 스키마(API)

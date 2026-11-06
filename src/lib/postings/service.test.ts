@@ -294,13 +294,13 @@ describe("URL 가져오기 작업", () => {
     expect(await imports.getImport("ub", dead.id)).toMatchObject({ status: "failed", error: expect.stringContaining("끊겼습니다") });
   });
 
-  it("최근 24시간 20건을 넘으면 429(지운 공고와 무관하게 작업 행으로 센다)", async () => {
+  it("하루 횟수 제한이 없다: 최근 24시간 20건이 넘어도 새로 가져온다", async () => {
     await tdb.prisma.user.create({ data: { id: "uc", email: "uc@x.com", passwordHash: "x" } });
     const now = new Date();
     await tdb.prisma.postingImport.createMany({
       data: Array.from({ length: 20 }, (_, i) => ({ id: `lim-${i}`, userId: "uc", url: `https://jobs.example/l${i}`, status: "failed", createdAt: now, updatedAt: now })),
     });
-    await expect(imports.createImport("uc", "https://jobs.example/over")).rejects.toMatchObject({ status: 429 });
+    await expect(imports.createImport("uc", "https://jobs.example/over")).resolves.toMatchObject({ job: { status: "queued" } });
     expect((await imports.listRecentImports("uc")).length).toBe(10);
   });
 });

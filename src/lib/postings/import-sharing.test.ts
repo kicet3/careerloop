@@ -4,7 +4,7 @@
  * 공고 찾기 필터(회사·직무·기술·마감).
  */
 import { afterAll, beforeAll, beforeEach, describe, expect, it, vi } from "vitest";
-import { DAILY_POSTING_IMPORT_LIMIT, PostingCreateInputSchema } from "@/lib/domain/postings";
+import { PostingCreateInputSchema } from "@/lib/domain/postings";
 import { createTestDb, type TestDb } from "@/test/db";
 import { FakeLlmClient } from "@/test/fake-llm";
 
@@ -72,18 +72,16 @@ describe("가져오기 → 공고 찾기", () => {
       createdBy: "ua",
     });
     const at = new Date();
-    // 하루 한도 직전까지 실제 실행한 작업(attempts ≥ 1)을 쌓는다.
-    for (let i = 0; i < DAILY_POSTING_IMPORT_LIMIT - 1; i++) {
+    // 실제 실행한 작업(attempts ≥ 1)을 많이 쌓아도 하루 제한은 없다.
+    for (let i = 0; i < 25; i++) {
       await tdb.prisma.postingImport.create({
         data: { id: `old${i}`, userId: "ub", url: `https://jobs.example/old/${i}`, status: "failed", attempts: 1, createdAt: at, updatedAt: at },
       });
     }
     const r = await imports.createImport("ub", s.url!);
     expect(r.fromShared).toBe(true);
-    // 바로 담은 행은 세지 않으므로 아직 한 번 더 가져올 수 있다.
     const next = await imports.createImport("ub", "https://jobs.example/new");
     expect(next).toMatchObject({ fromShared: false, job: { status: "queued" } });
-    await expect(imports.createImport("ub", "https://jobs.example/over")).rejects.toMatchObject({ status: 429 });
   });
 
   it("다시 가져오기: 공용 공고가 있어도 페이지를 다시 읽고, 내 공고를 새 내용으로 맞춘다(상태·메모 유지)", async () => {
