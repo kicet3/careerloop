@@ -8,13 +8,15 @@ import { SourceLink } from "@/components/postings/SourceLink";
 import { inputClass, textareaClass } from "@/components/resumes/styles";
 import { Alert } from "@/components/ui/Alert";
 import { Badge } from "@/components/ui/Badge";
-import { Button } from "@/components/ui/Button";
+import { Button, buttonClass } from "@/components/ui/Button";
 import { Card } from "@/components/ui/Card";
+import { portfolioOpenItems } from "@/lib/domain/graph-portfolio";
 import {
   MAX_PORTFOLIO_DESCRIPTION_CHARS,
   MAX_PORTFOLIO_TITLE_CHARS,
   PORTFOLIO_KIND_LABELS,
   portfolioReadable,
+  portfolioSourceLabel,
   type PortfolioListItem,
 } from "@/lib/domain/portfolios";
 import { NETWORK_ERROR, readError } from "./api";
@@ -108,11 +110,22 @@ export function PortfolioItem({ portfolio: p, maxBytes, variant }: { portfolio: 
       <div className="flex flex-wrap items-start justify-between gap-2">
         <div className="min-w-0 flex-1 space-y-1.5">
           <div className="flex min-w-0 items-center gap-2">
-            <Badge tone="info">{PORTFOLIO_KIND_LABELS[p.kind]}</Badge>
+            <Badge tone={p.kind === "graph" ? "accent" : "info"}>{PORTFOLIO_KIND_LABELS[p.kind]}</Badge>
             {heading}
           </div>
           <p className="flex min-w-0 flex-wrap items-center gap-x-2 gap-y-1 text-sm text-slate-600">
-            {p.kind === "file" ? (
+            {p.kind === "graph" ? (
+              <>
+                <span className="min-w-0 truncate">
+                  {portfolioSourceLabel(p)}
+                  {p.graphSource && p.graphSource.projectIds.length > 0 && ` · 프로젝트 ${p.graphSource.projectIds.length}개`}
+                </span>
+                {p.chars !== null && <span className="text-xs text-slate-500">{p.chars.toLocaleString("ko-KR")}자</span>}
+                {portfolioOpenItems(p.graphSource) > 0 && (
+                  <span className="text-xs text-amber-700">채워야 할 자리 {portfolioOpenItems(p.graphSource)}개</span>
+                )}
+              </>
+            ) : p.kind === "file" ? (
               <>
                 <span className="min-w-0 truncate">{p.fileName ?? "파일"}</span>
                 {p.chars !== null && <span className="text-xs text-slate-500">{p.chars.toLocaleString("ko-KR")}자</span>}
@@ -132,9 +145,17 @@ export function PortfolioItem({ portfolio: p, maxBytes, variant }: { portfolio: 
           <Button size="sm" variant="secondary" onClick={() => open("meta")} disabled={busy !== null}>
             이름·설명
           </Button>
-          <Button size="sm" variant="secondary" onClick={() => open("content")} disabled={busy !== null}>
-            내용 바꾸기
-          </Button>
+          {p.kind === "graph" ? (
+            variant === "card" && (
+              <Link href={`/app/portfolios/${p.id}`} className={buttonClass("secondary", "sm")}>
+                보기·고치기
+              </Link>
+            )
+          ) : (
+            <Button size="sm" variant="secondary" onClick={() => open("content")} disabled={busy !== null}>
+              내용 바꾸기
+            </Button>
+          )}
           <Button size="sm" variant="danger" onClick={remove} loading={busy === "delete"} disabled={busy !== null}>
             지우기
           </Button>
@@ -200,7 +221,7 @@ export function PortfolioItem({ portfolio: p, maxBytes, variant }: { portfolio: 
         </div>
       )}
 
-      {panel === "content" && (
+      {panel === "content" && p.kind !== "graph" && (
         <div className="mt-4 border-t border-slate-100 pt-4">
           <p className="mb-3 text-xs text-slate-500">
             새 파일이나 링크로 바꿉니다. 이름·설명과 붙인 이력서는 그대로이고, 저장해 둔 이전 글은 지워집니다.

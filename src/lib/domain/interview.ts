@@ -8,6 +8,7 @@
  * 지원 동기·이직 사유·자기소개(motivation), 공고가 없을 때 직무 일반(job).
  */
 import { z } from "zod";
+import { PORTFOLIO_KINDS } from "./portfolios";
 
 // ---------------------------------------------------------------------------
 // 분류
@@ -189,7 +190,7 @@ export const InterviewSourceSnapshotSchema = z.object({
     .object({ id: z.string(), company: z.string(), roleTitle: z.string(), url: z.string() })
     .nullable(),
   portfolio: z
-    .object({ kind: z.enum(["file", "url"]), fileName: z.string().nullable(), url: z.string().nullable(), truncated: z.boolean() })
+    .object({ kind: z.enum(PORTFOLIO_KINDS), fileName: z.string().nullable(), url: z.string().nullable(), truncated: z.boolean() })
     .nullable(),
   lines: z.array(InterviewSourceLineSchema).max(1500),
   createdAt: z.number(),

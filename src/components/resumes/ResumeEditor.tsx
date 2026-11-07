@@ -17,7 +17,7 @@ import {
   type ResumeTemplateId,
 } from "@/lib/domain/resumes";
 import { SourceLink } from "@/components/postings/SourceLink";
-import type { PortfolioPickOption } from "@/lib/domain/portfolios";
+import { portfolioHasText, type PortfolioPickOption } from "@/lib/domain/portfolios";
 import { POSTING_STATUS_LABELS } from "@/lib/domain/postings";
 import { SELF_HOSTED_UPLOAD_LIMITS, VERCEL_UPLOAD_LIMITS, type UploadLimits } from "@/lib/ingest/upload-limits";
 import { countAddMarkers, resumeToText } from "@/lib/resumes/layout";
@@ -366,14 +366,14 @@ export function ResumeEditor({
     // 첨부 포트폴리오도 함께 넘긴다(파일은 뽑아 둔 글, 링크는 주소, 적어 둔 설명). 못 읽으면 포트폴리오 없이 진행한다.
     if (meta.portfolio?.kind === "url" && meta.portfolio.url) prefill.portfolioUrl = meta.portfolio.url;
     if (meta.portfolio?.description) prefill.portfolioNote = meta.portfolio.description;
-    if (meta.portfolio?.kind === "file") {
+    if (meta.portfolio && portfolioHasText(meta.portfolio.kind)) {
       setBusy("view");
       try {
         const res = await fetch(`/api/resumes/${meta.id}/portfolio?include=text`);
         const data = res.ok ? ((await res.json().catch(() => null)) as { text?: string } | null) : null;
         if (data?.text) {
           prefill.portfolioText = data.text;
-          prefill.portfolioFileName = meta.portfolio.fileName ?? undefined;
+          prefill.portfolioFileName = meta.portfolio.fileName ?? (meta.portfolio.kind === "graph" ? `${meta.portfolio.title}.md` : undefined);
         }
       } catch {
         // 포트폴리오 없이 진행

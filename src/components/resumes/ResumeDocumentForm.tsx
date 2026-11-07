@@ -411,8 +411,16 @@ export function ResumeDocumentForm({
       <Fieldset title="기본 정보">
         <div className={grid2}>
           <Text label="이름" value={doc.basics.name} max={80} onChange={(v) => basics({ name: v })} />
-          <Text label="지원 직무·한 줄 소개" value={doc.basics.headline} max={160} placeholder="5년 차 백엔드 개발자" onChange={(v) => basics({ headline: v })} />
+          <Text label="지원 직무" value={doc.basics.headline} max={160} placeholder="백엔드 개발자" onChange={(v) => basics({ headline: v })} />
           <Text label="총 경력" value={doc.basics.totalExperience} max={40} placeholder="5년 3개월" onChange={(v) => basics({ totalExperience: v })} />
+          <Text
+            label="한 줄 소개"
+            className="sm:col-span-2"
+            value={doc.basics.tagline}
+            max={200}
+            placeholder="결제 지연을 줄여 온 5년 차 백엔드 개발자"
+            onChange={(v) => basics({ tagline: v })}
+          />
           <Text label="이메일" value={doc.basics.email} max={160} onChange={(v) => basics({ email: v })} />
           <Text label="전화" value={doc.basics.phone} max={40} onChange={(v) => basics({ phone: v })} />
           <Text label="지역" value={doc.basics.location} max={80} onChange={(v) => basics({ location: v })} />

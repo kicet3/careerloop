@@ -7,6 +7,8 @@ import "server-only";
  *   둔다(키는 portfolios.text_key). 예전 이력서 첨부에서 옮긴 항목은 users/<u>/resumes/<이력서 id>/portfolio-<꼬리>.txt를 쓴다 —
  *   이력서를 지울 때 그 키는 남기고(resumes/service.ts deleteResume), 포트폴리오를 지우거나 내용을 바꿀 때 지운다.
  * - 링크는 주소만 저장한다(서버가 그 주소를 열지 않는다).
+ * - 'graph'는 경험 그래프에서 AI가 쓴 Markdown 본문을 파일 텍스트와 같은 자리(text_key)에 두고, 생성 정보는 graph_source에 둔다
+ *   (만들기·다시 만들기는 graph-jobs.ts, 본문 고치기는 updatePortfolioText).
  * - 모든 함수는 userId 소유권을 확인한다. 남의 포트폴리오는 null/false(라우트에서 404).
  * - 상한은 만들 때 사용자별 잠금 안에서 확인한다(createRow). 목록은 상한을 넘는 행(옛 첨부에서 옮긴 것)도 모두 보여 준다.
  * - 파일 읽기·레이트 리밋·업로드 크기 검사는 라우트(src/lib/portfolios/http.ts)가 한다. 여기는 저장만.
@@ -14,7 +16,7 @@ import "server-only";
 import { randomUUID } from "node:crypto";
 import { customAlphabet } from "nanoid";
 import type { Prisma } from "@/generated/prisma/client";
-import { prisma } from "@/lib/db/client";
+import { prisma, Prisma as PrismaNs } from "@/lib/db/client";
 import { stripNul } from "@/lib/db/errors";
 import type { PortfolioRow } from "@/lib/db/types";
 import {
@@ -23,10 +25,12 @@ import {
   MAX_PORTFOLIO_TITLE_CHARS,
   MAX_PORTFOLIO_URL_CHARS,
   PORTFOLIO_KINDS,
+  portfolioHasText,
   type PortfolioInfo,
   type PortfolioListItem,
   type PortfolioResumeRef,
 } from "@/lib/domain/portfolios";
+import { countPortfolioAddMarkers, parseGraphPortfolioSource, type GraphPortfolioSourceInput } from "@/lib/domain/graph-portfolio";
 import { deleteObject, getObject, listByPrefix, putObject, userKey, userPrefix } from "@/lib/storage";
 
 // 저장소 키 조각은 영문·숫자로 시작해야 하므로 '-'·'_' 없는 알파벳을 쓴다(이력서 id와 같은 꼴).
@@ -56,7 +60,8 @@ export function toPortfolioInfo(row: PortfolioRow): PortfolioInfo {
     kind,
     fileName: kind === "file" ? (row.fileName ?? null) : null,
     url: kind === "url" ? (row.url ?? null) : null,
-    chars: kind === "file" ? (row.chars ?? null) : null,
+    chars: portfolioHasText(kind) ? (row.chars ?? null) : null,
+    graphSource: kind === "graph" ? parseGraphPortfolioSource(row.graphSource) : null,
     createdAt: row.createdAt.getTime(),
     updatedAt: row.updatedAt.getTime(),
   };
@@ -140,9 +145,9 @@ export async function getPortfolio(userId: string, id: string): Promise<Portfoli
   return row ? { ...toPortfolioInfo(row as PortfolioRow), resumes: row.resumes.map(toResumeRef) } : null;
 }
 
-/** 저장해 둔 텍스트(kind 'file'). 링크거나 저장소에서 사라졌으면 null. */
+/** 저장해 둔 텍스트(kind 'file' | 'graph'). 링크거나 저장소에서 사라졌으면 null. */
 export async function readPortfolioText(row: Pick<PortfolioRow, "kind" | "textKey">): Promise<string | null> {
-  if (row.kind !== "file" || !row.textKey) return null;
+  if (!portfolioHasText(row.kind) || !row.textKey) return null;
   const buf = await getObject(row.textKey);
   return buf ? buf.toString("utf8") : null;
 }
@@ -241,7 +246,15 @@ export async function replacePortfolioFile(
   try {
     [updated] = await prisma.portfolio.updateManyAndReturn({
       where: { id, userId },
-      data: { kind: "file", fileName: cleanFileName(file.fileName), url: null, textKey: key, chars: text.length, updatedAt: new Date() },
+      data: {
+        kind: "file",
+        fileName: cleanFileName(file.fileName),
+        url: null,
+        textKey: key,
+        chars: text.length,
+        graphSource: PrismaNs.DbNull,
+        updatedAt: new Date(),
+      },
     });
   } catch (err) {
     await dropText(key);
@@ -261,11 +274,123 @@ export async function replacePortfolioUrl(userId: string, id: string, url: strin
   if (!row) return null;
   const [updated] = await prisma.portfolio.updateManyAndReturn({
     where: { id, userId },
-    data: { kind: "url", fileName: null, url: cleanUrl(url), textKey: null, chars: null, updatedAt: new Date() },
+    data: { kind: "url", fileName: null, url: cleanUrl(url), textKey: null, chars: null, graphSource: PrismaNs.DbNull, updatedAt: new Date() },
   });
   if (!updated) return null;
   await dropText(row.textKey);
   return toPortfolioInfo(updated as PortfolioRow);
+}
+
+// ---------------------------------------------------------------------------
+// 경험 그래프 포트폴리오(kind 'graph')
+// ---------------------------------------------------------------------------
+
+function sourceJson(source: GraphPortfolioSourceInput, text: string): PrismaNs.InputJsonValue {
+  return {
+    projectIds: source.projectIds.slice(0, 50),
+    postingId: source.postingId,
+    notes: stripNul(source.notes).slice(0, 2000),
+    missingInfo: source.missingInfo.map((m) => stripNul(m).slice(0, 500)).slice(0, 50),
+    generatedAt: source.generatedAt,
+    addMarkers: countPortfolioAddMarkers(text),
+  };
+}
+
+/**
+ * AI가 쓴 본문으로 새 'graph' 포트폴리오. 본문을 먼저 저장하고 행을 만든다(실패하면 본문을 지운다).
+ * 호출자(graph-jobs.ts)가 그래프 소유·프로젝트 확인을 마친 뒤 부른다.
+ */
+export async function createGraphPortfolio(
+  userId: string,
+  input: { title: string; description?: string | null; text: string; source: GraphPortfolioSourceInput },
+): Promise<{ portfolio: PortfolioInfo; truncated: boolean }> {
+  const id = newId();
+  const { text, truncated } = cleanText(input.text);
+  const key = portfolioTextKey(userId, id);
+  await putObject(key, text, { contentType: "text/markdown; charset=utf-8" });
+  try {
+    const row = await createRow(userId, {
+      id,
+      title: cleanTitle(input.title) || "경험 그래프 포트폴리오",
+      description: cleanDescription(input.description),
+      kind: "graph",
+      textKey: key,
+      chars: text.length,
+      graphSource: sourceJson(input.source, text),
+    });
+    return { portfolio: toPortfolioInfo(row), truncated };
+  } catch (err) {
+    await dropText(key);
+    throw err;
+  }
+}
+
+/** commit 확인이 거절해 본문 바꾸기를 되돌렸다. */
+class ReplaceAborted extends Error {}
+
+export type ReplacePortfolioTextResult =
+  | { portfolio: PortfolioInfo; truncated: boolean }
+  /** 남의 것·없는 것 */
+  | null
+  /** 그래프 포트폴리오가 아니다 */
+  | "not_graph"
+  /** 읽은 뒤 다른 저장이 먼저 본문을 바꿨다(새 본문은 지웠다) */
+  | "conflict"
+  /** commit 확인이 false — 아무것도 바꾸지 않았다 */
+  | "aborted";
+
+/**
+ * 본문 바꾸기: 새 키에 저장 → 한 트랜잭션에서 행이 '읽은 옛 키'를 그대로 가리킬 때만(compare-and-swap) 새 키로 바꾸고 → 옛 본문을 지운다.
+ * 동시에 두 쪽이 쓰면 늦은 쪽은 'conflict'(새 본문을 지운다) — 한쪽 본문이 고아로 남거나 말없이 덮이지 않는다.
+ * - source를 주면(다시 만들기) 생성 정보를 바꾼다. 주지 않으면(직접 고치기) 생성 정보는 두고 [ADD] 자리 수만 다시 세며,
+ *   자리가 하나도 남지 않으면 AI가 남긴 '채워야 할 정보' 목록도 비운다.
+ * - commit(tx)은 같은 트랜잭션 안에서 행을 바꾼 뒤 부른다. false면 되돌리고 'aborted'(작업 완료 기록·실행 중 작업 확인용).
+ */
+export async function replacePortfolioText(
+  userId: string,
+  id: string,
+  rawText: string,
+  opts: { source?: GraphPortfolioSourceInput; commit?: (tx: Prisma.TransactionClient) => Promise<boolean> } = {},
+): Promise<ReplacePortfolioTextResult> {
+  const row = await ownedRow(userId, id);
+  if (!row) return null;
+  if (row.kind !== "graph") return "not_graph";
+  const { text, truncated } = cleanText(rawText);
+  let graphSource: PrismaNs.InputJsonValue | undefined;
+  if (opts.source) graphSource = sourceJson(opts.source, text);
+  else {
+    const prev = parseGraphPortfolioSource(row.graphSource);
+    if (prev) {
+      const addMarkers = countPortfolioAddMarkers(text);
+      graphSource = sourceJson({ ...prev, missingInfo: addMarkers === 0 ? [] : prev.missingInfo }, text);
+    }
+  }
+  const key = portfolioTextKey(userId, id);
+  await putObject(key, text, { contentType: "text/markdown; charset=utf-8" });
+  let updated: PortfolioRow | undefined;
+  try {
+    updated = await prisma.$transaction(async (tx) => {
+      const [next] = await tx.portfolio.updateManyAndReturn({
+        where: { id, userId, kind: "graph", textKey: row.textKey },
+        data: { textKey: key, chars: text.length, updatedAt: new Date(), ...(graphSource ? { graphSource } : {}) },
+      });
+      if (!next) return undefined;
+      if (opts.commit && !(await opts.commit(tx))) throw new ReplaceAborted();
+      return next as PortfolioRow;
+    });
+  } catch (err) {
+    await dropText(key);
+    if (err instanceof ReplaceAborted) return "aborted";
+    throw err;
+  }
+  if (!updated) {
+    await dropText(key);
+    const current = await ownedRow(userId, id);
+    if (!current) return null;
+    return current.kind === "graph" ? "conflict" : "not_graph";
+  }
+  if (row.textKey && row.textKey !== key) await dropText(row.textKey);
+  return { portfolio: toPortfolioInfo(updated), truncated };
 }
 
 /**

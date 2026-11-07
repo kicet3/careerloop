@@ -24,7 +24,7 @@ export default async function GraphPage({ searchParams }: { searchParams: Promis
   if (!graphEnabled()) {
     return (
       <div className="space-y-6">
-        <Header />
+        <Header portfolioLink={false} />
         <Card className="p-5">
           <Alert tone="warning" title="경험 그래프 저장소가 설정되지 않았습니다">
             이 서버에는 Neo4j 연결 정보(NEO4J_URI·NEO4J_USER·NEO4J_PASSWORD)가 없어 경험 그래프를 쓸 수 없습니다. 관리자라면
@@ -47,7 +47,7 @@ export default async function GraphPage({ searchParams }: { searchParams: Promis
 
   return (
     <div className="space-y-6">
-      <Header />
+      <Header portfolioLink />
       <GraphWorkspace
         initialGraph={initialGraph}
         initialError={initialError}
@@ -59,14 +59,22 @@ export default async function GraphPage({ searchParams }: { searchParams: Promis
   );
 }
 
-function Header() {
+/** portfolioLink: 그래프를 쓸 수 있을 때만 '포트폴리오 만들기'로 안내한다(저장소가 없으면 그 흐름도 쓸 수 없다). */
+function Header({ portfolioLink }: { portfolioLink: boolean }) {
   return (
     <div>
       <div className="flex flex-wrap items-baseline justify-between gap-x-4 gap-y-1">
         <h1 className="text-2xl font-bold tracking-tight text-slate-900">경험 그래프</h1>
-        <Link href="/app/mcp" className="text-sm font-medium text-indigo-700 hover:underline hover:underline-offset-2">
-          외부 AI 앱에서 쓰기 (MCP) →
-        </Link>
+        <div className="flex flex-wrap items-baseline gap-x-4 gap-y-1">
+          {portfolioLink && (
+            <Link href="/app/portfolios?new=graph" className="text-sm font-medium text-indigo-700 hover:underline hover:underline-offset-2">
+              이 그래프로 포트폴리오 만들기 →
+            </Link>
+          )}
+          <Link href="/app/mcp" className="text-sm font-medium text-indigo-700 hover:underline hover:underline-offset-2">
+            외부 AI 앱에서 쓰기 (MCP) →
+          </Link>
+        </div>
       </div>
       <p className="mt-1 max-w-prose text-sm text-slate-500">
         회사·직무·프로젝트·경험·기술·성과를 서로 이어 정리해 둡니다. 채팅으로 이야기하거나 이력서를 올려 채우고, 정리한 그래프에 질문해

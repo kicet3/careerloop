@@ -49,6 +49,7 @@ model User {
   graphFollowups    GraphFollowup[]
   githubAccount     GithubAccount?
   resumeDraftJobs   ResumeDraftJob[]
+  portfolioJobs     PortfolioDraftJob[]
   notifications     Notification[]
 
   @@index([status, createdAt], map: "users_status_idx")
@@ -436,7 +437,7 @@ model Portfolio {
   title       String
   /// 사용자가 적은 역할·결과 메모(2000자 이내). 면접 질문·진단에 포트폴리오와 함께 넘어간다.
   description String?
-  /// PortfolioKind('file' | 'url')
+  /// PortfolioKind('file' | 'url' | 'graph'). 'graph'는 경험 그래프에서 AI가 쓴 포트폴리오(Markdown 본문을 'file'처럼 textKey에 둔다).
   kind        String
   /// 올린 파일 이름(kind='file').
   fileName    String?  @map("file_name")
@@ -445,13 +446,17 @@ model Portfolio {
   /// 뽑은 텍스트의 저장소 키 users/<u>/portfolios/<id>/text-<꼬리>.txt(kind='file'). 예전 이력서 첨부에서 옮긴 항목은
   /// users/<u>/resumes/<이력서 id>/portfolio-<꼬리>.txt를 그대로 쓴다(이력서를 지울 때 이 키는 남긴다).
   textKey     String?  @map("text_key")
-  /// 뽑은 텍스트 글자 수(kind='file').
+  /// 뽑은 텍스트 글자 수(kind='file' | 'graph').
   chars       Int?
+  /// kind='graph'의 생성 정보 GraphPortfolioSource { projectIds, postingId, notes, missingInfo, generatedAt }(domain/graph-portfolio.ts).
+  /// 다시 만들기의 기본값과 상세 화면의 '채워야 할 정보'에 쓴다. 파일·링크로 내용을 바꾸면 null.
+  graphSource Json?    @map("graph_source")
   createdAt   DateTime @default(now()) @map("created_at") @db.Timestamptz(3)
   updatedAt   DateTime @default(now()) @map("updated_at") @db.Timestamptz(3)
 
-  user    User            @relation(fields: [userId], references: [id], onDelete: Cascade, map: "portfolios_user_id_fkey")
-  resumes CompanyResume[]
+  user      User                @relation(fields: [userId], references: [id], onDelete: Cascade, map: "portfolios_user_id_fkey")
+  resumes   CompanyResume[]
+  draftJobs PortfolioDraftJob[]
 
   @@index([userId, updatedAt], map: "portfolios_user_idx")
   @@map("portfolios")
@@ -842,6 +847,42 @@ model ResumeDraftJob {
   @@index([userId, createdAt], map: "resume_draft_jobs_user_idx")
   @@index([resumeId], map: "resume_draft_jobs_resume_idx")
   @@map("resume_draft_jobs")
+}
+
+/// 경험 그래프로 포트폴리오 만들기 작업(src/lib/portfolios/graph-jobs.ts). 이력서 초안 작업(resume_draft_jobs)과 같은 흐름:
+/// 요청은 행만 만들고 202, after()에서 AI가 쓰고 portfolios(kind='graph')에 저장한다. 다시 만들기는 input.portfolioId의 본문을 바꾼다.
+model PortfolioDraftJob {
+  id          String    @id
+  userId      String    @map("user_id")
+  /// 현재 실행 식별자. 실행 중 쓰기는 이 값과 status='running'으로 조건 건다.
+  runId       String    @map("run_id")
+  /// GraphPortfolioJobStatus('running' | 'completed' | 'failed')
+  status      String    @default("running")
+  /// GraphPortfolioJobStage('material' 자료 모으기 | 'writing' AI 작성 | 'saving' 저장)
+  stage       String    @default("material")
+  /// 화면 표시용 이름(포트폴리오 이름).
+  label       String
+  /// StartGraphPortfolioInput(프로젝트 id·공고 id·메모·다시 만들 포트폴리오 id) + provider. 완료하면 null.
+  input       Json?
+  provider    String?
+  /// 사용자에게 보여도 되는 한국어 실패 문구.
+  error       String?
+  /// 만든(또는 다시 만든) 포트폴리오. 포트폴리오를 지우면 null.
+  portfolioId String?   @map("portfolio_id")
+  /// { notes: string[], missingInfo: string[] }
+  result      Json?
+  attempts    Int       @default(1)
+  startedAt   DateTime  @default(now()) @map("started_at") @db.Timestamptz(3)
+  createdAt   DateTime  @default(now()) @map("created_at") @db.Timestamptz(3)
+  updatedAt   DateTime  @default(now()) @map("updated_at") @db.Timestamptz(3)
+  completedAt DateTime? @map("completed_at") @db.Timestamptz(3)
+
+  user      User       @relation(fields: [userId], references: [id], onDelete: Cascade, map: "portfolio_draft_jobs_user_id_fkey")
+  portfolio Portfolio? @relation(fields: [portfolioId], references: [id], onDelete: SetNull, map: "portfolio_draft_jobs_portfolio_id_fkey")
+
+  @@index([userId, createdAt], map: "portfolio_draft_jobs_user_idx")
+  @@index([portfolioId], map: "portfolio_draft_jobs_portfolio_idx")
+  @@map("portfolio_draft_jobs")
 }
 
 /// 앱 안 알림(상단 알림 버튼). 오래 걸리는 백그라운드 작업(AI 이력서 초안·진단·공고 가져오기·면접 질문)이 끝나면 만든다 — src/lib/notifications/service.ts.

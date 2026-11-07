@@ -153,7 +153,7 @@ export function feedbackContextLines(
     }
   }
   if (question.category === "motivation" || question.category === "job" || question.citations.length === 0) {
-    for (const l of lines) if (l.doc === "resume" && /^(basics\.headline|summary\.|highlights\.)/.test(l.path ?? "")) add(l.id);
+    for (const l of lines) if (l.doc === "resume" && /^(basics\.(headline|tagline)|summary\.|highlights\.)/.test(l.path ?? "")) add(l.id);
     for (const l of lines.filter((x) => x.doc === "posting").slice(0, 6)) add(l.id);
   }
   return lines.filter((l) => picked.has(l.id));

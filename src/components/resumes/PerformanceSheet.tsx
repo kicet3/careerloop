@@ -67,6 +67,7 @@ const css = {
   sheetWrap: "pf-sheet-wrap",
   skills: "pf-skills",
   status: "pf-status",
+  tagline: "pf-tagline",
 } as const;
 
 /** 항목 수 한도(ResumeDocumentSchema와 같다). */
@@ -87,6 +88,7 @@ const LIMITS = {
 const PH = {
   name: "[이름]",
   headline: "[지원 직무]",
+  tagline: "[한 줄 소개]",
   totalExperience: "[0년 0개월]",
   email: "[이메일 주소]",
   phone: "[연락처]",
@@ -510,6 +512,17 @@ export function PerformanceSheet({
           />
         </div>
       </div>
+      {/* 한 줄 소개: 지원 직무 줄이 아니라 이름·연락처 아래 독립 줄. */}
+      <Field
+        as="p"
+        className={css.tagline}
+        path="basics.tagline"
+        value={b.tagline}
+        placeholder={PH.tagline}
+        label="한 줄 소개"
+        max={200}
+        onChange={on((v) => basics({ tagline: v }))}
+      />
       <Field
         as="p"
         className={css.intro}

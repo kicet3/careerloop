@@ -9,7 +9,7 @@ import { Card } from "@/components/ui/Card";
 import { NO_ENGINE_MESSAGE, PROVIDER_DATA_DESTINATION, type ProviderId, type ProviderOption } from "@/lib/domain/providers";
 import type { Situation } from "@/lib/domain/schemas";
 import { formatMb, SELF_HOSTED_UPLOAD_LIMITS, totalUploadError, uploadLimitMessage, type UploadLimits } from "@/lib/ingest/upload-limits";
-import { PORTFOLIO_KIND_LABELS, portfolioSourceLabel, type PortfolioInfo, type PortfolioPickOption } from "@/lib/domain/portfolios";
+import { PORTFOLIO_KIND_LABELS, portfolioHasText, portfolioSourceLabel, type PortfolioInfo, type PortfolioPickOption } from "@/lib/domain/portfolios";
 import { portfolioNoteText, prefillPortfolioFileName, takeDiagnosisPrefill } from "@/lib/resumes/prefill";
 import { saveCreationWarnings } from "./creation-warnings";
 import { FileDrop, UPLOAD_ACCEPT, UPLOAD_FORMATS_LABEL } from "./FileDrop";
@@ -310,7 +310,7 @@ export function NewDiagnosisForm({
       if (pf) {
         const note = portfolioNoteText(pf) || null;
         let file: File | null = null;
-        if (pf.kind === "file") {
+        if (portfolioHasText(pf.kind)) {
           const r = await fetch(`/api/resumes/${encodeURIComponent(id)}/portfolio?include=text`).catch(() => null);
           const data = r?.ok ? ((await r.json().catch(() => null)) as { text?: string } | null) : null;
           if (data?.text) file = new File([data.text], prefillPortfolioFileName(pf.fileName ?? pf.title), { type: "text/plain" });

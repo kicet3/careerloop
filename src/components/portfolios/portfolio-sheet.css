@@ -1,0 +1,142 @@
+/* 포트폴리오 A4 쪽 미리보기·인쇄(PortfolioSheet.tsx). 쪽 크기 210×297mm, 여백 --ps-margin(PortfolioSheet SHEET_MARGIN_MM과 같다). */
+.ps-root {
+  --ps-margin: 16mm;
+  --ps-gap: 28px;
+  position: relative;
+  overflow-x: auto;
+}
+.ps-measure {
+  position: absolute;
+  left: -10000px;
+  top: 0;
+  width: calc(210mm - 2 * var(--ps-margin));
+  visibility: hidden;
+  pointer-events: none;
+}
+.ps-pages {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: var(--ps-gap);
+  padding: 4px 0 8px;
+}
+.ps-page {
+  position: relative;
+  box-sizing: border-box;
+  width: 210mm;
+  min-height: 297mm;
+  padding: var(--ps-margin);
+  background: #fff;
+  box-shadow:
+    0 1px 3px rgb(15 23 42 / 0.12),
+    0 8px 24px rgb(15 23 42 / 0.06);
+  border: 1px solid rgb(226 232 240);
+}
+.ps-page-no {
+  position: absolute;
+  right: var(--ps-margin);
+  bottom: 7mm;
+  font-size: 8pt;
+  color: rgb(148 163 184);
+}
+.ps-content {
+  font-size: 10pt;
+  line-height: 1.6;
+  color: rgb(30 41 59);
+  word-break: keep-all;
+  overflow-wrap: anywhere;
+}
+.ps-first > :first-child {
+  margin-top: 0 !important;
+}
+.ps-h1 {
+  margin: 0;
+  font-size: 20pt;
+  font-weight: 700;
+  letter-spacing: -0.01em;
+  color: rgb(15 23 42);
+}
+.ps-h2 {
+  margin: 14pt 0 0;
+  padding-bottom: 3pt;
+  border-bottom: 1.5px solid rgb(79 70 229);
+  font-size: 13.5pt;
+  font-weight: 700;
+  color: rgb(15 23 42);
+}
+.ps-h3 {
+  margin: 9pt 0 0;
+  font-size: 9pt;
+  font-weight: 700;
+  letter-spacing: 0.04em;
+  color: rgb(67 56 202);
+}
+.ps-p {
+  margin: 4pt 0 0;
+}
+.ps-list {
+  margin: 4pt 0 0;
+  padding-left: 1.2em;
+  list-style: disc;
+}
+.ps-ol {
+  list-style: decimal;
+}
+.ps-list li + li {
+  margin-top: 2pt;
+}
+.ps-list li::marker {
+  color: rgb(148 163 184);
+}
+.ps-quote {
+  margin: 8pt 0 0;
+  padding-left: 9pt;
+  border-left: 3px solid rgb(165 180 252);
+  font-size: 11pt;
+  color: rgb(51 65 85);
+}
+.ps-hr {
+  margin: 12pt 0 0;
+  border: 0;
+  border-top: 1px solid rgb(226 232 240);
+}
+.ps-content code {
+  display: inline-block;
+  margin: 0 2pt 2pt 0;
+  padding: 0 4pt;
+  border-radius: 4px;
+  background: rgb(241 245 249);
+  font-size: 8.5pt;
+  font-family: inherit;
+}
+.ps-content a {
+  color: rgb(67 56 202);
+  text-decoration: underline;
+  text-underline-offset: 2px;
+}
+.ps-content strong {
+  font-weight: 600;
+  color: rgb(15 23 42);
+}
+@media print {
+  @page {
+    size: A4;
+    margin: 0;
+  }
+  .ps-root {
+    overflow: visible;
+  }
+  .ps-pages {
+    display: block;
+    padding: 0;
+  }
+  .ps-page {
+    border: 0;
+    box-shadow: none;
+    break-after: page;
+    min-height: 0 !important;
+  }
+  .ps-page:last-child {
+    break-after: auto;
+  }
+}

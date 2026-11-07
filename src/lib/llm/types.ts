@@ -19,6 +19,7 @@ export interface LlmUsage {
  * - graph-chat: 경험 그래프 채팅(GraphChatOutputSchema)
  * - reviewer-chat: 심사위원 채팅(ReviewerChatOutputSchema)
  * - resume-draft: 회사별 이력서 초안(ResumeDraftOutputSchema)
+ * - portfolio-draft: 경험 그래프 프로젝트 → 포트폴리오(GraphPortfolioOutputSchema, src/lib/portfolios/graph-material.ts)
  * - posting-extract: 채용 공고 페이지 본문에서 회사·직무·마감·구역별 항목 추출(PostingExtractSchema, 구역만이면 PostingSectionsOnlySchema)
  * - posting-translate: 근거 검증을 마친 외국어 공고 항목 → 한국어(PostingTranslationSchema, src/lib/postings/translate.ts)
  * - graph-import: 이력서·포트폴리오 문서 → 그래프 변경안(GraphImportOutputSchema)
@@ -32,6 +33,7 @@ export const LLM_TASKS = [
   "graph-chat",
   "reviewer-chat",
   "resume-draft",
+  "portfolio-draft",
   "posting-extract",
   "posting-translate",
   "graph-import",

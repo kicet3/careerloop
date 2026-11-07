@@ -46,7 +46,8 @@ export type ResumeHeadingKey = (typeof RESUME_HEADING_KEYS)[number];
 export const ResumeDocumentSchema = z.object({
   basics: z.object({
     name: s(80),
-    headline: s(160).describe("지원 직무 또는 한 줄 소개(예: 5년 차 백엔드 개발자)"),
+    headline: s(160).describe("지원 직무만 짧게(예: 백엔드 개발자). 문장형 소개는 tagline에"),
+    tagline: s(200).describe("한 줄 소개: 경력 근거로 쓴 한 문장(예: 결제 시스템 지연을 줄여 온 5년 차 백엔드 개발자). 없으면 빈 문자열"),
     totalExperience: s(40).describe('총 경력(예: "5년 3개월"). 자료로 계산할 수 없으면 빈 문자열'),
     email: s(160),
     phone: s(40),
@@ -166,7 +167,7 @@ export const EMPTY_RESUME_ITEM = {
 
 export function emptyResumeDocument(): ResumeDocument {
   return {
-    basics: { name: "", headline: "", totalExperience: "", email: "", phone: "", location: "", portfolioUrl: "", links: [] },
+    basics: { name: "", headline: "", tagline: "", totalExperience: "", email: "", phone: "", location: "", portfolioUrl: "", links: [] },
     summary: "",
     headings: { highlights: "", experience: "", projects: "", skills: "", education: "" },
     highlights: [],

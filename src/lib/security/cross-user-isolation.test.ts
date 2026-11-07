@@ -4,7 +4,7 @@
  * A와 B가 같은 노드 id(p1·c1·s1·a1)를 쓰는 그래프를 갖고, B의 노드 이름·속성, 후속 질문, 대화 메시지, GitHub 저장소 요약에는
  * 고유 표지(B_MARK)를 심는다. 그래프 저장소는 메모리 가짜(실제 서비스처럼 userId로 나누고 소유자 표시를 단다),
  * LLM은 받은 프롬프트(system+user)를 모두 기록하는 가짜다. 그리고
- * ① 그래프를 프롬프트에 넣는 모든 LLM 경로(그래프 채팅 일반·프로젝트·후속 질문 답·자료 가져오기·GitHub 가져오기·그래프에 묻기·이력서 초안)를
+ * ① 그래프를 프롬프트에 넣는 모든 LLM 경로(그래프 채팅 일반·프로젝트·후속 질문 답·자료 가져오기·GitHub 가져오기·그래프에 묻기·이력서 초안·포트폴리오)를
  *    A로 돌려 어떤 프롬프트에도 B_MARK가 없고(A 표지는 있고), LLM 사용자도 A인지 본다.
  * ② 그래프 API 라우트에서 A가 B의 id(스레드·메시지·후속 질문·초안 작업·공고)를 쓰면 404이고 응답에 B_MARK가 없으며 B의 데이터가 그대로인지 본다.
  *    같은 노드 id를 A가 고치거나 지워도 B의 노드·후속 질문·저장소 연결은 그대로여야 한다.
@@ -153,6 +153,9 @@ let routes: {
   skills: typeof import("@/app/api/insights/skills/route");
   draftJob: typeof import("@/app/api/resumes/drafts/[id]/route");
   draftRetry: typeof import("@/app/api/resumes/drafts/[id]/retry/route");
+  portfolioGraph: typeof import("@/app/api/portfolios/graph/route");
+  portfolioJob: typeof import("@/app/api/portfolios/graph/jobs/[id]/route");
+  portfolioRetry: typeof import("@/app/api/portfolios/graph/jobs/[id]/retry/route");
 };
 let chat: typeof import("@/lib/chat/graph-chat");
 let qa: typeof import("@/lib/chat/graph-qa");
@@ -181,6 +184,9 @@ beforeAll(async () => {
     skills: await import("@/app/api/insights/skills/route"),
     draftJob: await import("@/app/api/resumes/drafts/[id]/route"),
     draftRetry: await import("@/app/api/resumes/drafts/[id]/retry/route"),
+    portfolioGraph: await import("@/app/api/portfolios/graph/route"),
+    portfolioJob: await import("@/app/api/portfolios/graph/jobs/[id]/route"),
+    portfolioRetry: await import("@/app/api/portfolios/graph/jobs/[id]/retry/route"),
   };
   chat = await import("@/lib/chat/graph-chat");
   qa = await import("@/lib/chat/graph-qa");
@@ -190,7 +196,16 @@ beforeAll(async () => {
 afterAll(() => tdb.close());
 
 /** B의 id들(시드가 채운다). */
-const bIds = { chatThread: "b_chat", qaThread: "b_qa", message: "b_msg", followup: "b_fu_p1", followupFree: "b_fu_free", job: "b_job", posting: "b_post" };
+const bIds = {
+  chatThread: "b_chat",
+  qaThread: "b_qa",
+  message: "b_msg",
+  followup: "b_fu_p1",
+  followupFree: "b_fu_free",
+  job: "b_job",
+  posting: "b_post",
+  portfolioJob: "b_pf_job",
+};
 /** A의 id들. */
 const aIds = { followup: "a_fu_p1" };
 
@@ -267,6 +282,17 @@ async function seed() {
       status: "running",
       label: `${B_MARK} 초안`,
       input: { kind: "general", templateId: "developer", source: { kind: "graph" }, provider: "anthropic" },
+      provider: "anthropic",
+    },
+  });
+  await tdb.prisma.portfolioDraftJob.create({
+    data: {
+      id: bIds.portfolioJob,
+      userId: B.id,
+      runId: "b_pf_run",
+      status: "running",
+      label: `${B_MARK} 포트폴리오`,
+      input: { projectIds: ["p1"], provider: "anthropic" },
       provider: "anthropic",
     },
   });
@@ -446,6 +472,36 @@ describe("LLM 프롬프트에는 요청 사용자의 그래프만 들어간다",
   });
 });
 
+describe("포트폴리오(경험 그래프): A의 그래프·저장소만 들어간다", () => {
+  it("같은 p1이어도 A의 그래프와 A의 저장소 링크만, B에만 있는 프로젝트 id는 400(LLM 호출 없음), B의 작업은 A로 실행되지 않는다", async () => {
+    const res = await routes.portfolioGraph.POST(post({ projectIds: ["p1"] }));
+    expect(res.status).toBe(202);
+    await flushAfter();
+    expectOnlyAData(["portfolio-draft"]);
+    const pf = await tdb.prisma.portfolio.findFirstOrThrow({ where: { userId: A.id, kind: "graph" } });
+    const { getObject } = await import("@/lib/storage");
+    const text = (await getObject(pf.textKey!))!.toString("utf8");
+    expect(text).toContain(A_MARK);
+    expect(text).toContain("https://github.com/ua/career-app");
+    expect(text).not.toContain(B_MARK);
+    expect(text).not.toContain("ub/");
+
+    state.calls.length = 0;
+    const foreign = await routes.portfolioGraph.POST(post({ projectIds: ["pb_only"] }));
+    expect(foreign.status).toBe(400);
+    await expectNoBMark(foreign);
+    const list = await routes.portfolioGraph.GET();
+    await expectNoBMark(list);
+    const { runGraphPortfolioJob } = await import("@/lib/portfolios/graph-jobs");
+    await runGraphPortfolioJob(A.id, bIds.portfolioJob, "b_pf_run", "anthropic");
+    await flushAfter();
+    expect(state.calls).toHaveLength(0);
+    expect(await tdb.prisma.portfolio.count({ where: { userId: B.id } })).toBe(0);
+    expect((await tdb.prisma.portfolioDraftJob.findUniqueOrThrow({ where: { id: bIds.portfolioJob } })).status).toBe("running");
+    await bUntouched();
+  });
+});
+
 // ---------------------------------------------------------------------------
 // ② API 라우트
 // ---------------------------------------------------------------------------
@@ -563,6 +619,12 @@ describe("그래프 API: A는 B의 데이터를 읽거나 바꿀 수 없다", ()
     const r = await routes.draftRetry.POST(post(), p({ id: bIds.job }));
     expect(r.status).toBe(404);
     await expectNoBMark(r);
+    const pj = await routes.portfolioJob.GET(get(), p({ id: bIds.portfolioJob }));
+    expect(pj.status).toBe(404);
+    await expectNoBMark(pj);
+    const pr = await routes.portfolioRetry.POST(post(), p({ id: bIds.portfolioJob }));
+    expect(pr.status).toBe(404);
+    await expectNoBMark(pr);
     await flushAfter();
     expect(state.calls).toHaveLength(0);
   });

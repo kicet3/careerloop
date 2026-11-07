@@ -52,7 +52,19 @@ describe("근거 줄", () => {
 
   it("프롬프트 표 형식", () => {
     const lines = resumeSourceLines(sampleDoc()).slice(0, 1);
-    expect(sourceLinesToPrompt(lines)).toBe("[r1] (한 줄 소개) 5년 차 백엔드 개발자");
+    expect(sourceLinesToPrompt(lines)).toBe("[r1] (지원 직무) 5년 차 백엔드 개발자");
+  });
+
+  it("지원 직무(basics.headline)와 한 줄 소개(basics.tagline)를 따로 근거 줄로 낸다", () => {
+    const d = sampleDoc();
+    d.basics.headline = "백엔드 개발자";
+    d.basics.tagline = "결제 시스템을 5년간 운영해 온 백엔드 개발자";
+    const lines = resumeSourceLines(d).slice(0, 3);
+    expect(lines.map((l) => [l.path, l.label])).toEqual([
+      ["basics.headline", "지원 직무"],
+      ["basics.tagline", "한 줄 소개"],
+      ["summary.0", "요약 1"],
+    ]);
   });
 });
 

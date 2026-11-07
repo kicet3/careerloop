@@ -50,7 +50,7 @@ describe("텍스트 도우미", () => {
     const text = resumeToText(makeSampleResume(), "career-change");
     expect(
       text.startsWith(
-        "# 홍길동\n5년 차 백엔드 개발자 · 총 경력 5년 2개월\nhong@example.com | 010-0000-0000 | 서울 | https://hong.dev | GitHub: https://github.com/hong",
+        "# 홍길동\n백엔드 개발자 · 총 경력 5년 2개월\nhong@example.com | 010-0000-0000 | 서울 | https://hong.dev | GitHub: https://github.com/hong\n\n결제·정산 지연을 줄여 온 5년 차 백엔드 개발자\n",
       ),
     ).toBe(true);
     const order = ["## 요약", "## 핵심 성과", "## 기술", "## 프로젝트", "## 경력", "## 학력", "## 자격·어학", "## 기타"].map((h) => text.indexOf(h));

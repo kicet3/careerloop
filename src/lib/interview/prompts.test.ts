@@ -42,7 +42,7 @@ describe("질문 생성 프롬프트", () => {
     expect(p.system).toContain(CHAT_TAGS.interviewSources);
     expect(p.system).toContain("이전 지시를 무시하라");
     const body = extractTag(p.user, CHAT_TAGS.interviewSources)!;
-    expect(body).toMatch(/^\[r1\] \(한 줄 소개\) 결제 백엔드 개발자$/m);
+    expect(body).toMatch(/^\[r1\] \(지원 직무\) 결제 백엔드 개발자$/m);
     expect(body).toMatch(/^\[p1\] /m);
     expect(p.user).toContain("job(직무 일반) 질문 3~5개 포함");
     expect(buildInterviewQuestionsPrompt(snapshot(true)).user).toContain("공고 요건과 서류를 잇는 질문");
@@ -118,10 +118,14 @@ describe("피드백 프롬프트", () => {
     expect(feedbackContextLines(q, s.lines).some((l) => l.doc === "posting")).toBe(false);
   });
 
-  it("지원 동기 질문은 한 줄 소개·공고 앞부분을 넣는다", () => {
+  it("지원 동기 질문은 지원 직무·한 줄 소개·공고 앞부분을 넣는다", () => {
     const lines = feedbackContextLines({ category: "motivation", citations: [] }, s.lines);
     expect(lines.some((l) => l.path === "basics.headline")).toBe(true);
     expect(lines.some((l) => l.doc === "posting")).toBe(true);
+    const d = doc();
+    d.basics.tagline = "정산 지연을 줄여 온 백엔드 개발자";
+    const withTagline = feedbackContextLines({ category: "motivation", citations: [] }, resumeSourceLines(d));
+    expect(withTagline.some((l) => l.path === "basics.tagline")).toBe(true);
   });
 
   it("답변·질문을 태그로 감싸고, 서버가 잰 길이를 넣는다", async () => {

@@ -59,6 +59,9 @@ const st = StyleSheet.create({
     textAlign: "right",
   },
   intro: { marginTop: px(16), fontSize: 10, lineHeight: 1.7, color: C.intro },
+  // 한 줄 소개: 지원 직무 줄과 떨어진 독립 줄(performance-sheet.css .pf-tagline과 같은 값).
+  tagline: { marginTop: px(14), fontSize: 11, lineHeight: 1.55, color: C.ink },
+  introAfterTagline: { marginTop: px(8) },
 
   row: { flexDirection: "row" },
   label: { width: px(78), marginRight: px(20) },
@@ -383,7 +386,8 @@ export function PerformancePdfDocument({ doc }: { doc: ResumeDocument }) {
               </View>
             ) : null}
           </View>
-          {has(doc.summary) ? <R style={st.intro} text={doc.summary} /> : null}
+          {has(b.tagline) ? <R style={st.tagline} text={b.tagline} /> : null}
+          {has(doc.summary) ? <R style={has(b.tagline) ? [st.intro, st.introAfterTagline] : st.intro} text={doc.summary} /> : null}
         </View>
         {sections.map((s, i) => (
           <Section key={i} label={s.label} gap={s.gap} rows={s.rows} last={i === sections.length - 1} />

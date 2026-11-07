@@ -1,10 +1,12 @@
 /**
  * 포트폴리오 보관함 계약(클라이언트·서버 공용). 사용자마다 포트폴리오를 여러 개 보관하고(portfolios 테이블), 이력서는 그중
  * 하나를 첨부한다(company_resumes.portfolio_id). 파일은 원본을 보관하지 않고 뽑은 텍스트만 저장소에 두며, 링크는 주소만 저장한다.
+ * 'graph'는 경험 그래프에서 AI가 쓴 포트폴리오다(Markdown 본문을 파일 텍스트처럼 저장한다 — 면접 질문·진단 경로가 그대로 읽는다).
  */
 import { z } from "zod";
+import type { GraphPortfolioSource } from "./graph-portfolio";
 
-export const PORTFOLIO_KINDS = ["file", "url"] as const;
+export const PORTFOLIO_KINDS = ["file", "url", "graph"] as const;
 export type PortfolioKind = (typeof PORTFOLIO_KINDS)[number];
 
 export const MAX_PORTFOLIO_TITLE_CHARS = 120;
@@ -24,8 +26,10 @@ export interface PortfolioInfo {
   fileName: string | null;
   /** kind 'url'의 주소(http/https). */
   url: string | null;
-  /** 저장한 텍스트 글자 수(kind 'file'). */
+  /** 저장한 텍스트 글자 수(kind 'file' | 'graph'). */
   chars: number | null;
+  /** kind 'graph'의 생성 정보(고른 프로젝트·공고·메모·채울 정보). 그 밖은 null. */
+  graphSource: GraphPortfolioSource | null;
   createdAt: number;
   updatedAt: number;
 }
@@ -42,15 +46,21 @@ export interface PortfolioListItem extends PortfolioInfo {
 }
 
 /** 화면의 종류 배지 문구. */
-export const PORTFOLIO_KIND_LABELS: Record<PortfolioKind, string> = { file: "파일", url: "링크" };
+export const PORTFOLIO_KIND_LABELS: Record<PortfolioKind, string> = { file: "파일", url: "링크", graph: "경험 그래프" };
 
-/** AI가 읽을 수 있는 내용이 있는지(파일 텍스트 또는 메모). 링크만 있으면 AI는 열어 보지 못한다. */
-export function portfolioReadable(p: Pick<PortfolioInfo, "kind" | "description">): boolean {
-  return p.kind === "file" || !!p.description?.trim();
+/** 저장소에 본문 텍스트를 두는 종류인지(파일에서 뽑은 글 또는 그래프로 쓴 글). */
+export function portfolioHasText(kind: PortfolioKind | string): boolean {
+  return kind === "file" || kind === "graph";
 }
 
-/** 화면 한 줄 요약: 파일 이름 또는 주소. */
+/** AI가 읽을 수 있는 내용이 있는지(저장한 본문 또는 메모). 링크만 있으면 AI는 열어 보지 못한다. */
+export function portfolioReadable(p: Pick<PortfolioInfo, "kind" | "description">): boolean {
+  return portfolioHasText(p.kind) || !!p.description?.trim();
+}
+
+/** 화면 한 줄 요약: 파일 이름, 주소 또는 '경험 그래프로 만듦'. */
 export function portfolioSourceLabel(p: Pick<PortfolioInfo, "kind" | "fileName" | "url">): string {
+  if (p.kind === "graph") return "경험 그래프로 만듦";
   return p.kind === "file" ? (p.fileName ?? "파일") : (p.url ?? "링크");
 }
 
@@ -100,6 +110,15 @@ export type UpdatePortfolioInput = z.infer<typeof UpdatePortfolioSchema>;
 
 /** PUT /api/portfolios/[id] (JSON) — 내용을 링크로 바꾸기. 파일은 같은 경로에 multipart(file). */
 export const ReplacePortfolioUrlSchema = z.object({ url: PortfolioUrlSchema });
+
+/** PUT /api/portfolios/[id]/text — 저장한 본문 고치기(kind 'graph'). 빈 본문은 받지 않는다. */
+export const ReplacePortfolioTextSchema = z.object({
+  text: z
+    .string()
+    .trim()
+    .min(1, "본문을 입력해 주세요.")
+    .max(MAX_PORTFOLIO_TEXT_CHARS, `본문은 ${MAX_PORTFOLIO_TEXT_CHARS.toLocaleString("ko-KR")}자 이내로 입력해 주세요.`),
+});
 
 /** 고르기 목록(이력서 첨부·새 진단)에 필요한 값만. */
 export type PortfolioPickOption = Pick<PortfolioInfo, "id" | "title" | "kind" | "fileName" | "url" | "updatedAt">;

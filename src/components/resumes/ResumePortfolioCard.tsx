@@ -13,6 +13,7 @@ import { Button } from "@/components/ui/Button";
 import { Card } from "@/components/ui/Card";
 import {
   PORTFOLIO_KIND_LABELS,
+  portfolioHasText,
   portfolioReadable,
   portfolioSourceLabel,
   toPortfolioPickOption,
@@ -180,10 +181,10 @@ export function ResumePortfolioCard({
             <Link href={`/app/portfolios/${portfolio.id}`} className="min-w-0 truncate font-medium text-slate-900 hover:text-indigo-700 hover:underline">
               {portfolio.title}
             </Link>
-            {portfolio.kind === "file" ? (
+            {portfolioHasText(portfolio.kind) ? (
               <>
                 <span className="min-w-0 truncate text-xs text-slate-500">
-                  {portfolio.fileName ?? "파일"}
+                  {portfolioSourceLabel(portfolio)}
                   {portfolio.chars !== null && ` · ${portfolio.chars.toLocaleString("ko-KR")}자`}
                 </span>
                 <button

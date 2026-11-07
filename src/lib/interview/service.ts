@@ -36,6 +36,7 @@ import {
   type InterviewSourceSnapshot,
   type SubmitInterviewAnswerInput,
 } from "@/lib/domain/interview";
+import type { PortfolioKind } from "@/lib/domain/portfolios";
 import { isProviderId, type ProviderId } from "@/lib/domain/providers";
 import type { ResumeDocument } from "@/lib/domain/resumes";
 import { createLlmClient, LlmPermanentError, modelNameFor, type LlmClient, type LlmUsageContext } from "@/lib/llm";
@@ -91,7 +92,7 @@ export interface BuildSnapshotInput {
   /** 보관 공고가 없을 때 이력서에 붙여 둔 JD(있으면 공고 줄 j…로 넣는다). */
   fallbackJdText?: string | null;
   /** 포함하지 않으면 null. */
-  portfolio: { kind: "file" | "url"; fileName: string | null; url: string | null; text: string | null } | null;
+  portfolio: { kind: PortfolioKind; fileName: string | null; url: string | null; text: string | null } | null;
   now: number;
 }
 

@@ -11,6 +11,7 @@ export const LLM_USAGE_TASK_LABELS: Record<string, string> = {
   "graph-qa-rerank": "경험 질문하기(관련도)",
   "reviewer-chat": "심사위원 채팅",
   "resume-draft": "이력서 초안",
+  "portfolio-draft": "포트폴리오(경험 그래프)",
   "posting-extract": "채용 공고 정리",
   "posting-translate": "채용 공고 번역",
   "interview-questions": "면접 질문 생성",

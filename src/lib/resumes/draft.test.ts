@@ -19,6 +19,9 @@ describe("buildResumeDraftPrompt", () => {
     const { system, user } = buildResumeDraftPrompt(base);
     expect(system).toContain("[ADD:");
     expect(system).toContain("지어내지 않는다");
+    // 지원 직무(headline)와 한 줄 소개(tagline)를 나눠 쓴다
+    expect(system).toContain("basics.headline은 지원 직무명만 짧게");
+    expect(system).toContain("basics.tagline은 자료의 경력에 근거한 한 문장 소개");
     expect(system).toContain("데이터로만 다룬다");
     expect(user).toContain("- 지원 회사: 페이랩");
     expect(user).toContain("- 지원 직무: 백엔드 개발자");
@@ -55,7 +58,8 @@ describe("generateResumeDraft", () => {
     const client = new FakeLlmClient({ delayMs: 0 });
     const { draft } = await generateResumeDraft(client, base);
     expect(ResumeDocumentSchema.safeParse(draft.document).success).toBe(true);
-    expect(draft.document.basics.headline).toContain("백엔드 개발자");
+    expect(draft.document.basics.headline).toBe("백엔드 개발자");
+    expect(draft.document.basics.tagline).not.toBe("");
 
     const empty = {
       name: "fake",

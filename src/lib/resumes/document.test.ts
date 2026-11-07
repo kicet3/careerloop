@@ -30,7 +30,7 @@ describe("예전 저장본 호환", () => {
     const r = parseResumeDocument(LEGACY_DOC);
     expect(r.success).toBe(true);
     const doc = r.data!;
-    expect(doc.basics).toMatchObject({ name: "홍길동", totalExperience: "", portfolioUrl: "", links: [{ label: "GitHub", url: "https://github.com/h" }] });
+    expect(doc.basics).toMatchObject({ name: "홍길동", headline: "백엔드", tagline: "", totalExperience: "", portfolioUrl: "", links: [{ label: "GitHub", url: "https://github.com/h" }] });
     expect(doc.highlights).toEqual([]);
     expect(doc.headings).toEqual({ highlights: "", experience: "", projects: "", skills: "", education: "" });
     expect(doc.experience[0]).toMatchObject({ company: "페이랩", department: "", scope: "", bullets: ["결제 API 개선"] });
@@ -49,6 +49,18 @@ describe("예전 저장본 호환", () => {
     expect(partial.success).toBe(true);
     expect(partial.data!.education[0]).toMatchObject({ school: "한국대", degree: "", major: "" });
     expect(partial.data!.certifications[0]).toEqual({ name: "정보처리기사", issuer: "", date: "" });
+  });
+
+  it("한 줄 소개(tagline)가 생기기 전 문서는 tagline을 빈 값으로 채우고, 문장형 headline도 옮기지 않고 그대로 둔다", () => {
+    const sentence = "결제 지연을 줄여 온 5년 차 백엔드 개발자";
+    const oldBasics: Record<string, unknown> = { ...emptyResumeDocument().basics, headline: sentence };
+    delete oldBasics.tagline;
+    const r = parseResumeDocument({ ...emptyResumeDocument(), basics: oldBasics });
+    expect(r.success).toBe(true);
+    expect(r.data!.basics.headline).toBe(sentence);
+    expect(r.data!.basics.tagline).toBe("");
+    expect(emptyResumeDocument().basics.tagline).toBe("");
+    expect(parseResumeDocument({ ...emptyResumeDocument(), basics: { ...emptyResumeDocument().basics, tagline: "가".repeat(201) } }).success).toBe(false);
   });
 
   it("버전 저장 API 입력도 예전 형식을 받아들인다", () => {
@@ -100,7 +112,7 @@ describe("초안 스키마(ResumeDraftOutputSchema)", () => {
     };
     const docSchema = json.properties.document;
     expect(docSchema.required).toEqual(expect.arrayContaining(["basics", "summary", "headings", "highlights", "experience", "projects", "skills"]));
-    expect(docSchema.properties.basics!.required).toEqual(expect.arrayContaining(["totalExperience", "portfolioUrl"]));
+    expect(docSchema.properties.basics!.required).toEqual(expect.arrayContaining(["headline", "tagline", "totalExperience", "portfolioUrl"]));
     expect(docSchema.properties.highlights!.items!.required).toEqual(["title", "context"]);
     expect(docSchema.properties.experience!.items!.required).toEqual(expect.arrayContaining(["department", "scope"]));
     expect(docSchema.properties.projects!.items!.required).toEqual(

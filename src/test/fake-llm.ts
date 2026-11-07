@@ -28,6 +28,7 @@ import {
 } from "@/lib/domain/chat";
 import { extractKeywords } from "@/lib/skills/dictionary";
 import { emptyResumeDocument, type ResumeDraftOutput } from "@/lib/domain/resumes";
+import type { GraphPortfolioOutput } from "@/lib/domain/graph-portfolio";
 import type { InterviewFeedbackOutput, InterviewQuestionsOutput } from "@/lib/domain/interview";
 import type { PostingSectionsLlm } from "@/lib/domain/posting-structure";
 import type { PostingExtract } from "@/lib/domain/postings";
@@ -585,7 +586,8 @@ function fakeResumeDraft(user: string): ResumeDraftOutput {
   const role = extractField(user, "지원 직무") ?? "지원 직무";
   const doc = emptyResumeDocument();
   doc.basics.name = resume.split(/\r?\n/).map((l) => l.trim()).find(Boolean)?.slice(0, 80) ?? "[ADD: 이름]";
-  doc.basics.headline = `${role} 지원`.slice(0, 160);
+  doc.basics.headline = role.slice(0, 160);
+  doc.basics.tagline = `[ADD: 경력으로 보여 줄 ${role} 한 줄 소개]`.slice(0, 200);
   doc.summary = `${company} ${role} 포지션에 지원합니다. [ADD: 대표 성과 한 줄]`;
   doc.experience = [
     {
@@ -603,6 +605,43 @@ function fakeResumeDraft(user: string): ResumeDraftOutput {
     document: doc,
     notes: ["가짜 초안: 기존 이력서 줄을 경력 불릿으로 옮겼다."],
     missingInfo: ["회사명과 재직 기간은?", "대표 성과의 수치는?"],
+  };
+}
+
+/**
+ * 가짜 포트폴리오: 그래프 자료의 `프로젝트 [id] 이름` 머리줄마다 프로젝트 하나. 성과는 그 프로젝트의 result 속성 줄을 그대로 쓰고,
+ * 일부러 자료에 없는 수치 줄(999%)을 하나 더해 서버의 수치 확인을 시험한다.
+ */
+function fakePortfolioDraft(user: string): GraphPortfolioOutput {
+  const graph = extractTag(user, CHAT_TAGS.careerGraph) ?? "";
+  const blocks = graph.split(/\n=====\n/);
+  const projects = blocks.flatMap((b) => {
+    const m = /프로젝트 \[([^\]]+)\] (.+)/.exec(b);
+    if (!m) return [];
+    const result = /- result: (.+)/.exec(b)?.[1]?.trim() ?? "";
+    return [
+      {
+        projectId: m[1]!,
+        name: m[2]!.trim(),
+        oneLiner: `${m[2]!.trim()} 소개`,
+        overview: "[ADD: 프로젝트 배경]",
+        period: "",
+        affiliation: "",
+        role: "[ADD: 맡은 역할]",
+        techStack: [],
+        star: { situation: "", task: "", action: ["[ADD: 직접 한 일]"], result },
+        outcomes: [...(result ? [result] : []), "전환율 999% 향상"],
+        learned: "",
+      },
+    ];
+  });
+  return {
+    headline: "그래프로 정리한 프로젝트 포트폴리오",
+    intro: "",
+    coreSkills: [],
+    projects,
+    notes: ["가짜 포트폴리오"],
+    missingInfo: ["대표 프로젝트의 팀 규모는?"],
   };
 }
 
@@ -975,6 +1014,8 @@ function fakeTaskOutput(task: LlmTask, user: string): unknown {
       return fakeReviewerChat(user);
     case "resume-draft":
       return fakeResumeDraft(user);
+    case "portfolio-draft":
+      return fakePortfolioDraft(user);
     case "posting-extract":
       return fakePostingExtract(user);
     case "posting-translate":

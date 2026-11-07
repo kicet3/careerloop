@@ -370,11 +370,13 @@ export function buildModel(doc: ResumeDocument, templateId: ResumeTemplateId): M
       <h2 style={{ fontSize: pt(g.base + 11), fontWeight: 800, color: C.ink, lineHeight: 1.25, overflowWrap: "anywhere" }}>
         <Rich text={b.name.trim() || "이름"} />
       </h2>
-      {b.headline.trim() && (
+      {(b.headline.trim() || b.totalExperience.trim()) && (
         <p style={{ fontSize: pt(g.base + 1.5), fontWeight: 700, color: t.style.accent, marginTop: pt(3) }}>
-          <Rich text={b.headline} />
+          {b.headline.trim() && <Rich text={b.headline} />}
           {b.totalExperience.trim() && (
-            <span style={{ marginLeft: pt(8), fontSize: "0.85em", fontWeight: 400, color: C.muted }}>총 경력 {b.totalExperience}</span>
+            <span style={{ marginLeft: b.headline.trim() ? pt(8) : 0, fontSize: "0.85em", fontWeight: 400, color: C.muted }}>
+              총 경력 {b.totalExperience}
+            </span>
           )}
         </p>
       )}
@@ -387,8 +389,19 @@ export function buildModel(doc: ResumeDocument, templateId: ResumeTemplateId): M
   const main = new Column();
   const side = new Column();
   if (!hasSide) main.push("header", "header", headerNode, { after: headerAfterPt });
+  // 한 줄 소개: 지원 직무 줄이 아니라 머리글 선 아래, 첫 섹션 앞의 독립 블록(사이드바 양식은 본문 열 맨 위).
+  if (b.tagline.trim()) {
+    main.push(
+      "tagline",
+      "tagline",
+      <p data-tagline style={{ fontSize: pt(g.base + 0.5), fontWeight: 400, color: C.body, lineHeight: 1.5, overflowWrap: "anywhere" }}>
+        <Rich text={b.tagline} />
+      </p>,
+      { before: 4 * g.gap },
+    );
+  }
 
-  if (layout.main.length === 0 && !hasSide) {
+  if (layout.main.length === 0 && !hasSide && !b.tagline.trim()) {
     main.push(
       "empty",
       "empty",

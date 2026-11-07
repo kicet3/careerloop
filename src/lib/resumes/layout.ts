@@ -134,6 +134,8 @@ export function resumeToText(doc: ResumeDocument, templateId: ResumeTemplateId):
     " | ",
   );
   if (contact) out.push(contact);
+  // 한 줄 소개는 지원 직무 줄과 따로, 머리글 아래 독립 줄로 둔다.
+  if (b.tagline.trim()) out.push("", b.tagline.trim());
 
   for (const key of RESUME_TEMPLATES[templateId].sectionOrder) {
     if (isSectionEmpty(doc, key)) continue;

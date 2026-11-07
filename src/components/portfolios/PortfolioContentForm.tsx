@@ -26,6 +26,7 @@ export function PortfolioContentForm({
   withMeta,
   submitLabel,
   initialMode = "file",
+  showModeTabs = true,
   onDone,
   onCancel,
 }: {
@@ -36,6 +37,8 @@ export function PortfolioContentForm({
   withMeta: boolean;
   submitLabel: string;
   initialMode?: Mode;
+  /** false면 파일·링크 고르기 탭을 감춘다(바깥에서 방식을 고를 때 — 새 포트폴리오 패널). */
+  showModeTabs?: boolean;
   onDone: (data: unknown, warnings: string[]) => void;
   onCancel?: () => void;
 }) {
@@ -93,18 +96,20 @@ export function PortfolioContentForm({
 
   return (
     <div className="space-y-3">
-      <SegmentedTabs
-        label="포트폴리오 올리는 방식"
-        value={mode}
-        onChange={(m) => {
-          setMode(m);
-          setError(null);
-        }}
-        options={[
-          { value: "file", label: "파일 올리기" },
-          { value: "url", label: "링크" },
-        ]}
-      />
+      {showModeTabs && (
+        <SegmentedTabs
+          label="포트폴리오 올리는 방식"
+          value={mode}
+          onChange={(m) => {
+            setMode(m);
+            setError(null);
+          }}
+          options={[
+            { value: "file", label: "파일 올리기" },
+            { value: "url", label: "링크" },
+          ]}
+        />
+      )}
       {mode === "file" ? (
         <>
           <SensitiveInfoNotice />

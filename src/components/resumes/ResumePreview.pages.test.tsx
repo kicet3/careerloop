@@ -43,6 +43,24 @@ describe("ResumePreview 쪽 나눔(computePages, 높이를 직접 넣어)", () =
     expect(RESUME_TEMPLATES[id].style.layout === "sidebar").toBe(model.header !== null);
   });
 
+  it.each(ids)("%s: 한 줄 소개는 머리글 다음(사이드바 양식은 본문 열 맨 위)의 독립 블록", (id) => {
+    const model = buildModel(longResume(), id);
+    const at = model.main.findIndex((a) => a.id === "tagline");
+    if (model.header) expect(at).toBe(0);
+    else expect(model.main.slice(0, 2).map((a) => a.id)).toEqual(["header", "tagline"]);
+    expect(model.main[at]!.group).toBe("tagline");
+    expect(model.side.some((a) => a.id === "tagline")).toBe(false);
+    // 첫 섹션 제목이 바로 뒤에 온다
+    expect(model.main[at + 1]!.id).toMatch(/:h$/);
+    const heights = new Map([...model.main, ...model.side].map((a) => [a.id, 40]));
+    if (model.header) heights.set(model.header.id, 90);
+    expect(computePages(model, heights).main[0]).toContain("tagline");
+
+    const none = makeSampleResume();
+    none.basics.tagline = "  ";
+    expect(buildModel(none, id).main.some((a) => a.id === "tagline")).toBe(false);
+  });
+
   it("쪽 본문 높이는 A4에서 위아래 여백을 뺀 값", () => {
     const g = buildModel(longResume(), "developer").geo;
     expect(ptToPx(g.contentHeight) + ptToPx(g.padY * 2)).toBeCloseTo(A4.heightPx, 5);

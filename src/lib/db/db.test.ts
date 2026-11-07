@@ -93,6 +93,7 @@ describe("스키마(PGlite에 prisma/migrations 적용)", () => {
       "llm_usage_events",
       "mcp_tokens",
       "notifications",
+      "portfolio_draft_jobs",
       "portfolios",
       "posting_imports",
       "rate_events",

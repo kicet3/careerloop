@@ -6,11 +6,13 @@ import "server-only";
  * 던지지 않는다(정리가 실패해도 알림 목록은 돌려준다).
  */
 import { markStaleRunsFailed, notifyIdleDeadlineStops } from "@/lib/diagnoses/service";
+import { sweepStaleGraphPortfolioJobs } from "@/lib/portfolios/graph-jobs";
 import { sweepStaleDraftJobs } from "@/lib/resumes/draft-jobs";
 
 export async function sweepStaleJobs(userId: string, now: number = Date.now()): Promise<void> {
   const results = await Promise.allSettled([
     sweepStaleDraftJobs(userId, now),
+    sweepStaleGraphPortfolioJobs(userId, now),
     markStaleRunsFailed(userId).then(() => notifyIdleDeadlineStops(userId, now)),
   ]);
   for (const r of results) {

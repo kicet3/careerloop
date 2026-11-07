@@ -17,6 +17,16 @@ describe("renderResumePdf", () => {
     if (process.env.RESUME_PDF_OUT) writeFileSync(`${process.env.RESUME_PDF_OUT}/resume-${id}.pdf`, pdf);
   }, 60_000);
 
+  it.each(RESUME_TEMPLATE_IDS)("%s: 한 줄 소개가 있거나(최대 길이 포함) 없는 문서 모두 렌더링한다", async (id) => {
+    const long = makeSampleResume();
+    long.basics.tagline = "띄어쓰기없는한줄소개".repeat(20);
+    expect(isPdf(await renderResumePdf(long, id))).toBe(true);
+    const none = makeSampleResume();
+    none.basics.tagline = "";
+    none.basics.headline = "";
+    expect(isPdf(await renderResumePdf(none, id))).toBe(true);
+  }, 60_000);
+
   it("빈 문서·긴 내용(여러 쪽)·띄어쓰기 없는 긴 한글도 렌더링한다", async () => {
     expect(isPdf(await renderResumePdf(emptyResumeDocument(), "developer"))).toBe(true);
     const doc = makeSampleResume();

@@ -2,6 +2,7 @@ import { renderToStaticMarkup } from "react-dom/server";
 import { describe, expect, it } from "vitest";
 import { emptyResumeDocument, performanceScaffold, RESUME_SECTION_LABELS, RESUME_TEMPLATE_IDS, RESUME_TEMPLATES } from "@/lib/domain/resumes";
 import { makeSampleResume } from "@/lib/resumes/__fixtures__/sample";
+import { resumeLayout } from "@/lib/resumes/layout";
 import { ResumePreview } from "./ResumePreview";
 
 const sectionOrderIn = (html: string) => [...html.matchAll(/data-section="([a-z-]+)"/g)].map((m) => m[1]);
@@ -41,6 +42,18 @@ describe("ResumePreview", () => {
     expect(html).toContain("&lt;script&gt;");
   });
 
+  it.each(RESUME_TEMPLATE_IDS.filter((id) => id !== "performance"))("%s 양식: 한 줄 소개는 지원 직무 줄이 아니라 머리글 아래 독립 줄", (id) => {
+    const html = renderToStaticMarkup(<ResumePreview document={makeSampleResume()} templateId={id} />);
+    const header = html.slice(html.indexOf("<header"), html.indexOf("</header>"));
+    expect(header).toContain("백엔드 개발자");
+    expect(header).toContain("총 경력 5년 2개월");
+    expect(header).not.toContain("결제·정산 지연을 줄여 온");
+    const tagline = html.indexOf("data-tagline");
+    expect(tagline).toBeGreaterThan(html.indexOf("</header>"));
+    expect(html.indexOf("결제·정산 지연을 줄여 온 5년 차 백엔드 개발자")).toBeGreaterThan(tagline);
+    expect(tagline).toBeLessThan(html.indexOf(`data-section="${resumeLayout(makeSampleResume(), id).main[0]}"`));
+  });
+
   it("빈 문서는 안내 문구", () => {
     const html = renderToStaticMarkup(<ResumePreview document={emptyResumeDocument()} templateId="modern" />);
     expect(html).toContain("아직 내용이 없습니다");
@@ -58,6 +71,12 @@ describe("ResumePreview — 성과 중심 양식(PerformanceSheet 읽기 전용)
     const html = renderToStaticMarkup(<ResumePreview document={makeSampleResume()} templateId="performance" />);
     expect(html).toContain('data-template="performance"');
     expect(field(html, "basics.name")).toBe("홍길동");
+    expect(field(html, "basics.headline")).toBe("백엔드 개발자");
+    expect(field(html, "basics.tagline")).toBe("결제·정산 지연을 줄여 온 5년 차 백엔드 개발자");
+    // 한 줄 소개는 지원 직무 줄(pf-role) 밖의 독립 줄
+    const role = html.slice(html.indexOf('class="pf-role"'), html.indexOf("</p>", html.indexOf('class="pf-role"')));
+    expect(role).not.toContain("basics.tagline");
+    expect(html).toMatch(/class="pf-field pf-tagline" data-field="basics\.tagline"/);
     expect(field(html, "basics.totalExperience")).toBe("5년 2개월");
     expect(html).toContain("총 경력");
     expect(field(html, "basics.portfolioUrl")).toBe("https://hong.dev");
@@ -82,6 +101,7 @@ describe("ResumePreview — 성과 중심 양식(PerformanceSheet 읽기 전용)
   it("빈 칸은 원본의 대괄호 안내 문구를 data-empty로 보이고, 값으로 넣지 않는다", () => {
     const html = renderToStaticMarkup(<ResumePreview document={performanceScaffold()} templateId="performance" />);
     expect(html).toContain('data-empty="[이름]"');
+    expect(html).toContain('data-empty="[한 줄 소개]"');
     expect(html).toContain('data-empty="[최근 회사명]"');
     expect(html).toContain('data-empty="[이전 회사명 또는 주요 활동]"');
     expect(html).toContain('data-empty="[문제와 변화가 드러나는 프로젝트명]"');

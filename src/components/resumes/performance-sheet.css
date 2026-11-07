@@ -140,6 +140,16 @@
   max-width: 100%;
   color: #364352;
 }
+/* 한 줄 소개: 지원 직무 줄과 떨어진 독립 줄(pdf-performance.tsx st.tagline과 같은 값). */
+.pf-tagline {
+  margin: 14px 0 0;
+  font-size: 11pt;
+  line-height: 1.55;
+  color: var(--ink);
+}
+.pf-tagline + .pf-intro {
+  margin-top: 8px;
+}
 
 .pf-section {
   display: grid;

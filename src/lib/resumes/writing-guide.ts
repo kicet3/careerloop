@@ -13,7 +13,7 @@ export interface WritingTip {
 
 /** 첫 화면에서 바로 보여야 할 네 가지(가이드 5.1). */
 export const FIRST_SCREEN_ITEMS = [
-  { key: "headline", title: "지원 직무와 한 줄 소개", body: "어떤 일을 하는 사람인지 실제 경험과 이어서 한 문장으로 씁니다." },
+  { key: "headline", title: "지원 직무와 한 줄 소개", body: "지원 직무는 짧게 적고, 한 줄 소개에는 어떤 일을 하는 사람인지 실제 경험과 이어서 한 문장으로 씁니다." },
   { key: "highlight", title: "직무에 맞는 대표 성과", body: "의미 있는 지표와 내가 한 행동을 함께 보여 줍니다." },
   { key: "experience", title: "최근 경력과 맡은 범위", body: "회사·직무·기간과 담당 범위를 빠르게 확인할 수 있게 둡니다." },
   { key: "project", title: "대표 프로젝트와 근거 위치", body: "더 자세히 볼 내용과 면접에서 물어볼 거리를 알려 줍니다." },
@@ -108,7 +108,7 @@ export function resumeTipSignals(doc: ResumeDocument): ResumeTipSignals {
   const all = JSON.stringify(doc);
   return {
     firstScreen: {
-      headline: filled(doc.basics.headline) || filled(doc.summary),
+      headline: filled(doc.basics.headline) || filled(doc.basics.tagline) || filled(doc.summary),
       highlight: doc.highlights.some((h) => filled(h.title)),
       experience: !!exp0 && filled(exp0.company) && (filled(exp0.startDate) || filled(exp0.endDate)) && (filled(exp0.scope) || exp0.bullets.some(filled)),
       project: !!proj0 && filled(proj0.name) && (filled(proj0.result) || filled(proj0.summary) || proj0.bullets.some(filled)),
@@ -125,7 +125,7 @@ export function resumeTipSignals(doc: ResumeDocument): ResumeTipSignals {
 
 export const RESUME_WRITING_CRITERIA_PROMPT = [
   "이력서 작성 기준(자료에 있는 사실로만 적용한다. 사실이 없으면 지어내지 않고 [ADD: …]로 남긴다):",
-  "- 첫 화면에서 ① 지원 직무와 한 줄 소개 ② 직무에 맞는 대표 성과 ③ 최근 경력과 맡은 범위 ④ 대표 프로젝트가 바로 보이게 배치한다.",
+  "- 첫 화면에서 ① 지원 직무(짧은 직무명)와 한 줄 소개(경험에 근거한 한 문장) ② 직무에 맞는 대표 성과 ③ 최근 경력과 맡은 범위 ④ 대표 프로젝트가 바로 보이게 배치한다.",
   "- 프로젝트는 모두 같은 순서로 쓴다: 이름·기간·역할 → 배경과 목표 → 문제와 판단 → 실행 → 결과와 근거.",
   "- '참여·지원·담당'으로만 끝나는 문장은 무엇을 분석·결정·만들었는지로 바꾼다. 보조 역할을 총괄로 부풀리지 않는다.",
   "- 성과 숫자는 지표 정의·전후 값·측정 기간·대상(모수)·출처·본인 역할 중 자료에 있는 것을 함께 쓴다. %와 %p를 구분하고, 매출·계약액처럼 다른 값을 바꿔 쓰지 않으며, 팀 성과와 개인 기여를 나눈다. 전후 비교를 인과로 단정하지 않는다.",

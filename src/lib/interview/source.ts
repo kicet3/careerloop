@@ -28,7 +28,8 @@ export function resumeSourceLines(doc: ResumeDocument): InterviewSourceLine[] {
     if (!text || /^\[ADD:[^\]]*\]$/.test(text)) return;
     out.push({ id: `r${out.length + 1}`, doc: "resume", label: clip(label, 200), path, text: clip(text, INTERVIEW_LIMITS.lineChars) });
   };
-  if (doc.basics.headline) push("한 줄 소개", "basics.headline", doc.basics.headline);
+  if (doc.basics.headline) push("지원 직무", "basics.headline", doc.basics.headline);
+  if (doc.basics.tagline) push("한 줄 소개", "basics.tagline", doc.basics.tagline);
   doc.summary
     .split(/\n+/)
     .forEach((line, i) => push(`${RESUME_SECTION_LABELS.summary} ${i + 1}`, `summary.${i}`, line));

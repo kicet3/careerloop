@@ -40,6 +40,8 @@ function makeStyles(t: ResumeTemplate) {
     name: { fontSize: base + 11, fontWeight: 800, color: C.ink, lineHeight: 1.25 },
     headline: { fontSize: base + 1.5, fontWeight: 700, color: st.accent, marginTop: 3 },
     contact: { fontSize: base - 1, color: C.muted, marginTop: 5 },
+    // 한 줄 소개: 머리글 선 아래 독립 줄(웹 미리보기 ResumePreview의 tagline 블록과 같은 값).
+    tagline: { fontSize: base + 0.5, color: C.body, lineHeight: 1.5 },
     headerBand: {
       borderBottomWidth: st.headingStyle === "plain" ? 0.75 : 2,
       borderBottomColor: st.headingStyle === "plain" ? C.line : st.accent,
@@ -338,13 +340,15 @@ function ResumePdfDocument({ doc, templateId }: { doc: ResumeDocument; templateI
   const contact = joinParts([b.email, b.phone, b.location, b.portfolioUrl], "  |  ");
   const links = b.links.filter((l) => l.url.trim());
   const sideLinks = layout.side.length > 0;
+  const headline = joinParts([b.headline, b.totalExperience.trim() ? `총 경력 ${b.totalExperience.trim()}` : ""], "  ·  ");
+  // 한 줄 소개는 지원 직무 줄이 아니라 머리글 선 아래(사이드바 양식은 본문 열 맨 위)에 따로 둔다.
+  const tagline = (top: number) =>
+    b.tagline.trim() ? <Rich s={s} style={[s.tagline, { marginTop: top }]} text={b.tagline} /> : null;
 
   const header = (
     <View style={s.headerBand}>
       <Rich s={s} style={s.name} text={b.name.trim() || "이름"} />
-      {b.headline.trim() ? (
-        <Rich s={s} style={s.headline} text={b.totalExperience.trim() ? `${b.headline}  ·  총 경력 ${b.totalExperience.trim()}` : b.headline} />
-      ) : null}
+      {headline ? <Rich s={s} style={s.headline} text={headline} /> : null}
       {contact ? <T s={s} style={s.contact}>{contact}</T> : null}
       {!sideLinks && links.length > 0 ? (
         <T s={s} style={s.contact}>
@@ -383,10 +387,16 @@ function ResumePdfDocument({ doc, templateId }: { doc: ResumeDocument; templateI
                 <Section key={k} s={s} title={sectionTitle(doc, k)} box={pageBox(t, true)} items={sectionItems({ s, doc, k, t, narrow: true })} />
               ))}
             </View>
-            <View style={s.main}>{mainSections}</View>
+            <View style={s.main}>
+              {tagline(0)}
+              {mainSections}
+            </View>
           </View>
         ) : (
-          mainSections
+          <>
+            {tagline(4 * (t.style.density === "compact" ? 0.6 : 1))}
+            {mainSections}
+          </>
         )}
       </Page>
     </Document>

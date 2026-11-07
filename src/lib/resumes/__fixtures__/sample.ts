@@ -5,7 +5,8 @@ export function makeSampleResume(): ResumeDocument {
   return {
     basics: {
       name: "홍길동",
-      headline: "5년 차 백엔드 개발자",
+      headline: "백엔드 개발자",
+      tagline: "결제·정산 지연을 줄여 온 5년 차 백엔드 개발자",
       totalExperience: "5년 2개월",
       email: "hong@example.com",
       phone: "010-0000-0000",
