@@ -393,6 +393,39 @@
 .pf-add-bullet {
   top: 28px;
 }
+/* 기간 칸 달력 버튼: 칸 위 여백에 띄워(absolute) 줄 높이를 바꾸지 않는다. 칸에 마우스를 올리거나 포커스하면 보인다. */
+.pf-date {
+  position: relative;
+}
+.pf-date-pick {
+  position: absolute;
+  bottom: 100%;
+  right: -4px;
+  width: 20px;
+  height: 20px;
+  border: 1px solid #bcc9d6;
+  border-radius: 999px;
+  background: #fff;
+  color: var(--muted);
+  /* 숨은 동안은 누를 수 없게(보이지 않는 버튼이 위 줄 글자의 클릭을 가로채지 않게). 숨길 때는 잠깐 늦춰,
+     칸의 포커스가 빠지는 순간에 누른 탭(iOS)도 버튼에 닿게 한다. */
+  opacity: 0;
+  visibility: hidden;
+  transition:
+    opacity 0.12s,
+    visibility 0s linear 0.2s;
+}
+.pf-date-pick svg {
+  width: 12px;
+  height: 12px;
+}
+.pf-date:hover .pf-date-pick,
+.pf-date:focus-within .pf-date-pick,
+.pf-date-pick:has([aria-expanded="true"]) {
+  opacity: 1;
+  visibility: visible;
+  transition-delay: 0s;
+}
 .pf-remove:disabled {
   display: none;
 }
@@ -492,6 +525,7 @@
   .pf-status,
   .pf-notes,
   .pf-remove,
+  .pf-date-pick,
   .pf-add-button {
     display: none !important;
   }

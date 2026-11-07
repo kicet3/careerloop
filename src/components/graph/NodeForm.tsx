@@ -16,6 +16,7 @@ import {
   splitTags,
 } from "./model";
 import { cn } from "@/components/ui/cn";
+import { MonthInput } from "@/components/ui/MonthInput";
 import { inputClass, labelClass, textareaClass } from "./styles";
 
 /**
@@ -44,7 +45,10 @@ export function NodeForm({
   const [busy, setBusy] = useState(false);
 
   const fields = useMemo(() => fieldsFor(label), [label]);
-  const basicFields = fields.filter((f) => f.group !== "story");
+  // 종료일과 '진행 중'(current)이 함께 있으면 '현재' 체크를 종료일 칸 안에 둔다(따로 된 체크박스는 숨긴다).
+  const currentSpec = fields.find((f) => f.key === "current" && f.kind === "boolean");
+  const mergeCurrent = !!currentSpec && fields.some((f) => f.key === "endDate" && f.kind === "date");
+  const basicFields = fields.filter((f) => f.group !== "story" && !(mergeCurrent && f === currentSpec));
   const storyFields = fields.filter((f) => f.group === "story");
   const linkOptions = useMemo(() => (node ? [] : linkOptionsForNewNode(graph, label)), [graph, label, node]);
 
@@ -99,7 +103,22 @@ export function NodeForm({
 
       <div className="grid gap-4 sm:grid-cols-2">
         {basicFields.map((f) => (
-          <Field key={f.key} id={`${uid}-${f.key}`} spec={f} value={values[f.key]} onChange={(v) => setValues((s) => ({ ...s, [f.key]: v }))} />
+          <Field
+            key={f.key}
+            id={`${uid}-${f.key}`}
+            spec={f}
+            value={values[f.key]}
+            onChange={(v) => setValues((s) => ({ ...s, [f.key]: v }))}
+            current={
+              mergeCurrent && f.key === "endDate"
+                ? {
+                    label: currentSpec!.label,
+                    on: values.current === true,
+                    set: (on) => setValues((s) => ({ ...s, current: on })),
+                  }
+                : undefined
+            }
+          />
         ))}
       </div>
 
@@ -153,11 +172,14 @@ function Field({
   spec,
   value,
   onChange,
+  current,
 }: {
   id: string;
   spec: FieldSpec;
   value: string | boolean | undefined;
   onChange: (v: string | boolean) => void;
+  /** 종료일 칸 안의 '현재' 체크(라벨의 current 속성과 묶는다). */
+  current?: { label: string; on: boolean; set: (on: boolean) => void };
 }) {
   const text = typeof value === "string" ? value : "";
   const label = (
@@ -225,6 +247,25 @@ function Field({
         </fieldset>
       );
     }
+    case "date":
+      return (
+        <div>
+          {label}
+          <MonthInput
+            id={id}
+            format="dash"
+            required={spec.required}
+            placeholder={current ? "예: 2023-04" : spec.placeholder}
+            className="mt-1"
+            inputClassName={inputClass.replace("mt-1 ", "")}
+            value={text}
+            onChange={onChange}
+            current={current?.on}
+            onCurrentChange={current?.set}
+            currentLabel={current?.label}
+          />
+        </div>
+      );
     case "select":
       return (
         <div>

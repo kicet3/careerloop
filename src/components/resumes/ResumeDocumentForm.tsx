@@ -1,7 +1,8 @@
 "use client";
 
-import { useState, type ReactNode } from "react";
+import { useId, useState, type ReactNode } from "react";
 import { Button } from "@/components/ui/Button";
+import { MonthInput } from "@/components/ui/MonthInput";
 import { EMPTY_RESUME_ITEM, RESUME_SECTION_LABELS, type ResumeDocument, type ResumeSectionKey } from "@/lib/domain/resumes";
 import { labelClass, smallInputClass, smallTextareaClass } from "./styles";
 
@@ -40,6 +41,42 @@ function Text({
       <span className={labelClass}>{label}</span>
       <input value={value} maxLength={max} placeholder={placeholder} onChange={(e) => onChange(e.target.value)} className={`mt-1 ${smallInputClass}`} />
     </label>
+  );
+}
+
+/** 시작·종료 칸: 글로 쓰거나(2021.03·2021-03·2021년 3월) 달력에서 고른다. 떠날 때 YYYY.MM으로 맞춘다(draft-rules와 같은 형식). */
+function MonthText({
+  label,
+  value,
+  onChange,
+  end,
+  placeholder,
+}: {
+  label: string;
+  value: string;
+  onChange: (v: string) => void;
+  /** 종료일: '현재' 체크를 둔다(값 "현재"). */
+  end?: boolean;
+  placeholder?: string;
+}) {
+  const id = useId();
+  return (
+    <div>
+      <label htmlFor={id} className={labelClass}>
+        {label}
+      </label>
+      <MonthInput
+        id={id}
+        format="dot"
+        allowCurrent={end}
+        value={value}
+        maxLength={20}
+        placeholder={placeholder ?? "예: 2021.03"}
+        onChange={onChange}
+        className="mt-1"
+        inputClassName={smallInputClass}
+      />
+    </div>
   );
 }
 
@@ -277,8 +314,8 @@ export function ResumeDocumentForm({
               <Text label="회사" value={x.company} max={120} onChange={(v) => up({ company: v })} />
               <Text label="부서·조직" value={x.department} max={120} onChange={(v) => up({ department: v })} />
               <Text label="직무·직급" value={x.title} max={120} onChange={(v) => up({ title: v })} />
-              <Text label="시작" value={x.startDate} max={20} placeholder="2021.03" onChange={(v) => up({ startDate: v })} />
-              <Text label="종료" value={x.endDate} max={20} placeholder="현재" onChange={(v) => up({ endDate: v })} />
+              <MonthText label="시작" value={x.startDate} placeholder="2021.03" onChange={(v) => up({ startDate: v })} />
+              <MonthText label="종료" end value={x.endDate} placeholder="2024.02 또는 현재" onChange={(v) => up({ endDate: v })} />
             </div>
             <Text label="근무지" value={x.location} max={80} onChange={(v) => up({ location: v })} />
             <Area
@@ -318,8 +355,8 @@ export function ResumeDocumentForm({
               <Text label="내 역할" value={x.role} max={120} placeholder="결정·실행 범위" onChange={(v) => up({ role: v })} />
               <Text label="회사·활동명" value={x.company} max={120} onChange={(v) => up({ company: v })} />
               <Text label="팀 구성" value={x.team} max={120} placeholder="백엔드 3·디자인 1" onChange={(v) => up({ team: v })} />
-              <Text label="시작" value={x.startDate} max={20} onChange={(v) => up({ startDate: v })} />
-              <Text label="종료" value={x.endDate} max={20} onChange={(v) => up({ endDate: v })} />
+              <MonthText label="시작" value={x.startDate} onChange={(v) => up({ startDate: v })} />
+              <MonthText label="종료" end value={x.endDate} onChange={(v) => up({ endDate: v })} />
             </div>
             <Area label="한 줄 설명" value={x.summary} max={600} rows={2} onChange={(v) => up({ summary: v })} />
             <Area label="문제" value={x.problem} max={500} rows={2} placeholder="[어떤 자료]로 [개선이 필요한 원인·상황]을 확인." onChange={(v) => up({ problem: v })} />
@@ -363,8 +400,8 @@ export function ResumeDocumentForm({
             <Text label="학위" value={x.degree} max={60} placeholder="학사" onChange={(v) => up({ degree: v })} />
             <Text label="전공" value={x.major} max={120} onChange={(v) => up({ major: v })} />
             <div className="grid grid-cols-2 gap-3">
-              <Text label="시작" value={x.startDate} max={20} onChange={(v) => up({ startDate: v })} />
-              <Text label="종료" value={x.endDate} max={20} onChange={(v) => up({ endDate: v })} />
+              <MonthText label="시작" value={x.startDate} onChange={(v) => up({ startDate: v })} />
+              <MonthText label="종료" end value={x.endDate} onChange={(v) => up({ endDate: v })} />
             </div>
             <Text label="비고" className="sm:col-span-2" value={x.note} max={300} onChange={(v) => up({ note: v })} />
           </div>

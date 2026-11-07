@@ -10,6 +10,8 @@
  */
 import { useEffect, useLayoutEffect, useRef, useState, type ElementType, type ReactNode } from "react";
 import { cn } from "@/components/ui/cn";
+import { MonthPickerButton } from "@/components/ui/MonthInput";
+import { CURRENT_TEXT } from "@/lib/dates/month-input";
 import {
   EMPTY_RESUME_ITEM,
   RESUME_SECTION_LABELS,
@@ -31,6 +33,8 @@ const css = {
   addButton: "pf-add-button",
   body: "pf-body",
   contact: "pf-contact",
+  date: "pf-date",
+  datePick: "pf-date-pick",
   detail: "pf-detail",
   education: "pf-education",
   entry: "pf-entry",
@@ -314,6 +318,30 @@ function EditableField({
     >
       {initial}
     </Tag>
+  );
+}
+
+/**
+ * 기간 칸(시작·종료): 칸에 바로 쓰고, 편집 모드면 옆의 작은 달력 버튼으로도 고른다(YYYY.MM — draft-rules와 같은 형식).
+ * 버튼은 칸 위 여백에 띄워 줄 높이·쪽 나눔을 바꾸지 않고, 화면에서만 보인다(PDF는 서버가 따로 그린다).
+ */
+function DateField(props: FieldProps & { end?: boolean }) {
+  const { end, ...field } = props;
+  const onChange = field.onChange;
+  if (!onChange) return <Field {...field} />;
+  return (
+    <span className={css.date}>
+      <Field {...field} />
+      <MonthPickerButton
+        value={field.value}
+        format="dot"
+        label={`${field.label} 달력에서 고르기`}
+        onPick={onChange}
+        onPickCurrent={end ? () => onChange(CURRENT_TEXT) : undefined}
+        wrapperClassName={css.datePick}
+        className="size-full rounded-full"
+      />
+    </span>
   );
 }
 
@@ -633,7 +661,7 @@ export function PerformanceSheet({
                 onChange={on((v) => upExp(i, { company: v }))}
               />
               <div className={css.period}>
-                <Field
+                <DateField
                   path={`experience.${i}.startDate`}
                   value={e.startDate}
                   placeholder={PH.start}
@@ -642,7 +670,7 @@ export function PerformanceSheet({
                   onChange={on((v) => upExp(i, { startDate: v }))}
                 />
                 {" - "}
-                <Field
+                <DateField end
                   path={`experience.${i}.endDate`}
                   value={e.endDate}
                   placeholder={pick(PH.end, i)}
@@ -775,7 +803,7 @@ export function PerformanceSheet({
                 onChange={on((v) => upProj(i, { name: v }))}
               />
               <div className={css.period}>
-                <Field
+                <DateField
                   path={`projects.${i}.startDate`}
                   value={p.startDate}
                   placeholder={PH.projectStart}
@@ -784,7 +812,7 @@ export function PerformanceSheet({
                   onChange={on((v) => upProj(i, { startDate: v }))}
                 />
                 {" - "}
-                <Field
+                <DateField end
                   path={`projects.${i}.endDate`}
                   value={p.endDate}
                   placeholder={PH.projectEnd}
@@ -956,7 +984,7 @@ export function PerformanceSheet({
             />
           </div>
           <div className={css.period}>
-            <Field
+            <DateField
               path={`education.${i}.startDate`}
               value={e.startDate}
               placeholder="[YYYY.MM"
@@ -965,7 +993,7 @@ export function PerformanceSheet({
               onChange={on((v) => upEdu(i, { startDate: v }))}
             />
             {" - "}
-            <Field
+            <DateField end
               path={`education.${i}.endDate`}
               value={e.endDate}
               placeholder="YYYY.MM]"
