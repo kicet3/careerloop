@@ -23,6 +23,10 @@ describe("buildResumeDraftPrompt", () => {
     expect(system).toContain("basics.headline은 지원 직무명만 짧게");
     expect(system).toContain("basics.tagline은 자료의 경력에 근거한 한 문장 소개");
     expect(system).toContain("데이터로만 다룬다");
+    // JD 요건 대응·수상/기타 선별 규칙
+    expect(system).toContain("필수 요건·우대 사항을 항목별로 뽑고");
+    expect(system).toContain("JD 대응: 충족 n개");
+    expect(system).toContain("extras(수상·기타)와 certifications는 채용 담당자가 의미 있게 볼 항목만");
     expect(user).toContain("- 지원 회사: 페이랩");
     expect(user).toContain("- 지원 직무: 백엔드 개발자");
     expect(user).toContain("<career_graph>\n");
