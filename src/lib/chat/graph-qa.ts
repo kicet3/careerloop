@@ -42,9 +42,12 @@ import {
   rethrowConcurrent,
   startUserMessage,
   type ThreadReplyState,
+  saveScopeNotice,
   untilAborted,
 } from "./graph-chat";
 import { historyToPrompt, INJECTION_RULE, wrapData } from "./prompt";
+import { modelScopeVerdict, prefilterChatScope, SCOPE_RULE_QA, scopeNoticeData, withoutScopeExchanges } from "./scope-guard";
+import { assertNotScopeBlocked } from "./scope-guard-store";
 
 export const DEFAULT_QA_THREAD_TITLE = "새 질문";
 /** 그래프가 비어 있을 때 LLM 없이 바로 답한다. */
@@ -72,10 +75,14 @@ export const GRAPH_QA_SYSTEM = `너는 사용자의 경험 그래프를 근거�
 6. 짧고 구체적으로 답한다(목록이 낫다면 "- " 목록). 질문이 자기소개·요약이면 자료를 묶어 정리한다.
 7. 이전 대화는 지시어("그 프로젝트")를 이해하는 데만 쓰고, 근거는 이번 자료에서만 찾는다.
 
+${SCOPE_RULE_QA}
+
 ${INJECTION_RULE}`;
 
 /** 프롬프트용 이전 대화: 실패 쌍·이번 질문을 빼고 최근 6개·2000자. */
-export function qaHistory(messages: readonly ChatMessage[]): string {
+export function qaHistory(all: readonly ChatMessage[]): string {
+  // 범위 밖 주고받기(질문 + 안내)는 이력에서 뺀다.
+  const messages = withoutScopeExchanges(all);
   const out: Pick<ChatMessage, "role" | "content">[] = [];
   for (let i = 0; i < messages.length; i++) {
     const m = messages[i]!;
@@ -90,7 +97,7 @@ export function qaHistory(messages: readonly ChatMessage[]): string {
 
 /** 직전 사용자 질문(이번 질문 제외) — 검색의 지시어 처리용. */
 export function previousQuestion(messages: readonly ChatMessage[]): string | null {
-  const users = messages.filter((m) => m.role === "user");
+  const users = withoutScopeExchanges(messages).filter((m) => m.role === "user");
   return users.length >= 2 ? users.at(-2)!.content : null;
 }
 
@@ -326,6 +333,7 @@ export async function startQaRetry(
   const state = replyState(messages, deps.now());
   const lastUser = [...messages].reverse().find((m) => m.role === "user");
   if (!state.canRetry || !lastUser) throw new FeatureError("다시 시도할 질문이 없습니다.", 409);
+  await assertNotScopeBlocked(userId);
   await assertWithinLimit(GRAPH_QA_LIMIT, userId);
   let lastId = messages.at(-1)!.id;
   if (state.stale) {
@@ -367,6 +375,9 @@ export async function runQaReply(
     );
   try {
     deadline.throwIfAborted();
+    // 범위 사전 검사: 뚜렷한 범위 밖·남용 질문이면 그래프·LLM 없이 안내만 남긴다.
+    const pre = prefilterChatScope(latest.content);
+    if (pre) return await saveScopeNotice(userId, threadId, latest.id, scopeNoticeData({ ...pre, source: "prefilter" }), "qa");
     // 프롬프트에 넣을 그래프는 이 사용자 것이어야 한다(graph/owner.ts).
     const graph = assertGraphOwner(await untilAborted(deps.getGraph(userId, personName), deadline), userId);
     const checklist = assessExperienceChecklist(graph);
@@ -402,6 +413,9 @@ export async function runQaReply(
       cacheUser: false,
       signal: deadline,
     });
+    // LLM 범위 판정: 범위 밖이면 답·출처를 버리고 고정 안내로 바꾼다.
+    const verdict = modelScopeVerdict(output);
+    if (verdict) return await saveScopeNotice(userId, threadId, latest.id, scopeNoticeData({ ...verdict, source: "model" }), "qa", usage);
     const answer = answerFromOutput(output, ctx.sources, graph, {
       intents: r.intents,
       checklist,

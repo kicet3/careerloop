@@ -13,6 +13,7 @@ import { NO_ENGINE_MESSAGE, type ProviderId } from "@/lib/domain/providers";
 import { askGraphChat } from "./api";
 import { chatApi as api, useElapsed, useProviderChoice } from "./chat-client";
 import { AnswerText, SourceChips } from "./CitationChips";
+import { ScopeNotice } from "./ScopeNotice";
 
 const PROVIDER_STORAGE_KEY = "graph-qa:provider";
 const EXAMPLES = ["내 대표 성과를 수치로 정리해 줘", "리더십을 보여 줄 경험이 있어?", "어떤 기술을 어디에서 썼어?", "자기소개용으로 경력을 요약해 줘"];
@@ -326,6 +327,7 @@ function AnswerMessage({ message: m, canRetry, onRetry, retrying }: { message: C
       </Alert>
     );
   }
+  if (m.data?.kind === "scope-notice") return <ScopeNotice text={m.content} mode="qa" />;
   const data = m.data?.kind === "graph-answer" ? m.data : null;
   const sources = data?.sources ?? [];
   return (

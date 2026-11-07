@@ -111,6 +111,8 @@ import {
 } from "./followups";
 import { coverOf, FOLLOWUP_TOPIC_NAMES, filledTopics, followupTopicKeys, overlayGraphOps } from "./followup-topics";
 import { createLlmClient, LlmPermanentError, type LlmClient, type LlmUsageContext } from "@/lib/llm";
+import { type ChatScopeMode, modelScopeVerdict, prefilterChatScope, SCOPE_RULE_BUILD, scopeNoticeData, scopeNoticeText, withoutScopeExchanges } from "./scope-guard";
+import { assertNotScopeBlocked, recordScopeEvent } from "./scope-guard-store";
 import { STAGE_TASK_DELIMITER } from "@/lib/panel/prompts";
 import { stageErrorMessage } from "@/lib/panel/runner";
 import { kstToday } from "@/lib/time/kst";
@@ -152,7 +154,7 @@ ${modelGuide()}
 6. 날짜는 YYYY, YYYY-MM, YYYY-MM-DD 형식만 쓴다. 현재 재직 중이면 Role.current="true"로 두고 endDate는 비운다.
 7. deleteNode·deleteEdge는 사용자가 지우거나 바로잡아 달라고 분명히 말했을 때만 쓴다.
 8. 이전 대화에서 사용자가 거절한 변경안은 다시 제안하지 않는다. 이미 적용된 내용은 다시 추가하지 않는다.
-9. 사용자가 단순히 질문하거나 잡담하면 ops 없이 답한다. 그래프 밖의 일(이력서 작성 대행, 다른 사람 정보 등)은 정중히 범위를 알려 준다.
+9. 사용자가 단순히 질문하거나 잡담하면 ops 없이 답한다. 이력서 전체 작성 대행은 이력서 화면에서 할 수 있다고 짧게 안내한다. 경험 정리와 무관한 요청·남용은 아래 '범위 판정'을 따른다.
 10. 각 연산에서 해당 없는 필드는 "" 또는 []로 둔다. updateNode의 props에는 바꿀 속성만 넣는다(값 ""는 그 속성 삭제).
 11. Project·Experience는 자소서 소재 단위다. 사용자가 이야기한 경험은 situation(상황·목표), action(내 행동), result(결과), learned(배운 점), myRole(내 역할)로 나눠 넣는다. 사용자가 실제로 말한 내용이 뒷받침하는 categories(위 id, 쉼표로 구분, 최대 3개)만 단다. 기존 노드의 categories는 새로 달 태그만 보내면 기존 태그에 더해진다. 태그를 빼 달라고 하면 남길 태그 전체를 보내고(빼고 하나도 안 남으면 ""), 그 밖에는 기존 태그의 일부만 다시 보내지 않는다. 회사 안의 일화는 Role에 붙이지 않고 Project를 만들어 Role -WORKED_ON->으로 잇는다.
 12. 성과 수치는 Achievement(value에 수치)로 만들고, 그 경험(Role·Project·Experience)에서 -ACHIEVED->로 잇는다.
@@ -161,6 +163,8 @@ ${modelGuide()}
 15. <${CHAT_TAGS.resume}>·<${CHAT_TAGS.portfolio}>가 있으면 사용자가 이 대화에서 앞서 올린 문서다. 사용자가 그 문서의 내용을 넣어 달라고 하면 문서에 글자로 있는 사실만 쓴다.
 16. <${CHAT_TAGS.openFollowups}>는 사용자에게 아직 열려 있는 후속 질문 목록(id. (프로젝트) 질문)이다. 사용자의 최근 메시지(<${CHAT_TAGS.latestMessage}>)가 그중 어떤 질문에 실제로 답했으면(질문이 묻는 정보를 전부 또는 충분히 줬으면) 그 id를 answeredFollowups에 넣는다. 이전 대화에서 답한 것, 그래프에 이미 있는 것, 추측으로는 넣지 않는다. "모르겠다"·"없다"·"나중에"처럼 정보를 주지 않은 답, 다른 프로젝트에 대한 답은 넣지 않는다. 목록에 없는 id는 쓰지 않는다. answeredFollowups에 넣은 질문은 followUpQuestions로 다시 묻지 않는다. 목록이 없거나 해당이 없으면 [].
 17. followUpQuestions에는 아직 모르는 것만 묻는다. <${CHAT_TAGS.askedFollowups}>에 있는 것(이미 채운 항목, 확인 대기 중인 변경안이 채우는 항목, 이미 답한·건너뛴 질문)과 이전 대화에서 사용자가 이미 말한 것은 표현을 바꿔서도 다시 묻지 않는다. 확인 대기 중인 변경안에 들어 있는 내용은 이미 들은 것이다 — 그래프에 아직 없다고 다시 묻지 말고, 필요하면 그 변경안을 적용해 달라고 안내한다. followUpTopics에는 followUpQuestions 각각이 채우는 항목을 같은 순서로 쓴다(background, role, team, period, affiliation, tech, actions, result, metric-basis, learned, limitations, challenge, collaboration 중, 질문 하나에 문자열 하나, 여러 개면 쉼표).
+
+${SCOPE_RULE_BUILD}
 
 ${INJECTION_RULE}`;
 
@@ -174,7 +178,9 @@ export { GRAPH_CHAT_FOCUS_RULES };
 export const GRAPH_CHAT_FOLLOWUP_RULE = `사용자의 최근 메시지는 아래 '지금 답하는 질문'에 대한 답이다. 그 답을 그 질문이 가리키는 항목에 정리한다.`;
 
 /** 프롬프트용 대화 이력: 답변 실패 메시지와 그 직전 사용자 메시지(다시 보낸 것), 그리고 이번 메시지는 뺀다. */
-export function conversationForPrompt(messages: readonly ChatMessage[]): Pick<ChatMessage, "role" | "content">[] {
+export function conversationForPrompt(all: readonly ChatMessage[]): Pick<ChatMessage, "role" | "content">[] {
+  // 범위 밖 주고받기(요청 + 안내)는 이력에서 뺀다 — 탈옥 문구·무관한 요청이 다음 답변의 맥락에 남지 않게.
+  const messages = withoutScopeExchanges(all);
   const out: Pick<ChatMessage, "role" | "content">[] = [];
   for (let i = 0; i < messages.length; i++) {
     const m = messages[i]!;
@@ -1000,6 +1006,8 @@ export async function startUserMessage(
   if (replyState(recent, deps.now()).pending) {
     throw new FeatureError("이전 메시지의 답변을 만드는 중입니다. 잠시 후 다시 보내 주세요.", 409);
   }
+  // 범위 밖 요청이 쌓여 잠시 막힌 사용자(전송 상한을 쓰기 전에 본다).
+  await assertNotScopeBlocked(userId);
   // 사용자당 전송 상한(DB 원장 — 인스턴스 사이에 공유된다).
   await assertWithinLimit(input.limit, userId);
   // 대기 검사와 삽입을 한 문장으로: 읽은 뒤 다른 요청(다른 탭·두 번 클릭)이 먼저 메시지를 넣었으면 409.
@@ -1037,6 +1045,7 @@ export async function startGraphChatRetry(
   if (!state.canRetry) throw new FeatureError("다시 시도할 메시지가 없습니다.", 409);
   const lastUser = [...messages].reverse().find((m) => m.role === "user");
   if (!lastUser) throw new FeatureError("다시 시도할 메시지가 없습니다.", 409);
+  await assertNotScopeBlocked(userId);
   // 사용자당 전송 상한(DB 원장 — 인스턴스 사이에 공유된다). 문서 가져오기 재시도는 가져오기 하루 상한도 센다.
   if (lastUser.data?.kind === "document-import") await assertWithinLimit(GRAPH_IMPORT_LIMIT, userId);
   if (lastUser.data?.kind === "repo-import") await assertWithinLimit(GITHUB_IMPORT_LIMIT, userId);
@@ -1110,6 +1119,11 @@ export async function runGraphChatReply(
   const repoImport = latest.data?.kind === "repo-import" ? latest.data : null;
   try {
     deadline.throwIfAborted();
+    // 1) 범위 사전 검사: 뚜렷한 범위 밖·남용 요청이면 그래프·LLM 없이 안내만 남긴다(문서·저장소 가져오기는 검사하지 않는다).
+    const pre = doc || repoImport ? null : prefilterChatScope(latest.content);
+    if (pre) {
+      return await saveScopeNotice(userId, threadId, latest.id, scopeNoticeData({ ...pre, source: "prefilter" }), "build");
+    }
     const focusNodeId = (await getThread(userId, threadId))?.focusNodeId ?? null;
     // 프롬프트에 넣을 그래프는 이 사용자 것이어야 한다(다른 사용자 표시면 LLM을 부르지 않고 실패로 남긴다).
     const graph = assertGraphOwner(await untilAborted(deps.getGraph(userId, personName), deadline), userId);
@@ -1234,6 +1248,11 @@ export async function runGraphChatReply(
         signal: deadline,
       });
       usage = res.usage;
+      // 2) LLM 범위 판정: 범위 밖이면 변경안·후속 질문·답한 질문 표시를 모두 버리고 고정 안내로 바꾼다.
+      const verdict = modelScopeVerdict(res.output);
+      if (verdict) {
+        return await saveScopeNotice(userId, threadId, latest.id, scopeNoticeData({ ...verdict, source: "model" }), "build", usage);
+      }
       proposal = proposalFromOutput(res.output, graph, { focusNodeId });
       answered = resolveAnsweredKeys(res.output.answeredFollowups, promptFollowups);
     }
@@ -1318,6 +1337,27 @@ async function resolveAnsweredInReply(userId: string, saved: ChatMessage, data: 
   if (items.length === 0) delete next.resolvedFollowups;
   const updated = await updateMessage(userId, saved.id, { data: next }).catch(() => null);
   if (updated) Object.assign(saved, { data: updated.data });
+}
+
+/**
+ * 범위 밖 안내를 assistant 메시지로 저장하고(마지막 메시지가 그 사용자 메시지일 때만) 가드레일 횟수를 센다. 경험 질문하기(graph-qa.ts)도 쓴다.
+ * 기록에 실패해도 안내는 그대로 둔다.
+ */
+export async function saveScopeNotice(
+  userId: string,
+  threadId: string,
+  latestId: string,
+  notice: ReturnType<typeof scopeNoticeData>,
+  mode: ChatScopeMode,
+  usage?: Parameters<typeof addMessage>[1]["usage"],
+): Promise<ChatMessage | null> {
+  const saved = await addMessage(
+    userId,
+    { threadId, role: "assistant", content: scopeNoticeText(notice.category, mode), data: notice, status: null, ...(usage ? { usage } : {}) },
+    { expectLastId: latestId },
+  );
+  if (saved) await recordScopeEvent(userId, { threadId, notice }).catch((err) => console.error("[chat-guard]", threadId, err));
+  return saved;
 }
 
 /** 저장소 정보를 읽는다. 비공개 저장소는 지금도 비공개 허용을 켠 경우만. 읽지 못하면 null(대화는 저장소 없이 이어간다). */

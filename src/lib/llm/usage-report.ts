@@ -151,3 +151,76 @@ export async function getUserUsage(
   return { user, totals: total ? toTotals(total) : emptyTotals(), byTask, byDay, byModel };
 }
 
+/** 경험 대화 범위 가드레일 회원별 횟수(관리자 '사용량' 화면). */
+export interface ScopeGuardUserRow {
+  userId: string;
+  email: string | null;
+  name: string | null;
+  /** 기간 안 범위 밖 안내 수(off_topic + abuse). */
+  total: number;
+  offTopic: number;
+  abuse: number;
+  /** LLM 호출 전 사전 검사로 막은 수. */
+  prefilter: number;
+  lastAt: number | null;
+  /** 지금 차단 창(scope-guard-store.ts CHAT_SCOPE_GUARD) 안의 기록 수 — limit 이상이면 지금 막혀 있다. */
+  recentWindow: number;
+}
+
+/**
+ * 범위 밖 안내 메시지(chat_messages.data.kind='scope-notice')를 회원별로 센다(사용자 글은 읽지 않는다). 대화를 지우면 그 기록도 빠진다.
+ * recentWindow는 차단 원장(rate_events)에서 센다.
+ */
+export async function listScopeGuardByUser(opts: {
+  since: Date | null;
+  window: { bucket: string; windowMs: number };
+  limit?: number;
+}): Promise<ScopeGuardUserRow[]> {
+  const params: unknown[] = [];
+  let sinceSql = "";
+  if (opts.since) {
+    params.push(opts.since);
+    sinceSql = `AND m.created_at >= $${params.length}`;
+  }
+  params.push(Math.min(Math.max(opts.limit ?? 50, 1), 200));
+  const rows = await prisma.$queryRawUnsafe<
+    { user_id: string; total: bigint | number; off_topic: bigint | number; abuse: bigint | number; prefilter: bigint | number; last_at: Date | null }[]
+  >(
+    `SELECT t.user_id,
+            COUNT(*) AS total,
+            COUNT(*) FILTER (WHERE m.data->>'category' = 'off_topic') AS off_topic,
+            COUNT(*) FILTER (WHERE m.data->>'category' = 'abuse') AS abuse,
+            COUNT(*) FILTER (WHERE m.data->>'source' = 'prefilter') AS prefilter,
+            MAX(m.created_at) AS last_at
+       FROM chat_messages m JOIN chat_threads t ON t.id = m.thread_id
+      WHERE m.role = 'assistant' AND m.data->>'kind' = 'scope-notice' ${sinceSql}
+      GROUP BY t.user_id
+      ORDER BY total DESC, last_at DESC
+      LIMIT $${params.length}`,
+    ...params,
+  );
+  if (rows.length === 0) return [];
+  const ids = rows.map((r) => r.user_id);
+  const [people, recent] = await Promise.all([
+    prisma.user.findMany({ where: { id: { in: ids } }, select: { id: true, email: true, name: true } }),
+    prisma.rateEvent.groupBy({
+      by: ["key"],
+      where: { bucket: opts.window.bucket, key: { in: ids }, createdAt: { gt: new Date(Date.now() - opts.window.windowMs) } },
+      _count: { _all: true },
+    }),
+  ]);
+  const byId = new Map(people.map((p) => [p.id, p]));
+  const recentBy = new Map(recent.map((r) => [r.key, r._count._all]));
+  return rows.map((r) => ({
+    userId: r.user_id,
+    email: byId.get(r.user_id)?.email ?? null,
+    name: byId.get(r.user_id)?.name ?? null,
+    total: num(r.total),
+    offTopic: num(r.off_topic),
+    abuse: num(r.abuse),
+    prefilter: num(r.prefilter),
+    lastAt: r.last_at ? new Date(r.last_at).getTime() : null,
+    recentWindow: recentBy.get(r.user_id) ?? 0,
+  }));
+}
+

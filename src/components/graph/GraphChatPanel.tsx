@@ -40,6 +40,7 @@ import {
 import { chatApi as api, useElapsed } from "./chat-client";
 import { emitFollowupsChanged, FOLLOWUPS_CHANGED_EVENT, patchFollowup } from "./followups-client";
 import { GraphImportForm } from "./GraphImportForm";
+import { ScopeNotice } from "./ScopeNotice";
 import { GITHUB_PICKER_EVENT, githubApi, GithubClientError, type GithubPickerEventDetail, relativeTime } from "@/components/github/client";
 import { GithubRepoPicker } from "@/components/github/GithubRepoPicker";
 import { GITHUB_UNAVAILABLE_MESSAGE, githubErrorMessage, type GithubThreadRepo } from "@/lib/github/types";
@@ -1154,6 +1155,7 @@ function AssistantMessage({
       </Alert>
     );
   }
+  if (m.data?.kind === "scope-notice") return <ScopeNotice text={m.content} mode="build" />;
   const proposal = m.data?.kind === "graph-proposal" ? m.data : null;
   const hasOps = !!proposal && proposal.ops.length > 0;
   const badge = hasOps && m.status ? STATUS_BADGE[m.status] : null;
