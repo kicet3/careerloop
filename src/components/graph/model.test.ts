@@ -65,9 +65,18 @@ describe("buildAddNodeOps", () => {
 
   it("필수 값이 없거나 형식이 틀리면 필드 이름이 들어간 오류", () => {
     expect(buildAddNodeOps("Company", formValuesFrom("Company"))).toEqual({ ok: false, error: "회사명을(를) 입력해 주세요." });
-    const bad = buildAddNodeOps("Role", { ...formValuesFrom("Role"), title: "PM", startDate: "2021/1" });
+    const bad = buildAddNodeOps("Role", { ...formValuesFrom("Role"), title: "PM", startDate: "21년 몇 월쯤" });
     expect(bad.ok).toBe(false);
     expect(!bad.ok && bad.error).toContain("시작");
+  });
+
+  it("날짜는 계약대로 맞춘다: 2021/1 → 2021-01, 종료 '현재' → 진행 중, 미래·시작 > 종료는 오류", () => {
+    const ok = buildAddNodeOps("Role", { ...formValuesFrom("Role"), title: "PM", startDate: "2021/1", endDate: "현재" });
+    expect(ok).toEqual({ ok: true, ops: [{ op: "addNode", ref: NEW_NODE_REF, label: "Role", props: { title: "PM", startDate: "2021-01", current: true } }] });
+    const future = buildAddNodeOps("Project", { ...formValuesFrom("Project"), name: "P", startDate: "2099-01" });
+    expect(!future.ok && future.error).toContain("오늘 이후");
+    const order = buildAddNodeOps("Project", { ...formValuesFrom("Project"), name: "P", startDate: "2024-05", endDate: "2023-01" });
+    expect(!order.ok && order.error).toContain("늦어");
   });
 });
 

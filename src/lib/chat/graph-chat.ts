@@ -65,8 +65,9 @@ import {
 import { field, historyToPrompt, INJECTION_RULE, wrapData } from "@/lib/chat/prompt";
 import { applyGraphOps, getCareerGraph, graphEnabled, GraphOpError, GraphUnavailableError, graphToText } from "@/lib/graph/service";
 import { assertGraphOwner } from "@/lib/graph/owner";
-import { planGraphOps } from "@/lib/graph/plan";
-import { assessExperienceChecklist, checklistToPromptText } from "@/lib/graph/completeness";
+import { dateIssueText, planGraphOps, sanitizeOpDates } from "@/lib/graph/plan";
+import { applyRepoPeriod, guardInheritedPeriods, type RepoPeriod, repoPeriod } from "./graph-dates-guard";
+import { assessExperienceChecklist, checklistToPromptText, missingCertificationDatesText } from "@/lib/graph/completeness";
 import { assessProjectStructure, type ProjectStructure, projectFocusText, restrictToFocus } from "@/lib/graph/project-structure";
 import { storyTagName } from "@/lib/domain/experience-categories";
 import { type FollowupAnswerData, type FollowupStatus, type GraphFollowup, normalizeFollowupText } from "@/lib/domain/followups";
@@ -75,7 +76,7 @@ import { GRAPH_CHAT_FOCUS_RULES } from "./graph-focus-rules";
 import { buildRepoImportPrompt, repoBriefBlock } from "./graph-repo-import";
 import type { GithubThreadRepo } from "@/lib/github/types";
 import { includePrivateAllowed, type RepoSnapshot, snapshotByRepoId, snapshotForProject, threadRepoView, unlinkDeletedProjects } from "@/lib/github/snapshots";
-import { modelGuide } from "./graph-guide";
+import { GRAPH_DATE_RULES, modelGuide, todayText } from "./graph-guide";
 import {
   buildGraphImportPrompt,
   companyKey,
@@ -151,7 +152,7 @@ ${modelGuide()}
 3. 중복을 만들지 않는다. <${CHAT_TAGS.careerGraph}>에 같은(또는 표기만 다른) 회사·프로젝트·기술 등이 이미 있으면 addNode 대신 그 [id]를 써서 updateNode로 보강하거나 addEdge로 연결한다.
 4. 새 노드는 addNode로 만들고 ref를 "new:<영문·숫자>"(변경안 안에서 유일)로 준다. 같은 변경안의 뒤 연산에서 그 ref로 연결한다.
 5. 새 노드는 반드시 관계로 이어 둔다: 회사는 me -WORKED_AT->, 직무는 me -HAD_ROLE-> 와 Role -AT_COMPANY-> Company, 프로젝트는 Role 또는 me -WORKED_ON->, 경험은 me -HAS_EXPERIENCE->, 기술은 사용한 곳 -USED_SKILL-> 또는 me -HAS_SKILL->, 성과는 이룬 곳 -ACHIEVED->, 학력은 me -STUDIED_AT->, 자격증은 me -EARNED->.
-6. 날짜는 YYYY, YYYY-MM, YYYY-MM-DD 형식만 쓴다. 현재 재직 중이면 Role.current="true"로 두고 endDate는 비운다.
+6. 날짜는 아래 날짜 규칙(D1~D6)을 따른다.
 7. deleteNode·deleteEdge는 사용자가 지우거나 바로잡아 달라고 분명히 말했을 때만 쓴다.
 8. 이전 대화에서 사용자가 거절한 변경안은 다시 제안하지 않는다. 이미 적용된 내용은 다시 추가하지 않는다.
 9. 사용자가 단순히 질문하거나 잡담하면 ops 없이 답한다. 이력서 전체 작성 대행은 이력서 화면에서 할 수 있다고 짧게 안내한다. 경험 정리와 무관한 요청·남용은 아래 '범위 판정'을 따른다.
@@ -163,6 +164,8 @@ ${modelGuide()}
 15. <${CHAT_TAGS.resume}>·<${CHAT_TAGS.portfolio}>가 있으면 사용자가 이 대화에서 앞서 올린 문서다. 사용자가 그 문서의 내용을 넣어 달라고 하면 문서에 글자로 있는 사실만 쓴다.
 16. <${CHAT_TAGS.openFollowups}>는 사용자에게 아직 열려 있는 후속 질문 목록(id. (프로젝트) 질문)이다. 사용자의 최근 메시지(<${CHAT_TAGS.latestMessage}>)가 그중 어떤 질문에 실제로 답했으면(질문이 묻는 정보를 전부 또는 충분히 줬으면) 그 id를 answeredFollowups에 넣는다. 이전 대화에서 답한 것, 그래프에 이미 있는 것, 추측으로는 넣지 않는다. "모르겠다"·"없다"·"나중에"처럼 정보를 주지 않은 답, 다른 프로젝트에 대한 답은 넣지 않는다. 목록에 없는 id는 쓰지 않는다. answeredFollowups에 넣은 질문은 followUpQuestions로 다시 묻지 않는다. 목록이 없거나 해당이 없으면 [].
 17. followUpQuestions에는 아직 모르는 것만 묻는다. <${CHAT_TAGS.askedFollowups}>에 있는 것(이미 채운 항목, 확인 대기 중인 변경안이 채우는 항목, 이미 답한·건너뛴 질문)과 이전 대화에서 사용자가 이미 말한 것은 표현을 바꿔서도 다시 묻지 않는다. 확인 대기 중인 변경안에 들어 있는 내용은 이미 들은 것이다 — 그래프에 아직 없다고 다시 묻지 말고, 필요하면 그 변경안을 적용해 달라고 안내한다. followUpTopics에는 followUpQuestions 각각이 채우는 항목을 같은 순서로 쓴다(background, role, team, period, affiliation, tech, actions, result, metric-basis, learned, limitations, challenge, collaboration 중, 질문 하나에 문자열 하나, 여러 개면 쉼표).
+
+${GRAPH_DATE_RULES}
 
 ${SCOPE_RULE_BUILD}
 
@@ -256,12 +259,12 @@ export function buildGraphChatPrompt(input: {
     wrapData(CHAT_TAGS.careerGraph, graphToText(input.graph, { maxChars: GRAPH_TEXT_MAX_CHARS })),
     "",
     "경험 체크리스트(빠진 필수 항목부터):",
-    wrapData(CHAT_TAGS.experienceChecklist, checklistToPromptText(assessExperienceChecklist(input.graph))),
+    wrapData(CHAT_TAGS.experienceChecklist, checklistPromptText(input.graph)),
     ...(focusText ? ["", "이 대화에서 구조화할 프로젝트(모든 변경안은 이 프로젝트에 붙인다):", wrapData(CHAT_TAGS.focusProject, focusText)] : []),
     ...(focusText && input.repoBrief ? repoBriefBlock(input.repoBrief) : []),
     ...latestDocumentBlock(input.messages),
     STAGE_TASK_DELIMITER,
-    field("오늘 날짜", today),
+    field("오늘 날짜", todayText(today)),
     "",
     "이전 대화:",
     wrapData(CHAT_TAGS.conversation, historyToPrompt(conversationForPrompt(input.messages))),
@@ -593,15 +596,16 @@ export function mergeCategoryUpdates(ops: readonly GraphOp[], graph: CareerGraph
 export function validateAgainstGraph(
   ops: readonly GraphOp[],
   graph: CareerGraph,
-  opts: { maxOps?: number } = {},
+  opts: { maxOps?: number; today?: string } = {},
 ): { ops: GraphOp[]; dropped: string[] } {
   const existing = new Map<string, NodeLabel>(graph.nodes.map((n) => [n.id, n.label]));
+  const existingProps = new Map(graph.nodes.map((n) => [n.id, n.props as Record<string, unknown>]));
   const kept: GraphOp[] = [];
   const dropped: string[] = [];
   let seq = 0;
   for (const op of ops) {
     try {
-      planGraphOps(existing, [...kept, op], () => `__check${seq++}`, opts);
+      planGraphOps(existing, [...kept, op], () => `__check${seq++}`, { ...opts, existingProps });
       kept.push(op);
     } catch (err) {
       if (!(err instanceof GraphOpError)) throw err;
@@ -623,6 +627,15 @@ export interface ProposalOptions {
   maxQuestions?: number;
   /** sourceText가 있을 때 data.source(기본 "document-import"). */
   sourceKind?: "document-import" | "repo-import";
+  /** 오늘(KST, YYYY-MM-DD) — 날짜 검사(미래)·상대 표현 기준. 기본 kstToday(). */
+  today?: string;
+  /**
+   * 사용자가 말한 글(그래프 채팅: 이 대화의 사용자 메시지). 프로젝트 기간이 소속 직무 기간과 같을 때 그 근거를 찾는다(guardInheritedPeriods).
+   * 문서 가져오기는 sourceText를 쓴다. 저장소 가져오기는 기간을 repoPeriod로 넣는다.
+   */
+  evidenceText?: string;
+  /** 저장소 가져오기: 커밋 기록으로 본 기간(focusNodeId 프로젝트에 비어 있는 것만 채운다). */
+  repoPeriod?: RepoPeriod | null;
 }
 
 /**
@@ -636,7 +649,8 @@ export function proposalFromOutput(
 ): { content: string; data: GraphProposalData; status: "proposed" | null; followups: FollowupCandidate[] } {
   const maxOps = opts.maxOps ?? MAX_OPS_PER_BATCH;
   const imported = opts.sourceText !== undefined;
-  const converted = toGraphOps(output.ops, { max: maxOps });
+  const today = opts.today ?? kstToday();
+  const converted = toGraphOps(output.ops, { max: maxOps, today });
   const noDeletes = imported ? dropDeletes(converted.ops, graph) : { ops: converted.ops, dropped: [] };
   const verified = imported ? verifyAgainstDocument(noDeletes.ops, opts.sourceText!) : { ops: noDeletes.ops, dropped: [], gaps: [] };
   const deduped = dedupeAgainstGraph(verified.ops, graph);
@@ -644,7 +658,21 @@ export function proposalFromOutput(
   const guarded = imported ? guardImportUpdates(deduped.ops, graph) : { ops: deduped.ops, dropped: [] };
   const merged = mergeCategoryUpdates(guarded.ops, graph);
   const focused = opts.focusNodeId ? restrictToFocus(merged.ops, graph, opts.focusNodeId) : { ops: merged.ops, dropped: [] };
-  const validated = validateAgainstGraph(focused.ops.slice(0, maxOps), graph, { maxOps });
+  // 기간: 저장소 가져오기는 커밋 기록으로, 그 밖에는 직무 기간을 근거 없이 옮긴 프로젝트 기간을 뺀 뒤, 그래프 값과 함께 날짜 계약을 검사한다.
+  const repoDated =
+    opts.sourceKind === "repo-import" && opts.focusNodeId
+      ? applyRepoPeriod(focused.ops, graph, opts.focusNodeId, opts.repoPeriod ?? null)
+      : { ops: focused.ops, note: null };
+  const inherited =
+    opts.sourceKind === "repo-import"
+      ? { ops: repoDated.ops, dropped: [] }
+      : guardInheritedPeriods(repoDated.ops, graph, (imported ? opts.sourceText : opts.evidenceText) ?? "", today);
+  const existingDates = new Map(graph.nodes.map((n) => [n.id, { label: n.label, props: n.props as Record<string, unknown> }]));
+  const dated = sanitizeOpDates(inherited.ops, existingDates, today);
+  const datedDropped = dated.dropped.flatMap(({ op, issues }) =>
+    op.op === "addNode" || op.op === "updateNode" ? issues.map((x) => `${describeGraphOp(op, graph, converted.ops)}의 ${dateIssueText(op.label, x)} — 그 날짜는 뺐습니다`) : [],
+  );
+  const validated = validateAgainstGraph(dated.ops.slice(0, maxOps), graph, { maxOps, today });
   const droppedOps = [
     ...noDeletes.dropped,
     ...verified.dropped,
@@ -652,6 +680,8 @@ export function proposalFromOutput(
     ...converted.errors,
     ...merged.notes,
     ...focused.dropped,
+    ...inherited.dropped,
+    ...datedDropped,
     ...validated.dropped,
   ];
   // 프로젝트 단위 대화는 한 번에 한 질문만(P2) — 서버에서도 자른다.
@@ -702,7 +732,9 @@ export function proposalFromOutput(
     : opts.sourceKind === "repo-import"
       ? "저장소에서 그래프에 넣을 항목을 찾지 못했습니다."
       : "문서에서 그래프에 넣을 항목을 찾지 못했습니다.";
-  const content = output.reply.trim() || (validated.ops.length > 0 ? "말씀하신 내용으로 변경안을 만들었어요. 확인 후 적용해 주세요." : emptyReply);
+  const base = output.reply.trim() || (validated.ops.length > 0 ? "말씀하신 내용으로 변경안을 만들었어요. 확인 후 적용해 주세요." : emptyReply);
+  const periodNote = repoDated.note && validated.ops.some((o) => o.op === "updateNode" && o.id === opts.focusNodeId && ("startDate" in o.props || "endDate" in o.props)) ? repoDated.note : null;
+  const content = periodNote ? `${base}\n\n${periodNote}` : base;
   return { content: content.slice(0, 8000), data, status: validated.ops.length > 0 ? "proposed" : null, followups };
 }
 
@@ -1197,6 +1229,8 @@ export async function runGraphChatReply(
         focusNodeId,
         maxQuestions: MAX_REPO_IMPORT_QUESTIONS,
         sourceKind: "repo-import",
+        today: kstToday(deps.now()),
+        repoPeriod: repoPeriod(repo.facts),
       });
     } else if (doc) {
       // 이력서·포트폴리오 가져오기: 문서 원문만 근거로, 연산 상한 MAX_IMPORT_OPS.
@@ -1210,7 +1244,7 @@ export async function runGraphChatReply(
         signal: deadline,
       });
       usage = res.usage;
-      proposal = proposalFromOutput(res.output, graph, { maxOps: MAX_IMPORT_OPS, sourceText: doc.text });
+      proposal = proposalFromOutput(res.output, graph, { maxOps: MAX_IMPORT_OPS, sourceText: doc.text, today: kstToday(deps.now()) });
     } else {
       // 열린 후속 질문(이 대화 범위)을 짧은 id로 넣는다 — 최근 메시지가 답한 것은 LLM이 answeredFollowups로 표시한다. 읽지 못하면 넣지 않는다.
       promptFollowups = toPromptFollowups(
@@ -1253,7 +1287,12 @@ export async function runGraphChatReply(
       if (verdict) {
         return await saveScopeNotice(userId, threadId, latest.id, scopeNoticeData({ ...verdict, source: "model" }), "build", usage);
       }
-      proposal = proposalFromOutput(res.output, graph, { focusNodeId });
+      proposal = proposalFromOutput(res.output, graph, {
+        focusNodeId,
+        today: kstToday(deps.now()),
+        // 사용자가 이 대화에서 말한 글(프로젝트 기간이 직무 기간과 같을 때의 근거 — guardInheritedPeriods).
+        evidenceText: messages.filter((m) => m.role === "user" && m.data?.kind !== "document-import" && m.data?.kind !== "repo-import").map((m) => m.content).join("\n"),
+      });
       answered = resolveAnsweredKeys(res.output.answeredFollowups, promptFollowups);
     }
     // 새 후속 질문 가리기: 이 답변의 변경안까지 얹은 그래프에 이미 있는 것, 이미 답한·건너뛴 질문, 열린 질문과 같은 것을 바꿔 묻는 질문은
@@ -1534,4 +1573,11 @@ export async function readSmallJson(req: Request): Promise<unknown> {
   } catch {
     throw new FeatureError("요청 형식이 올바르지 않습니다.", 400);
   }
+}
+
+/** 체크리스트 블록 본문: 경험 체크리스트 + 날짜가 빠진 자격증(있으면). */
+function checklistPromptText(graph: CareerGraph): string {
+  const extra = missingCertificationDatesText(graph);
+  const base = checklistToPromptText(assessExperienceChecklist(graph));
+  return extra ? `${base}\n${extra}` : base;
 }

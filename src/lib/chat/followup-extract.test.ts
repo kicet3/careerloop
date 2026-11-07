@@ -81,6 +81,17 @@ describe("변경안에서 뺀 항목 → 질문", () => {
     expect(questionsFromFormatErrors(errors, llmOps, ctx(batch), "p_wiki").every((c) => c.projectNodeId === "p_wiki")).toBe(true);
   });
 
+  it("한 연산의 시작·종료가 함께 빠지면 기간 질문은 하나만", () => {
+    const llmOps: LlmGraphOp[] = [
+      { ...blank, op: "updateNode", id: "p_payment", label: "Project", props: [{ key: "startDate", value: "2027-01" }, { key: "endDate", value: "2027-05" }] },
+    ];
+    const errors = [
+      "#1 updateNode: 속성 startDate 값 '2027-01'은(는) 오늘 이후 날짜라 뺐습니다",
+      "#1 updateNode: 속성 endDate 값 '2027-05'은(는) 오늘 이후 날짜라 뺐습니다",
+    ];
+    expect(questionsFromFormatErrors(errors, llmOps, ctx(), null)).toHaveLength(1);
+  });
+
   it("문서에 근거가 없어 뺀 항목: 항목째·숫자 속성을 다른 문장으로 묻는다", () => {
     const ach: GraphOp = { op: "addNode", ref: "new:a", label: "Achievement", props: { summary: "매출 30% 증가" } };
     const upd: GraphOp = { op: "updateNode", id: "p_payment", label: "Project", props: { result: "지연 50% 감소" } };

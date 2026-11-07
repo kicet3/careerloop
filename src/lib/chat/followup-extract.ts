@@ -197,7 +197,7 @@ function openStructureItem(
 const PROP_NAMES: Record<string, string> = {
   startDate: "시작 시점",
   endDate: "종료 시점",
-  date: "날짜",
+  date: "날짜(취득·달성 연월)",
   teamSize: "팀 규모",
   result: "결과",
   value: "수치",
@@ -247,7 +247,7 @@ export function questionsFromEvidenceGaps(gaps: readonly EvidenceGap[], ctx: Att
   return out;
 }
 
-const FORMAT_ERROR_RE = /^#(\d+) (addNode|updateNode): 속성 (\w+) 값 '([\s\S]*)'은\(는\) 형식이 맞지 않아 뺐습니다$/;
+const FORMAT_ERROR_RE = /^#(\d+) (addNode|updateNode): 속성 (\w+) 값 '([\s\S]*)'은\(는\) (형식이 맞지 않아|오늘 이후 날짜라|시작이 종료보다 늦어|시작 시점으로 쓸 수 없어) 뺐습니다$/;
 const DATE_PROPS = new Set(["startDate", "endDate", "date"]);
 
 /**
@@ -261,11 +261,17 @@ export function questionsFromFormatErrors(
   focus: string | null,
 ): FollowupCandidate[] {
   const out: FollowupCandidate[] = [];
+  // 한 연산의 시작·종료가 함께 빠지면 기간 질문은 한 번만 한다.
+  const askedPeriod = new Set<string>();
   for (const reason of errors) {
     const m = FORMAT_ERROR_RE.exec(reason);
     if (!m) continue;
     const key = m[3]!;
     if (!DATE_PROPS.has(key) && key !== "teamSize") continue;
+    if (key === "startDate" || key === "endDate") {
+      if (askedPeriod.has(m[1]!)) continue;
+      askedPeriod.add(m[1]!);
+    }
     const llm = llmOps[Number(m[1]) - 1];
     if (!llm || !llm.label) continue;
     const label = llm.label;
@@ -278,8 +284,13 @@ export function questionsFromFormatErrors(
       // 노드째 빠지지 않았으면 같은 ref·id로 그래프·변경안에서 찾는다.
       target = unique(projectsOfNode(ctx, id)) ?? projectByName(name, ctx);
     }
+    const why = m[5]!;
     const text = DATE_PROPS.has(key)
-      ? `‘${name}’의 ${propName(key)}을(를) ‘${value}’(으)로는 알 수 없어 넣지 않았어요. 연·월(예: 2023-03)로 알려 주세요.`
+      ? why === "오늘 이후 날짜라"
+        ? `‘${name}’의 ${propName(key)} ‘${value}’은(는) 오늘 이후라 넣지 않았어요. 실제 연·월(예: 2023-03)을 알려 주세요. 지금도 진행 중이면 '진행 중'이라고 알려 주세요.`
+        : why === "시작이 종료보다 늦어"
+          ? `‘${name}’의 시작 시점이 종료 시점보다 늦어 넣지 않았어요. 언제부터 언제까지였는지 연·월로 알려 주세요.`
+          : `‘${name}’의 ${propName(key)}을(를) ‘${value}’(으)로는 알 수 없어 넣지 않았어요. 연·월(예: 2023-03)로 알려 주세요.`
       : `‘${name}’의 팀 규모를 ‘${value}’(으)로는 알 수 없어 넣지 않았어요. 몇 명이었나요?`;
     out.push(candidate("dropped", text, reason, target, null));
   }

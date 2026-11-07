@@ -24,6 +24,7 @@ import {
   STORY_TAGS,
 } from "@/lib/domain/graph";
 import { storyTagName } from "@/lib/domain/experience-categories";
+import { DATE_ISSUE_TEXT, normalizeNodeDates } from "@/lib/domain/graph-dates";
 
 // ---------------------------------------------------------------------------
 // 입력 필드
@@ -89,8 +90,9 @@ const PROP_LABEL_OVERRIDES: Partial<Record<NodeLabel, Record<string, string>>> =
   Project: { name: "프로젝트명" },
   Experience: { title: "활동명" },
   Skill: { name: "기술명" },
-  Achievement: { summary: "성과 내용" },
-  Certification: { name: "자격증·시험명" },
+  Achievement: { summary: "성과 내용", date: "달성 연월" },
+  Education: { current: "현재 재학 중" },
+  Certification: { name: "자격증·시험명", date: "취득 연월" },
 };
 
 const SKILL_CATEGORY_LABELS: Record<(typeof SKILL_CATEGORIES)[number], string> = {
@@ -146,7 +148,7 @@ export function fieldsFor(label: NodeLabel): FieldSpec[] {
       }));
     } else if (key === "date" || key.endsWith("Date")) {
       spec.kind = "date";
-      spec.placeholder = "예: 2023-04";
+      spec.placeholder = key === "endDate" ? "예: 2023-04 (진행 중이면 비우고 '현재' 체크)" : "예: 2023-04";
     } else if (key === "url") {
       spec.kind = "url";
       spec.placeholder = "https://";
@@ -190,7 +192,7 @@ function issueMessage(label: NodeLabel, err: z.ZodError): string {
     const key = issue.path.find((p): p is string => typeof p === "string" && p !== "props" && p !== "op");
     if (key && key in NODE_PROP_SCHEMAS[label].shape) {
       const f = fieldsFor(label).find((x) => x.key === key);
-      const hint = f?.kind === "date" ? " (YYYY, YYYY-MM, YYYY-MM-DD)" : f?.kind === "url" ? " (http(s) 주소)" : "";
+      const hint = f?.kind === "date" ? " (YYYY-MM, 연도만 알면 YYYY)" : f?.kind === "url" ? " (http(s) 주소)" : "";
       return `${propLabel(label, key)}: 값이 올바르지 않습니다${hint}.`;
     }
   }
@@ -210,6 +212,22 @@ function checkProps(label: NodeLabel, props: Record<string, unknown>): string | 
 
 export type OpsResult = { ok: true; ops: GraphOp[] } | { ok: false; error: string };
 
+/**
+ * 날짜 계약(graph-dates.ts)으로 맞춘다: "2023.4"·"23년 4월" → 2023-04, 종료 '현재' → current, 오늘 이후·시작 > 종료는 오류.
+ * 서버(planGraphOps)도 같은 검사를 한다 — 여기서는 보내기 전에 알려 준다.
+ */
+function datedFormProps(
+  label: NodeLabel,
+  props: Record<string, unknown>,
+  mode: "add" | "update",
+  existing: Record<string, unknown> | null,
+): { ok: true; props: Record<string, unknown> } | { ok: false; error: string } {
+  const r = normalizeNodeDates(label, props, { mode, existing });
+  const issue = r.issues[0];
+  if (issue) return { ok: false, error: `${propLabel(label, issue.key)}: '${issue.value}'은(는) ${DATE_ISSUE_TEXT[issue.reason]} 넣을 수 없습니다 (예: 2023-04).` };
+  return { ok: true, props: r.props };
+}
+
 /** 새 노드를 만드는 임시 ref. 한 변경안 안에서만 쓰인다. */
 export const NEW_NODE_REF = "new:node";
 
@@ -223,9 +241,11 @@ export function buildAddNodeOps(label: NodeLabel, values: FormValues, link?: { t
     }
     props[f.key] = toPropValue(f, values[f.key]!);
   }
-  const bad = checkProps(label, props);
+  const dated = datedFormProps(label, props, "add", null);
+  if (!dated.ok) return dated;
+  const bad = checkProps(label, dated.props);
   if (bad) return { ok: false, error: bad };
-  const ops: unknown[] = [{ op: "addNode", ref: NEW_NODE_REF, label, props }];
+  const ops: unknown[] = [{ op: "addNode", ref: NEW_NODE_REF, label, props: dated.props }];
   if (link) ops.push({ op: "addEdge", ...link });
   return parseOps(label, ops);
 }
@@ -250,9 +270,11 @@ export function buildUpdateNodeOps(node: GraphNode, values: FormValues): OpsResu
     } else props[f.key] = toPropValue(f, next);
   }
   if (Object.keys(props).length === 0) return { ok: false, error: "바뀐 내용이 없습니다." };
-  const bad = checkProps(node.label, props);
+  const dated = datedFormProps(node.label, props, "update", node.props as Record<string, unknown>);
+  if (!dated.ok) return dated;
+  const bad = checkProps(node.label, dated.props);
   if (bad) return { ok: false, error: bad };
-  return parseOps(node.label, [{ op: "updateNode", id: node.id, label: node.label, props }]);
+  return parseOps(node.label, [{ op: "updateNode", id: node.id, label: node.label, props: dated.props }]);
 }
 
 function parseOps(label: NodeLabel, ops: unknown[]): OpsResult {

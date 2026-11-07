@@ -7,6 +7,7 @@
  * - 관계는 (type, from, to)로 유일하다. 같은 관계를 두 번 추가해도 하나만 남는다. 관계 id = `${type}:${from}:${to}`.
  */
 import { z } from "zod";
+import { DATE_ISSUE_TEXT, isGraphDateKey, normalizeNodeDates, parseGraphDate } from "./graph-dates";
 
 // ---------------------------------------------------------------------------
 // 라벨 · 관계
@@ -75,9 +76,13 @@ export function isAllowedEdge(type: RelType, from: EndpointLabel, to: EndpointLa
 // 속성 스키마
 // ---------------------------------------------------------------------------
 
-/** 날짜: YYYY, YYYY-MM, YYYY-MM-DD. */
+/**
+ * 날짜 입력 형식: YYYY, YYYY-MM(저장 형식), YYYY-MM-DD(받기만 하고 YYYY-MM으로 줄여 저장한다 — graph-dates.ts, plan.ts).
+ * 진행 중은 endDate가 아니라 current=true로 둔다.
+ */
 const DATE_RE = /^\d{4}(-(0[1-9]|1[0-2])(-(0[1-9]|[12]\d|3[01]))?)?$/;
-const date = () => z.string().regex(DATE_RE).describe("YYYY, YYYY-MM 또는 YYYY-MM-DD");
+const date = () => z.string().regex(DATE_RE).describe("YYYY-MM(연도만 알면 YYYY)");
+const ongoing = (what: string) => z.boolean().optional().describe(`${what}이면 true(endDate는 비운다, "현재"로 보인다)`);
 const short = (max = 120) => z.string().trim().min(1).max(max);
 const long = (max = 2000) => z.string().trim().max(max);
 const url = () => z.string().trim().max(500).describe("http(s) URL");
@@ -153,7 +158,7 @@ export const NODE_PROP_SCHEMAS = {
     employmentType: short(40).optional().describe("정규직·계약직·인턴·프리랜서 등"),
     startDate: date().optional(),
     endDate: date().optional(),
-    current: z.boolean().optional().describe("현재 재직 중이면 true"),
+    current: ongoing("현재 재직 중"),
     summary: long().optional(),
   }),
   Project: z.object({
@@ -163,6 +168,7 @@ export const NODE_PROP_SCHEMAS = {
     teamSize: z.number().int().min(1).max(100000).optional(),
     startDate: date().optional(),
     endDate: date().optional(),
+    current: ongoing("지금도 진행 중"),
     url: url().optional(),
     ...storyProps(),
   }),
@@ -174,6 +180,7 @@ export const NODE_PROP_SCHEMAS = {
     myRole: short().optional().describe("이 경험에서 본인이 맡은 역할"),
     startDate: date().optional(),
     endDate: date().optional(),
+    current: ongoing("지금도 활동 중"),
     ...storyProps(),
   }),
   Skill: z.object({
@@ -185,20 +192,21 @@ export const NODE_PROP_SCHEMAS = {
     summary: short(300),
     metric: short(80).optional().describe("지표 이름, 예: 전환율"),
     value: short(80).optional().describe("수치·결과, 예: 12% → 18%"),
-    date: date().optional(),
+    date: date().optional().describe("달성 연월(YYYY-MM)"),
   }),
   Education: z.object({
     school: short(),
     degree: short(40).optional().describe("학사·석사·박사·고졸 등"),
     major: short().optional(),
     startDate: date().optional(),
-    endDate: date().optional(),
+    endDate: date().optional().describe("YYYY-MM(졸업·졸업 예정 연월)"),
+    current: ongoing("지금 재학 중"),
     status: short(40).optional().describe("졸업·재학·휴학·중퇴 등"),
   }),
   Certification: z.object({
     name: short(),
     issuer: short().optional(),
-    date: date().optional(),
+    date: date().optional().describe("취득 연월(YYYY-MM)"),
     score: short(40).optional(),
   }),
 } satisfies Record<NodeLabel, z.ZodObject>;
@@ -348,25 +356,27 @@ export const LlmGraphOpSchema = z.object({
   label: z.enum([...NODE_LABELS, ""]).describe('addNode·updateNode: 노드 라벨. 그 밖에는 ""'),
   props: z
     .array(z.object({ key: z.string(), value: z.string() }))
-    .describe("addNode·updateNode: 속성 키와 값(문자열). 숫자·참거짓도 문자열로. 날짜는 YYYY, YYYY-MM, YYYY-MM-DD. 그 밖에는 []"),
+    .describe('addNode·updateNode: 속성 키와 값(문자열). 숫자·참거짓도 문자열로. 날짜는 YYYY-MM(연도만 알면 YYYY), 진행 중이면 endDate 대신 current="true". 그 밖에는 []'),
   type: z.enum([...REL_TYPES, ""]).describe('addEdge·deleteEdge: 관계 타입. 그 밖에는 ""'),
   from: z.string().describe('addEdge·deleteEdge: 시작 노드("me", 기존 id, 또는 new:...). 그 밖에는 ""'),
   to: z.string().describe('addEdge·deleteEdge: 끝 노드. 그 밖에는 ""'),
 });
 export type LlmGraphOp = z.infer<typeof LlmGraphOpSchema>;
 
-/** 날짜 속성 키(모든 라벨 공통 이름). */
-const DATE_KEYS = new Set(["startDate", "endDate", "date"]);
-
-/** 모델이 자주 쓰는 날짜 표기("2021.03", "2021/3", "2021년 3월 5일")를 YYYY-MM(-DD)로. 모르는 형식은 그대로 둔다. */
+/**
+ * 날짜 표기 하나("2021.03", "2021/3", "2021년 3월 5일", "24.03", "Mar 2024")를 저장 형식(YYYY-MM, 연도만이면 YYYY)으로.
+ * 알아볼 수 없는 값·진행 중 표기는 그대로 둔다(진행 중은 normalizeNodeDates가 current로 바꾼다). 규칙은 graph-dates.ts.
+ */
 export function normalizeGraphDate(value: string): string {
-  const v = value.trim();
-  if (DATE_RE.test(v) || v.length > 30) return v;
-  const m = /^(\d{4})\s*(?:[.\/-]|년)\s*(\d{1,2})\s*(?:월)?(?:\s*(?:[.\/-])?\s*(\d{1,2})\s*일?)?\.?$/.exec(v);
-  if (!m) return v;
-  const pad = (x: string) => x.padStart(2, "0");
-  return m[3] ? `${m[1]}-${pad(m[2]!)}-${pad(m[3])}` : `${m[1]}-${pad(m[2]!)}`;
+  const p = parseGraphDate(value);
+  return p.kind === "date" ? p.value : value.trim();
 }
+
+/** LLM이 쓰는 다른 이름의 날짜 키 → 스키마 키(라벨별). */
+const DATE_KEY_ALIASES: Partial<Record<NodeLabel, Record<string, string>>> = {
+  Certification: { acquiredDate: "date", acquiredAt: "date", issuedDate: "date" },
+  Achievement: { achievedDate: "date" },
+};
 
 /** 붙여 볼 최대 단어 수("책임감 직업윤리 고객지향" 같은 별칭). */
 const MAX_TAG_WORDS = 3;
@@ -408,7 +418,6 @@ function coerceProp(key: string, schema: z.ZodType, value: string): unknown {
     const nums = value.replace(/,/g, "").match(/\d+(?:\.\d+)?/g) ?? [];
     return nums.length === 1 ? Number(nums[0]) : value;
   }
-  if (DATE_KEYS.has(key)) return normalizeGraphDate(value);
   return value;
 }
 
@@ -417,7 +426,7 @@ function coerceProp(key: string, schema: z.ZodType, value: string): unknown {
  * 존재 여부·소유권·관계 방향 검사는 여기서 하지 않는다 — applyGraphOps가 한다.
  * opts.max: 앞에서부터 볼 연산 수(기본 MAX_OPS_PER_BATCH, 이력서 가져오기는 MAX_IMPORT_OPS).
  */
-export function toGraphOps(llmOps: readonly LlmGraphOp[], opts: { max?: number } = {}): { ops: GraphOp[]; errors: string[] } {
+export function toGraphOps(llmOps: readonly LlmGraphOp[], opts: { max?: number; today?: string } = {}): { ops: GraphOp[]; errors: string[] } {
   const ops: GraphOp[] = [];
   const errors: string[] = [];
   llmOps.slice(0, opts.max ?? MAX_OPS_PER_BATCH).forEach((o, i) => {
@@ -430,7 +439,8 @@ export function toGraphOps(llmOps: readonly LlmGraphOp[], opts: { max?: number }
       const shape = NODE_PROP_SCHEMAS[o.label].shape as Record<string, z.ZodType>;
       const titleKey = NODE_TITLE_KEY[o.label];
       const props: Record<string, unknown> = {};
-      for (const { key, value } of o.props) {
+      for (const { key: rawKey, value } of o.props) {
+        const key = DATE_KEY_ALIASES[o.label]?.[rawKey] ?? rawKey;
         if (!(key in shape)) continue; // 화이트리스트 밖 키는 버린다
         if (value.trim() === "") {
           if (o.op === "updateNode") props[key] = null;
@@ -444,6 +454,11 @@ export function toGraphOps(llmOps: readonly LlmGraphOp[], opts: { max?: number }
           if (tags.length > 0) props[key] = tags;
           continue;
         }
+        if (isGraphDateKey(key)) {
+          // 날짜는 아래 normalizeNodeDates가 한꺼번에 맞춘다(형식·진행 중·미래·순서).
+          props[key] = value.trim();
+          continue;
+        }
         const coerced = coerceProp(key, shape[key]!, value.trim());
         // 속성 하나가 형식에 안 맞으면 그 속성만 뺀다(노드와 그 노드를 잇는 관계까지 통째로 버리지 않게). 대표 속성은 남겨 아래에서 노드째 거른다.
         if (key !== titleKey && !shape[key]!.safeParse(coerced).success) {
@@ -452,6 +467,12 @@ export function toGraphOps(llmOps: readonly LlmGraphOp[], opts: { max?: number }
         }
         props[key] = coerced;
       }
+      const dated = normalizeNodeDates(o.label, props, { mode: o.op === "addNode" ? "add" : "update", today: opts.today });
+      for (const issue of dated.issues) {
+        errors.push(`#${i + 1} ${o.op}: 속성 ${issue.key} 값 '${issue.value}'은(는) ${DATE_ISSUE_TEXT[issue.reason]} 뺐습니다`);
+      }
+      Object.keys(props).forEach((k) => delete props[k]);
+      Object.assign(props, dated.props);
       candidate = o.op === "addNode" ? { op: o.op, ref: o.ref, label: o.label, props } : { op: o.op, id: o.id, label: o.label, props };
     } else if (o.op === "deleteNode") {
       candidate = { op: o.op, id: o.id };

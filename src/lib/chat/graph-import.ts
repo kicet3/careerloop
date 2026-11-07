@@ -19,11 +19,11 @@ import { extractText, IngestError, MIN_TEXT_LENGTH, normalizeText } from "@/lib/
 import type { UploadLimits } from "@/lib/ingest/upload-limits";
 import { STAGE_TASK_DELIMITER } from "@/lib/panel/prompts";
 import { canonicalSkill, extractKeywords, skillKey } from "@/lib/skills/dictionary";
-import { assessExperienceChecklist, checklistToPromptText } from "@/lib/graph/completeness";
+import { assessExperienceChecklist, checklistToPromptText, missingCertificationDatesText } from "@/lib/graph/completeness";
 import { graphToText } from "@/lib/graph/text";
 import { tokenize } from "@/lib/graph/retrieve";
 import { kstToday } from "@/lib/time/kst";
-import { modelGuide } from "./graph-guide";
+import { GRAPH_DATE_RULES, modelGuide, todayText } from "./graph-guide";
 import { field, INJECTION_RULE, wrapData } from "./prompt";
 
 export { MAX_IMPORT_CHARS, MAX_IMPORT_OPS };
@@ -112,12 +112,14 @@ ${modelGuide()}
 4. 중복을 만들지 않는다. <${CHAT_TAGS.careerGraph}>에 같은(또는 표기만 다른) 항목이 이미 있으면 addNode 대신 그 [id]로 updateNode(비어 있던 속성만 보강)나 addEdge를 쓴다.
 5. 기존 노드·관계를 지우지 않는다(deleteNode·deleteEdge 금지).
 6. 새 노드는 addNode로 만들고 ref를 "new:<영문·숫자>"(변경안 안에서 유일)로 준다. 같은 변경안의 뒤 연산에서 그 ref로 연결한다.
-7. 날짜는 YYYY, YYYY-MM, YYYY-MM-DD 형식만 쓴다. 문서에 "현재", "재직 중"이 있으면 Role.current="true"이고 endDate는 비운다.
+7. 날짜는 아래 날짜 규칙(D1~D6)을 따르고, 문서에 그 항목의 기간으로 적힌 값만 넣는다. 문서에 "현재", "재직 중", "진행 중"이 있으면 current="true"이고 endDate는 비운다. 직무 아래 프로젝트에 기간이 따로 적혀 있지 않으면 직무 기간을 옮기지 않고 비워 둔다. 자격증의 취득 연월이 있으면 Certification.date에 넣는다.
 8. 프로젝트·경험은 situation(상황·목표), action(내 행동), result(결과), learned(배운 점), myRole(내 역할)로 문서 문장을 나눠 넣는다. 문서 내용이 뒷받침할 때만 categories(위 id, 쉼표로 구분, 최대 3개)를 단다.
 9. 성과 수치는 Achievement(summary에 한 줄, value에 수치, metric에 지표 이름)로 만들고 그 프로젝트·직무·경험에서 -ACHIEVED->로 잇는다.
 10. 문서에 없어 비워 둔 중요한 정보(기간, 성과 수치, 역할)는 followUpQuestions(최대 3개)로 묻는다.
 11. 연산은 ${MAX_IMPORT_OPS}개를 넘지 않는다. 넘칠 것 같으면 최근 경력·대표 프로젝트부터 넣는다.
 12. 각 연산에서 해당 없는 필드는 "" 또는 []로 둔다. updateNode에는 채울 속성만 넣는다("" 값은 기존 값을 지우므로 넣지 않는다).
+
+${GRAPH_DATE_RULES}
 
 ${INJECTION_RULE}`;
 
@@ -134,9 +136,9 @@ export function buildGraphImportPrompt(input: {
     wrapData(CHAT_TAGS.careerGraph, graphToText(input.graph, { maxChars: IMPORT_GRAPH_MAX_CHARS })),
     "",
     "경험 체크리스트(빠진 필수 항목부터):",
-    wrapData(CHAT_TAGS.experienceChecklist, checklistToPromptText(assessExperienceChecklist(input.graph))),
+    wrapData(CHAT_TAGS.experienceChecklist, checklistPromptText(input.graph)),
     STAGE_TASK_DELIMITER,
-    field("오늘 날짜", kstToday(input.today ?? Date.now())),
+    field("오늘 날짜", todayText(kstToday(input.today ?? Date.now()))),
     field("문서 종류", DOC_KIND_NAMES[input.doc.docKind]),
     ...(input.doc.fileName ? [field("파일 이름", input.doc.fileName)] : []),
     "",
@@ -326,4 +328,11 @@ export function dropDeletes(ops: readonly GraphOp[], graph: CareerGraph | null):
     else kept.push(op);
   }
   return { ops: kept, dropped };
+}
+
+/** 체크리스트 블록 본문: 경험 체크리스트 + 날짜가 빠진 자격증(있으면). */
+function checklistPromptText(graph: CareerGraph): string {
+  const extra = missingCertificationDatesText(graph);
+  const base = checklistToPromptText(assessExperienceChecklist(graph));
+  return extra ? `${base}\n${extra}` : base;
 }

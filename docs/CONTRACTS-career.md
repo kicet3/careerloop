@@ -31,6 +31,7 @@
 | `diagnoses` +2 | `portfolioText?: string`, `portfolioFileName?: string` |
 | `company_resumes` (`CompanyResume`) | `id, userId(FK cascade), company, roleTitle, jdText?, templateId: ResumeTemplateId, title, currentVersionId?(FK 없음), createdAt, updatedAt` |
 | `resume_versions` (`ResumeVersion`) | `id, resumeId(FK cascade), versionNo(resumeId별 유일), storageKey, note?, source: 'ai'\|'manual', createdAt` |
+| `resume_edit_drafts` (`ResumeEditDraft`) | `resumeId(PK, FK company_resumes cascade), userId(FK users cascade), baseVersionId?(FK 없음), templateId?, document: ResumeDocument(jsonb), createdAt, updatedAt` — 이력서 임시 저장본(이력서당 하나, 소유자 전용). `GET·PUT·DELETE /api/resumes/[id]/draft`(PUT `expectedUpdatedAt`: 다른 탭·기기가 그 사이 작업본을 바꿨으면 409 `draft_changed` — 말없이 덮어쓰지 않는다), 편집 화면의 '저장(새 버전)'·복원이 지운다. 미리보기 공유·PDF·지원 제출본은 저장된 버전만 쓴다 (`src/lib/resumes/edit-draft.ts`) |
 
 타입: `ChatThreadRow`, `ChatMessageRow`, `CompanyResume`, `ResumeVersion` (`src/lib/db/types.ts`). 이력서 본문은 DB가 아니라 저장소(§5)에 버전별 JSON.
 
@@ -46,7 +47,11 @@ REL_TYPES = ["WORKED_AT","HAD_ROLE","AT_COMPANY","WORKED_ON","PART_OF","HAS_EXPE
 REL_RULES[type] = { name(한국어), from: EndpointLabel[], to: EndpointLabel[] }; isAllowedEdge(type, fromLabel, toLabel)
 NODE_PROP_SCHEMAS[label]: z.ZodObject   // 라벨별 속성(대표 키 NODE_TITLE_KEY: Company.name, Role.title, Project.name,
                                         // Experience.title, Skill.name, Achievement.summary, Education.school, Certification.name)
-                                        // 날짜는 "YYYY" | "YYYY-MM" | "YYYY-MM-DD"
+                                        // 날짜 입력은 "YYYY" | "YYYY-MM" | "YYYY-MM-DD", 저장은 "YYYY-MM"(연도만이면 "YYYY") —
+                                        // src/lib/domain/graph-dates.ts. 진행 중은 endDate 대신 current=true(Role·Project·Experience·Education).
+                                        // planGraphOps가 모든 쓰기에서 정규화·검사(시작 ≤ 종료, 오늘 이후 금지 — Education.endDate만 예외),
+                                        // 읽기(getCareerGraph)는 옛 값을 같은 규칙으로 보여 주고 노드를 다음에 고칠 때 다시 쓴다.
+                                        // Certification.date = 취득 연월(LLM 키 acquiredDate도 받는다). Company에는 날짜 없음.
 // Project·Experience 공통 자소서 소재(STAR) 속성 — 모두 선택, 기존 노드·변경안은 그대로 통과(Neo4j 마이그레이션 없음):
 //   situation(상황·목표 S·T, ≤1000), action(내 행동 A, ≤1000), result(결과 R, ≤1000), learned(배운 점, ≤1000),
 //   categories: StoryTag[] (1~3개, 네이티브 문자열 리스트로 저장). Experience에는 myRole(내 역할)도 있다(Project는 기존 myRole·teamSize).

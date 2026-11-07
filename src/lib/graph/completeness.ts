@@ -268,3 +268,18 @@ export function checklistToPromptText(c: ExperienceChecklist): string {
   });
   return [`필수 ${c.requiredDone}/${c.requiredTotal} 완료 · 추천 ${c.recommendedDone}/${c.recommendedTotal} 완료`, ...lines].join("\n");
 }
+
+/** 프롬프트에 넣는 '날짜가 빠진 자격증' 상한. */
+const MISSING_CERT_DATES_MAX = 5;
+
+/**
+ * 체크리스트 보조 줄: 취득 연월(Certification.date)이 없는 자격증. 없으면 null. 호출자가 체크리스트 블록에 덧붙인다(노드 이름은 사용자 입력).
+ * 회사(Company)는 날짜를 두지 않으므로 묻지 않는다(재직 기간은 Role).
+ */
+export function missingCertificationDatesText(graph: CareerGraph): string | null {
+  const certs = graph.nodes.filter((n) => n.label === "Certification" && !present(propsOf(n).date));
+  if (certs.length === 0) return null;
+  const list = certs.slice(0, MISSING_CERT_DATES_MAX).map((n) => `[${n.id}] ${nodeDisplayName(n)}`).join(", ");
+  const more = certs.length > MISSING_CERT_DATES_MAX ? ` 외 ${certs.length - MISSING_CERT_DATES_MAX}개` : "";
+  return `- [보강] 취득 연월(Certification.date, YYYY-MM)이 없는 자격증: ${list}${more}. 자격증 이야기가 나오면 취득 연월을 한 번 묻는다.`;
+}
