@@ -369,7 +369,7 @@ export const RESUME_TEMPLATES: Record<ResumeTemplateId, ResumeTemplate> = {
   },
   developer: {
     id: "developer",
-    name: "개발자",
+    name: "기술 중심",
     description: "기술 스택과 프로젝트를 앞세우는 양식. 사이드바에 기술·링크를 둔다.",
     sectionOrder: ["summary", "highlights", "skills", "experience", "projects", "education", "certifications", "extras", "motivation"],
     style: { accent: "#0369a1", baseFontSize: 9.5, headingStyle: "bar", layout: "sidebar", density: "normal", skillChips: true },
