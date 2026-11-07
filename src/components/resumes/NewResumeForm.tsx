@@ -22,6 +22,7 @@ import { isPostingImportActive, POSTING_IMPORT_STATUS_LABELS, POSTING_STATUS_LAB
 import { NO_ENGINE_MESSAGE, PROVIDER_DATA_DESTINATION, type ProviderId, type ProviderOption } from "@/lib/domain/providers";
 import { DEFAULT_RESUME_TEMPLATE } from "@/lib/domain/resumes";
 import type { StartResumeDraftResponse } from "@/lib/resumes/draft-job-types";
+import type { StartResumeAgentResponse } from "@/lib/resume-agent/job-types";
 import { saveDraftNotes } from "@/lib/resumes/prefill";
 import {
   RESUME_DRAFT_SOURCE_KINDS,
@@ -78,6 +79,8 @@ export function createResumeRequestBody(f: {
   diagnosisId: string;
   provider: ProviderId | null;
   sourceResumeId: string | null;
+  /** 경험 그래프 출처의 작성 방식(에이전트 / 빠른 초안). 그 밖의 출처면 무시한다. */
+  writeMode?: WriteMode;
 }): CreateResumeRequest {
   const copy = f.source === "copy" && !!f.sourceResumeId;
   const source: CreateResumeRequest["source"] =
@@ -93,8 +96,20 @@ export function createResumeRequestBody(f: {
     provider: copy ? null : f.provider,
     postingId: f.target.kind === "posting" ? f.target.postingId : null,
     sourceResumeId: copy ? f.sourceResumeId : null,
+    ...(f.source === "graph" && f.writeMode ? { mode: f.writeMode } : {}),
   };
 }
+
+/** 경험 그래프 출처의 작성 방식. */
+export type WriteMode = "agent" | "single";
+
+export const WRITE_MODE_LABELS: Record<WriteMode, { name: string; description: string }> = {
+  agent: {
+    name: "AI 에이전트로 작성 (권장)",
+    description: "JD 요건별로 경험 그래프의 근거를 찾고, 심사위원 심사를 통과할 때까지 근거 안에서만 다듬습니다. 보통 8~15분, 하루 5회.",
+  },
+  single: { name: "빠른 초안", description: "AI가 한 번에 초안을 씁니다. 1~3분." },
+};
 
 /** 보관함 공고 검색(회사·직무 부분 일치, 대소문자 무시). */
 export function searchPostingOptions(options: PostingPickOption[], query: string, limit = 8): PostingPickOption[] {
@@ -121,6 +136,7 @@ export function NewResumeForm({
   providers,
   defaultProvider,
   graphAvailable,
+  agentAvailable = false,
   diagnoses,
   postings = [],
   generalResumes = [],
@@ -131,6 +147,8 @@ export function NewResumeForm({
   providers: ProviderOption[];
   defaultProvider: ProviderId | null;
   graphAvailable: boolean;
+  /** 그래프 이력서 에이전트를 쓸 수 있는가(RESUME_AGENT 플래그 + 그래프 저장소). 아니면 작성 방식 선택을 숨긴다. */
+  agentAvailable?: boolean;
   diagnoses: RewriteOption[];
   /** 내 보관함 공고(최근 수정 순). */
   postings?: PostingPickOption[];
@@ -162,7 +180,9 @@ export function NewResumeForm({
   const [diagnosisId, setDiagnosisId] = useState(diagnoses[0]?.id ?? "");
   const [provider, setProvider] = useState<ProviderId | null>(defaultProvider);
   const [error, setError] = useState<string | null>(null);
+  const [errorLink, setErrorLink] = useState<{ href: string; label: string } | null>(null);
   const [submitting, setSubmitting] = useState(false);
+  const [writeMode, setWriteMode] = useState<WriteMode>(agentAvailable ? "agent" : "single");
 
   const choose = (p: PostingPickOption) => {
     setOptions((prev) => [p, ...prev.filter((x) => x.id !== p.id)]);
@@ -230,6 +250,7 @@ export function NewResumeForm({
   async function onSubmit(e: React.FormEvent<HTMLFormElement>) {
     e.preventDefault();
     setError(null);
+    setErrorLink(null);
     if (!general && !selected) {
       setError(mode === "url" ? "공고 링크를 가져와 지원할 공고를 정해 주세요." : "지원할 공고를 골라 주세요.");
       return;
@@ -259,18 +280,40 @@ export function NewResumeForm({
             diagnosisId,
             provider: usesAi ? provider : null,
             sourceResumeId: source === "copy" ? copyId : null,
+            writeMode: agentAvailable ? writeMode : "single",
           }),
         ),
       });
-      const data = (await res.json().catch(() => null)) as (Partial<CreateResumeResponse & StartResumeDraftResponse> & { error?: string }) | null;
+      const data = (await res.json().catch(() => null)) as
+        | (Partial<CreateResumeResponse & StartResumeDraftResponse & StartResumeAgentResponse> & { error?: string; code?: string; agentJobId?: string })
+        | null;
       if (res.status === 401) {
         router.push("/login?next=/app/resumes/new");
+        return;
+      }
+      // 에이전트: 서버가 단계별로 이어서 쓴다 — 에이전트 진행 화면으로.
+      const agentJobId = res.ok ? data?.agentJob?.id : undefined;
+      if (agentJobId) {
+        router.push(`/app/resumes/agent/${encodeURIComponent(agentJobId)}`);
+        return;
+      }
+      if (res.status === 409 && data?.code === "busy" && data.agentJobId) {
+        setError(data.error ?? "진행 중인 에이전트 작업이 있습니다.");
+        setErrorLink({ href: `/app/resumes/agent/${encodeURIComponent(data.agentJobId)}`, label: "진행 중인 에이전트 작업 보기" });
+        setSubmitting(false);
+        return;
+      }
+      if (res.status === 429 && data?.code === "rate_limited") {
+        setError(data.error ?? "오늘 에이전트 작성 횟수를 모두 썼습니다.");
+        setWriteMode("single");
+        setSubmitting(false);
         return;
       }
       // AI 초안: 서버가 백그라운드에서 쓴다 — 바로 진행 화면으로 옮긴다(화면을 떠나도 계속되고, 끝나면 알림).
       const draftJobId = res.ok ? data?.draftJob?.id : undefined;
       if (draftJobId) {
-        router.push(`/app/resumes/drafts/${encodeURIComponent(draftJobId)}`);
+        // 에이전트를 골랐지만 지금 쓸 수 없어 빠른 초안으로 만들었으면 진행 화면이 그 사실을 알린다.
+        router.push(`/app/resumes/drafts/${encodeURIComponent(draftJobId)}${data?.modeFallback ? "?fallback=agent" : ""}`);
         return;
       }
       if (!res.ok || !data?.id) {
@@ -458,6 +501,23 @@ export function NewResumeForm({
               );
             })}
           </div>
+          {source === "graph" && agentAvailable && (
+            <fieldset className="mt-4 rounded-lg bg-slate-50 p-3">
+              <legend className="px-1 text-sm font-medium text-slate-900">작성 방식</legend>
+              <div className="mt-1 grid gap-2">
+                {(["agent", "single"] as const).map((m) => (
+                  <label key={m} className="flex cursor-pointer items-start gap-3 rounded-lg border border-slate-200 bg-white px-3 py-2.5 has-[:checked]:border-indigo-500">
+                    <input type="radio" name="writeMode" value={m} checked={writeMode === m} onChange={() => setWriteMode(m)} className="mt-1 accent-indigo-600" />
+                    <span className="min-w-0">
+                      <span className="block text-sm font-medium text-slate-900">{WRITE_MODE_LABELS[m].name}</span>
+                      <span className="block text-xs text-slate-500">{WRITE_MODE_LABELS[m].description}</span>
+                    </span>
+                  </label>
+                ))}
+              </div>
+              {writeMode === "agent" && general && <p className="mt-2 text-xs text-slate-500">공고가 없으면 직무명으로 요건을 추정합니다.</p>}
+            </fieldset>
+          )}
           {source === "graph" && (
             <p className="mt-3 text-sm text-slate-500">
               그래프가 비어 있다면{" "}
@@ -551,6 +611,14 @@ export function NewResumeForm({
       {error && (
         <Alert tone="error" title="이력서를 만들지 못했습니다">
           {error}
+          {errorLink && (
+            <>
+              {" "}
+              <Link href={errorLink.href} className="font-medium underline">
+                {errorLink.label}
+              </Link>
+            </>
+          )}
         </Alert>
       )}
 

@@ -2,6 +2,7 @@ import type { Metadata } from "next";
 import Link from "next/link";
 import { notFound } from "next/navigation";
 import { ResumeEditor } from "@/components/resumes/ResumeEditor";
+import { AgentReport } from "@/components/resumes/agent/AgentReport";
 import { Alert } from "@/components/ui/Alert";
 import { requireUser } from "@/lib/auth/session";
 import { FeatureError } from "@/lib/api/errors";
@@ -12,9 +13,11 @@ import { getProfilePhotoUrl } from "@/lib/account/photo";
 import { portfolioUploadLimits } from "@/lib/portfolios/http";
 import { listPortfolios } from "@/lib/portfolios/service";
 import { getResumeDetail, getResumeMeta, getResumePostingLink, listVersions } from "@/lib/resumes/service";
+import { resumeToText } from "@/lib/resumes/layout";
+import { getAgentReportForResume } from "@/lib/resume-agent/jobs";
 import type { ResumeDetail } from "@/lib/resumes/types";
 
-type Props = { params: Promise<{ id: string }> };
+type Props = { params: Promise<{ id: string }>; searchParams?: Promise<{ report?: string | string[] }> };
 
 export const dynamic = "force-dynamic";
 
@@ -25,8 +28,9 @@ export async function generateMetadata({ params }: Props): Promise<Metadata> {
   return { title: meta?.title ?? "이력서" };
 }
 
-export default async function ResumePage({ params }: Props) {
+export default async function ResumePage({ params, searchParams }: Props) {
   const { id } = await params;
+  const sp = (await searchParams) ?? {};
   const user = await requireUser(`/app/resumes/${id}`);
 
   let detail: ResumeDetail | null;
@@ -42,7 +46,8 @@ export default async function ResumePage({ params }: Props) {
     loadError = err.message;
   }
   if (!detail) notFound();
-  const [portfolios, photoUrl] = await Promise.all([listPortfolios(user.id), getProfilePhotoUrl(user.id)]);
+  const [portfolios, photoUrl, agent] = await Promise.all([listPortfolios(user.id), getProfilePhotoUrl(user.id), getAgentReportForResume(user.id, detail.resume.id)]);
+  const r = detail.resume;
 
   return (
     <div className="space-y-4">
@@ -50,6 +55,14 @@ export default async function ResumePage({ params }: Props) {
         <span aria-hidden>←</span> 이력서 목록
       </Link>
       {loadError && <Alert tone="error">{loadError}</Alert>}
+      {agent && (
+        <AgentReport
+          report={agent.report}
+          currentText={detail.current ? resumeToText(detail.current.document, r.templateId) : ""}
+          defaultOpen={sp.report === "1"}
+          rerun={{ kind: r.kind, company: r.company, roleTitle: r.roleTitle, jdText: r.jdText ?? "", postingId: r.postingId, templateId: r.templateId }}
+        />
+      )}
       <ResumeEditor
         resume={detail.resume}
         versions={detail.versions}

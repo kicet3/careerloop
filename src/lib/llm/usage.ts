@@ -102,7 +102,7 @@ export class UsageRecordingLlmClient implements LlmClient {
     const base = {
       userId: this.meta.ctx.userId,
       referenceId: this.meta.ctx.referenceId ?? null,
-      task: req.task !== undefined ? req.task : "diagnosis",
+      task: req.task !== undefined ? req.task : (req.usageTask ?? "diagnosis"),
       stage: req.task !== undefined ? null : (req.stage ?? null),
       provider: this.meta.provider,
     };

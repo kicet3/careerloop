@@ -66,6 +66,10 @@ export const CHAT_TAGS = {
   interviewAnswer: "interview_answer",
   /** GitHub 저장소에서 읽은 정보(src/lib/github/brief.ts buildRepoBrief 결과). README·커밋 메시지는 제3자가 쓴 글일 수 있다. */
   githubRepo: "github_repo",
+  /** 이력서 에이전트: 작성 전략(plan JSON)·현재 인용 표(src/lib/resume-agent/prompts.ts) */
+  resumePlan: "resume_plan",
+  /** 이력서 에이전트: 요건별 결정적 검색 후보·기술 대조 표 */
+  requirementCandidates: "requirement_candidates",
 } as const;
 
 /** 그래프 채팅 프롬프트에 넣는 열린 후속 질문 수 상한(<open_followups>). */

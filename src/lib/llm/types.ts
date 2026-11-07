@@ -28,6 +28,8 @@ export interface LlmUsage {
  * - graph-qa-rerank: 그래프에 묻기 후보 관련도 매기기(GraphQaRerankSchema, 선택 단계)
  * - interview-questions: 이력서·포트폴리오·공고 근거 줄 → 면접 예상 질문(InterviewQuestionsOutputSchema)
  * - interview-feedback: 연습 답변 피드백·모범 답변 개요·꼬리 질문(InterviewFeedbackOutputSchema)
+ * - resume-agent-plan / -write / -revise: 그래프 이력서 에이전트의 근거 매핑·초안·수정 패치(src/lib/resume-agent/schemas.ts)
+ * - resume-agent-jd / -review: 에이전트가 패널 단계(jd·심사)를 재사용한 호출의 사용량 구분(GenerateRequest.usageTask로만 쓴다)
  */
 export const LLM_TASKS = [
   "graph-chat",
@@ -42,6 +44,11 @@ export const LLM_TASKS = [
   "graph-qa-rerank",
   "interview-questions",
   "interview-feedback",
+  "resume-agent-jd",
+  "resume-agent-plan",
+  "resume-agent-write",
+  "resume-agent-revise",
+  "resume-agent-review",
 ] as const;
 export type LlmTask = (typeof LLM_TASKS)[number];
 
@@ -65,6 +72,8 @@ interface BaseRequest<T> {
 export interface GenerateRequest<T> extends BaseRequest<T> {
   stage: StageKey;
   task?: undefined;
+  /** 사용량 기록 task(기본 'diagnosis'). 패널 단계를 진단 밖에서 재사용할 때(이력서 에이전트) 관리자 화면에서 섞이지 않게. */
+  usageTask?: LlmTask;
 }
 
 /** 파이프라인 밖 기능 호출(채팅·이력서 초안 등). */

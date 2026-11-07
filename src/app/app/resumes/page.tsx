@@ -1,5 +1,6 @@
 import type { Metadata } from "next";
 import Link from "next/link";
+import { after } from "next/server";
 import { formatDateTime } from "@/components/app/stages";
 import { Badge } from "@/components/ui/Badge";
 import { buttonClass } from "@/components/ui/Button";
@@ -12,6 +13,7 @@ import { cn } from "@/components/ui/cn";
 import { requireUser } from "@/lib/auth/session";
 import { RESUME_APPLY_STATUS_LABELS, RESUME_TEMPLATES } from "@/lib/domain/resumes";
 import { listVisibleDraftJobs } from "@/lib/resumes/draft-jobs";
+import { sweepStaleAgentJobs } from "@/lib/resume-agent/jobs";
 import { listResumePostingLinks, listResumes, parseResumeStatusFilter } from "@/lib/resumes/service";
 import type { ResumeListItem, ResumeListStatusFilter, ResumePostingLink } from "@/lib/resumes/types";
 
@@ -41,6 +43,8 @@ export default async function ResumesPage({ searchParams }: { searchParams: Sear
   // 개수를 함께 보여 주려고 한 번에 읽고 화면에서 거른다(사용자당 이력서 상한이 작다).
   const [all, draftJobs] = await Promise.all([listResumes(user.id), listVisibleDraftJobs(user.id)]);
   const postings = await listResumePostingLinks(user.id, all.map((i) => i.postingId));
+  // 다음 단계를 기다리는 에이전트 작업이 오래 머물렀으면 이어 가기를 요청한다(서명 fetch만 — 응답 뒤, 렌더를 막지 않는다).
+  if (draftJobs.some((j) => j.mode === "agent" && j.status === "running")) after(() => sweepStaleAgentJobs(user.id).then(() => undefined, () => undefined));
   const items = all.filter((i) => matches(i, filter));
   const generals = items.filter((i) => i.kind === "general");
   const companies = items.filter((i) => i.kind !== "general");

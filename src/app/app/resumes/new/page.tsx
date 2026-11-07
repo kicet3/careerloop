@@ -8,6 +8,7 @@ import { getPosting, listPostings } from "@/lib/postings/service";
 import { listProviderOptions, pickDefault } from "@/lib/providers/options";
 import { listRewriteCandidates } from "@/lib/resumes/draft";
 import { listResumes } from "@/lib/resumes/service";
+import { agentAvailableFor } from "@/lib/resume-agent/jobs";
 
 export const metadata: Metadata = { title: "새 이력서" };
 export const dynamic = "force-dynamic";
@@ -34,12 +35,14 @@ export default async function NewResumePage({ searchParams }: { searchParams: Pr
   const sp = await searchParams;
   const postingId = one(sp.postingId);
   const from = one(sp.from);
-  const [found, postings, generals, providers, candidates] = await Promise.all([
+  const [found, postings, generals, providers, candidates, agentAvailable] = await Promise.all([
     postingId ? getPosting(user.id, postingId) : Promise.resolve(null),
     listPostings(user.id),
     listResumes(user.id, { kind: "general" }),
     listProviderOptions(),
     listRewriteCandidates(user.id),
+    // 빈 그래프면 에이전트를 보이지 않는다(빠른 초안만).
+    agentAvailableFor(user),
   ]);
   const generalResumes = generals.map((r) => ({ id: r.id, title: r.title, updatedAt: r.updatedAt }));
   const fromResume = from ? generalResumes.find((r) => r.id === from) : undefined;
@@ -67,6 +70,7 @@ export default async function NewResumePage({ searchParams }: { searchParams: Pr
         providers={providers}
         defaultProvider={pickDefault(providers)}
         graphAvailable={graphEnabled()}
+        agentAvailable={agentAvailable}
         diagnoses={candidates}
         postings={postings.map(pick)}
         generalResumes={generalResumes}

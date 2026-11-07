@@ -44,7 +44,16 @@ async function fetchJob(id: string): Promise<ResumeDraftJobView | "gone" | "sign
   }
 }
 
-export function DraftProgress({ initialJob, autoOpen = true }: { initialJob: ResumeDraftJobView; autoOpen?: boolean }) {
+export function DraftProgress({
+  initialJob,
+  autoOpen = true,
+  agentFallback = false,
+}: {
+  initialJob: ResumeDraftJobView;
+  autoOpen?: boolean;
+  /** AI 에이전트를 골랐지만 쓸 수 없어 빠른 초안으로 만들었다(안내를 띄운다). */
+  agentFallback?: boolean;
+}) {
   const router = useRouter();
   const [job, setJob] = useState(initialJob);
   const [gone, setGone] = useState(false);
@@ -142,6 +151,11 @@ export function DraftProgress({ initialJob, autoOpen = true }: { initialJob: Res
   return (
     <div className="grid max-w-2xl gap-6">
       <h1 className="mt-3 text-2xl font-bold tracking-tight text-slate-900">{draftHeading(job.status)}</h1>
+      {agentFallback && (
+        <Alert tone="info" title="빠른 초안으로 만들었습니다">
+          AI 에이전트를 지금 쓸 수 없어(경험 그래프가 비어 있거나 에이전트가 꺼져 있음) 빠른 초안으로 만들었습니다. 심사위원 심사·수정 단계는 거치지 않습니다.
+        </Alert>
+      )}
       <Card className="p-5 sm:p-6">
         <div className="flex flex-wrap items-start justify-between gap-3">
           <div className="min-w-0">

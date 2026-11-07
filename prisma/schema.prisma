@@ -52,6 +52,7 @@ model User {
   graphFollowups    GraphFollowup[]
   githubAccount     GithubAccount?
   resumeDraftJobs   ResumeDraftJob[]
+  resumeAgentJobs   ResumeAgentJob[]
   portfolioJobs     PortfolioDraftJob[]
   notifications     Notification[]
 
@@ -425,6 +426,7 @@ model CompanyResume {
   portfolio            Portfolio?         @relation(fields: [portfolioId], references: [id], onDelete: SetNull, map: "company_resumes_portfolio_id_fkey")
   interviewSessions    InterviewSession[]
   draftJobs            ResumeDraftJob[]
+  agentJobs            ResumeAgentJob[]
 
   @@index([userId, applyStatus, updatedAt], map: "company_resumes_user_status_idx")
   @@index([userId, kind, updatedAt], map: "company_resumes_user_kind_idx")
@@ -920,4 +922,85 @@ model Notification {
 
   @@index([userId, createdAt], map: "notifications_user_idx")
   @@map("notifications")
+}
+
+/// 경험 그래프 이력서 에이전트 작업(src/lib/resume-agent/jobs.ts, 설계 docs/RESUME-AGENT.md). 단일 초안 작업(resume_draft_jobs)과 달리
+/// 여러 함수 호출에 걸쳐 단계(resume_agent_steps)를 하나씩 진행한다: 리스(lease_id·lease_expires_at)를 잡은 호출만 단계를 실행하고,
+/// 시간 예산이 모자라면 'waiting'으로 두고 서명된 내부 호출(또는 진행 화면 폴링)이 이어 간다.
+model ResumeAgentJob {
+  id               String    @id
+  userId           String    @map("user_id")
+  /// 실행 식별자(다시 시도마다 새로). 실행 중 쓰기는 run_id·status 조건으로.
+  runId            String    @map("run_id")
+  /// 'running' | 'waiting'(다음 호출 대기) | 'completed' | 'failed' | 'canceled'
+  status           String    @default("running")
+  /// 다음(또는 진행 중) 단계 키: "r0.jd" … "r2.review", "final_panel", "finalize"
+  currentStep      String    @default("r0.jd") @map("current_step")
+  round            Int       @default(0)
+  label            String
+  /// CreateResumeInput(JD는 앞 12,000자). 완료하면 null.
+  input            Json?
+  provider         String?
+  /// 사용자에게 보여도 되는 한국어 실패 문구.
+  error            String?
+  /// 실패한 단계 키(다시 시도 시작점).
+  failedStep       String?   @map("failed_step")
+  resumeId         String?   @map("resume_id")
+  /// AgentReport(완료 후에도 남김).
+  report           Json?
+  /// 진행 화면 요약 { coverage, rounds, stopReason, previewText }.
+  progress         Json?
+  /// UsageTotals 누적.
+  usage            Json?
+  leaseId          String?   @map("lease_id")
+  leaseExpiresAt   DateTime? @map("lease_expires_at") @db.Timestamptz(3)
+  graphFingerprint String?   @map("graph_fingerprint")
+  /// 작업을 시작한 배포(VERCEL_DEPLOYMENT_ID)와 단계 출력 스키마 버전.
+  deploymentId     String?   @map("deployment_id")
+  schemaVersion    Int       @default(1) @map("schema_version")
+  /// 마지막 자기 호출 실패 사유(관리자 진단용, 사용자에게 안 보임).
+  chainError       String?   @map("chain_error")
+  attempts         Int       @default(1)
+  continuations    Int       @default(0)
+  startedAt        DateTime  @default(now()) @map("started_at") @db.Timestamptz(3)
+  createdAt        DateTime  @default(now()) @map("created_at") @db.Timestamptz(3)
+  updatedAt        DateTime  @default(now()) @map("updated_at") @db.Timestamptz(3)
+  completedAt      DateTime? @map("completed_at") @db.Timestamptz(3)
+
+  user   User              @relation(fields: [userId], references: [id], onDelete: Cascade, map: "resume_agent_jobs_user_id_fkey")
+  resume CompanyResume?    @relation(fields: [resumeId], references: [id], onDelete: SetNull, map: "resume_agent_jobs_resume_id_fkey")
+  steps  ResumeAgentStep[]
+
+  @@index([userId, status], map: "resume_agent_jobs_user_status_idx")
+  @@index([userId, createdAt], map: "resume_agent_jobs_user_idx")
+  @@index([resumeId], map: "resume_agent_jobs_resume_idx")
+  @@map("resume_agent_jobs")
+}
+
+/// 에이전트 작업의 단계 행. (job_id, key) 고유 — 같은 단계가 두 번 돌아도 결과는 하나.
+model ResumeAgentStep {
+  id         String    @id
+  jobId      String    @map("job_id")
+  /// "r0.jd" … (작업 안에서 고유)
+  key        String
+  /// jd | retrieve | plan | write_body | write_top | review | revise | final_panel | finalize
+  kind       String
+  round      Int
+  /// pending | running | done | failed | skipped
+  status     String    @default("pending")
+  /// 단계 출력(스키마 통과 JSON). 완료 7일 뒤 null로 비운다.
+  output     Json?
+  /// 화면용 작은 요약.
+  summary    Json?
+  error      String?
+  usage      Json?
+  model      String?
+  attempt    Int       @default(0)
+  startedAt  DateTime? @map("started_at") @db.Timestamptz(3)
+  finishedAt DateTime? @map("finished_at") @db.Timestamptz(3)
+
+  job ResumeAgentJob @relation(fields: [jobId], references: [id], onDelete: Cascade, map: "resume_agent_steps_job_id_fkey")
+
+  @@unique([jobId, key], map: "resume_agent_steps_job_key_unique")
+  @@map("resume_agent_steps")
 }

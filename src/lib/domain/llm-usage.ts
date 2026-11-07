@@ -16,6 +16,11 @@ export const LLM_USAGE_TASK_LABELS: Record<string, string> = {
   "posting-translate": "채용 공고 번역",
   "interview-questions": "면접 질문 생성",
   "interview-feedback": "면접 답변 피드백",
+  "resume-agent-jd": "이력서 에이전트 · JD 분석",
+  "resume-agent-plan": "이력서 에이전트 · 근거 매핑",
+  "resume-agent-write": "이력서 에이전트 · 초안",
+  "resume-agent-revise": "이력서 에이전트 · 수정",
+  "resume-agent-review": "이력서 에이전트 · 심사",
 };
 
 /** 'diagnosis:ats' 같은 작업 키 → 표시 이름. 모르는 키는 그대로. */

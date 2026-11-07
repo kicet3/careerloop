@@ -518,15 +518,22 @@ export interface RetrieveOptions {
   nowYear?: number;
   /** 경로를 이미 계산했으면 넘긴다. */
   paths?: Map<string, GraphPathStep[]>;
+  /** 색인을 이미 만들었으면 넘긴다(같은 그래프에 질의를 여러 번 할 때 — 이력서 에이전트의 요건별 검색). */
+  index?: GraphIndex;
+  /**
+   * 질의 의도를 명시한다(질문 분석 결과와 합친다). 요건 명사구("Kafka 운영 경험 3년 이상")는 질문 문장이 아니라 의도가 비어
+   * 나올 수 있어 이력서 에이전트가 ["project", "achievement"]처럼 넘긴다. 그래프 QA는 넘기지 않는다(동작 불변).
+   */
+  intents?: readonly QueryIntent[];
 }
 
-/** ① 후보 생성 + ② 그래프 확장 + 신호 계산. */
-export function retrieve(graph: CareerGraph, question: string, opts: RetrieveOptions = {}): RetrievalResult {
-  const query = analyzeQuery(question, { history: opts.history });
-  const paths = opts.paths ?? personPaths(graph);
-  const nowYear = opts.nowYear ?? new Date().getFullYear();
-  if (graph.nodes.length === 0) return { query, candidates: [], fallback: false, paths };
+/** 그래프 색인(BM25F 문서·성과 맥락). 같은 그래프면 질의마다 다시 만들 필요가 없다. */
+export interface GraphIndex {
+  indexed: IndexedNode[];
+  byId: Map<string, IndexedNode>;
+}
 
+export function buildIndex(graph: CareerGraph): GraphIndex {
   const nodeById = new Map(graph.nodes.map((n) => [n.id, n]));
   const achievedFrom = new Map<string, string[]>();
   for (const e of graph.edges) {
@@ -534,7 +541,19 @@ export function retrieve(graph: CareerGraph, question: string, opts: RetrieveOpt
     if (e.type === "ACHIEVED" && src) achievedFrom.set(e.to, [...(achievedFrom.get(e.to) ?? []), nodeDisplayName(src)]);
   }
   const indexed = graph.nodes.map((n) => indexNode(n, achievedFrom.get(n.id)));
-  const byId = new Map(indexed.map((d) => [d.node.id, d]));
+  return { indexed, byId: new Map(indexed.map((d) => [d.node.id, d])) };
+}
+
+/** ① 후보 생성 + ② 그래프 확장 + 신호 계산. */
+export function retrieve(graph: CareerGraph, question: string, opts: RetrieveOptions = {}): RetrievalResult {
+  const analyzed = analyzeQuery(question, { history: opts.history });
+  const query: QueryAnalysis =
+    opts.intents && opts.intents.length > 0 ? { ...analyzed, intents: [...new Set([...analyzed.intents, ...opts.intents])] } : analyzed;
+  const paths = opts.paths ?? personPaths(graph);
+  const nowYear = opts.nowYear ?? new Date().getFullYear();
+  if (graph.nodes.length === 0) return { query, candidates: [], fallback: false, paths };
+
+  const { indexed, byId } = opts.index ?? buildIndex(graph);
   const lex = bm25f(indexed, query);
   const maxLex = Math.max(0, ...lex.values());
 

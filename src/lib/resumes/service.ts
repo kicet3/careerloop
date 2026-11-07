@@ -368,6 +368,13 @@ export interface CreateResumeParams {
   sourceResumeId?: string | null;
   /** 이력서에 프로필 사진을 넣을지(생략하면 켬). 복제는 원본 값을 이어받는다. */
   includePhoto?: boolean;
+  /** 미리 정한 id(newResumeId로 만든 값). 에이전트 finalize가 만들기 전에 id를 기록해 두고 중단 뒤 회수하는 데 쓴다. */
+  id?: string;
+}
+
+/** createResume에 넘길 새 이력서 id. */
+export function newResumeId(): string {
+  return newId();
 }
 
 /** 메타 + 첫 버전(v1). 본문 저장이 실패하면 메타도 지운다. */
@@ -376,7 +383,7 @@ export async function createResume(userId: string, p: CreateResumeParams): Promi
   if (n >= MAX_RESUMES_PER_USER) {
     throw new FeatureError(`이력서는 ${MAX_RESUMES_PER_USER}개까지 만들 수 있습니다. 쓰지 않는 이력서를 지워 주세요.`, 409);
   }
-  const id = newId();
+  const id = p.id ?? newId();
   const kind: ResumeKind = p.kind ?? "company";
   const general = kind === "general";
   const company = general ? "" : stripNul(p.company.trim());

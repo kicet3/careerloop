@@ -106,3 +106,23 @@ describe("가짜 LLM — 파이프라인 밖 task", () => {
     expect(output.ratings.map((r) => r.relevance)).toEqual([3, 3, 3, 2, 2, 2, 1, 1]);
   });
 });
+
+describe("가짜 LLM — 그래프 이력서 에이전트 task", () => {
+  it("resume-agent-plan·write·revise가 각 스키마에 맞는 출력을 낸다", async () => {
+    const { LlmPlanSchema, LlmBodyDraftSchema, LlmTopDraftSchema, LlmRevisePatchSchema } = await import("@/lib/resume-agent/schemas");
+    const graph = wrapData(CHAT_TAGS.careerGraph, "E1 [직무] 백엔드 개발자 (나 → 페이랩(회사) → 백엔드 개발자(직무)) 2021.03 ~ 현재\nE2 [프로젝트] 주문 개편 (나 → 페이랩(회사) → 백엔드 개발자(직무) → 주문 개편(프로젝트)) | action: Redis 캐시 도입 | 기술: Redis");
+    const plan = await llm.generate({ ...base, task: "resume-agent-plan", user: graph, schema: LlmPlanSchema });
+    expect(plan.output.include.experience[0]!.ref).toBe("E1");
+    const planTag = wrapData(CHAT_TAGS.resumePlan, JSON.stringify(plan.output));
+    const body = await llm.generate({ ...base, task: "resume-agent-write", user: `이력서 본문(경력·프로젝트\n${planTag}\n${graph}`, schema: LlmBodyDraftSchema });
+    expect(body.output.experience[0]).toMatchObject({ company: "페이랩", title: "백엔드 개발자", startDate: "2021.03", endDate: "현재" });
+    expect(body.output.projects[0]!.techs).toEqual(["Redis"]);
+    const top = await llm.generate({ ...base, task: "resume-agent-write", user: `상단\n${planTag}\n${graph}`, schema: LlmTopDraftSchema });
+    expect(top.output.citations.length).toBeGreaterThan(0);
+    const fb = wrapData(CHAT_TAGS.reviewerFeedback, JSON.stringify({ atsKeywordsMissing: ["Redis", "Terraform"], issues: [{ id: "r0-ats-1", reviewer: "ats", issue: "JD 키워드가 이력서에 없습니다" }] }));
+    const rev = await llm.generate({ ...base, task: "resume-agent-revise", user: `${graph}\n${fb}`, schema: LlmRevisePatchSchema });
+    expect(rev.output.ops).toHaveLength(1);
+    expect(rev.output.ops[0]).toMatchObject({ op: "insert", value: "Redis 캐시 도입", refs: ["E2"], issueIds: ["r0-ats-1"] });
+    expect(rev.output.questions[0]!.question).toContain("Terraform");
+  });
+});

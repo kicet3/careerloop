@@ -131,7 +131,9 @@ export async function assertResumeSlots(userId: string, now: number = Date.now()
   const active = await db.resumeDraftJob.count({
     where: { userId, status: "running", startedAt: { gt: new Date(now - draftStaleMs()) } },
   });
-  if (resumes + active >= MAX_RESUMES_PER_USER) {
+  // 진행 중인 그래프 에이전트 작업(running·waiting)도 곧 이력서가 된다.
+  const agents = await db.resumeAgentJob.count({ where: { userId, status: { in: ["running", "waiting"] } } });
+  if (resumes + active + agents >= MAX_RESUMES_PER_USER) {
     throw new FeatureError(`이력서는 ${MAX_RESUMES_PER_USER}개까지 만들 수 있습니다. 쓰지 않는 이력서를 지워 주세요.`, 409);
   }
   return active;
@@ -238,7 +240,10 @@ export async function sweepStaleDraftJobs(userId: string, now: number = Date.now
   return closed;
 }
 
-/** 이력서 목록에 보일 작업: 진행 중 + 최근 하루 안에 실패한 것(최근 순). 멈춘 작업은 실패로 닫는다. */
+/**
+ * 이력서 목록에 보일 작업: 진행 중 + 최근 하루 안에 실패한 것(최근 순). 멈춘 작업은 실패로 닫는다.
+ * 그래프 에이전트 작업(resume_agent_jobs)도 같은 뷰로 함께 돌려준다(mode 'agent', href는 에이전트 진행 화면).
+ */
 export async function listVisibleDraftJobs(userId: string, now: number = Date.now()): Promise<ResumeDraftJobView[]> {
   const rows = (await prisma.resumeDraftJob.findMany({
     where: {
@@ -254,7 +259,9 @@ export async function listVisibleDraftJobs(userId: string, now: number = Date.no
       out.push(toDraftJobView({ ...row, status: "failed", error: STALE_ERROR }));
     } else out.push(toDraftJobView(row));
   }
-  return out;
+  const { listVisibleAgentJobs } = await import("@/lib/resume-agent/jobs");
+  const agents = await listVisibleAgentJobs(userId, now).catch(() => [] as ResumeDraftJobView[]);
+  return [...agents, ...out].sort((a, b) => b.createdAt - a.createdAt).slice(0, 10);
 }
 
 /**

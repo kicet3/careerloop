@@ -9,7 +9,7 @@ import { useEffect, useRef, useState } from "react";
 import { pokeNotifications } from "@/components/notifications/store";
 import { Spinner } from "@/components/ui/Spinner";
 import { cn } from "@/components/ui/cn";
-import { formatElapsed, RESUME_DRAFT_STEP_LABELS, type ResumeDraftJobView } from "@/lib/resumes/draft-job-types";
+import { draftJobHref, formatElapsed, RESUME_DRAFT_STEP_LABELS, type ResumeDraftJobView } from "@/lib/resumes/draft-job-types";
 
 export const DRAFT_LIST_POLL_MS = 4000;
 
@@ -59,11 +59,12 @@ export function DraftJobsStrip({ initialJobs }: { initialJobs: ResumeDraftJobVie
       <ul className="grid gap-2 md:grid-cols-2 xl:grid-cols-3">
         {jobs.map((j) => {
           const failed = j.status === "failed";
-          const step = RESUME_DRAFT_STEP_LABELS.find((s) => s.key === j.stage)?.label ?? "진행 중";
+          const step = j.stageLabel ?? RESUME_DRAFT_STEP_LABELS.find((s) => s.key === j.stage)?.label ?? "진행 중";
+          const what = j.mode === "agent" ? "AI 에이전트" : "AI 초안";
           return (
             <li key={j.id}>
               <Link
-                href={`/app/resumes/drafts/${j.id}`}
+                href={draftJobHref(j)}
                 className={cn(
                   "flex items-center gap-3 rounded-xl border px-4 py-3 transition-colors",
                   failed ? "border-rose-200 bg-rose-50/60 hover:bg-rose-50" : "border-indigo-200 bg-indigo-50/60 hover:bg-indigo-50",
@@ -79,7 +80,7 @@ export function DraftJobsStrip({ initialJobs }: { initialJobs: ResumeDraftJobVie
                 <span className="min-w-0 flex-1">
                   <span className="block truncate text-sm font-semibold text-slate-900">{j.label}</span>
                   <span suppressHydrationWarning className={cn("block text-xs", failed ? "text-rose-700" : "text-indigo-800")}>
-                    {failed ? "AI 초안 실패 — 눌러서 다시 시도" : `AI 초안 · ${step} · ${formatElapsed(now - j.startedAt)}`}
+                    {failed ? `${what} 실패 — 눌러서 다시 시도` : `${what} · ${step} · ${formatElapsed(now - j.startedAt)}`}
                   </span>
                 </span>
               </Link>

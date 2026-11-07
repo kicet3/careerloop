@@ -38,6 +38,7 @@ import { assertGraphOwner } from "@/lib/graph/owner";
 import { assessProjectStructure, projectSubgraph } from "@/lib/graph/project-structure";
 import { getCareerGraph, graphEnabled, graphToText } from "@/lib/graph/service";
 import type { LlmClient } from "@/lib/llm";
+import { stripPlaceholders, unverifiedNumbers } from "@/lib/text/numbers";
 import { TAGS } from "@/lib/panel/prompts";
 
 export const GRAPH_DISABLED_MESSAGE = "경험 그래프 저장소(Neo4j)가 설정되지 않아 경험 그래프로 포트폴리오를 만들 수 없습니다.";
@@ -288,17 +289,7 @@ export function buildGraphPortfolioPrompt(
 
 // ---- 수치 확인 ----
 
-const NUM_RE = /\d+(?:[.,]\d+)*/g;
-const normNum = (s: string) => s.replace(/,/g, "");
-
-/** text의 숫자 중 source에 없는 것(쉼표는 무시). */
-export function unverifiedNumbers(text: string, source: string): string[] {
-  const known = new Set((source.match(NUM_RE) ?? []).map(normNum));
-  return [...new Set((text.match(NUM_RE) ?? []).map(normNum))].filter((n) => !known.has(n));
-}
-
-/** [ADD: ...] 안의 숫자는 자리표시라 확인하지 않는다. */
-const stripPlaceholders = (s: string) => s.replace(/\[ADD:[^\]]*\]/g, " ");
+export { unverifiedNumbers };
 
 /**
  * 출력 정리: 자료에 없는 프로젝트는 빼고 고른 순서로 맞추며, 구역은 양식의 kind 'text' key만 양식 순서로 남긴다(모르는 key·중복은 버린다).

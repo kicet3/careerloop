@@ -29,7 +29,22 @@ import { REVIEWER_IDS } from "@/lib/domain/schemas";
  * 파이프라인 입력: 진단 입력(고정 계약) + 포트폴리오(선택). 포트폴리오는 이력서와 별개 자료로 자료 블록에 따로 넣고,
  * 없으면(null·빈 문자열) 프롬프트는 포트폴리오 기능 이전과 바이트 단위로 같다.
  */
-export type PanelInput = DiagnosisInput & { portfolioText?: string | null };
+export type PanelInput = DiagnosisInput & {
+  portfolioText?: string | null;
+  /**
+   * 이력서 에이전트(src/lib/resume-agent)가 아직 저장 전인 초안을 심사할 때 true. 심사 단계(ats·gatekeeper·리더·fit) 할 일 끝에
+   * 자리표시 안내(DRAFT_MODE_NOTE)를 붙인다. 진단 경로는 넣지 않으므로 프롬프트가 바이트 단위로 그대로다.
+   */
+  draftMode?: boolean;
+};
+
+/** 초안 심사 안내(draftMode). [ADD: …]는 비어 있는 정보, 연락처 자리표시는 저장 때 채워지는 값이다. */
+export const DRAFT_MODE_NOTE =
+  "\n\n## 초안 심사 참고\n이 이력서는 저장 전 초안이다. [ADD: …]는 지원자가 아직 채우지 않은 자리표시다. 그 자리의 정보는 비어 있는 것으로 보고 같은 기준으로 판정한다. `[계정 메일 — 저장 시 채움]`이 있으면 연락처는 있는 것으로 보고, 지원자 이름 자리의 '지원자'는 문제 삼지 않는다.";
+
+function draftNote(input: PanelInput): string {
+  return input.draftMode ? DRAFT_MODE_NOTE : "";
+}
 
 export interface StagePrompt {
   system: string;
@@ -372,7 +387,7 @@ export function buildAtsPrompt(input: PanelInput, outputs: Partial<StageOutputs>
   const jd = need(outputs, "jd");
   return {
     system: SYSTEM_PROMPT,
-    user: compose(reviewData(input, jd), ATS_ROLE, "위 이력서를 서류 자동 필터로 검사하고 결과 JSON을 낸다."),
+    user: compose(reviewData(input, jd), ATS_ROLE, "위 이력서를 서류 자동 필터로 검사하고 결과 JSON을 낸다." + draftNote(input)),
     effort: "medium",
     maxTokens: MAX_TOKENS.review,
   };
@@ -392,7 +407,7 @@ export function buildGatekeeperPrompt(input: PanelInput, outputs: Partial<StageO
   const jd = need(outputs, "jd");
   return {
     system: SYSTEM_PROMPT,
-    user: compose(reviewData(input, jd), GATEKEEPER_ROLE, "위 이력서를 채용 담당자로서 읽고 결과 JSON을 낸다."),
+    user: compose(reviewData(input, jd), GATEKEEPER_ROLE, "위 이력서를 채용 담당자로서 읽고 결과 JSON을 낸다." + draftNote(input)),
     effort: "medium",
     maxTokens: MAX_TOKENS.review,
   };
@@ -409,7 +424,7 @@ export function buildReaderPrompt(
     user: compose(
       reviewData(input, jd),
       readerRole(reader),
-      `위 이력서를 ${REVIEWERS[reader].name}로서 혼자 읽고 결과 JSON을 낸다.`,
+      `위 이력서를 ${REVIEWERS[reader].name}로서 혼자 읽고 결과 JSON을 낸다.` + draftNote(input),
     ),
     effort: "medium",
     maxTokens: MAX_TOKENS.review,
@@ -428,7 +443,8 @@ export function buildFitPrompt(input: PanelInput, outputs: Partial<StageOutputs>
         portfolioTask(
           input,
           "근거가 포트폴리오에만 있는 요건은 evidenceQuote를 null로 두고, status는 partial(이력서에 드러나지 않음)로 하며, note를 '포트폴리오:'로 시작해 근거와 이력서로 옮길 방법을 쓴다. 포트폴리오에만 있는 강점은 untappedStrengths에 '포트폴리오:'를 붙여 넣는다.",
-        ),
+        ) +
+        draftNote(input),
     ),
     effort: "medium",
     maxTokens: MAX_TOKENS.analysis,

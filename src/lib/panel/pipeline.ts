@@ -7,7 +7,7 @@
  */
 import { STAGE_DEPENDENCIES, STAGE_KEYS, STAGE_SCHEMAS } from "@/lib/domain/schemas";
 import type { StageKey, StageOutputs } from "@/lib/domain/schemas";
-import type { LlmClient, LlmUsage } from "@/lib/llm/types";
+import type { Effort, GenerateResult, LlmClient, LlmTask, LlmUsage } from "@/lib/llm/types";
 import type { z } from "zod";
 import { scoreFit } from "./fit-score";
 import { buildStagePrompt, type PanelInput } from "./prompts";
@@ -26,6 +26,41 @@ export function normalizeStageOutput<K extends StageKey>(
     return { ...fit, matchScore: scoreFit(outputs.jd, fit) } as StageOutputs[K];
   }
   return output;
+}
+
+export interface PanelStageOptions {
+  signal?: AbortSignal;
+  /** 사용량 기록용 task(진단 밖에서 패널 단계를 재사용할 때 — 예: 'resume-agent-review'). 프롬프트·가짜 LLM 분기는 stage 기준 그대로. */
+  usageTask?: LlmTask;
+  /** 단계 effort 덮어쓰기(이력서 에이전트의 최종 심사 독자 등). */
+  effort?: Effort;
+  /** 자료 블록 캐시 지점을 둘지(기본 true). */
+  cacheUser?: boolean;
+}
+
+/**
+ * 패널 단계 하나 실행: 프롬프트 → 구조화 출력 → 파생 값 재계산(normalizeStageOutput). 진단 파이프라인(runPipeline)과
+ * 이력서 에이전트(src/lib/resume-agent/steps/review.ts)가 함께 쓴다 — 패널 코드를 복사하지 않는다.
+ */
+export async function runPanelStage<K extends StageKey>(
+  stage: K,
+  input: PanelInput,
+  outputs: Partial<StageOutputs>,
+  llm: LlmClient,
+  opts: PanelStageOptions = {},
+): Promise<GenerateResult<StageOutputs[K]>> {
+  const prompt = buildStagePrompt(stage, input, outputs);
+  const schema = STAGE_SCHEMAS[stage] as unknown as z.ZodType<StageOutputs[K]>;
+  const result = await llm.generate({
+    stage,
+    schema,
+    signal: opts.signal,
+    ...prompt,
+    ...(opts.effort ? { effort: opts.effort } : {}),
+    ...(opts.usageTask ? { usageTask: opts.usageTask } : {}),
+    ...(opts.cacheUser === false ? { cacheUser: false } : {}),
+  });
+  return { ...result, output: normalizeStageOutput(stage, result.output, outputs) };
 }
 
 export interface PipelineDeps {
@@ -54,10 +89,8 @@ export async function runPipeline(input: PanelInput, deps: PipelineDeps): Promis
   async function runStage<K extends StageKey>(stage: K): Promise<void> {
     try {
       await deps.onStageStart(stage);
-      const prompt = buildStagePrompt(stage, input, outputs);
-      const schema = STAGE_SCHEMAS[stage] as unknown as z.ZodType<StageOutputs[K]>;
-      const result = await deps.llm.generate({ stage, schema, signal: deps.signal, ...prompt });
-      const output = normalizeStageOutput(stage, result.output, outputs);
+      const result = await runPanelStage(stage, input, outputs, deps.llm, { signal: deps.signal });
+      const output = result.output;
       await deps.onStageDone(stage, output, result.usage);
       outputs[stage] = output;
       state.set(stage, "done");

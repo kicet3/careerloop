@@ -8,11 +8,14 @@ import "server-only";
 import { markStaleRunsFailed, notifyIdleDeadlineStops } from "@/lib/diagnoses/service";
 import { sweepStaleGraphPortfolioJobs } from "@/lib/portfolios/graph-jobs";
 import { sweepStaleDraftJobs } from "@/lib/resumes/draft-jobs";
+import { sweepStaleAgentJobs } from "@/lib/resume-agent/jobs";
 
 export async function sweepStaleJobs(userId: string, now: number = Date.now()): Promise<void> {
   const results = await Promise.allSettled([
     sweepStaleDraftJobs(userId, now),
     sweepStaleGraphPortfolioJobs(userId, now),
+    // 에이전트: 리스 만료 회수·24시간 멈춤 실패·오래 기다린 작업에 서명된 이어 가기 요청만(단계는 여기서 실행하지 않는다).
+    sweepStaleAgentJobs(userId, now),
     markStaleRunsFailed(userId).then(() => notifyIdleDeadlineStops(userId, now)),
   ]);
   for (const r of results) {

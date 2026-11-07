@@ -97,6 +97,8 @@ describe("스키마(PGlite에 prisma/migrations 적용)", () => {
       "portfolios",
       "posting_imports",
       "rate_events",
+      "resume_agent_jobs",
+      "resume_agent_steps",
       "resume_draft_jobs",
       "resume_versions",
       "sessions",

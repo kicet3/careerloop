@@ -5,6 +5,8 @@
 export const NOTIFICATION_KINDS = [
   "resume-draft-completed",
   "resume-draft-failed",
+  "resume-agent-completed",
+  "resume-agent-failed",
   "portfolio-draft-completed",
   "portfolio-draft-failed",
   "diagnosis-completed",

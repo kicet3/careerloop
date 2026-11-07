@@ -36,11 +36,24 @@ export interface ResumeDraftJobView {
   createdAt: number;
   updatedAt: number;
   completedAt: number | null;
+  /** 'agent'면 그래프 이력서 에이전트 작업(진행 화면이 다르다 — href). 없으면 단일 초안. */
+  mode?: "single" | "agent";
+  /** 진행 화면 경로(없으면 /app/resumes/drafts/[id]). */
+  href?: string;
+  /** 단계 이름(에이전트 작업). 없으면 stage로 정한다. */
+  stageLabel?: string;
+}
+
+/** 진행 화면 경로. */
+export function draftJobHref(job: Pick<ResumeDraftJobView, "id" | "href">): string {
+  return job.href ?? `/app/resumes/drafts/${job.id}`;
 }
 
 /** POST /api/resumes(AI 초안) 202 응답. */
 export interface StartResumeDraftResponse {
   draftJob: ResumeDraftJobView;
+  /** 에이전트를 요청했지만 쓸 수 없어 빠른 초안으로 만들었다. */
+  modeFallback?: "agent_unavailable";
 }
 
 /** 진행 화면 단계 표시: 각 단계가 끝났는지·진행 중인지·실패했는지. */

@@ -113,3 +113,22 @@ describe("createResumeRequestBody", () => {
     expect(body).toMatchObject({ sourceResumeId: "g1", provider: null, source: { kind: "blank" } });
   });
 });
+
+describe("작성 방식(그래프 이력서 에이전트)", () => {
+  it("그래프를 쓸 수 있고 에이전트가 켜져 있으면 'AI 에이전트로 작성'이 기본 선택, 꺼져 있으면 선택지를 숨긴다", () => {
+    const on = renderToStaticMarkup(<NewResumeForm providers={[]} defaultProvider={null} graphAvailable agentAvailable diagnoses={[]} />);
+    expect(on).toContain("AI 에이전트로 작성 (권장)");
+    expect(on).toContain(`name="writeMode" checked="" value="agent"`);
+    expect(on).toContain("하루 5회");
+    const off = renderToStaticMarkup(<NewResumeForm providers={[]} defaultProvider={null} graphAvailable diagnoses={[]} />);
+    expect(off).not.toContain("AI 에이전트로 작성");
+  });
+
+  it("요청 본문: 그래프 출처일 때만 mode를 싣는다", async () => {
+    const { createResumeRequestBody } = await import("./NewResumeForm");
+    const graph = createResumeRequestBody({ target: { kind: "general" }, source: "graph", diagnosisId: "", provider: "anthropic", sourceResumeId: null, writeMode: "agent" });
+    expect(graph.mode).toBe("agent");
+    const diag = createResumeRequestBody({ target: { kind: "general" }, source: "diagnosis", diagnosisId: "d1", provider: "anthropic", sourceResumeId: null, writeMode: "agent" });
+    expect(diag).not.toHaveProperty("mode");
+  });
+});

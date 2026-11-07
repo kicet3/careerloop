@@ -78,6 +78,11 @@ export const CreateResumeInputSchema = z
     postingId: z.string().trim().min(1).max(64).nullable().optional(),
     /** 이 이력서의 현재 버전 내용으로 시작한다(서비스가 소유권을 확인). */
     sourceResumeId: z.string().trim().min(1).max(64).nullable().optional(),
+    /**
+     * 작성 방식(경험 그래프 출처만): 'agent' = JD 요건별 근거·심사위원 심사 루프(src/lib/resume-agent), 'single' = 빠른 초안(LLM 1회).
+     * 비우면 에이전트를 쓸 수 있을 때 'agent'. 진단 출처는 항상 'single'.
+     */
+    mode: z.enum(["agent", "single"]).optional(),
   })
   .superRefine((v, ctx) => {
     if (v.kind !== "company") return;
