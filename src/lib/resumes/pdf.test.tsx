@@ -27,6 +27,18 @@ describe("renderResumePdf", () => {
     expect(isPdf(await renderResumePdf(none, id))).toBe(true);
   }, 60_000);
 
+  it.each(RESUME_TEMPLATE_IDS)("%s: 지원 동기가 있거나(최대 1500자, 여러 문단) 없는 문서 모두 렌더링한다", async (id) => {
+    const doc = makeSampleResume();
+    doc.motivation = Array.from({ length: 6 }, (_, i) => `${i + 1}문단 ${"지원동기문장".repeat(40)}`).join("\n\n").slice(0, 1500);
+    const withIt = await renderResumePdf(doc, id);
+    expect(isPdf(withIt)).toBe(true);
+    const none = makeSampleResume();
+    none.motivation = "";
+    const without = await renderResumePdf(none, id);
+    expect(isPdf(without)).toBe(true);
+    expect(withIt.byteLength).toBeGreaterThan(without.byteLength);
+  }, 60_000);
+
   it("빈 문서·긴 내용(여러 쪽)·띄어쓰기 없는 긴 한글도 렌더링한다", async () => {
     expect(isPdf(await renderResumePdf(emptyResumeDocument(), "developer"))).toBe(true);
     const doc = makeSampleResume();

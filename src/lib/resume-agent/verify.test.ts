@@ -223,3 +223,57 @@ describe("verifyDraft", () => {
     expect(r.report.dropped.map((x) => x.reason)).toEqual(["excluded", "excluded"]);
   });
 });
+
+describe("verifyDraft — 수상·기타(extras-guide.ts)", () => {
+  const PX = pack([
+    item("E1", { label: "Role", name: "백엔드 개발자", period: "2021.03 ~ 현재", facts: { company: "페이랩", startDate: "2021.03", endDate: "", current: true } }),
+    item("E2", { name: "주문 시스템", text: "action: 사내 배포 툴을 1일 만에 만들었다" }),
+    item("E3", { label: "Achievement", name: "2023 사내 해커톤 대상", text: "2023.05 사내 해커톤 대상" }),
+    item("E4", { label: "Experience", name: "오픈소스 기여", text: "spring-kafka 버그 수정 PR 머지" }),
+  ]);
+
+  it("인용 없는 줄·사소한 일화·경력/프로젝트와 겹치는 줄은 지우고, 수상·오픈소스는 남긴다", () => {
+    const d = draft(
+      {
+        experience: [exp({ bullets: ["주문 이벤트를 Kafka로 나눠 처리했다"] })],
+        projects: [proj({ summary: "주문 시스템 개편" })],
+        extras: [
+          {
+            title: "수상·기타",
+            items: [
+              "2023.05 사내 해커톤 – 대상",
+              "사내 배포 툴을 1일 만에 만듦",
+              "주문 이벤트를 Kafka로 나눠 처리했다",
+              "주문 시스템 운영 경험",
+              "spring-kafka – 버그 수정 (PR)",
+              "근거 없는 수상",
+            ],
+          },
+        ],
+      },
+      [
+        { path: "experience[0]", refs: ["E1"], requirementIds: [] },
+        { path: "projects[0]", refs: ["E2"], requirementIds: [] },
+        { path: "extras[0].items[0]", refs: ["E3"], requirementIds: [] },
+        { path: "extras[0].items[1]", refs: ["E2"], requirementIds: [] },
+        { path: "extras[0].items[2]", refs: ["E1"], requirementIds: [] },
+        { path: "extras[0].items[3]", refs: ["E2"], requirementIds: [] },
+        { path: "extras[0].items[4]", refs: ["E4"], requirementIds: [] },
+      ],
+    );
+    const r = verifyDraft(d, PX, null, { allowRetry: false });
+    expect(r.draft.document.extras[0]!.items).toEqual(["2023.05 사내 해커톤 – 대상", "spring-kafka – 버그 수정 (PR)"]);
+    const reasons = Object.fromEntries(r.report.dropped.map((x) => [x.text, x.reason]));
+    expect(reasons).toMatchObject({
+      "근거 없는 수상": "uncited",
+      "사내 배포 툴을 1일 만에 만듦": "trivial_extra",
+      "주문 이벤트를 Kafka로 나눠 처리했다": "duplicate_extra",
+      "주문 시스템 운영 경험": "duplicate_extra",
+    });
+    // 남은 줄의 인용은 새 인덱스로 옮겨진다.
+    expect(r.draft.citations.find((c) => c.path === "extras[0].items[1]")?.refs).toEqual(["E4"]);
+    expect(r.draft.notes.some((n) => n.includes("수상·기타에서"))).toBe(true);
+    // 수상은 있고 어학은 없다 → 어학만 묻는다(지어내지 않는다).
+    expect(r.draft.missingInfo.some((m) => m.startsWith("어학 정보가 자료에 없어"))).toBe(true);
+  });
+});

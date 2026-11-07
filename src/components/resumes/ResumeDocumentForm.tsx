@@ -398,12 +398,14 @@ export function ResumeDocumentForm({
         title={(x, i) => x.title || `기타 ${i + 1}`}
         render={(x, up) => (
           <div className="space-y-3">
-            <Text label="제목" value={x.title} max={80} placeholder="예: 수상, 발표, 오픈소스" onChange={(v) => up({ title: v })} />
+            <Text label="제목" value={x.title} max={80} placeholder="예: 수상, 발표, 오픈소스, 어학, 병역" onChange={(v) => up({ title: v })} />
             <ListText label="항목" mode="lines" values={x.items} maxItems={15} maxLen={300} onChange={(v) => up({ items: v })} />
           </div>
         )}
       />
     ),
+    // 지원 동기는 편집기의 별도 칸(MotivationEditor — 지원처별 이력서만, AI 추천 포함)에서 쓴다.
+    motivation: null,
   };
 
   return (
@@ -441,7 +443,9 @@ export function ResumeDocumentForm({
           )}
         />
       </Fieldset>
-      {sectionOrder.map((k) => (
+      {sectionOrder
+        .filter((k) => k !== "motivation")
+        .map((k) => (
         <Fieldset key={k} title={RESUME_SECTION_LABELS[k]}>
           {sections[k]}
         </Fieldset>

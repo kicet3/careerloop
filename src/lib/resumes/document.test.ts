@@ -1,6 +1,7 @@
 import { describe, expect, it } from "vitest";
 import {
   DEFAULT_RESUME_TEMPLATE,
+  draftSectionOrder,
   emptyResumeDocument,
   parseResumeDocument,
   performanceScaffold,
@@ -125,5 +126,35 @@ describe("초안 스키마(ResumeDraftOutputSchema)", () => {
     const r = ResumeDraftOutputSchema.safeParse({ document: LEGACY_DOC, notes: [], missingInfo: ["수치는?"] });
     expect(r.success).toBe(true);
     expect(r.data!.document.projects[0]!.result).toBe("");
+  });
+});
+
+describe("지원 동기(motivation)", () => {
+  it("칸이 없던 예전 저장본은 빈 문자열로 열고, 상한(1500자)을 지킨다", () => {
+    const { motivation: _omit, ...old } = emptyResumeDocument();
+    void _omit;
+    expect(ResumeDocumentSchema.safeParse(old).success).toBe(false);
+    expect(parseResumeDocument(old).data!.motivation).toBe("");
+    expect(parseResumeDocument({ ...old, motivation: null }).data!.motivation).toBe("");
+    expect(parseResumeDocument({ ...old, motivation: "가".repeat(1500) }).success).toBe(true);
+    expect(parseResumeDocument({ ...old, motivation: "가".repeat(1501) }).success).toBe(false);
+    expect(parseResumeDocument(LEGACY_DOC).data!.motivation).toBe("");
+  });
+
+  it("AI 초안 출력 스키마에는 지원 동기 칸이 없다(사용자가 쓴다)", () => {
+    const json = toStrictJsonSchema(ResumeDraftOutputSchema) as { properties: { document: { properties: Record<string, unknown>; required: string[] } } };
+    expect(Object.keys(json.properties.document.properties)).not.toContain("motivation");
+    expect(json.properties.document.required).not.toContain("motivation");
+    // 모델이 motivation을 보내도 버린다.
+    const r = ResumeDraftOutputSchema.safeParse({ document: { ...emptyResumeDocument(), motivation: "AI가 쓴 지원 동기" }, notes: [], missingInfo: [] });
+    expect(r.success).toBe(true);
+    expect("motivation" in r.data!.document).toBe(false);
+  });
+
+  it("양식 섹션 순서 끝에 '지원 동기'가 있고, AI 초안 섹션 순서에서는 빠진다", () => {
+    for (const id of RESUME_TEMPLATE_IDS) {
+      expect(RESUME_TEMPLATES[id].sectionOrder.at(-1)).toBe("motivation");
+      expect(draftSectionOrder(RESUME_TEMPLATES[id].sectionOrder)).not.toContain("motivation");
+    }
   });
 });

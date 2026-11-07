@@ -2,7 +2,7 @@ import { renderToStaticMarkup } from "react-dom/server";
 import { describe, expect, it } from "vitest";
 import { emptyResumeDocument, performanceScaffold, RESUME_SECTION_LABELS, RESUME_TEMPLATE_IDS, RESUME_TEMPLATES } from "@/lib/domain/resumes";
 import { makeSampleResume } from "@/lib/resumes/__fixtures__/sample";
-import { resumeLayout } from "@/lib/resumes/layout";
+import { resumeLayout, resumeToText } from "@/lib/resumes/layout";
 import { ResumePreview } from "./ResumePreview";
 
 const sectionOrderIn = (html: string) => [...html.matchAll(/data-section="([a-z-]+)"/g)].map((m) => m[1]);
@@ -20,7 +20,7 @@ describe("ResumePreview", () => {
     const order = sectionOrderIn(html);
     if (t.style.layout === "sidebar") {
       expect(html).toContain("<aside");
-      expect(order).toEqual(["skills", "education", "certifications", "summary", "highlights", "experience", "projects", "extras"]);
+      expect(order).toEqual(["skills", "education", "certifications", "summary", "highlights", "experience", "projects", "extras", "motivation"]);
     } else {
       expect(html).not.toContain("<aside");
       expect(order).toEqual([...t.sectionOrder]);
@@ -144,5 +144,40 @@ describe("PerformanceSheet 편집 모드", () => {
     expect(html).toContain("채울 때 확인하세요");
     expect(html).toContain("A4 1장 기준");
     expect(html).toContain("분량 확인 중");
+  });
+});
+
+describe("지원 동기 섹션", () => {
+  it.each(RESUME_TEMPLATE_IDS)("%s: 내용이 있으면 '지원 동기' 섹션(문단마다 블록), 비면 섹션이 없다", async (id) => {
+    const doc = makeSampleResume();
+    doc.motivation = "첫 문단 <b>굵게</b>\n같은 문단 둘째 줄\n\n둘째 문단 [ADD: 메모 — 지원 계기]";
+    const html = renderToStaticMarkup(<ResumePreview document={doc} templateId={id} />);
+    expect(html).toContain('data-section="motivation"');
+    expect(html).toContain(">지원 동기<");
+    expect(html).toContain("첫 문단 &lt;b&gt;굵게&lt;/b&gt;");
+    expect(html).toContain("둘째 문단");
+    // [ADD: …] 메모는 자리표시로 강조한다.
+    expect(html).toMatch(/<mark[^>]*>\[ADD: 메모 — 지원 계기\]<\/mark>/);
+
+    const none = makeSampleResume();
+    none.motivation = "  \n ";
+    const empty = renderToStaticMarkup(<ResumePreview document={none} templateId={id} />);
+    expect(empty).not.toContain('data-section="motivation"');
+    expect(empty).not.toContain(">지원 동기<");
+  });
+
+  it("쪽 나눔 블록: 제목은 첫 문단과 함께, 문단마다 따로 움직인다", async () => {
+    const { buildModel } = await import("./ResumePreview");
+    const doc = makeSampleResume();
+    doc.motivation = "가\n\n나\n\n다";
+    const atoms = buildModel(doc, "classic").main.filter((a) => a.id.startsWith("motivation"));
+    expect(atoms.map((a) => [a.id, a.group, !!a.keepWithNext])).toEqual([
+      ["motivation:h", "motivation:h", true],
+      ["motivation:0", "motivation:0", false],
+      ["motivation:1", "motivation:1", false],
+      ["motivation:2", "motivation:2", false],
+    ]);
+    // 텍스트 변환(진단 입력·복사)에도 들어간다.
+    expect(resumeToText(doc, "classic")).toContain("## 지원 동기\n가\n\n나\n\n다");
   });
 });

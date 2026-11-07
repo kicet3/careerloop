@@ -30,6 +30,8 @@ export interface LlmUsage {
  * - interview-feedback: 연습 답변 피드백·모범 답변 개요·꼬리 질문(InterviewFeedbackOutputSchema)
  * - resume-agent-plan / -write / -revise: 그래프 이력서 에이전트의 근거 매핑·초안·수정 패치(src/lib/resume-agent/schemas.ts)
  * - resume-agent-jd / -review: 에이전트가 패널 단계(jd·심사)를 재사용한 호출의 사용량 구분(GenerateRequest.usageTask로만 쓴다)
+ * - resume-polish: 이력서 AI로 다듬기 — 한 칸의 대안 문구 2~3개(ResumePolishOutputSchema, src/lib/resumes/polish.ts)
+ * - resume-motivation-suggest: 지원 동기 쓸 거리 추천 — 문단은 쓰지 않는다(MotivationSuggestionSchema, src/lib/resumes/motivation.ts)
  */
 export const LLM_TASKS = [
   "graph-chat",
@@ -49,6 +51,8 @@ export const LLM_TASKS = [
   "resume-agent-write",
   "resume-agent-revise",
   "resume-agent-review",
+  "resume-polish",
+  "resume-motivation-suggest",
 ] as const;
 export type LlmTask = (typeof LLM_TASKS)[number];
 

@@ -7,6 +7,7 @@ import "server-only";
  */
 import { prisma } from "@/lib/db/client";
 import { StoredResumeDocumentSchema, type ResumeDocument } from "@/lib/domain/resumes";
+import { extrasPathMapper, isNewcomerDocument, normalizeExtras } from "@/lib/resumes/extras-guide";
 import type { CreateResumeParams } from "@/lib/resumes/service";
 import { draftOfRound, evaluateRun, latestDraftRound, parsedOutput, currentPack } from "../next-step";
 import { buildAgentReport } from "../report";
@@ -39,6 +40,18 @@ export async function prepareFinalize(ctx: StepContext, user: { name: string | n
   if (!doc.basics.name.trim() && user.name?.trim()) doc.basics.name = user.name.trim().slice(0, 80);
   const email = doc.basics.email.trim();
   if ((!email || /^\[ADD:[^\]]*\]$/.test(email)) && user.email?.trim()) doc.basics.email = user.email.trim().slice(0, 160);
+  // 수상·기타 묶음 규칙(빈 묶음 생략, 2개 이하면 '수상·기타' 하나, 경력자/신입 순서, 묶음 안 최신순).
+  // 신입 판정은 단일 초안·verify(extrasMissingQuestions)와 같은 규칙(경력 항목 없음)을 쓴다.
+  // 묶음이 합쳐지거나 순서가 바뀌므로, 리포트가 읽는 인용 경로(extras[i].items[j])를 정리 뒤 문서에 맞춘다.
+  const extrasBefore = doc.extras;
+  doc.extras = normalizeExtras(doc.extras, { newcomer: isNewcomerDocument(doc) }).extras;
+  const remap = extrasPathMapper(extrasBefore, doc.extras);
+  const citations = draft.citations.flatMap((c) => {
+    const path = remap(c.path);
+    return path === null ? [] : [{ ...c, path }];
+  });
+  // 지원 동기는 사용자가 직접 쓴다(에이전트는 비워 둔다).
+  doc.motivation = "";
   const document = StoredResumeDocumentSchema.parse(doc);
 
   // 그사이 연결할 공고가 지워졌으면 공고 없이 만든다(FK 위반 방지).
@@ -64,7 +77,7 @@ export async function prepareFinalize(ctx: StepContext, user: { name: string | n
     plan: plan.plan,
     rounds: state.rounds,
     chosenRound: state.chosenRound,
-    draft: { ...draft, document },
+    draft: { ...draft, document, citations },
     revisions,
     verifies,
     finalPanel: state.finalPanel === "done" ? finalPanel : null,

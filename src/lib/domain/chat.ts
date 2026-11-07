@@ -9,13 +9,15 @@ import type { ExperienceCategoryId } from "./experience-categories";
 import type { FollowupAnswerData } from "./followups";
 import { type GraphOp, LlmGraphOpSchema, MAX_OPS_PER_BATCH, type NodeLabel, type RelType } from "./graph";
 import type { ReviewerId } from "./schemas";
+import type { ResumePolishData } from "./resume-polish";
 
 /**
  * - graph: 그래프 만들기 채팅(변경안 제안)
  * - reviewer: 심사위원 채팅
  * - graph-qa: 그래프에 묻기(그래프 근거 Q&A, 출처 표기) — docs/GRAPH-QA.md
+ * - resume-polish: 이력서 AI로 다듬기(이력서 한 칸의 대안 문구, resumeId·targetPath 필수 — src/lib/resumes/polish.ts)
  */
-export const CHAT_THREAD_KINDS = ["graph", "reviewer", "graph-qa"] as const;
+export const CHAT_THREAD_KINDS = ["graph", "reviewer", "graph-qa", "resume-polish"] as const;
 export type ChatThreadKind = (typeof CHAT_THREAD_KINDS)[number];
 export type ChatRole = "user" | "assistant";
 
@@ -331,7 +333,8 @@ export type ChatMessageData =
   | GraphAnswerData
   | DocumentImportData
   | FollowupAnswerData
-  | RepoImportData;
+  | RepoImportData
+  | ResumePolishData;
 
 // ---------------------------------------------------------------------------
 // API 응답 형태 (날짜는 epoch ms)

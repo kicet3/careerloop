@@ -5,7 +5,7 @@
  * Neo4j id·이름·연락처는 넣지 않는다(E1… ref만).
  */
 import { CHAT_TAGS } from "@/lib/domain/chat";
-import { RESUME_SECTION_LABELS, RESUME_TEMPLATES, type ResumeTemplateId } from "@/lib/domain/resumes";
+import { draftSectionOrder, RESUME_SECTION_LABELS, RESUME_TEMPLATES, type ResumeTemplateId } from "@/lib/domain/resumes";
 import type { JdAnalysis } from "@/lib/domain/schemas";
 import { field, INJECTION_RULE, wrapData } from "@/lib/chat/prompt";
 import { TAGS } from "@/lib/panel/prompts";
@@ -50,7 +50,7 @@ function header(ctx: AgentPromptContext): string[] {
   const lines = [
     field("지원 회사", ctx.company || "(지정 없음 — 공용 이력서)"),
     field("지원 직무", ctx.roleTitle || "(지정 없음 — 자료에서 가장 잘 드러나는 직무)"),
-    field("양식", `${t.name} — ${t.description} (섹션 순서: ${t.sectionOrder.map((k) => RESUME_SECTION_LABELS[k]).join(" → ")})`),
+    field("양식", `${t.name} — ${t.description} (섹션 순서: ${draftSectionOrder(t.sectionOrder).map((k) => RESUME_SECTION_LABELS[k]).join(" → ")})`),
   ];
   if (ctx.templateId === "performance") {
     lines.push(
@@ -122,7 +122,7 @@ export function buildPlanPrompt(ctx: AgentPromptContext, jd: JdAnalysis, pack: E
     "## 할 일",
     "1. requirementMap: JD의 모든 요건(mustHave·niceToHave의 R…)마다 근거 ref를 고르고 strong | partial | gap으로 판정한다. 근거 줄에 없는 것은 gap이다. 직무명이나 기술 보유(Skill 노드)만으로 strong 금지 — '기술 대조: claimed'는 최대 partial. angle에는 이 근거를 어떤 JD 용어·표현으로 쓸지.",
     "2. positioning: 이 지원자를 이 직무에 어떤 사람으로 내세울지 한 문장. headline: 직무명만(문장 금지). sectionEmphasis: 섹션별 강조점.",
-    "3. include: 넣을 경력(Role ref, emphasis)과 대표 프로젝트 2~4개(Project ref, 대응 요건), 넣을 만한 수상·기타. exclude: 뺄 항목과 이유(직무 무관·중복·사소한 일화 — 규칙 9 기준).",
+    "3. include: 넣을 경력(Role ref, emphasis)과 대표 프로젝트 2~4개(Project ref, 대응 요건), 넣을 만한 수상·기타(규칙 9의 카테고리에 드는 근거만 — 수상·대외활동·교육·어학·발표·오픈소스·멘토링·자격·병역 등). exclude: 뺄 항목과 이유(직무 무관·중복·사소한 일화·단순 참석 — 규칙 9 기준).",
     "4. keywordPlan: JD 키워드마다 어느 섹션에서 어느 근거로 쓸지. 근거 없는 키워드는 넣지 않는다.",
     "5. gapQuestions: gap 요건마다 지원자에게 물을 질문 한 개(경험 그래프 채팅으로 보낼 문장).",
   ].join("\n");
@@ -159,6 +159,7 @@ export function buildWriteBodyPrompt(
     "- experience: plan.include.experience의 직무(Role) 근거로, 최근 순. company·title·startDate·endDate는 근거 줄 값 그대로(YYYY.MM, 재직 중이면 \"현재\"). bullets는 strong·partial 요건 근거를 앞에.",
     "- projects: plan.include.projects 순서대로. 근거의 situation·action·result를 problem·action·result에. techs는 근거의 '기술:'에 있는 것만.",
     "- education·certifications: 근거의 학력·자격 노드만. extras: plan.include.extras만(없으면 빈 배열). plan.exclude의 노드는 어느 섹션에도 쓰지 않는다(서버가 지운다).",
+    "- extras는 규칙 9의 카테고리별 한 줄 형식으로 쓰고, 줄마다 citations(\"extras[0].items[0]\")를 단다. 인용 없는 줄, 경력·프로젝트에 쓴 내용의 반복, 사소한 일화·소감은 서버가 지운다. 묶음 순서·합치기는 서버가 규칙 9대로 정리한다.",
     '- citations: 항목마다 { path: "experience[0]" | "projects[1]" | "education[0]" | "certifications[0]" | "extras[0].items[0]", refs: [근거 ref], requirementIds: [대응 요건] }. 한 줄만 다른 근거면 줄 경로(예: "experience[0].bullets[2]")로 따로 단다.',
     "- notes 첫 줄: 'JD 대응: 충족 n개 / 확인 필요 m개'.",
   ];
@@ -201,7 +202,7 @@ export function buildWriteTopPrompt(
     "- summary: strong 요건을 JD 용어로 앞에. highlights 2~3개: 수치가 있는 근거만 '기준값 → 개선값'으로, 없으면 산출물·범위.",
     "- skills: category·detail·items. items는 근거의 기술 이름만.",
     '- citations: { path: "summary" | "highlights[0]" | "skills[0]", refs, requirementIds }. 요약·핵심 성과·기술 칸마다 단다.',
-    "- missingInfo: gap 요건 질문과 확인이 필요한 정보(최대 10개).",
+    "- missingInfo: gap 요건 질문과 확인이 필요한 정보(최대 10개). 흔히 쓰는 기타 정보(수상·어학 점수, 신입이면 교육 이수·병역)가 근거에 없으면 지어내지 말고 질문으로.",
   ];
   if (retry && retry.uncited.length > 0) {
     lines.push("", "## 다시 쓰기 요청", `인용이 없어 받지 못한 칸: ${retry.uncited.slice(0, 30).join(", ")}. 근거가 있으면 citations를 달고, 없으면 쓰지 않는다.`);
@@ -267,6 +268,7 @@ export function buildRevisePrompt(
     '- op: replace(줄 바꾸기: path·value·refs) | insert(불릿·기타 줄 추가: path가 새 줄 자리, 예 "experience[0].bullets[0]") | remove(path) | reorder(section·order — 패치 전 인덱스의 새 순서) | addProject(근거에 있는 프로젝트를 새로: project·refs) | setSkills(skills·citations).',
     "- replace·insert·addProject에는 그 문장의 근거 ref를 반드시 단다(없으면 서버가 버린다). 숫자는 인용한 근거 줄에 있는 것만.",
     "- ATS 누락 키워드는 근거가 있는 줄에 JD 표기 그대로 넣는다. 요건 공백(partial)은 근거가 있으면 그 요건을 드러내는 줄로 바꾼다.",
+    "- 수상·기타(extras) 줄은 규칙 9를 따른다: 근거 노드(수상·자격·대외활동·교육 등)가 있을 때만 그 형식으로 insert하고, 경력·프로젝트와 겹치는 줄·사소한 일화는 넣지 않는다(지적이 있으면 remove). 근거에 없는 수상·어학은 questions로.",
     "- 쓰지 않는 필드는 빈 문자열·빈 배열·null. issueIds에는 반영한 지적 id. summary: 이번에 무엇을 왜 바꿨는지.",
   );
   return { system: AGENT_SYSTEM, user: lines.join("\n") };

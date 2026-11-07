@@ -2,6 +2,7 @@
  * 공유 추출(동작 불변 리팩터) 고정: 9378ba3 기준으로 계산한 프롬프트 해시와 비교한다.
  * - 패널 단계 프롬프트(진단 경로, draftMode 없음)는 바이트 단위로 같다. draftMode면 심사 단계 할 일 끝에만 안내가 붙는다.
  * - 단일 초안 프롬프트는 사실 규칙(RESUME_FACT_RULES)을 공유 모듈로 뺀 뒤에도 같다(INJECTION_RULE에 새 자료 태그 이름 두 개가 더해진 것만 다르다).
+ *   규칙 9(수상·기타)를 공유 작성 기준(extras-guide.ts)으로 바꾸면서 해시를 새로 고정했다.
  * - runPanelStage는 usageTask·effort·cacheUser를 요청에 싣는다.
  * - retrieve의 intents 인자는 의도를 더하고, buildIndex를 넘겨도 결과가 같다.
  */
@@ -54,7 +55,7 @@ describe("단일 초안 프롬프트 불변", () => {
   it("사실 규칙 추출 뒤에도 같다(새 자료 태그 이름 두 개만 INJECTION_RULE에 더해짐)", () => {
     const d = buildResumeDraftPrompt({ company: "c", roleTitle: "r", jdText: "j", templateId: "performance", material: { kind: "graph", text: "g" } });
     const before = d.system.replace(", <resume_plan>, <requirement_candidates>", "");
-    expect(sha(before + d.user)).toBe("016b7fbe3fb98a3c373864891ce09745ed63c9013be0349289fa2e1f3cc22764");
+    expect(sha(before + d.user)).toBe("75466e4b9716867f3497a6f61c34e1585bc3d142ea4579d2761ad3355ebe8f93");
     const rules = d.system.slice(d.system.indexOf("규칙:"), d.system.indexOf("10. 아래 작성 기준"));
     expect(rules).toBe(["규칙:", ...RESUME_FACT_RULES, ""].join("\n"));
   });

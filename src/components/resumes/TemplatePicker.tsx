@@ -98,7 +98,7 @@ export const TemplateThumbnail = memo(function TemplateThumbnail({ templateId }:
   const t = RESUME_TEMPLATES[templateId];
   const { accent, layout, density } = t.style;
   const compact = density === "compact";
-  const sections = t.sectionOrder.filter((k) => k !== "extras" && k !== "certifications");
+  const sections = t.sectionOrder.filter((k) => k !== "extras" && k !== "certifications" && k !== "motivation");
   const gap = compact ? "gap-[5px]" : "gap-[7px]";
 
   const header = (

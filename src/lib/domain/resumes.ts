@@ -22,6 +22,7 @@ export const RESUME_SECTION_KEYS = [
   "education",
   "certifications",
   "extras",
+  "motivation",
 ] as const;
 export type ResumeSectionKey = (typeof RESUME_SECTION_KEYS)[number];
 
@@ -34,7 +35,16 @@ export const RESUME_SECTION_LABELS: Record<ResumeSectionKey, string> = {
   education: "학력",
   certifications: "자격·어학",
   extras: "기타",
+  motivation: "지원 동기",
 };
+
+/** 지원 동기 칸 글자 상한. 지원처별 이력서(kind 'company')에만 쓰고, 사용자가 직접 쓴다(AI는 쓸 거리만 추천 — src/lib/resumes/motivation.ts). */
+export const MAX_RESUME_MOTIVATION_CHARS = 1500;
+
+/** AI 초안(단일 호출·에이전트)이 쓰는 섹션 순서: 지원 동기는 사용자가 쓰므로 프롬프트의 섹션 순서에서 뺀다. */
+export function draftSectionOrder(order: readonly ResumeSectionKey[]): ResumeSectionKey[] {
+  return order.filter((k) => k !== "motivation");
+}
 
 const s = (max: number) => z.string().max(max);
 const bullets = () => z.array(s(500)).max(15);
@@ -123,6 +133,7 @@ export const ResumeDocumentSchema = z.object({
     .max(10),
   certifications: z.array(z.object({ name: s(120), issuer: s(120), date: s(20) })).max(20),
   extras: z.array(z.object({ title: s(80), items: z.array(s(300)).max(15) })).max(8),
+  motivation: s(MAX_RESUME_MOTIVATION_CHARS).describe("지원 동기(지원처별 이력서만, 사용자가 직접 쓴다). 없으면 빈 문자열"),
 });
 export type ResumeDocument = z.infer<typeof ResumeDocumentSchema>;
 export type ResumeHighlight = ResumeDocument["highlights"][number];
@@ -177,6 +188,7 @@ export function emptyResumeDocument(): ResumeDocument {
     education: [],
     certifications: [],
     extras: [],
+    motivation: "",
   };
 }
 
@@ -229,6 +241,8 @@ export function upgradeResumeDocument(raw: unknown): unknown {
   out.certifications = eachWithDefaults(raw.certifications ?? [], EMPTY_RESUME_ITEM.certification);
   out.extras = eachWithDefaults(raw.extras ?? [], () => ({ title: "", items: [] }));
   if (out.summary === undefined || out.summary === null) out.summary = "";
+  // 지원 동기 칸이 생기기 전 저장본은 빈 문자열.
+  if (out.motivation === undefined || out.motivation === null) out.motivation = "";
   return out;
 }
 
@@ -241,10 +255,11 @@ export function parseResumeDocument(raw: unknown) {
 
 /**
  * LLM 이력서 초안 출력(task 'resume-draft'). 구조화 출력용 JSON 스키마는 ResumeDocumentSchema(모든 필드 필수) 그대로이고,
- * 검증은 보정을 거친다 — 엔진이 새 필드 몇 개를 빠뜨려도 빈 값으로 받아들인다.
+ * 검증은 보정을 거친다 — 엔진이 새 필드 몇 개를 빠뜨려도 빈 값으로 받아들인다. 지원 동기(motivation)는 출력 스키마에 없다.
  */
 export const ResumeDraftOutputSchema = z.object({
-  document: StoredResumeDocumentSchema,
+  // 지원 동기는 사용자가 쓰는 칸이라 LLM 출력에서 뺀다(서버가 빈 문자열로 채운다 — draft.ts).
+  document: z.preprocess(upgradeResumeDocument, ResumeDocumentSchema.omit({ motivation: true })),
   notes: z.array(z.string()).max(10).describe("초안을 쓰며 내린 판단·가정(한국어)"),
   missingInfo: z.array(z.string()).max(10).describe("채워야 할 정보에 대한 질문. 본문에는 [ADD: ...]로 남긴다"),
 });
@@ -328,42 +343,42 @@ export const RESUME_TEMPLATES: Record<ResumeTemplateId, ResumeTemplate> = {
     id: "performance",
     name: "성과 중심",
     description: "핵심 성과를 맨 위에 두고 경력·프로젝트를 문제→행동→결과로 보여주는 A4 1장 양식. 미리보기에서 바로 고친다.",
-    sectionOrder: ["summary", "highlights", "experience", "projects", "skills", "education", "certifications", "extras"],
+    sectionOrder: ["summary", "highlights", "experience", "projects", "skills", "education", "certifications", "extras", "motivation"],
     style: { accent: "#264e77", baseFontSize: 10, headingStyle: "plain", layout: "labeled", density: "normal", skillChips: false },
   },
   classic: {
     id: "classic",
     name: "클래식",
     description: "대기업·공공기관 서류에 무난한 단일 열 양식. 경력을 시간 역순으로 정리한다.",
-    sectionOrder: ["summary", "highlights", "experience", "projects", "skills", "education", "certifications", "extras"],
+    sectionOrder: ["summary", "highlights", "experience", "projects", "skills", "education", "certifications", "extras", "motivation"],
     style: { accent: "#1e293b", baseFontSize: 10, headingStyle: "underline", layout: "single", density: "normal", skillChips: false },
   },
   modern: {
     id: "modern",
     name: "모던",
     description: "스타트업·외국계에 맞는 깔끔한 양식. 상단 요약과 대표 성과를 강조한다.",
-    sectionOrder: ["summary", "highlights", "experience", "skills", "projects", "education", "certifications", "extras"],
+    sectionOrder: ["summary", "highlights", "experience", "skills", "projects", "education", "certifications", "extras", "motivation"],
     style: { accent: "#4f46e5", baseFontSize: 10, headingStyle: "bar", layout: "single", density: "normal", skillChips: true },
   },
   compact: {
     id: "compact",
     name: "컴팩트",
     description: "한 장에 많이 담는 촘촘한 양식. 경력이 길거나 1쪽 제한이 있을 때.",
-    sectionOrder: ["summary", "highlights", "experience", "skills", "education", "projects", "certifications", "extras"],
+    sectionOrder: ["summary", "highlights", "experience", "skills", "education", "projects", "certifications", "extras", "motivation"],
     style: { accent: "#0f766e", baseFontSize: 9, headingStyle: "plain", layout: "single", density: "compact", skillChips: false },
   },
   developer: {
     id: "developer",
     name: "개발자",
     description: "기술 스택과 프로젝트를 앞세우는 양식. 사이드바에 기술·링크를 둔다.",
-    sectionOrder: ["summary", "highlights", "skills", "experience", "projects", "education", "certifications", "extras"],
+    sectionOrder: ["summary", "highlights", "skills", "experience", "projects", "education", "certifications", "extras", "motivation"],
     style: { accent: "#0369a1", baseFontSize: 9.5, headingStyle: "bar", layout: "sidebar", density: "normal", skillChips: true },
   },
   "career-change": {
     id: "career-change",
     name: "직무 전환",
     description: "옮겨 갈 직무와 이어지는 역량·프로젝트를 경력보다 먼저 보여주는 양식.",
-    sectionOrder: ["summary", "highlights", "skills", "projects", "experience", "education", "certifications", "extras"],
+    sectionOrder: ["summary", "highlights", "skills", "projects", "experience", "education", "certifications", "extras", "motivation"],
     style: { accent: "#b45309", baseFontSize: 10, headingStyle: "underline", layout: "single", density: "normal", skillChips: true },
   },
 };

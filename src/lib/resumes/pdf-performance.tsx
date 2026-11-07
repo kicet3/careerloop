@@ -8,9 +8,9 @@
  */
 import type { ReactNode } from "react";
 import { Document, Image, Page, StyleSheet, Text, View, type Styles } from "@react-pdf/renderer";
-import type { ResumeDocument } from "@/lib/domain/resumes";
+import { RESUME_SECTION_LABELS, type ResumeDocument } from "@/lib/domain/resumes";
 import { SERVICE_CREDIT } from "@/lib/brand";
-import { isExperienceEmpty, isProjectEmpty, performanceHeading, splitAddMarkers } from "./layout";
+import { isExperienceEmpty, isProjectEmpty, motivationParagraphs, performanceHeading, splitAddMarkers } from "./layout";
 import { NO_HYPHEN, PDF_FONT } from "./pdf-fonts";
 
 const C = {
@@ -335,6 +335,9 @@ export function PerformancePdfDocument({ doc, photo = null }: { doc: ResumeDocum
       ),
     }));
 
+  // 지원 동기(지원처별 이력서에서 사용자가 쓴 글): 문단마다 한 줄 — 긴 글은 문단 사이에서 쪽이 나뉜다.
+  const motivationRows = motivationParagraphs(doc.motivation).map((para, i) => row(<R key={i} style={st.para} text={para} />, para));
+
   const sections = [
     {
       label: performanceHeading(doc, "highlights"),
@@ -358,6 +361,7 @@ export function PerformancePdfDocument({ doc, photo = null }: { doc: ResumeDocum
       rows: educationRows,
     },
     ...extras.map((x) => ({ label: x.label, gap: 0, rows: x.rows })),
+    { label: RESUME_SECTION_LABELS.motivation, gap: px(5), rows: motivationRows },
   ].filter((s) => s.rows.length > 0);
 
   return (

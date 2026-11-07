@@ -8,7 +8,15 @@ import { FeatureError } from "@/lib/api/errors";
 import { prisma } from "@/lib/db/client";
 import type { UsageTotals } from "@/lib/db/types";
 import { CHAT_TAGS } from "@/lib/domain/chat";
-import { RESUME_SECTION_LABELS, RESUME_TEMPLATES, ResumeDraftOutputSchema, type ResumeDraftOutput, type ResumeTemplateId } from "@/lib/domain/resumes";
+import {
+  draftSectionOrder,
+  RESUME_SECTION_LABELS,
+  RESUME_TEMPLATES,
+  ResumeDraftOutputSchema,
+  type ResumeDocument,
+  type ResumeDraftOutput,
+  type ResumeTemplateId,
+} from "@/lib/domain/resumes";
 import { RewriteResultSchema } from "@/lib/domain/schemas";
 import { field, INJECTION_RULE, wrapData } from "@/lib/chat/prompt";
 import { getCareerGraph, graphEnabled, graphToText } from "@/lib/graph/service";
@@ -17,6 +25,7 @@ import type { LlmClient } from "@/lib/llm";
 import { TAGS } from "@/lib/panel/prompts";
 import type { ResumeDraftSource } from "./types";
 import { RESUME_FACT_RULES } from "./draft-rules";
+import { extrasMissingQuestions, isNewcomerDocument, normalizeExtras } from "./extras-guide";
 import { RESUME_WRITING_CRITERIA_PROMPT } from "./writing-guide";
 
 /** 초안 자료: 그래프 텍스트 또는 진단 재작성본(Markdown). */
@@ -49,7 +58,7 @@ const SYSTEM = [
 
 export function buildResumeDraftPrompt(ctx: DraftContext): { system: string; user: string } {
   const t = RESUME_TEMPLATES[ctx.templateId];
-  const order = t.sectionOrder.map((k) => RESUME_SECTION_LABELS[k]).join(" → ");
+  const order = draftSectionOrder(t.sectionOrder).map((k) => RESUME_SECTION_LABELS[k]).join(" → ");
   const lines = [
     "아래 자료로 이력서 초안을 써라.",
     "",
@@ -80,8 +89,11 @@ export function buildResumeDraftPrompt(ctx: DraftContext): { system: string; use
   return { system: SYSTEM, user: lines.join("\n") };
 }
 
+/** 초안 결과: LLM 출력(지원 동기 없음)에 서버가 지원 동기 칸(빈 문자열 — 사용자가 직접 쓴다)을 더한 문서. */
+export type DraftOutput = Omit<ResumeDraftOutput, "document"> & { document: ResumeDocument };
+
 export interface DraftResult {
-  draft: ResumeDraftOutput;
+  draft: DraftOutput;
   usage: UsageTotals;
   model: string;
 }
@@ -98,7 +110,13 @@ export async function generateResumeDraft(client: LlmClient, ctx: DraftContext, 
     maxTokens: 128_000,
     signal,
   });
-  const draft = res.output;
+  // 지원 동기는 LLM이 쓰지 않는다(구조화 출력에도 없다). 추천은 /api/resumes/[id]/motivation/suggest가 따로 한다.
+  const draft: DraftOutput = { ...res.output, document: { ...res.output.document, motivation: "" } };
+  // 수상·기타 묶음 규칙과 사소한 일화 제거(extras-guide.ts — 에이전트와 같은 기준).
+  const extras = normalizeExtras(draft.document.extras, { newcomer: isNewcomerDocument(draft.document) });
+  draft.document.extras = extras.extras;
+  if (extras.dropped.length > 0) draft.notes = [...draft.notes, `수상·기타에서 사소한 일화·소감 ${extras.dropped.length}줄을 뺐습니다.`].slice(0, 10);
+  draft.missingInfo = [...new Set([...draft.missingInfo, ...extrasMissingQuestions(draft.document)])].slice(0, 10);
   // 계정 이름이 있고 초안에 이름이 비었으면 채운다(지어낸 값이 아니다).
   if (!draft.document.basics.name.trim() && ctx.personName?.trim()) draft.document.basics.name = ctx.personName.trim().slice(0, 80);
   // 메일 주소는 로그인 메일을 기본값으로 쓴다(비었거나 [ADD: …] 자리표시만 있을 때).

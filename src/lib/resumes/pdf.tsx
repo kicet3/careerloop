@@ -13,7 +13,7 @@ import {
   type ResumeTemplate,
   type ResumeTemplateId,
 } from "@/lib/domain/resumes";
-import { isExperienceEmpty, isProjectEmpty, period, projectStoryLines, RESUME_PHOTO_PT, resumeLayout, sectionTitle, splitAddMarkers } from "./layout";
+import { isExperienceEmpty, isProjectEmpty, motivationParagraphs, period, projectStoryLines, RESUME_PHOTO_PT, resumeLayout, sectionTitle, splitAddMarkers } from "./layout";
 import { A4, mayExceedPage } from "./pagination";
 import { NO_HYPHEN, PDF_FONT, registerResumeFonts } from "./pdf-fonts";
 import { PerformancePdfDocument } from "./pdf-performance";
@@ -333,6 +333,16 @@ function sectionItems({ s, doc, k, t, narrow }: { s: S; doc: ResumeDocument; k: 
           ),
           texts: [x.title, ...x.items],
         }));
+    case "motivation":
+      // 문단마다 항목(긴 지원 동기는 문단 사이에서 쪽이 나뉜다 — 웹 미리보기와 같다).
+      return motivationParagraphs(doc.motivation).map((para, i) => ({
+        el: (
+          <View key={i} style={{ marginBottom: 4 }}>
+            <Rich s={s} text={para} />
+          </View>
+        ),
+        texts: [para],
+      }));
   }
 }
 

@@ -12,12 +12,13 @@ import { useEffect, useLayoutEffect, useRef, useState, type ElementType, type Re
 import { cn } from "@/components/ui/cn";
 import {
   EMPTY_RESUME_ITEM,
+  RESUME_SECTION_LABELS,
   type ResumeDocument,
   type ResumeExperience,
   type ResumeHeadingKey,
   type ResumeProject,
 } from "@/lib/domain/resumes";
-import { PERFORMANCE_HEADINGS, splitAddMarkers } from "@/lib/resumes/layout";
+import { motivationParagraphs, PERFORMANCE_HEADINGS, splitAddMarkers } from "@/lib/resumes/layout";
 import "./performance-sheet.css";
 import { MOBILE_QUERY, SHEET_PAGE_GAP, useSheetPages } from "./sheet-pagination";
 
@@ -1022,6 +1023,7 @@ export function PerformanceSheet({
     education: editable || doc.education.length + doc.certifications.length > 0,
   };
   const extras = doc.extras.filter((x) => x.title.trim() || x.items.some((i) => i.trim()));
+  const motivation = motivationParagraphs(doc.motivation);
 
   return (
     <div className={cn(css.root, className)} data-template="performance">
@@ -1078,6 +1080,21 @@ export function PerformanceSheet({
                 </div>
               </section>
             ))}
+            {/* 지원 동기(지원처별 이력서): 읽기 전용 표시. 편집·추천은 시트 위 '지원 동기' 칸에서. */}
+            {motivation.length > 0 && (
+              <section className={css.section} data-section="motivation">
+                <div className={css.sectionLabel}>
+                  <h2>{RESUME_SECTION_LABELS.motivation}</h2>
+                </div>
+                <div className={cn(css.sectionContent, css.entry)}>
+                  {motivation.map((para, i) => (
+                    <p key={i} style={{ whiteSpace: "pre-line" }}>
+                      <RichText text={para} />
+                    </p>
+                  ))}
+                </div>
+              </section>
+            )}
           </div>
         </div>
       </div>

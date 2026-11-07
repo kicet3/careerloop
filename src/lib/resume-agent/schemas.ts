@@ -8,7 +8,7 @@
  */
 import { z } from "zod";
 import { NodeLabelSchema } from "@/lib/domain/graph";
-import { ResumeDocumentSchema } from "@/lib/domain/resumes";
+import { ResumeDocumentSchema, StoredResumeDocumentSchema } from "@/lib/domain/resumes";
 import { FitItemSchema, JdAnalysisSchema, RequirementSchema, ReviewerIdSchema, SituationSchema } from "@/lib/domain/schemas";
 
 /** 단계 출력 스키마 버전. 진행 중 작업의 버전이 다르면 "업데이트로 다시 시작이 필요합니다"로 닫는다. */
@@ -203,7 +203,8 @@ export type LlmTopDraft = z.infer<typeof LlmTopDraftSchema>;
 
 /** 서버가 합친 초안: 문서 + (내부) 인용. 인용은 이력서 저장 시 제거된다. */
 export const AgentDraftSchema = z.object({
-  document: ResumeDocumentSchema,
+  // 저장된 단계 출력도 읽어야 하므로 예전 형식 보정(지원 동기 칸 등)을 거친다.
+  document: StoredResumeDocumentSchema,
   citations: z.array(CitationSchema).max(200),
   notes: z.array(z.string()).max(20),
   missingInfo: z.array(z.string()).max(30),
@@ -219,7 +220,7 @@ export type WriteBodyStepOutput = z.infer<typeof WriteBodyStepOutputSchema>;
 
 export const VerifyReportSchema = z.object({
   numbersFlagged: z.array(z.object({ path: z.string(), numbers: z.array(z.string()) })),
-  dropped: z.array(z.object({ path: z.string(), text: z.string(), reason: z.enum(["uncited", "invalid_ref", "unknown_skill", "excluded"]) })),
+  dropped: z.array(z.object({ path: z.string(), text: z.string(), reason: z.enum(["uncited", "invalid_ref", "unknown_skill", "excluded", "trivial_extra", "duplicate_extra"]) })),
   corrected: z.array(z.object({ path: z.string(), before: z.string(), after: z.string() })),
   riskyClaims: z.array(z.object({ path: z.string(), text: z.string(), reason: z.enum(["gap_requirement", "ownership", "superlative"]) })),
   retriedForCitations: z.boolean(),

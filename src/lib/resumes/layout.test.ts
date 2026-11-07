@@ -18,7 +18,7 @@ describe("resumeLayout", () => {
   it("사이드바 양식(developer)은 기술·학력·자격을 옆 열로 보낸다", () => {
     const { main, side } = resumeLayout(makeSampleResume(), "developer");
     expect(side).toEqual(["skills", "education", "certifications"]);
-    expect(main).toEqual(["summary", "highlights", "experience", "projects", "extras"]);
+    expect(main).toEqual(["summary", "highlights", "experience", "projects", "extras", "motivation"]);
     expect(resumeLayout(makeSampleResume(), "classic").side).toEqual([]);
   });
 

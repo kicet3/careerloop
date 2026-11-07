@@ -20,6 +20,7 @@ import {
 import {
   isExperienceEmpty,
   isProjectEmpty,
+  motivationParagraphs,
   period,
   projectStoryLines,
   RESUME_PHOTO_PT,
@@ -336,6 +337,19 @@ function pushSection(col: Column, doc: ResumeDocument, k: ResumeSectionKey, t: R
           bullets(grp, grp, x.items);
           col.addAfter(7 * gp);
         });
+      return;
+    case "motivation":
+      // 문단마다 블록(긴 지원 동기는 문단 사이에서 쪽이 나뉜다). 문단 안 줄바꿈은 그대로 보인다.
+      motivationParagraphs(doc.motivation).forEach((para, i) =>
+        col.push(
+          `motivation:${i}`,
+          `motivation:${i}`,
+          <p data-motivation style={{ whiteSpace: "pre-line", overflowWrap: "anywhere" }}>
+            <Rich text={para} />
+          </p>,
+          { before: i > 0 ? 4 * gp : 0 },
+        ),
+      );
       return;
   }
 }

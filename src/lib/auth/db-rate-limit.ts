@@ -21,6 +21,12 @@ export const PORTFOLIO_DRAFT_LIMIT: DbRateLimit = { bucket: "portfolio-draft", l
 export const GRAPH_CHAT_LIMIT: DbRateLimit = { bucket: "graph-chat", limit: 30, windowMs: 10 * 60_000 };
 /** 그래프에 묻기 전송·재시도: 사용자당 10분 30회. */
 export const GRAPH_QA_LIMIT: DbRateLimit = { bucket: "graph-qa", limit: 30, windowMs: 10 * 60_000 };
+/** 이력서 AI로 다듬기 전송: 사용자당 10분 30회(연타 방지). */
+export const RESUME_POLISH_LIMIT: DbRateLimit = { bucket: "resume-polish", limit: 30, windowMs: 10 * 60_000 };
+/** 이력서 AI로 다듬기 전송: 사용자당 24시간 150회(하루 비용 상한). 위 10분 제한과 함께 센다. */
+export const RESUME_POLISH_DAILY_LIMIT: DbRateLimit = { bucket: "resume-polish-day", limit: 150, windowMs: 24 * 60 * 60_000 };
+/** 지원 동기 쓸 거리 추천: 사용자당 24시간 20회(그래프·공고가 들어가는 LLM 호출 1회). */
+export const RESUME_MOTIVATION_LIMIT: DbRateLimit = { bucket: "resume-motivation", limit: 20, windowMs: 24 * 60 * 60_000 };
 /** 이력서·포트폴리오로 그래프 채우기: 사용자당 24시간 10회(긴 문서 1건이 큰 LLM 호출 1회). */
 export const GRAPH_IMPORT_LIMIT: DbRateLimit = { bucket: "graph-import", limit: 10, windowMs: 24 * 60 * 60_000 };
 /** 진단 생성: IP당 24시간 20건(계정을 여러 개 만들어 하루 제한을 우회하는 것을 늦춘다). */

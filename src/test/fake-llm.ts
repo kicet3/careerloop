@@ -28,6 +28,7 @@ import {
 } from "@/lib/domain/chat";
 import { extractKeywords } from "@/lib/skills/dictionary";
 import { emptyResumeDocument, type ResumeDraftOutput } from "@/lib/domain/resumes";
+import { POLISH_TARGET_TAG, type ResumePolishOutput } from "@/lib/domain/resume-polish";
 import type { GraphPortfolioOutput } from "@/lib/domain/graph-portfolio";
 import { getPortfolioTemplate } from "@/lib/domain/portfolio-templates";
 import type { InterviewFeedbackOutput, InterviewQuestionsOutput } from "@/lib/domain/interview";
@@ -1210,8 +1211,62 @@ function fakeAgentRevise(user: string): unknown {
   return { ops, questions, summary: ops.length ? "ATS 누락 키워드를 근거 줄로 채웠다." : "근거 안에서 고칠 지적이 없다." };
 }
 
+/**
+ * 가짜 이력서 다듬기: <polish_target>의 글로 대안 2개(짧게 / 수치 자리표시)를 낸다. 그래프 근거 [1]이 있으면 그 이름을 셋째 대안에 쓴다.
+ * 요청에 "[가짜:수치]"가 있으면 근거에 없는 숫자(73%)를 넣는다(서버 사실 검증 시험용).
+ */
+function fakeResumePolish(user: string): ResumePolishOutput {
+  const target = (extractTag(user, POLISH_TARGET_TAG) ?? "").trim();
+  const message = extractTag(user, CHAT_TAGS.latestMessage) ?? "";
+  const base = target && target !== "(비어 있음)" ? target : "[ADD: 이 칸에 쓸 경험]";
+  const first = base.split(/(?<=[.!?。])\s+|\n/)[0]!.replace(/[.。]$/, "");
+  const short = first.length > 40 ? `${first.slice(0, 40).trimEnd()}` : `${first} (요약)`;
+  const suggestions = [
+    { text: short, reason: "핵심만 남겨 한눈에 읽힌다." },
+    { text: `${first} — [ADD: 수치 확인 — 개선 전후 지표]`, reason: "결과 수치 자리를 앞에 두었다." },
+  ];
+  const source = sourceLines(user)[0];
+  if (source) suggestions.push({ text: `${first} (${source.text.split(" · ").at(-1)!.slice(0, 40)})`, reason: "그래프 근거를 함께 적었다." });
+  if (message.includes("[가짜:수치]")) suggestions[0] = { text: `${first}, 처리 시간 73% 단축`, reason: "수치를 강조했다." };
+  return {
+    scope: "on_topic",
+    scopeReason: "",
+    reply: "요청에 맞춰 이렇게 바꿔 볼 수 있어요.",
+    suggestions: suggestions.slice(0, 3),
+    followUpQuestion: "이 일로 바뀐 지표와 기간을 알려 주실 수 있나요?",
+  };
+}
+
 function fakeAgentWrite(user: string): unknown {
   return user.includes("이력서 본문(경력·프로젝트") ? fakeAgentBody(user) : fakeAgentTop(user);
+}
+
+/**
+ * 가짜 지원 동기 추천: 공고(<job_posting>)의 첫 줄을 인용하고, 그래프(<career_graph>)의 `- [id] 이름` 줄 앞쪽 2개를 이어지는 경험으로 고른다.
+ * 서버 거르기를 시험하려고 일부러 섞는다: 공고에 없는 인용 1개, 그래프에 없는 노드 1개, 자료에 없는 숫자 1개, 완성 문단 1개.
+ */
+function fakeMotivationSuggest(user: string): unknown {
+  const jd = extractTag(user, TAGS.jobPosting) ?? "";
+  const graph = extractTag(user, CHAT_TAGS.careerGraph) ?? "";
+  const quote = jd.split(/\r?\n/).map((l) => l.replace(/^[-•\s]+/, "").trim()).find((l) => l.length >= 4) ?? "";
+  const nodes = [...graph.matchAll(/^- \[([^\]]+)\] ([^(\n]+)/gm)].map((m) => ({ nodeId: m[1]!, name: m[2]!.trim() }));
+  return {
+    companyPoints: [
+      ...(quote ? [{ point: "공고가 강조하는 업무", jdQuote: quote.slice(0, 200) }] : []),
+      { point: "공고에 없는 가치", jdQuote: "공고 원문에 없는 문장입니다" },
+    ],
+    linkedExperiences: [
+      ...nodes.slice(0, 2).map((n) => ({ nodeId: n.nodeId, name: n.name.slice(0, 120), why: "공고 업무와 같은 종류의 일" })),
+      { nodeId: "n-unknown", name: "지어낸 경험", why: "그래프에 없는 노드" },
+    ],
+    outline: [
+      { heading: "지원 계기", guide: "회사를 알게 된 계기와 관심을 가진 이유를 적어 보세요" },
+      { heading: "이어지는 경험", guide: "위 경험 중 하나로 공고 업무와 이어지는 점을 적어 보세요" },
+      { heading: "완성 문단", guide: "저는 귀사의 비전에 깊이 공감하여 지원하게 되었습니다. 입사 후 최선을 다하겠습니다." },
+    ],
+    questions: ["회사를 처음 알게 된 계기는 무엇인가요?", "매출을 777% 늘린 경험이 있나요?"],
+    cautions: ["회사 칭찬만 나열하지 마세요"],
+  };
 }
 
 function fakeTaskOutput(task: LlmTask, user: string): unknown {
@@ -1246,6 +1301,10 @@ function fakeTaskOutput(task: LlmTask, user: string): unknown {
       return fakeAgentWrite(user);
     case "resume-agent-revise":
       return fakeAgentRevise(user);
+    case "resume-polish":
+      return fakeResumePolish(user);
+    case "resume-motivation-suggest":
+      return fakeMotivationSuggest(user);
     case "resume-agent-jd":
     case "resume-agent-review":
       // 패널 단계 재사용 호출의 사용량 구분(usageTask)일 뿐 task로는 오지 않는다.

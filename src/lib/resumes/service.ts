@@ -264,10 +264,10 @@ export interface SaveVersionOptions {
  * 버전 번호 예약: 이력서별 잠금을 건 트랜잭션에서 소유권·기준 버전·버전 수 한도를 확인하고 다음 번호의 행을 넣는다.
  * 동시 저장도 차례로 서로 다른 번호를 받는다. 조건에 걸려 아무것도 넣지 못했으면 null.
  */
-async function reserveVersion(userId: string, resumeId: string, opts: SaveVersionOptions): Promise<ResumeVersion | null> {
+async function reserveVersion(userId: string, resumeId: string, opts: SaveVersionOptions): Promise<(ResumeVersion & { resumeKind: string }) | null> {
   return prisma.$transaction(async (tx) => {
     await lockResume(tx, resumeId);
-    const r = await tx.companyResume.findFirst({ select: { id: true, currentVersionId: true }, where: { id: resumeId, userId } });
+    const r = await tx.companyResume.findFirst({ select: { id: true, currentVersionId: true, kind: true }, where: { id: resumeId, userId } });
     if (!r) return null;
     if (opts.baseVersionId === null && r.currentVersionId !== null) return null;
     if (typeof opts.baseVersionId === "string") {
@@ -289,7 +289,7 @@ async function reserveVersion(userId: string, resumeId: string, opts: SaveVersio
         source: opts.source,
       },
     });
-    return row as ResumeVersion;
+    return { ...(row as ResumeVersion), resumeKind: r.kind };
   });
 }
 
@@ -301,7 +301,7 @@ export async function saveVersion(
   opts: SaveVersionOptions,
 ): Promise<ResumeVersionMeta | null> {
   const doc = ResumeDocumentSchema.parse(document);
-  let reserved: ResumeVersion | null;
+  let reserved: Awaited<ReturnType<typeof reserveVersion>>;
   try {
     reserved = await reserveVersion(userId, resumeId, opts);
   } catch (err) {
@@ -321,7 +321,8 @@ export async function saveVersion(
   }
 
   try {
-    await putJson(reserved.storageKey, doc);
+    // 지원 동기는 지원처별 이력서에만 둔다(공용 이력서로 복사·저장하면 비운다).
+    await putJson(reserved.storageKey, reserved.resumeKind === "general" ? { ...doc, motivation: "" } : doc);
   } catch (err) {
     // 본문을 못 쓴 버전 행은 지운다(목록에 깨진 버전이 남지 않게).
     await prisma.resumeVersion.deleteMany({ where: { id: reserved.id } });
@@ -427,6 +428,17 @@ export interface CopyResumeTarget {
 }
 
 /**
+ * 복제본이 원본의 지원 동기를 이어받아도 되는가: 같은 지원처(같은 공고, 또는 같은 회사·직무)일 때만.
+ * 지원 동기는 회사·공고마다 다르게 쓰는 글이다 — 다른 회사용 복제본에 남으면 엉뚱한 회사에 내기 쉽다.
+ */
+function keepsMotivation(source: Pick<ResumeMeta, "kind" | "company" | "roleTitle" | "postingId">, target: CopyResumeTarget): boolean {
+  if (source.kind !== "company" || target.kind !== "company") return false;
+  if (source.postingId && target.postingId) return source.postingId === target.postingId;
+  const n = (s: string | null | undefined) => (s ?? "").replace(/\s+/g, " ").trim().toLowerCase();
+  return n(source.company) !== "" && n(source.company) === n(target.company) && n(source.roleTitle) === n(target.roleTitle);
+}
+
+/**
  * 원본 이력서의 현재 버전 본문으로 새 이력서를 만든다('이 공고용으로 복제'·'공용 이력서 내용으로 시작').
  * 새 이력서의 v1은 source 'manual', 메모 "<원본 제목> vN에서 복제". 원본이 남의 것이거나 없으면 null.
  */
@@ -446,7 +458,7 @@ export async function copyResume(
     postingId: target.postingId ?? null,
     title: target.title ?? null,
     templateId: target.templateId ?? found.resume.templateId,
-    document: found.document,
+    document: { ...found.document, motivation: keepsMotivation(found.resume, target) ? found.document.motivation : "" },
     source: "manual",
     note: `${found.resume.title} v${found.version.versionNo}에서 복제`.slice(0, 200),
     sourceResumeId,

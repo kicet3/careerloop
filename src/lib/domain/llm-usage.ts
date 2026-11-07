@@ -21,6 +21,8 @@ export const LLM_USAGE_TASK_LABELS: Record<string, string> = {
   "resume-agent-write": "이력서 에이전트 · 초안",
   "resume-agent-revise": "이력서 에이전트 · 수정",
   "resume-agent-review": "이력서 에이전트 · 심사",
+  "resume-polish": "이력서 AI로 다듬기",
+  "resume-motivation-suggest": "지원 동기 쓸 거리 추천",
 };
 
 /** 'diagnosis:ats' 같은 작업 키 → 표시 이름. 모르는 키는 그대로. */

@@ -53,5 +53,6 @@ export function makeSampleResume(): ResumeDocument {
     education: [{ school: "한국대학교", degree: "학사", major: "컴퓨터공학", startDate: "2012.03", endDate: "2016.02", note: "" }],
     certifications: [{ name: "정보처리기사", issuer: "한국산업인력공단", date: "2016.05" }],
     extras: [{ title: "발표", items: ["사내 기술 세미나: 정산 배치 이야기"] }],
+    motivation: "정산 지연을 줄여 온 경험을 결제 플랫폼에서 이어 가고 싶어 지원했습니다.\n\n입사 후에는 결제 API 안정화에 기여하겠습니다.",
   };
 }

@@ -31,6 +31,7 @@ import {
   type ResumeVersionMeta,
 } from "@/lib/resumes/types";
 import { PerformanceSheet } from "./PerformanceSheet";
+import { MotivationEditor } from "./MotivationEditor";
 import { ResumeDocumentForm } from "./ResumeDocumentForm";
 import { ResumePortfolioCard } from "./ResumePortfolioCard";
 import { ResumePreview } from "./ResumePreview";
@@ -38,6 +39,8 @@ import { ResumeStatusControl } from "./ResumeStatusControl";
 import { ResumeWritingTips } from "./ResumeWritingTips";
 import { inputClass, textareaClass } from "./styles";
 import { TemplatePicker } from "./TemplatePicker";
+import { PolishHoverLayer } from "./polish/PolishHoverLayer";
+import { type PolishApplied, PolishPanel } from "./polish/PolishPanel";
 
 type Pane = "edit" | "preview";
 /** 성과 중심 양식의 편집 방식: 시트 위에서 바로 / 구조화 입력 폼. */
@@ -96,6 +99,10 @@ export function ResumeEditor({
   const [error, setError] = useState<string | null>(null);
   const [notice, setNotice] = useState<string | null>(null);
   const [draftNotes, setDraftNotes] = useState<DraftNotes | null>(null);
+  // AI로 다듬기 패널: 열림 여부와 대상 칸 경로(domain/resume-polish.ts). 적용은 서버가 새 버전으로 저장한다.
+  const [polish, setPolish] = useState<{ target: string | null } | null>(null);
+  // 방금 적용한 다듬기(알림의 '되돌리기'용): 적용 전 버전과 적용으로 만든 버전, 그때 띄운 알림 문구.
+  const [polishUndo, setPolishUndo] = useState<{ previousId: string; appliedId: string; notice: string } | null>(null);
   const [viewing, setViewing] = useState<{ version: ResumeVersionMeta; document: ResumeDocument } | null>(null);
   const [metaOpen, setMetaOpen] = useState(false);
   const [metaForm, setMetaForm] = useState({
@@ -410,6 +417,27 @@ export function ResumeEditor({
 
   const isPerformance = meta.templateId === "performance";
 
+  /** 다듬기 제안을 적용해 서버가 저장한 새 버전으로 화면을 맞춘다(되돌리기는 버전 목록의 복원). */
+  function polishApplied(result: PolishApplied) {
+    const previousId = baseVersionId;
+    setDoc(result.document);
+    setDirty(false);
+    setVersions((vs) => [result.version, ...vs]);
+    setBaseVersionId(result.version.id);
+    setMeta((m) => ({ ...m, currentVersionId: result.version.id, updatedAt: result.version.createdAt }));
+    setError(null);
+    const message = `AI 제안을 적용해 v${result.version.versionNo}로 저장했습니다.`;
+    setNotice(message);
+    setPolishUndo(previousId ? { previousId, appliedId: result.version.id, notice: message } : null);
+  }
+
+  /** 방금 적용한 다듬기를 되돌린다: 적용 전 버전을 복원한다(복원은 새 버전을 만든다). */
+  function undoPolish() {
+    const prev = polishUndo ? versions.find((v) => v.id === polishUndo.previousId) : undefined;
+    setPolishUndo(null);
+    if (prev) void restore(prev);
+  }
+
   function statusChanged(result: ChangeResumeStatusResult, message: string) {
     // 저장하지 않은 양식 선택은 그대로 둔다.
     setMeta((m) => ({ ...result.resume, templateId: m.templateId }));
@@ -609,7 +637,16 @@ export function ResumeEditor({
         </Alert>
       )}
       {error && <Alert tone="error">{error}</Alert>}
-      {notice && !error && <Alert tone="info">{notice}</Alert>}
+      {notice && !error && (
+        <Alert tone="info">
+          {notice}
+          {polishUndo && polishUndo.notice === notice && polishUndo.appliedId === baseVersionId && (
+            <button type="button" onClick={undoPolish} disabled={busy !== null} className="ml-2 text-xs font-medium underline disabled:opacity-50">
+              되돌리기
+            </button>
+          )}
+        </Alert>
+      )}
 
       <ResumePortfolioCard
         resumeId={meta.id}
@@ -620,6 +657,16 @@ export function ResumeEditor({
       />
 
       <ResumeWritingTips resumeId={meta.id} kind={meta.kind} document={doc} />
+
+      {/* 지원 동기: 지원처별 이력서만(사용자가 쓰고, AI는 쓸 거리만 추천). */}
+      {!isGeneral && <MotivationEditor resumeId={meta.id} value={doc.motivation} onChange={(motivation) => edit({ ...doc, motivation })} />}
+
+      <div className="flex flex-wrap items-center justify-end gap-2">
+        <span className="text-xs text-slate-500">문장 하나를 골라 AI와 대화하며 문구를 다듬을 수 있어요.</span>
+        <Button size="sm" variant="secondary" onClick={() => setPolish({ target: polish?.target ?? null })}>
+          AI로 다듬기
+        </Button>
+      </div>
 
       {isPerformance ? (
         // 성과 중심 양식: 원본처럼 A4 시트 위에서 바로 고치거나, 구조화 폼으로 고친다(같은 문서 상태).
@@ -641,7 +688,9 @@ export function ResumeEditor({
             </p>
           </div>
           {perfPane === "sheet" ? (
-            <PerformanceSheet document={doc} onChange={edit} photoUrl={headerPhoto} />
+            <PolishHoverLayer onPolish={(target) => setPolish({ target })}>
+              <PerformanceSheet document={doc} onChange={edit} photoUrl={headerPhoto} />
+            </PolishHoverLayer>
           ) : (
             <div className="max-w-3xl">
               <ResumeDocumentForm value={doc} onChange={edit} sectionOrder={template.sectionOrder} />
@@ -727,7 +776,7 @@ export function ResumeEditor({
                 <p className="flex flex-wrap items-center gap-2 text-sm font-medium text-slate-900">
                   v{v.versionNo}
                   {v.id === baseVersionId && <Badge tone="accent">현재</Badge>}
-                  <Badge tone={v.source === "ai" ? "info" : "neutral"}>{v.source === "ai" ? "AI 초안" : "직접 저장"}</Badge>
+                  <Badge tone={v.source === "ai" ? "info" : "neutral"}>{versionSourceLabel(v)}</Badge>
                 </p>
                 <p className="mt-0.5 truncate text-xs text-slate-500">
                   <time dateTime={new Date(v.createdAt).toISOString()}>{formatDateTime(v.createdAt)}</time>
@@ -776,6 +825,25 @@ export function ResumeEditor({
           이력서 삭제
         </Button>
       </div>
+
+      {polish && (
+        <PolishPanel
+          resumeId={meta.id}
+          versionId={baseVersionId}
+          document={doc}
+          dirty={dirty}
+          target={polish.target}
+          onTargetChange={(target) => setPolish({ target })}
+          onClose={() => setPolish(null)}
+          onApplied={polishApplied}
+        />
+      )}
     </div>
   );
+}
+
+/** 버전 배지: AI로 다듬기로 만든 버전(메모 'AI로 다듬기 · …')은 'AI 다듬기', 그 밖의 AI 버전은 'AI 초안'. */
+function versionSourceLabel(v: Pick<ResumeVersionMeta, "source" | "note">): string {
+  if (v.source !== "ai") return "직접 저장";
+  return v.note?.startsWith("AI로 다듬기") ? "AI 다듬기" : "AI 초안";
 }

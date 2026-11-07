@@ -346,16 +346,22 @@ model ChatThread {
   title       String
   /// 프로젝트 단위 그래프 채팅: 집중하는 경험 그래프 Project 노드 id(Neo4j — FK 없음). 일반 대화는 null.
   focusNodeId String?  @map("focus_node_id")
+  /// 이력서 AI로 다듬기(kind='resume-polish'): 대상 이력서. 이력서를 지우면 대화도 지운다. 다른 종류는 null.
+  resumeId    String?  @map("resume_id")
+  /// 이력서 AI로 다듬기: 대상 칸 경로(domain/resume-polish.ts POLISH_PATH_RE, 예: experience[0].bullets[1]). 다른 종류는 null.
+  targetPath  String?  @map("target_path")
   createdAt   DateTime @default(now()) @map("created_at") @db.Timestamptz(3)
   updatedAt   DateTime @default(now()) @map("updated_at") @db.Timestamptz(3)
 
   user      User            @relation(fields: [userId], references: [id], onDelete: Cascade, map: "chat_threads_user_id_fkey")
   diagnosis Diagnosis?      @relation(fields: [diagnosisId], references: [id], onDelete: Cascade, map: "chat_threads_diagnosis_id_fkey")
+  resume    CompanyResume?  @relation(fields: [resumeId], references: [id], onDelete: Cascade, map: "chat_threads_resume_id_fkey")
   messages  ChatMessage[]
   followups GraphFollowup[]
 
   @@index([userId, kind, updatedAt], map: "chat_threads_user_idx")
   @@index([diagnosisId, reviewer], map: "chat_threads_diag_idx")
+  @@index([resumeId, targetPath], map: "chat_threads_resume_idx")
   @@map("chat_threads")
 }
 
@@ -427,6 +433,7 @@ model CompanyResume {
   interviewSessions    InterviewSession[]
   draftJobs            ResumeDraftJob[]
   agentJobs            ResumeAgentJob[]
+  polishThreads        ChatThread[]
 
   @@index([userId, applyStatus, updatedAt], map: "company_resumes_user_status_idx")
   @@index([userId, kind, updatedAt], map: "company_resumes_user_kind_idx")

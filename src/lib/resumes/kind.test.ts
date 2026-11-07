@@ -71,6 +71,20 @@ describe("copyResume", () => {
     await expect(service.copyResume("ua", general!.id, { kind: "company", company: " " })).rejects.toMatchObject({ status: 400 });
   });
 
+  it("회사 → 다른 회사로 복제하면 지원 동기는 비우고, 같은 지원처(같은 회사·직무)면 이어받는다", async () => {
+    const d = doc();
+    d.motivation = "토스 결제 팀의 정산 자동화 요건에 끌렸습니다.";
+    const { resume: toss } = await service.createResume("ua", { company: "토스", roleTitle: "백엔드", templateId: "classic", document: d, source: "manual" });
+    const other = await service.copyResume("ua", toss.id, { kind: "company", company: "당근", roleTitle: "백엔드" });
+    expect((await service.getResumeDetail("ua", other!.resume.id))!.current!.document.motivation).toBe("");
+    const otherRole = await service.copyResume("ua", toss.id, { kind: "company", company: "토스", roleTitle: "데이터 엔지니어" });
+    expect((await service.getResumeDetail("ua", otherRole!.resume.id))!.current!.document.motivation).toBe("");
+    const same = await service.copyResume("ua", toss.id, { kind: "company", company: " 토스 ", roleTitle: "백엔드", title: "토스 사본" });
+    expect((await service.getResumeDetail("ua", same!.resume.id))!.current!.document.motivation).toBe(d.motivation);
+    // 본문은 그대로 복제된다.
+    expect((await service.getResumeDetail("ua", other!.resume.id))!.current!.document.basics.name).toBe("홍길동");
+  });
+
   it("원본을 지우면 sourceResumeId는 null", async () => {
     const [general] = await service.listResumes("ua", { kind: "general" });
     const copy = await service.copyResume("ua", general!.id, { kind: "general", title: "공용 사본" });

@@ -42,6 +42,8 @@ export function isSectionEmpty(doc: ResumeDocument, key: ResumeSectionKey): bool
       return doc.certifications.every((c) => blank(c.name));
     case "extras":
       return doc.extras.every((x) => blank(x.title) && x.items.every(blank));
+    case "motivation":
+      return blank(doc.motivation);
   }
 }
 
@@ -91,6 +93,15 @@ export function projectStoryLines(p: ResumeProject): string[] {
   )
     .filter(([, v]) => v.trim())
     .map(([k, v]) => `${k}: ${v.trim()}`);
+}
+
+/** 지원 동기 문단(빈 줄로 나눈 문단, 문단 안 줄바꿈은 그대로). 웹 미리보기·PDF·성과 시트 공용. */
+export function motivationParagraphs(text: string): string[] {
+  return text
+    .replace(/\r\n?/g, "\n")
+    .split(/\n\s*\n/)
+    .map((p) => p.trim())
+    .filter(Boolean);
 }
 
 /** "2021.03 – 현재" 형식. 둘 다 비면 "". */
@@ -195,6 +206,9 @@ export function resumeToText(doc: ResumeDocument, templateId: ResumeTemplateId):
           if (x.title.trim()) out.push("", `### ${x.title.trim()}`);
           for (const i of nonEmpty(x.items)) out.push(`- ${i}`);
         }
+        break;
+      case "motivation":
+        out.push(doc.motivation.trim());
         break;
     }
   }

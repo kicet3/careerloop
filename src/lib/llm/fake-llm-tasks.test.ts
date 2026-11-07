@@ -9,6 +9,7 @@ import {
 } from "@/lib/domain/chat";
 import { toGraphOps } from "@/lib/domain/graph";
 import { ResumeDraftOutputSchema, ResumeDocumentSchema } from "@/lib/domain/resumes";
+import { POLISH_TARGET_TAG, ResumePolishOutputSchema } from "@/lib/domain/resume-polish";
 import { PostingSectionsOnlySchema } from "@/lib/domain/posting-structure";
 import { PostingExtractSchema, PostingFactsSchema } from "@/lib/domain/postings";
 import { field, wrapData } from "@/lib/chat/prompt";
@@ -35,10 +36,20 @@ describe("가짜 LLM — 파이프라인 밖 task", () => {
     expect(output.reply).toContain("팀장");
   });
 
+  it("resume-polish: 대상 칸으로 대안 2개 이상과 이유·질문", async () => {
+    const user = [field("다듬을 칸", "요약"), wrapData(POLISH_TARGET_TAG, "정산 배치를 개편했다."), wrapData(CHAT_TAGS.latestMessage, "더 짧게")].join("\n");
+    const { output } = await llm.generate({ ...base, task: "resume-polish", user, schema: ResumePolishOutputSchema });
+    expect(output.scope).toBe("on_topic");
+    expect(output.suggestions.length).toBeGreaterThanOrEqual(2);
+    expect(output.suggestions.every((s) => s.text.includes("정산 배치를 개편했다") && s.reason)).toBe(true);
+    expect(output.followUpQuestion).not.toBe("");
+  });
+
   it("resume-draft: 스키마에 맞는 문서", async () => {
     const user = [field("지원 회사", "토스"), field("지원 직무", "백엔드"), wrapData(CHAT_TAGS.resume, "홍길동\n결제 API 개발")].join("\n");
     const { output } = await llm.generate({ ...base, task: "resume-draft", user, schema: ResumeDraftOutputSchema });
-    expect(ResumeDocumentSchema.parse(output.document).basics.name).toBe("홍길동");
+    // 초안 출력에는 지원 동기 칸이 없다(사용자가 쓴다 — 서버가 빈 문자열로 채운다).
+    expect(ResumeDocumentSchema.parse({ ...output.document, motivation: "" }).basics.name).toBe("홍길동");
     expect(output.document.summary).toContain("토스");
   });
 

@@ -94,4 +94,26 @@ describe("generateResumeDraft", () => {
     expect((await generateResumeDraft(withEmail("[ADD: 이메일]") as never, ctx)).draft.document.basics.email).toBe("me@example.com");
     expect((await generateResumeDraft(withEmail("work@corp.kr") as never, ctx)).draft.document.basics.email).toBe("work@corp.kr");
   });
+
+  it("지원 동기는 비워 두고, 수상·기타는 공유 기준으로 정리하며 흔한 정보가 없으면 질문을 더한다", async () => {
+    const client = new FakeLlmClient({ delayMs: 0 });
+    const { ResumeDraftOutputSchema } = await import("@/lib/domain/resumes");
+    const llm = {
+      name: "fake",
+      generate: vi.fn(async () => {
+        const out = await client.generate({ task: "resume-draft", system: "", user: "", schema: ResumeDraftOutputSchema, effort: "low" });
+        out.output.document.extras = [
+          { title: "수상", items: ["2022.05 해커톤 – 대상"] },
+          { title: "기타", items: ["사내 툴을 1일 만에 만듦", "2023.03 백엔드 부트캠프 수료"] },
+        ];
+        return out;
+      }),
+    };
+    const { draft } = await generateResumeDraft(llm as never, base);
+    expect(draft.document.motivation).toBe("");
+    expect(ResumeDocumentSchema.safeParse(draft.document).success).toBe(true);
+    expect(draft.document.extras).toEqual([{ title: "수상·기타", items: ["2023.03 백엔드 부트캠프 수료", "2022.05 해커톤 – 대상"] }]);
+    expect(draft.notes.some((n) => n.includes("사소한 일화"))).toBe(true);
+    expect(draft.missingInfo.some((m) => m.includes("어학"))).toBe(true);
+  });
 });

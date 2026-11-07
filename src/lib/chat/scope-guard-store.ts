@@ -45,13 +45,25 @@ export async function scopeBlockRemainingSec(userId: string, rule: ScopeGuardRul
   return Math.max(1, Math.ceil((pivot + rule.windowMs - now) / 1000));
 }
 
-/** 막혀 있으면 429(FeatureError). 경험 정리하기·경험 질문하기 전송·재시도 앞에서 부른다. */
-export async function assertNotScopeBlocked(userId: string, rule: ScopeGuardRule = CHAT_SCOPE_GUARD, now: number = Date.now()): Promise<void> {
+/** 누적 차단을 공유하는 기능(안내 문구만 다르다). */
+export type ScopeGuardFeature = "chat" | "polish";
+
+/** 차단 안내 문구(기능별). */
+export function scopeBlockedMessage(wait: string, feature: ScopeGuardFeature = "chat"): string {
+  return feature === "polish"
+    ? `이력서 문구와 관련 없는 요청이 반복되어 AI로 다듬기를 잠시 멈췄습니다. ${wait} 뒤 다시 이용해 주세요. AI로 다듬기는 이 이력서 항목의 문구를 고치는 데만 쓸 수 있습니다.`
+    : `경험 정리와 관련 없는 요청이 반복되어 경험 대화를 잠시 멈췄습니다. ${wait} 뒤 다시 이용해 주세요. 경험 대화는 내 경력·경험을 정리하고 그래프에 대해 묻는 데만 쓸 수 있습니다.`;
+}
+
+/** 막혀 있으면 429(FeatureError). 경험 정리하기·경험 질문하기·AI로 다듬기 전송·재시도 앞에서 부른다(feature로 안내 문구를 고른다). */
+export async function assertNotScopeBlocked(
+  userId: string,
+  rule: ScopeGuardRule = CHAT_SCOPE_GUARD,
+  now: number = Date.now(),
+  opts: { feature?: ScopeGuardFeature } = {},
+): Promise<void> {
   const sec = await scopeBlockRemainingSec(userId, rule, now);
   if (sec <= 0) return;
   const wait = sec >= 3600 ? `${Math.ceil(sec / 3600)}시간` : `${Math.max(1, Math.ceil(sec / 60))}분`;
-  throw new FeatureError(
-    `경험 정리와 관련 없는 요청이 반복되어 경험 대화를 잠시 멈췄습니다. ${wait} 뒤 다시 이용해 주세요. 경험 대화는 내 경력·경험을 정리하고 그래프에 대해 묻는 데만 쓸 수 있습니다.`,
-    429,
-  );
+  throw new FeatureError(scopeBlockedMessage(wait, opts.feature), 429);
 }

@@ -1,7 +1,10 @@
 /**
  * 이력서 초안의 사실 규칙(1~9). 단일 초안(draft.ts buildResumeDraftPrompt)과 그래프 에이전트(src/lib/resume-agent/prompts.ts)가
  * 같은 상수를 써서 두 경로의 사실 규칙이 갈라지지 않게 한다. 바꾸면 두 프롬프트가 함께 바뀐다.
+ * 규칙 9(수상·기타)는 공유 작성 기준(extras-guide.ts)에서 만든다.
  */
+import { EXTRAS_GUIDE_PROMPT_LINES } from "./extras-guide";
+
 export const RESUME_FACT_RULES: readonly string[] = [
   "1. 자료에 없는 사실(회사, 기간, 수치, 기술, 성과, 연락처)을 지어내지 않는다. 필요한데 모르는 값은 해당 칸에 `[ADD: 무엇이 필요한지]`를 넣고, missingInfo에 사용자에게 물을 질문으로 적는다.",
   "2. 자료에 있는 내용은 JD(있으면)와 지원 직무에 맞게 고르고 순서를 바꾸고 다듬는다. 관련 없는 내용은 줄이거나 뺀다.",
@@ -22,8 +25,5 @@ export const RESUME_FACT_RULES: readonly string[] = [
   "   - basics.headline은 지원 직무명만 짧게(예: \"백엔드 개발자\", 문장 금지). basics.tagline은 자료의 경력에 근거한 한 문장 소개(예: \"결제 시스템 지연을 줄여 온 5년 차 백엔드 개발자\")로 headline을 되풀이하지 않고, 수치는 자료에 있을 때만 쓴다.",
   "   - basics.totalExperience는 자료의 재직 기간으로 계산할 수 있을 때만(예: \"5년 3개월\"), basics.portfolioUrl은 자료에 있을 때만. headings는 모두 빈 문자열(기본 제목).",
   "   - 모르는 칸을 그럴듯한 값으로 채우지 않는다. 필요한 칸은 `[ADD: ...]`, 필요 없으면 빈 문자열.",
-  "9. extras(수상·기타)와 certifications는 채용 담당자가 의미 있게 볼 항목만 넣는다:",
-  "   - 넣는 것: 공식 수상·대회 입상, 자격증, 논문·발표·특허, 오픈소스 기여, 지원 직무와 관련된 교육 이수·대외 활동, 병역(한 줄: 군별·복무 기간·병과 정도).",
-  "   - 넣지 않는 것: 이미 경력·프로젝트에 쓴 내용의 반복, 소규모 개인 도구 제작·짧은 작업 일화(예: '툴을 1일 만에 만듦'), 지원 직무와 관련 없는 사소한 성과, 동기·소감.",
-  "   - 넣을 만한 항목이 없으면 빈 배열로 둔다. 칸을 채우려고 억지로 넣지 않는다.",
+  ...EXTRAS_GUIDE_PROMPT_LINES,
 ];

@@ -9,8 +9,12 @@
  *      총 경력(basics.totalExperience)은 직무 기간으로 서버가 계산한다. 프로젝트 팀 구성·역할의 숫자·주도 표현, 학위·전공·발급처도 근거와 대조한다.
  *   5) pack 밖 ref는 버린다(parseCitations가 먼저 거른다).
  *   6·7) gap 요건을 충족처럼 인용한 줄, 근거에 없는 주도·최상급 표현 → riskyClaims(고치지 않고 revise로 넘긴다).
+ *   8) 수상·기타(extras): 인용 없는 줄은 1)이 지우고, 사소한 일화·소감·단순 참석(isTrivialExtra)과 경력·프로젝트와 겹치는 줄
+ *      (같은 문장이거나, 경력·프로젝트가 이미 인용한 프로젝트·직무 노드만 인용하고 기타 카테고리로 분류되지 않는 줄)을 지운다.
+ *      흔히 쓰는 기타 정보(수상·어학 등)가 없으면 missingInfo 질문으로 남긴다(extras-guide.ts — 지어내지 않는다).
  */
 import type { ResumeDocument } from "@/lib/domain/resumes";
+import { classifyExtra, extrasMissingQuestions, isTrivialExtra } from "@/lib/resumes/extras-guide";
 import { compactKey, skillKey } from "@/lib/skills/dictionary";
 import { stripPlaceholders, unverifiedNumbers } from "@/lib/text/numbers";
 import { evidenceSourceText } from "./evidence-text";
@@ -338,6 +342,14 @@ export function verifyDraft(
   if (nUncited > 0) draft.notes = [...draft.notes, `근거를 찾지 못해 ${nUncited}개 줄·항목을 뺐습니다.`].slice(0, 20);
   if (nExcluded > 0) draft.notes = [...draft.notes, `작성 전략에서 제외한 근거만 쓴 ${nExcluded}개 줄·항목을 뺐습니다.`].slice(0, 20);
 
+  // 8) 수상·기타: 사소한 일화·경력/프로젝트 중복 줄을 지운다(뒤에서부터 — 인덱스가 어긋나지 않게).
+  const extraDrops = extrasToDrop(doc, citations, pack);
+  for (const d of extraDrops) {
+    report.dropped.push({ path: d.path, text: d.text.slice(0, 300), reason: d.reason });
+    citations = removeArrayElement(doc, citations, d.path);
+  }
+  if (extraDrops.length > 0) draft.notes = [...draft.notes, `수상·기타에서 사소한 일화·경력과 겹치는 ${extraDrops.length}개 줄을 뺐습니다.`].slice(0, 20);
+
   // 4) 경력 뼈대 보정.
   doc.experience.forEach((e, i) => {
     const refs = refsForLine(citations, `experience[${i}].scope`);
@@ -427,6 +439,7 @@ export function verifyDraft(
     setField(doc, l.path, flagUnverified(l.value, badOf, maxCharsFor(l.path)));
     missing.push(`'${l.value.slice(0, 60)}' — 경험 그래프에 없는 수치(${bad.join(", ")})라 확인이 필요합니다. 맞다면 그래프에도 적어 주세요.`);
   }
+  missing.push(...extrasMissingQuestions(doc));
   draft.missingInfo = [...new Set(missing)].slice(0, 30);
 
   // 3) 기술명.
@@ -476,6 +489,43 @@ export function verifyDraft(
 
   draft.citations = citations.slice(0, 200);
   return { draft, report, needsRetry: false, uncitedPaths };
+}
+
+/** 경력·프로젝트에 이미 쓴 노드 종류(기타에서 같은 노드만 인용하면 중복으로 본다). 성과(수상)·경험(대외활동)·자격은 넣지 않는다. */
+const BODY_LABELS = new Set<EvidenceItem["label"]>(["Project", "Role", "Company"]);
+
+/** 지울 기타 줄(경로 내림차순). */
+function extrasToDrop(
+  doc: ResumeDocument,
+  citations: readonly Citation[],
+  pack: EvidencePack,
+): { path: string; text: string; reason: "trivial_extra" | "duplicate_extra" }[] {
+  const bodyKeys = [
+    ...doc.experience.flatMap((e) => [e.scope, ...e.bullets]),
+    ...doc.projects.flatMap((p) => [p.summary, p.problem, p.action, p.result, ...p.bullets]),
+  ]
+    .map(compactKey)
+    .filter((k) => k.length >= 6);
+  const bodyRefs = new Set(citations.filter((c) => /^(experience|projects)\[/.test(c.path)).flatMap((c) => c.refs));
+  const out: { path: string; text: string; reason: "trivial_extra" | "duplicate_extra" }[] = [];
+  doc.extras.forEach((g, i) =>
+    g.items.forEach((text, j) => {
+      if (!text.trim() || ADD_ONLY.test(text)) return;
+      const path = `extras[${i}].items[${j}]`;
+      if (isTrivialExtra(text)) {
+        out.push({ path, text, reason: "trivial_extra" });
+        return;
+      }
+      const key = compactKey(stripPlaceholders(text));
+      const sameLine = key.length >= 6 && bodyKeys.some((k) => k === key || (key.length >= 10 && k.includes(key)));
+      const refs = refsForLine(citations, path);
+      const its = itemsFor(pack, refs);
+      const sameNode =
+        refs.length > 0 && refs.every((r) => bodyRefs.has(r)) && its.length > 0 && its.every((it) => BODY_LABELS.has(it.label)) && classifyExtra("", [text]) === null;
+      if (sameLine || sameNode) out.push({ path, text, reason: "duplicate_extra" });
+    }),
+  );
+  return out.sort((a, b) => b.path.localeCompare(a.path, undefined, { numeric: true }));
 }
 
 function setField(doc: ResumeDocument, path: string, value: string): void {

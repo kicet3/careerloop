@@ -84,6 +84,15 @@ describe("resumes service", () => {
     expect(detail!.versions.map((v) => v.versionNo)).toEqual([1]);
   });
 
+  it("지원 동기는 지원처별 이력서에만 저장한다(공용 이력서는 비운다)", async () => {
+    const company = await service.createResume("ua", { company: "M사", roleTitle: "R", templateId: "classic", document: doc("m", { motivation: "직접 쓴 지원 동기" }), source: "manual" });
+    expect((await service.getVersionDocument("ua", company.resume.id))!.document.motivation).toBe("직접 쓴 지원 동기");
+    const general = await service.createResume("ua", { kind: "general", company: "", roleTitle: "", templateId: "classic", document: doc("g", { motivation: "섞여 들어온 지원 동기" }), source: "manual" });
+    expect((await service.getVersionDocument("ua", general.resume.id))!.document.motivation).toBe("");
+    const v2 = await service.saveVersion("ua", general.resume.id, doc("g2", { motivation: "또 섞임" }), { source: "manual" });
+    expect((await service.getVersionDocument("ua", general.resume.id, v2!.id))!.document.motivation).toBe("");
+  });
+
   it("저장할 때마다 새 버전, 목록·복원·충돌 감지", async () => {
     const { resume, version: v1 } = await service.createResume("ua", {
       company: "A사",
