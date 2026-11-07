@@ -125,6 +125,13 @@ describe("POST /api/resumes/[id]/motivation/suggest", () => {
     // 완성 문단은 빠진다.
     expect(suggestion.outline.map((o) => o.heading)).toEqual(["지원 계기", "이어지는 경험"]);
     expect(suggestion.questions).toEqual(["회사를 처음 알게 된 계기는 무엇인가요?"]);
+    // 초안: 근거 있는 문장은 남고, 지어낸 동기는 [ADD] 자리표시로, 근거 없는 숫자(45%)는 [ADD: 수치 확인 — …]로.
+    expect(suggestion.draft).toContain("공고의 '자격 요건' 요건은");
+    expect(suggestion.draft).not.toMatch(/어릴 때부터|감명/);
+    expect(suggestion.draft).toContain("[ADD: 지원 계기·느낀 점 — 자료에 없어 직접 쓰기]");
+    expect(suggestion.draft).toContain("[ADD: 수치 확인 — 그 경험으로 결제 지연을 45% 줄였습니다.]");
+    expect(suggestion.draft).toContain("[ADD: 이 회사여야 하는 이유]");
+    expect(suggestion.draft.length).toBeLessThanOrEqual(800);
 
     expect(state.calls).toHaveLength(1);
     const call = state.calls[0]!;
@@ -133,6 +140,7 @@ describe("POST /api/resumes/[id]/motivation/suggest", () => {
     expect(call.system).toContain("지원 동기 본문을 대신 쓰지 않는다");
     expect(call.system).toContain("완성된 문장·문단");
     expect(call.system).toContain("지어내지 않는다");
+    expect(call.system).toContain("[ADD: 이 회사를 알게 된 계기]");
     // 자료는 데이터 태그 안에(JD·그래프·지금 쓴 글).
     expect(call.user).toContain("<job_posting>");
     expect(call.user).toContain("<career_graph>");
@@ -142,7 +150,12 @@ describe("POST /api/resumes/[id]/motivation/suggest", () => {
 
   it("격리: 남의 그래프 문자열은 프롬프트에 0회, 다른 소유 표시 그래프는 막는다", async () => {
     const id = await companyResume();
-    expect((await post(id)).status).toBe(200);
+    const first = await post(id);
+    expect(first.status).toBe(200);
+    // 초안도 본인 그래프로만 쓴다: 남의 그래프 표시·수치가 응답에 없다.
+    const body = JSON.stringify(await first.json());
+    expect(body).not.toContain(B_MARK);
+    expect(body).not.toMatch(/9999|8888/);
     expect(state.calls.every((c) => !c.user.includes(B_MARK) && !c.system.includes(B_MARK))).toBe(true);
 
     state.calls = [];

@@ -1,7 +1,8 @@
 /**
  * 지원 동기 '쓸 거리 추천'(task 'resume-motivation-suggest') 계약 — 클라이언트·서버 공용(순수).
- * 지원 동기는 사용자가 직접 쓴다. AI는 문단을 쓰지 않고 재료(공고가 강조하는 점·이어지는 경험·문단 구성·물어볼 질문·주의점)만 추천한다.
- * 서버(src/lib/resumes/motivation.ts)가 공고 인용·그래프 노드 id·숫자·문장형 여부를 결정적으로 다시 거른다.
+ * 지원 동기는 사용자가 직접 쓴다. AI는 재료(공고가 강조하는 점·이어지는 경험·문단 구성·물어볼 질문·주의점 — 문장 금지)와,
+ * 그 재료를 종합한 짧은 초안(draft — 제안일 뿐, 사용자가 '초안으로 채우기'를 눌러야 칸에 들어간다)을 추천한다.
+ * 서버(src/lib/resumes/motivation.ts)가 공고 인용·그래프 노드 id·숫자·문장형 여부를, 초안은 근거 없는 숫자·지어낸 동기 표현을 결정적으로 다시 거른다.
  */
 import { z } from "zod";
 import { MAX_RESUME_MOTIVATION_CHARS } from "./resumes";
@@ -17,6 +18,9 @@ export const MOTIVATION_DRAFT_TAG = "motivation_draft";
 
 /** 항목 한 줄 상한(문단을 쓰지 못하게 짧게 둔다). */
 export const MOTIVATION_HINT_MAX = 160;
+
+/** 서버가 거른 초안 상한(3~5문장). LLM 출력은 여유를 두고 받아 서버가 문장 단위로 줄인다. */
+export const MOTIVATION_DRAFT_MAX = 800;
 
 const hint = (d: string) => z.string().max(MOTIVATION_HINT_MAX).describe(d);
 
@@ -49,6 +53,12 @@ export const MotivationSuggestionSchema = z.object({
     .max(5),
   questions: z.array(hint("지원자에게 물어볼 질문(예: 회사를 처음 알게 된 계기는?)")).max(6),
   cautions: z.array(hint("쓸 때 주의할 점")).max(5),
+  // 예전 출력(초안 없음)도 받는다.
+  draft: z
+    .string()
+    .max(2000)
+    .default("")
+    .describe("위 재료를 종합한 지원 동기 초안 3~5문장(700자 안). 자료에 없는 동기·계기·느낌은 [ADD: …] 자리표시로"),
 });
 export type MotivationSuggestion = z.infer<typeof MotivationSuggestionSchema>;
 

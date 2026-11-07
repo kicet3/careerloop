@@ -46,7 +46,7 @@ export function numberFlag(text: string, max: number, prefix = FLAG_PREFIX): str
 }
 
 /** 문장 단위로 나눈다([ADD: …] 안은 나누지 않는다). 조각을 이으면 원문과 같다. */
-function splitSentences(text: string): string[] {
+export function splitSentences(text: string): string[] {
   const out: string[] = [];
   let depth = 0;
   let start = 0;

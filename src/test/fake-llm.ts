@@ -1244,6 +1244,7 @@ function fakeAgentWrite(user: string): unknown {
 /**
  * 가짜 지원 동기 추천: 공고(<job_posting>)의 첫 줄을 인용하고, 그래프(<career_graph>)의 `- [id] 이름` 줄 앞쪽 2개를 이어지는 경험으로 고른다.
  * 서버 거르기를 시험하려고 일부러 섞는다: 공고에 없는 인용 1개, 그래프에 없는 노드 1개, 자료에 없는 숫자 1개, 완성 문단 1개.
+ * 초안(draft)도 섞는다: 근거 있는 문장, 지어낸 동기 문장('어릴 때부터 … 감명'), 근거 없는 숫자 문장(45%), 자리표시.
  */
 function fakeMotivationSuggest(user: string): unknown {
   const jd = extractTag(user, TAGS.jobPosting) ?? "";
@@ -1266,6 +1267,12 @@ function fakeMotivationSuggest(user: string): unknown {
     ],
     questions: ["회사를 처음 알게 된 계기는 무엇인가요?", "매출을 777% 늘린 경험이 있나요?"],
     cautions: ["회사 칭찬만 나열하지 마세요"],
+    draft: [
+      "어릴 때부터 이 서비스를 써 오며 깊이 감명을 받았습니다.",
+      quote ? `공고의 '${quote.slice(0, 60)}' 요건은 제가 해 온 ${nodes[0]?.name ?? "일"}의 일과 이어집니다.` : `제가 해 온 ${nodes[0]?.name ?? "일"}의 일을 이 직무에서 이어가고 싶습니다.`,
+      "그 경험으로 결제 지연을 45% 줄였습니다.",
+      "[ADD: 이 회사여야 하는 이유] 입사 후에는 공고 업무에 기여하고 싶습니다.",
+    ].join(" "),
   };
 }
 
