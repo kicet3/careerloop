@@ -291,7 +291,7 @@ export async function renderReportPdf(r: ReportModel): Promise<Uint8Array>;
 |---|---|---|
 | 경험 그래프(노드·관계) | Neo4j (`src/lib/graph/*`) | 노드마다 `userId`, 모든 쿼리 userId 조건 + 파라미터. 라벨·관계 이름은 화이트리스트만 Cypher에 들어간다. 본인 노드는 `Person`(API에서 id `"me"`) |
 | 채팅 스레드·메시지 | PostgreSQL `chat_threads`·`chat_messages` | `kind: graph \| reviewer`. 그래프 변경안은 메시지 `data`(`graph-proposal`)와 `status`(proposed→applied/dismissed/failed) |
-| 경험 그래프 후속 질문 | PostgreSQL `graph_followups` | 그래프 채팅 변경안의 후속 질문과, 변경안에서 뺀 항목 중 채울 수 있는 것(문서 근거 없음·기간/팀 규모 형식)을 템플릿 질문으로 쌓는다. `project_node_id`(Neo4j, FK 없음, null=미지정), `status` open→answered/skipped. 프로젝트 대화가 하나씩 묻고(`followupId`), 답한 변경안을 적용하면 answered — `src/lib/chat/followups.ts` |
+| 경험 그래프 후속 질문 | PostgreSQL `graph_followups` | 그래프 채팅 변경안의 후속 질문과, 변경안에서 뺀 항목 중 채울 수 있는 것(문서 근거 없음·기간/팀 규모 형식)을 템플릿 질문으로 쌓는다. `project_node_id`(Neo4j, FK 없음, null=미지정), `status` open→answered/skipped. 프로젝트 대화가 하나씩 묻고(`followupId`), 답한 변경안을 적용하면 answered. 같은 것을 바꿔 묻지 않게 질문을 주제(역할·팀·기간·기술·성과·측정 기준·배운 점 등)로 비교한다: 이미 채운 항목(확인 대기 변경안 포함)·답한/건너뛴/열린 질문과 겹치는 새 질문은 쌓지 않고, 열린 중복은 목록·대화를 열 때 정리하며(`reconcileProjectFollowups` — 바꿔 쓴 중복은 skipped + `duplicate_of`, 이런 행은 "건너뛴 주제"로 세지 않는다), 답하면 같은 주제의 열린 질문도 answered. 사용자가 다시 연 질문(`reopened_at`)은 이 자동 정리로 닫지 않는다. 프로젝트당 열린 질문 10개 — `src/lib/chat/followups.ts`, `src/lib/chat/followup-topics.ts` |
 | 포트폴리오 | PostgreSQL `diagnoses.portfolio_text`·`portfolio_file_name` | 원본 파일은 보관하지 않고 추출 텍스트만 |
 | 회사별 이력서 메타·버전 | PostgreSQL `company_resumes`·`resume_versions` | 버전 번호는 이력서별 유일(이력서별 `pg_advisory_xact_lock` 트랜잭션에서 예약) |
 | 이력서 본문(버전별 JSON) | R2 또는 로컬 폴더 (`src/lib/storage`) | 키 `users/<userId>/resumes/<resumeId>/v<n>.json`. R2 변수 네 개가 모두 있으면 R2, 아니면 `STORAGE_DIR`. 전체 키 구조·포트폴리오 원본·프로필 사진·큰 파일 직접 업로드(R2 CORS)는 docs/STORAGE.md |

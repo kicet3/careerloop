@@ -161,11 +161,11 @@ describe("채팅 답변이 답한 후속 질문", () => {
   it("답으로 고른 질문(followupId)은 일반 대화에서도 맨 앞에 넣는다, 표시가 없으면 아무것도 바꾸지 않는다", async () => {
     const [x, y] = await save("u1", [
       ["다른 경험도 있나요?", null],
-      ["결제 개선 기간은?", "p_payment"],
+      ["결제 개선 팀 규모는?", "p_payment"],
     ]);
     const { deps: d, prompts } = deps();
     const t = await gc.createGraphThread("u1");
-    await gc.startGraphChatMessage("u1", t.id, "2021년 3월부터 6월까지였어요", d, { followupId: y!.id });
+    await gc.startGraphChatMessage("u1", t.id, "4명이었어요", d, { followupId: y!.id });
     const reply = await gc.runGraphChatReply("u1", t.id, "anthropic", null, d);
     expect(block(prompts[0]!.user).split("\n")).toEqual([`f1. (결제 개선) ${y!.text}`, `f2. (프로젝트 미지정) ${x!.text}`]);
     expect((reply!.data as GraphProposalData).resolvedFollowups).toBeUndefined();
@@ -200,7 +200,8 @@ describe("채팅 답변이 답한 후속 질문", () => {
     // 가짜 LLM은 남은 후속 질문의 첫 질문(= q)을 followUpQuestions로 다시 낸다(규칙 16을 어긴 경우).
     await gc.startGraphChatMessage("u1", t.id, "4명이었어요 #answered:f1", d);
     const reply = await gc.runGraphChatReply("u1", t.id, "anthropic", null, d);
-    expect((reply!.data as GraphProposalData).followUpQuestions).toContain(q!.text);
+    // 방금 답한 질문을 다시 물으려 하면 화면에 보일 질문에서도 뺀다(다음 체크리스트 항목으로 바꿔 묻는다).
+    expect((reply!.data as GraphProposalData).followUpQuestions).not.toContain(q!.text);
     expect((await fu.getFollowup("u1", q!.id))!.status).toBe("answered");
     const open = await fu.listFollowups("u1", { projectNodeId: "p_wiki", statuses: ["open"] });
     expect(open.map((f) => f.text)).not.toContain(q!.text);

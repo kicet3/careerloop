@@ -31,6 +31,15 @@ import {
 } from "@/lib/domain/followups";
 import { assessProjectStructure, PROJECT_STRUCTURE_ITEMS, type ProjectStructureItemId } from "@/lib/graph/project-structure";
 import type { EvidenceGap } from "./graph-import";
+import {
+  coverOf,
+  type ExistingFollowupLike,
+  filledTopics,
+  type FollowupTopic,
+  followupTopicKeys,
+  isFollowupTopic,
+  structureItemOfTopics,
+} from "./followup-topics";
 
 export interface FollowupCandidate {
   kind: FollowupKind;
@@ -41,6 +50,8 @@ export interface FollowupCandidate {
   projectNodeId: string | null;
   /** 같은 변경안에서 새로 만드는 Project의 ref(적용하면 projectNodeId로 바뀐다). */
   projectRef: string | null;
+  /** kind='question': LLM이 표시한 주제(followUpTopics). 글에서 읽은 주제와 합쳐 중복을 본다(저장하지 않는다). */
+  topics?: FollowupTopic[];
 }
 
 /** 변경안 하나에서 쌓을 후속 질문 상한(뺀 항목에서 만든 것). */
@@ -167,10 +178,17 @@ export function structureItemOfQuestion(text: string): ProjectStructureItemId | 
 }
 
 /**
- * 체크리스트 질문과 같은 글이면 그 항목 — 단, 기존 Project에서 그 항목이 이미 완료면 null(완료 상태로는 이 질문에 답했는지 알 수 없다).
+ * 질문이 채우는 구조화 항목: 체크리스트 질문과 같은 글이면 그 항목, 아니면 주제(글 + LLM 표시)가 모두 한 항목에 들 때 그 항목
+ * (바꿔 쓴 질문도 그 항목이 완료되면 자동으로 answered가 되게). 기존 Project에서 그 항목이 이미 완료면 null
+ * (완료 상태로는 이 질문에 답했는지 알 수 없다).
  */
-function openStructureItem(text: string, target: ProjectTarget | null, ctx: AttributionContext): ProjectStructureItemId | null {
-  const item = structureItemOfQuestion(text);
+function openStructureItem(
+  text: string,
+  target: ProjectTarget | null,
+  ctx: AttributionContext,
+  topics: readonly FollowupTopic[] = [],
+): ProjectStructureItemId | null {
+  const item = structureItemOfQuestion(text) ?? structureItemOfTopics(followupTopicKeys(text, topics));
   if (!item || !target || !("id" in target)) return item;
   const state = assessProjectStructure(ctx.graph, target.id)?.items.find((i) => i.id === item)?.state;
   return state === "done" ? null : item;
@@ -274,15 +292,119 @@ export function questionsFromFollowUps(
   finalOps: readonly GraphOp[],
   ctx: AttributionContext,
   focus: string | null,
+  /** LLM이 표시한 각 질문의 주제(questions와 같은 순서, 쉼표로 여러 개). 모르는 값은 버린다. */
+  topics: readonly string[] = [],
 ): FollowupCandidate[] {
   const batchTarget = focus ? null : projectOfBatch(finalOps, ctx);
   return questions
-    .map((q) => q.trim())
-    .filter(Boolean)
-    .map((q) => {
+    .map((q, i) => ({ q: q.trim(), topics: parseTopics(topics[i]) }))
+    .filter((x) => x.q)
+    .map(({ q, topics: t }) => {
       const target = focus ? { id: focus } : (projectByName(q, ctx) ?? batchTarget);
-      return candidate("question", q, null, target, openStructureItem(q, target, ctx));
+      const c = candidate("question", q, null, target, openStructureItem(q, target, ctx, t));
+      return t.length > 0 ? { ...c, topics: t } : c;
     });
+}
+
+/** "role, team" → 주제 목록(모르는 값은 버린다). */
+export function parseTopics(v: string | undefined): FollowupTopic[] {
+  if (!v) return [];
+  const out = v
+    .split(/[,|/·\s]+/)
+    .map((x) => x.trim().toLowerCase())
+    .filter(isFollowupTopic);
+  return [...new Set(out)];
+}
+
+/** 이미 있는 같은 범위의 후속 질문(가리기 판정용). */
+export interface ExistingFollowup extends ExistingFollowupLike {
+  projectNodeId: string | null;
+  kind: "question" | "dropped";
+}
+
+/**
+ * 새 후속 질문 가리기(순수): 그래프(적용 전 변경안까지 얹은 것)에 이미 있는 주제, 이미 답한·건너뛴 질문, 열린 질문과 같은 것을 묻는
+ * 후보를 뺀다. 프로젝트에 귀속한 질문(kind='question')만 주제로 보고, 미지정·새 Project(ref)·뺀 항목 질문은 그대로 둔다(글 비교는 저장할 때).
+ * 같은 변경안 안의 후보끼리도 주제로 겹치면 뒤의 것을 뺀다.
+ *
+ * 화면에 보일 질문(questions — 변경안의 followUpQuestions)도 맞춘다: 이미 아는 것을 묻는 질문은 빼고, 열린 질문과 같은 것을 묻는 질문은
+ * 그 열린 질문의 글로 바꾼다(사용자의 답이 그 질문에 이어지게). 프로젝트 대화에서 LLM이 물으려던 질문이 모두 빠지면 대신 물을 것을 고른다:
+ * 열린 질문 중 아직 아는 것이 아닌 첫 질문(skipIds — 이 대화에서 이미 답으로 보낸 질문 — 은 빼고), 없으면 체크리스트의 다음 항목 질문.
+ */
+export function guardFollowupQuestions(input: {
+  questions: readonly string[];
+  candidates: readonly FollowupCandidate[];
+  graph: CareerGraph;
+  existing: readonly ExistingFollowup[];
+  focusProjectId: string | null;
+  skipIds?: ReadonlySet<string>;
+}): { questions: string[]; candidates: FollowupCandidate[]; removed: string[] } {
+  const filledCache = new Map<string, ReturnType<typeof filledTopics>>();
+  const filledOf = (pid: string) => {
+    if (!filledCache.has(pid)) filledCache.set(pid, filledTopics(input.graph, pid));
+    return filledCache.get(pid)!;
+  };
+  // 주제 비교는 질문(kind='question')끼리만 — 뺀 항목 질문은 특정 노드·값에 대한 것이다.
+  const pool = new Map<string, ExistingFollowupLike[]>();
+  for (const e of input.existing) {
+    if (!e.projectNodeId || e.kind !== "question") continue;
+    if (!pool.has(e.projectNodeId)) pool.set(e.projectNodeId, []);
+    pool.get(e.projectNodeId)!.push(e);
+  }
+  const kept: FollowupCandidate[] = [];
+  const removed: string[] = [];
+  const replace = new Map<string, string | null>();
+  for (const c of input.candidates) {
+    const pid = c.projectNodeId;
+    if (c.kind !== "question" || c.projectRef || !pid) {
+      kept.push(c);
+      continue;
+    }
+    const existing = pool.get(pid) ?? [];
+    const cover = coverOf(c.text, followupTopicKeys(c.text, c.topics ?? []), filledOf(pid), existing);
+    const key = normalizeFollowupText(c.text);
+    if (cover.kind === "new") {
+      kept.push(c);
+      // 같은 변경안의 뒤 후보가 이 질문과 겹치면 이 질문으로 바꾼다.
+      pool.set(pid, [...existing, { id: `new:${kept.length}`, text: c.text, status: "open" }]);
+      continue;
+    }
+    removed.push(c.text);
+    replace.set(key, cover.kind === "open" ? cover.sameAs.text : null);
+  }
+
+  const seen = new Set<string>();
+  const questions: string[] = [];
+  for (const q of input.questions) {
+    const key = normalizeFollowupText(q);
+    const next = replace.has(key) ? replace.get(key)! : q;
+    if (next === null) continue;
+    const k = normalizeFollowupText(next);
+    if (!k || seen.has(k)) continue;
+    seen.add(k);
+    questions.push(next);
+  }
+
+  const focus = input.focusProjectId;
+  if (focus && questions.length === 0 && input.questions.some((q) => q.trim())) {
+    const existing = pool.get(focus) ?? [];
+    const filled = filledOf(focus);
+    const knownOnly = existing.filter((e) => e.status !== "open");
+    // 열린 질문 중 아직 아는 것이 아닌 첫 질문(같은 변경안에서 방금 만든 후보는 뺀다 — 빠진 후보가 없으면 여기 오지 않는다).
+    const open = existing.find(
+      (e) => e.status === "open" && !e.id.startsWith("new:") && !input.skipIds?.has(e.id) && coverOf(e.text, followupTopicKeys(e.text), filled, knownOnly).kind === "new",
+    );
+    if (open) questions.push(open.text);
+    else {
+      const next = assessProjectStructure(input.graph, focus)?.next ?? null;
+      const def = next ? PROJECT_STRUCTURE_ITEMS.find((d) => d.id === next)! : null;
+      if (def && coverOf(def.question, followupTopicKeys(def.question), filled, existing).kind === "new") {
+        questions.push(def.question);
+        kept.push(candidate("question", def.question, null, { id: focus }, def.id));
+      }
+    }
+  }
+  return { questions, candidates: kept, removed };
 }
 
 /** 같은 프로젝트 안에서 정규화한 글이 같은 후보를 하나로(앞의 것을 남긴다). */

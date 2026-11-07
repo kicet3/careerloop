@@ -3,7 +3,13 @@ import "server-only";
  * 경험 그래프 후속 질문(graph_followups) 저장과 상태 전이. 모든 조회·수정은 userId 소유권을 확인한다(남의 질문은 '없음').
  *
  * - 쌓기(saveProposalFollowups): 그래프 채팅 변경안이 나오면 후보(followup-extract.ts)를 저장한다. 같은 프로젝트(미지정끼리도)의 열린 질문과
- *   정규화한 글(dedupe_key)이 같으면 새로 만들지 않는다. 사용자당 열린 질문은 MAX_OPEN_FOLLOWUPS개까지.
+ *   정규화한 글(dedupe_key)이 같으면 새로 만들지 않는다. 프로젝트에 귀속한 질문은 주제(followup-topics.ts)로도 본다: 그 프로젝트에
+ *   이미 있는 주제(graph를 주면)나, 이미 열려 있거나 답한·건너뛴 질문과 같은 것을 바꿔 묻는 질문은 만들지 않는다.
+ *   사용자당 열린 질문은 MAX_OPEN_FOLLOWUPS개, 프로젝트당 MAX_OPEN_FOLLOWUPS_PER_PROJECT개까지.
+ * - 정리(reconcileProjectFollowups): 프로젝트의 열린 질문 중 그래프에 이미 채운 것·이미 답한 것을 묻는 질문은 answered, 건너뛴 것이나
+ *   먼저 연 질문과 같은 것을 바꿔 묻는 질문은 skipped(+ duplicate_of)로(목록·프롬프트에 쓰기 전, 변경안 적용 뒤). 질문에 답하면
+ *   (markFollowupsAnswered·적용) 같은 프로젝트에서 같은 것을 묻는 열린 질문도 answered로. 사용자가 다시 연 질문(reopened_at)은 이 두 자동
+ *   정리로 닫지 않는다(되돌리기·다시 열기가 바로 되돌아가지 않게).
  * - 상태: open → answered(그 질문에 답한 변경안을 적용, 목표 구조화 항목이 완료, 또는 채팅 답변에서 LLM이 최근 메시지가 답했다고 표시 —
  *   markFollowupsAnswered) | skipped(건너뛰기). answered·skipped → open(다시 열기). 변경안을 거절해도 이미 답함으로 바뀐 질문은 그대로다.
  * - 적용 뒤(onProposalApplied): 새 Project의 ref로 귀속한 질문을 실제 id로 바꾸고, 답한 질문을 answered로, 이 변경안이 건드린 Project의
@@ -22,10 +28,20 @@ import {
   type FollowupStatus,
   type GraphFollowup,
   MAX_OPEN_FOLLOWUPS,
+  MAX_OPEN_FOLLOWUPS_PER_PROJECT,
   normalizeFollowupText,
 } from "@/lib/domain/followups";
 import { assessProjectStructure, type ProjectStructureItemId } from "@/lib/graph/project-structure";
-import { type FollowupCandidate, structureItemOfQuestion } from "./followup-extract";
+import { type ExistingFollowup, type FollowupCandidate, structureItemOfQuestion } from "./followup-extract";
+import {
+  coverOf,
+  type ExistingFollowupLike,
+  filledTopics,
+  type FollowupTopic,
+  followupTopicKeys,
+  keyCovered,
+  planFollowupReconcile,
+} from "./followup-topics";
 
 type Row = Prisma.GraphFollowupGetPayload<object>;
 
@@ -53,13 +69,36 @@ export function toFollowup(r: Row): GraphFollowup {
  */
 export async function saveProposalFollowups(
   userId: string,
-  input: { threadId: string | null; messageId: string | null; candidates: readonly FollowupCandidate[] },
+  input: {
+    threadId: string | null;
+    messageId: string | null;
+    candidates: readonly FollowupCandidate[];
+    /** 이미 채운 주제를 볼 그래프(이 사용자 것, 적용 전 변경안을 얹어도 된다). 없으면 주제 중복만 본다. */
+    graph?: CareerGraph | null;
+  },
 ): Promise<GraphFollowup[]> {
   if (input.candidates.length === 0) return [];
   // 상한은 보이는 열린 질문만 센다(새 Project ref에 귀속한 질문은 변경안 하나당 몇 개뿐이고 적용·거절 때 정리된다).
   const openCount = await prisma.graphFollowup.count({ where: { userId, status: "open", projectRef: null } });
   let room = MAX_OPEN_FOLLOWUPS - openCount;
   if (room <= 0) return [];
+  // 프로젝트에 귀속한 질문: 그 프로젝트의 최근 질문(열린·답한·건너뛴)과 주제로 비교하고, 프로젝트당 열린 질문 수를 센다.
+  const attributed = [...new Set(input.candidates.flatMap((c) => (!c.projectRef && c.projectNodeId ? [c.projectNodeId] : [])))];
+  const history = await recentProjectFollowups(userId, attributed);
+  const pools = new Map<string, ExistingFollowupLike[]>();
+  const openPerProject = new Map<string, number>();
+  for (const h of history) {
+    if (h.status === "open") openPerProject.set(h.projectNodeId!, (openPerProject.get(h.projectNodeId!) ?? 0) + 1);
+    if (h.kind !== "question") continue;
+    if (!pools.has(h.projectNodeId!)) pools.set(h.projectNodeId!, []);
+    pools.get(h.projectNodeId!)!.push(h);
+  }
+  const filledCache = new Map<string, Set<FollowupTopic>>();
+  const filledOf = (pid: string) => {
+    if (!input.graph) return new Set<FollowupTopic>();
+    if (!filledCache.has(pid)) filledCache.set(pid, filledTopics(input.graph, pid));
+    return filledCache.get(pid)!;
+  };
   const projectIds = [...new Set(input.candidates.map((c) => c.projectNodeId))];
   const existing = await prisma.graphFollowup.findMany({
     where: {
@@ -82,6 +121,16 @@ export async function saveProposalFollowups(
     if (!dedupeKey || room <= 0) continue;
     const key = c.projectRef ? `ref:${c.projectRef}|${dedupeKey}` : `${c.projectNodeId ?? ""}|${dedupeKey}`;
     if (seen.has(key)) continue;
+    const pid = c.projectRef ? null : c.projectNodeId;
+    if (pid) {
+      if ((openPerProject.get(pid) ?? 0) >= MAX_OPEN_FOLLOWUPS_PER_PROJECT) continue;
+      if (c.kind === "question") {
+        const pool = pools.get(pid) ?? [];
+        if (coverOf(text, followupTopicKeys(text, c.topics ?? []), filledOf(pid), pool).kind !== "new") continue;
+        pools.set(pid, [...pool, { id: `new:${rows.length}`, text, status: "open" }]);
+      }
+      openPerProject.set(pid, (openPerProject.get(pid) ?? 0) + 1);
+    }
     seen.add(key);
     room -= 1;
     rows.push({
@@ -106,6 +155,125 @@ export async function saveProposalFollowups(
   await prisma.graphFollowup.createMany({ data: rows });
   const created = await prisma.graphFollowup.findMany({ where: { id: { in: rows.map((r) => r.id) } }, orderBy: { createdAt: "asc" } });
   return created.map(toFollowup);
+}
+
+/** 프로젝트별 최근 질문 수(가리기·정리 비교 대상). */
+const RECENT_PER_PROJECT = 100;
+
+/**
+ * 프로젝트들의 최근 후속 질문(열린·답한·건너뛴, 보이는 것만 — 이 사용자 것만). 프로젝트마다 최근 RECENT_PER_PROJECT개, 오래된 것부터.
+ * 자동으로 중복 처리한 행(duplicate_of)은 넣지 않는다 — 그 주제는 원래 질문이 대신한다("건너뛴 주제"로 세면 원래 질문까지 닫힌다).
+ * 사용자가 다시 연 열린 질문은 pinned.
+ */
+export async function recentProjectFollowups(userId: string, projectIds: readonly string[]): Promise<ExistingFollowup[]> {
+  const out: ExistingFollowup[] = [];
+  for (const pid of [...new Set(projectIds)]) {
+    const rows = await prisma.graphFollowup.findMany({
+      where: { userId, projectNodeId: pid, projectRef: null, duplicateOf: null },
+      orderBy: [{ createdAt: "desc" }, { id: "desc" }],
+      take: RECENT_PER_PROJECT,
+      select: { id: true, text: true, status: true, kind: true, projectNodeId: true, reopenedAt: true },
+    });
+    for (const r of rows.reverse()) {
+      out.push({
+        id: r.id,
+        text: r.text,
+        status: r.status as FollowupStatus,
+        kind: r.kind as FollowupKind,
+        projectNodeId: r.projectNodeId,
+        ...(r.status === "open" && r.reopenedAt ? { pinned: true } : {}),
+      });
+    }
+  }
+  return out;
+}
+
+/**
+ * 프로젝트의 열린 질문 정리(planFollowupReconcile): 그래프(graph — 이 사용자 것)에 이미 채운 것·이미 답한 것을 묻는 질문은 answered,
+ * 건너뛴 것을 묻는 질문은 skipped, 먼저 연 질문과 같은 것을 바꿔 묻는 질문은 skipped + duplicate_of. 사용자가 다시 연 질문은 닫지 않는다.
+ * 그래프에 없는 프로젝트(지워졌거나 Project가 아님)는 건드리지 않는다. 돌려주는 값: 바꾼 질문 id(중복 처리한 것은 skipped에).
+ */
+export async function reconcileProjectFollowups(
+  userId: string,
+  graph: CareerGraph,
+  projectIds: readonly string[],
+): Promise<{ answered: string[]; skipped: string[] }> {
+  const out = { answered: [] as string[], skipped: [] as string[] };
+  const pids = [...new Set(projectIds)].filter((pid) => assessProjectStructure(graph, pid) !== null);
+  if (pids.length === 0) return out;
+  const open = await prisma.graphFollowup.groupBy({
+    by: ["projectNodeId"],
+    where: { userId, status: "open", projectRef: null, kind: "question", projectNodeId: { in: pids } },
+    _count: { _all: true },
+  });
+  const withOpen = open.flatMap((g) => (g.projectNodeId ? [g.projectNodeId] : []));
+  if (withOpen.length === 0) return out;
+  const history = await recentProjectFollowups(userId, withOpen);
+  const now = new Date();
+  for (const pid of withOpen) {
+    const plan = planFollowupReconcile(
+      history.filter((h) => h.projectNodeId === pid),
+      filledTopics(graph, pid),
+    );
+    const guard = { userId, projectNodeId: pid, status: "open", reopenedAt: null } as const;
+    for (const [status, ids] of [
+      ["answered", plan.answered],
+      ["skipped", plan.skipped],
+    ] as const) {
+      if (ids.length === 0) continue;
+      const res = await prisma.graphFollowup.updateMany({
+        where: { id: { in: ids }, ...guard },
+        data: { status, resolvedAt: now, updatedAt: now },
+      });
+      if (res.count > 0) out[status].push(...ids);
+    }
+    for (const d of plan.duplicates) {
+      const res = await prisma.graphFollowup.updateMany({
+        where: { id: d.id, ...guard },
+        data: { status: "skipped", duplicateOf: d.of, resolvedAt: now, updatedAt: now },
+      });
+      if (res.count > 0) out.skipped.push(d.id);
+    }
+  }
+  return out;
+}
+
+/**
+ * 답한 질문(ids — 이미 answered)과 같은 프로젝트에서 같은 것을 묻는 열린 질문(같은 글이거나 주제가 모두 답한 질문들의 주제에 드는 것)을
+ * answered로. 사용자가 다시 연 질문은 닫지 않는다. 돌려주는 값: 바꾼 질문 id.
+ */
+export async function resolveAnsweredSiblings(userId: string, ids: readonly string[], now = new Date()): Promise<string[]> {
+  if (ids.length === 0) return [];
+  const answered = await prisma.graphFollowup.findMany({
+    where: { userId, id: { in: [...new Set(ids)] }, status: "answered", projectRef: null, projectNodeId: { not: null }, kind: "question" },
+    select: { projectNodeId: true, text: true },
+  });
+  const byProject = new Map<string, { keys: Set<string>; texts: Set<string> }>();
+  for (const a of answered) {
+    const g = byProject.get(a.projectNodeId!) ?? { keys: new Set<string>(), texts: new Set<string>() };
+    followupTopicKeys(a.text).forEach((k) => g.keys.add(k));
+    g.texts.add(normalizeFollowupText(a.text));
+    byProject.set(a.projectNodeId!, g);
+  }
+  const done: string[] = [];
+  for (const [pid, g] of byProject) {
+    const open = await prisma.graphFollowup.findMany({
+      where: { userId, projectNodeId: pid, projectRef: null, status: "open", kind: "question", reopenedAt: null },
+      select: { id: true, text: true },
+      take: 500,
+    });
+    const hit = open.filter((o) => {
+      const keys = followupTopicKeys(o.text);
+      return g.texts.has(normalizeFollowupText(o.text)) || (keys.length > 0 && keys.every((k) => keyCovered(k, g.keys)));
+    });
+    if (hit.length === 0) continue;
+    await prisma.graphFollowup.updateMany({
+      where: { id: { in: hit.map((h) => h.id) }, userId, status: "open", reopenedAt: null },
+      data: { status: "answered", resolvedAt: now, updatedAt: now },
+    });
+    done.push(...hit.map((h) => h.id));
+  }
+  return done;
 }
 
 export interface ListFollowupsQuery {
@@ -168,7 +336,8 @@ export async function openFollowupsForPrompt(
 
 /**
  * 채팅 답변에서 답했다고 표시한 질문을 answered로 바꾼다(이 사용자의 열린·보이는 질문만 — 남의 질문·이미 처리된 질문은 건너뛴다).
- * 돌려주는 값: 실제로 바꾼 id(입력 순서).
+ * 같은 프로젝트에서 같은 것을 바꿔 묻는 열린 질문도 answered로(resolveAnsweredSiblings).
+ * 돌려주는 값: 실제로 바꾼 id(입력 순서 — 함께 정리한 질문은 넣지 않는다).
  */
 export async function markFollowupsAnswered(userId: string, ids: readonly string[]): Promise<string[]> {
   const unique = [...new Set(ids)];
@@ -182,6 +351,8 @@ export async function markFollowupsAnswered(userId: string, ids: readonly string
     });
     if (res.count > 0) done.push(id);
   }
+  // 같은 것을 바꿔 물은 열린 질문도 함께 정리한다(돌려주는 값에는 넣지 않는다 — 답변 표시는 LLM이 고른 질문만).
+  await resolveAnsweredSiblings(userId, done, now);
   return done;
 }
 
@@ -246,7 +417,14 @@ export async function setFollowupStatus(userId: string, id: string, status: Foll
   const now = new Date();
   const updated = await prisma.graphFollowup.update({
     where: { id },
-    data: { status, updatedAt: now, resolvedAt: status === "open" ? null : now },
+    // 사용자가 바꾼 상태: 자동 중복 표시를 지우고, 다시 열면 그 시각을 남긴다(자동 정리가 다시 닫지 않게).
+    data: {
+      status,
+      updatedAt: now,
+      resolvedAt: status === "open" ? null : now,
+      duplicateOf: null,
+      ...(status === "open" ? { reopenedAt: now } : {}),
+    },
   });
   return toFollowup(updated);
 }
@@ -311,8 +489,9 @@ export async function releaseDeletedProjectFollowups(userId: string, deletedNode
  * (1) 지운 Project의 질문을 미지정으로,
  * (2) 새 Project ref에 귀속한 이 변경안의 질문을 실제 id로(created: ref → id, 기존 Project로 합쳐졌으면 그 id. 이미 같은 열린 질문이 있으면 건너뜀으로),
  * (3) 이 변경안이 답한 질문(followupId)을 answered로,
- * (4) 이 변경안이 건드린 Project(touchedNodeIds — 연산이 직접 가리킨 노드)의 목표 구조화 항목이 있는 열린 질문이 있으면 loadGraph로
- *     적용 뒤 그래프를 읽어 그 항목이 완료된 질문을 answered로(그래프를 못 읽으면 넘어간다).
+ * (4) 답한 질문과 같은 것을 바꿔 묻는 열린 질문도 answered로(resolveAnsweredSiblings),
+ * (5) 이 변경안이 건드린 Project(touchedNodeIds — 연산이 직접 가리킨 노드)에 열린 질문이 있으면 loadGraph로 적용 뒤 그래프를 읽어
+ *     목표 구조화 항목이 완료된 질문을 answered로, 그리고 reconcileProjectFollowups로 채운 주제·중복 질문을 정리한다(그래프를 못 읽으면 넘어간다).
  * 돌려주는 값: answered로 바꾼 질문 id.
  */
 export async function onProposalApplied(
@@ -356,16 +535,19 @@ export async function onProposalApplied(
     if (res.count > 0) answered.push(input.followupId);
   }
 
+  if (answered.length > 0) answered.push(...(await resolveAnsweredSiblings(userId, answered, now)));
+
   const touched = (input.touchedNodeIds ?? []).filter((id) => !deleted.has(id));
-  const targeted =
+  const openTouched =
     input.loadGraph && touched.length > 0
       ? await prisma.graphFollowup.findMany({
-          where: { userId, status: "open", projectRef: null, projectNodeId: { in: touched }, targetItem: { not: null } },
+          where: { userId, status: "open", projectRef: null, projectNodeId: { in: touched } },
           select: { id: true, projectNodeId: true, targetItem: true },
           take: 500,
         })
       : [];
-  const graphAfter = targeted.length > 0 ? await input.loadGraph!().catch(() => null) : null;
+  const targeted = openTouched.filter((t) => t.targetItem !== null);
+  const graphAfter = openTouched.length > 0 ? await input.loadGraph!().catch(() => null) : null;
   if (graphAfter) {
     const structures = new Map<string, ReturnType<typeof assessProjectStructure>>();
     const done: string[] = [];
@@ -382,6 +564,9 @@ export async function onProposalApplied(
       });
       answered.push(...done);
     }
+    // 적용으로 채운 주제를 묻던 열린 질문(바꿔 쓴 질문 포함)과 같은 것을 바꿔 묻는 중복을 정리한다.
+    const reconciled = await reconcileProjectFollowups(userId, graphAfter, [...new Set(openTouched.map((t) => t.projectNodeId!))]);
+    answered.push(...reconciled.answered.filter((id) => !answered.includes(id)));
   }
   return answered;
 }

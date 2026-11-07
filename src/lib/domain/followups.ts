@@ -23,6 +23,8 @@ export const MAX_FOLLOWUP_TEXT_CHARS = 300;
 export const MAX_FOLLOWUP_DETAIL_CHARS = 500;
 /** 사용자당 열린 후속 질문 상한. 넘으면 새 질문을 쌓지 않는다(오래된 것을 답하거나 건너뛰면 다시 쌓인다). */
 export const MAX_OPEN_FOLLOWUPS = 200;
+/** 프로젝트 하나의 열린 후속 질문 상한. 넘으면 그 프로젝트에는 새 질문을 쌓지 않는다(같은 것을 바꿔 묻는 질문이 쌓이지 않게). */
+export const MAX_OPEN_FOLLOWUPS_PER_PROJECT = 10;
 
 export interface GraphFollowup {
   id: string;

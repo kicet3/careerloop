@@ -89,7 +89,9 @@ import {
 import {
   clipFollowupDetail,
   dedupeCandidates,
+  type ExistingFollowup,
   type FollowupCandidate,
+  guardFollowupQuestions,
   MAX_DROPPED_FOLLOWUPS_PER_PROPOSAL,
   questionsFromEvidenceGaps,
   questionsFromFormatErrors,
@@ -102,9 +104,12 @@ import {
   markFollowupsAnswered,
   onProposalApplied,
   openFollowupsForPrompt,
+  recentProjectFollowups,
+  reconcileProjectFollowups,
   releasePendingRefs,
   saveProposalFollowups,
 } from "./followups";
+import { coverOf, FOLLOWUP_TOPIC_NAMES, filledTopics, followupTopicKeys, overlayGraphOps } from "./followup-topics";
 import { createLlmClient, LlmPermanentError, type LlmClient, type LlmUsageContext } from "@/lib/llm";
 import { STAGE_TASK_DELIMITER } from "@/lib/panel/prompts";
 import { stageErrorMessage } from "@/lib/panel/runner";
@@ -155,6 +160,7 @@ ${modelGuide()}
 14. 최소 정보를 지어내지 않는다. 비어 있으면 묻는다.
 15. <${CHAT_TAGS.resume}>·<${CHAT_TAGS.portfolio}>가 있으면 사용자가 이 대화에서 앞서 올린 문서다. 사용자가 그 문서의 내용을 넣어 달라고 하면 문서에 글자로 있는 사실만 쓴다.
 16. <${CHAT_TAGS.openFollowups}>는 사용자에게 아직 열려 있는 후속 질문 목록(id. (프로젝트) 질문)이다. 사용자의 최근 메시지(<${CHAT_TAGS.latestMessage}>)가 그중 어떤 질문에 실제로 답했으면(질문이 묻는 정보를 전부 또는 충분히 줬으면) 그 id를 answeredFollowups에 넣는다. 이전 대화에서 답한 것, 그래프에 이미 있는 것, 추측으로는 넣지 않는다. "모르겠다"·"없다"·"나중에"처럼 정보를 주지 않은 답, 다른 프로젝트에 대한 답은 넣지 않는다. 목록에 없는 id는 쓰지 않는다. answeredFollowups에 넣은 질문은 followUpQuestions로 다시 묻지 않는다. 목록이 없거나 해당이 없으면 [].
+17. followUpQuestions에는 아직 모르는 것만 묻는다. <${CHAT_TAGS.askedFollowups}>에 있는 것(이미 채운 항목, 확인 대기 중인 변경안이 채우는 항목, 이미 답한·건너뛴 질문)과 이전 대화에서 사용자가 이미 말한 것은 표현을 바꿔서도 다시 묻지 않는다. 확인 대기 중인 변경안에 들어 있는 내용은 이미 들은 것이다 — 그래프에 아직 없다고 다시 묻지 말고, 필요하면 그 변경안을 적용해 달라고 안내한다. followUpTopics에는 followUpQuestions 각각이 채우는 항목을 같은 순서로 쓴다(background, role, team, period, affiliation, tech, actions, result, metric-basis, learned, limitations, challenge, collaboration 중, 질문 하나에 문자열 하나, 여러 개면 쉼표).
 
 ${INJECTION_RULE}`;
 
@@ -230,6 +236,8 @@ export function buildGraphChatPrompt(input: {
   repoBrief?: string | null;
   /** 열린 후속 질문(짧은 id → 질문). 최근 메시지가 답한 것을 LLM이 answeredFollowups로 표시한다(openFollowupsBlock). */
   openFollowups?: readonly PromptFollowup[];
+  /** 이미 정리했거나 이미 물은 것(프로젝트별) — 다시 묻지 않는다(askedFollowupsBlock, 규칙 17). */
+  asked?: readonly AskedSummary[];
 }): { system: string; user: string } {
   // 날짜는 한국 시간 기준(UTC로 자르면 KST 00:00~09:00에 하루 전 날짜가 들어간다).
   const today = kstToday(input.today ?? Date.now());
@@ -254,6 +262,7 @@ export function buildGraphChatPrompt(input: {
     "",
     ...followupBlock(input.followups ?? null, Boolean(focusText)),
     ...openFollowupsBlock(input.openFollowups ?? []),
+    ...askedFollowupsBlock(input.asked ?? []),
     "사용자의 최근 메시지(이것을 바탕으로 답하고 변경안을 만든다):",
     wrapData(CHAT_TAGS.latestMessage, input.latestMessage),
   ].join("\n");
@@ -312,6 +321,81 @@ function openFollowupsBlock(items: readonly PromptFollowup[]): string[] {
     wrapData(CHAT_TAGS.openFollowups, lines.join("\n")),
     "",
   ];
+}
+
+/** 프로젝트 하나에 대해 이미 정리했거나 이미 물은 것(프롬프트용). */
+export interface AskedSummary {
+  project: string;
+  /** 그래프에 이미 값이 있는 주제 이름. */
+  filled: string[];
+  /** 확인 대기 중인 변경안이 채우는 주제 이름(그래프에는 아직 없다). */
+  pending: string[];
+  /** 이미 답한 질문(최근 것). */
+  answered: string[];
+  /** 건너뛴 질문(최근 것). */
+  skipped: string[];
+}
+
+/** 프롬프트에 넣는 답한·건너뛴 질문 수(프로젝트마다 최근 것). */
+const ASKED_PROMPT_LIMIT = 10;
+
+/**
+ * 프로젝트의 "이미 아는 것" 요약: graph(적용된 그래프)에 채운 주제, pendingGraph(확인 대기 변경안을 얹은 그래프)에서만 채운 주제,
+ * 최근 답한·건너뛴 질문. 프로젝트가 없으면 null.
+ */
+export function askedSummary(
+  graph: CareerGraph,
+  pendingGraph: CareerGraph,
+  projectId: string,
+  history: readonly ExistingFollowup[],
+): AskedSummary | null {
+  const structure = assessProjectStructure(graph, projectId);
+  if (!structure) return null;
+  const filled = filledTopics(graph, projectId);
+  const pending = [...filledTopics(pendingGraph, projectId)].filter((t) => !filled.has(t));
+  const mine = history.filter((h) => h.projectNodeId === projectId && h.kind === "question");
+  const recent = (status: "answered" | "skipped") =>
+    mine
+      .filter((h) => h.status === status)
+      .slice(-ASKED_PROMPT_LIMIT)
+      .map((h) => h.text);
+  return {
+    project: structure.projectName,
+    filled: [...filled].map((t) => FOLLOWUP_TOPIC_NAMES[t]),
+    pending: pending.map((t) => FOLLOWUP_TOPIC_NAMES[t]),
+    answered: recent("answered"),
+    skipped: recent("skipped"),
+  };
+}
+
+/** 이미 정리했거나 이미 물은 것 블록(구분자 뒤). 질문 글·프로젝트 이름은 사용자 데이터라 wrapData로 감싼다. 넣을 것이 없으면 []. */
+function askedFollowupsBlock(items: readonly AskedSummary[]): string[] {
+  const lines: string[] = [];
+  const oneLine = (t: string) => (t.length > 160 ? `${t.slice(0, 159)}…` : t).replace(/\s*\n\s*/g, " ");
+  for (const a of items) {
+    if (!a.filled.length && !a.pending.length && !a.answered.length && !a.skipped.length) continue;
+    lines.push(`[${a.project}]`);
+    if (a.filled.length) lines.push(`- 이미 채운 항목: ${a.filled.join(", ")}`);
+    if (a.pending.length) lines.push(`- 확인 대기 중인 변경안이 채우는 항목(이미 들었다): ${a.pending.join(", ")}`);
+    if (a.answered.length) lines.push("- 이미 답한 질문:", ...a.answered.map((t) => `  · ${oneLine(t)}`));
+    if (a.skipped.length) lines.push("- 건너뛴 질문:", ...a.skipped.map((t) => `  · ${oneLine(t)}`));
+  }
+  if (lines.length === 0) return [];
+  return [
+    "이미 정리했거나 이미 물은 것(표현을 바꿔서도 다시 묻지 않는다 — 규칙 17):",
+    wrapData(CHAT_TAGS.askedFollowups, lines.join("\n")),
+    "",
+  ];
+}
+
+/** 이 대화에서 확인을 기다리는 변경안(아직 적용하지 않은 것)을 그래프 복사본에 얹는다 — "이미 들은 것" 판정용. */
+export function withPendingProposals(graph: CareerGraph, messages: readonly ChatMessage[]): CareerGraph {
+  let out = graph;
+  for (const m of messages) {
+    if (m.role !== "assistant" || m.status !== "proposed" || m.data?.kind !== "graph-proposal" || m.data.ops.length === 0) continue;
+    out = overlayGraphOps(out, m.data.ops, `${m.id}:`);
+  }
+  return out;
 }
 
 /**
@@ -565,10 +649,11 @@ export function proposalFromOutput(
     ...validated.dropped,
   ];
   // 프로젝트 단위 대화는 한 번에 한 질문만(P2) — 서버에서도 자른다.
-  const followUpQuestions = output.followUpQuestions
-    .map((q) => q.trim())
-    .filter(Boolean)
+  const asked = output.followUpQuestions
+    .map((q, i) => ({ q: q.trim(), topics: output.followUpTopics?.[i] ?? "" }))
+    .filter((x) => x.q)
     .slice(0, opts.maxQuestions ?? (opts.focusNodeId ? 1 : 3));
+  const followUpQuestions = asked.map((x) => x.q);
   const allDropped = droppedOps.length > 0 || deduped.merged.length > 0 ? [...deduped.merged, ...droppedOps].slice(0, imported ? 40 : 20) : [];
 
   // 후속 질문 후보: 뺀 항목 중 사용자가 채울 수 있는 것(근거·기간·수치) + 변경안의 후속 질문.
@@ -586,10 +671,16 @@ export function proposalFromOutput(
     .filter((c) => c.detail !== null && shown.has(c.detail))
     .slice(0, MAX_DROPPED_FOLLOWUPS_PER_PROPOSAL)
     .map(keepRef);
-  const questionCands = questionsFromFollowUps(followUpQuestions, validated.ops, { graph, batch: validated.ops }, focus);
+  const questionCands = questionsFromFollowUps(
+    followUpQuestions,
+    validated.ops,
+    { graph, batch: validated.ops },
+    focus,
+    asked.map((x) => x.topics),
+  );
   const followups = dedupeCandidates([...questionCands, ...droppedCands]);
-  const asked = new Set(droppedCands.map((c) => c.detail));
-  const droppedFollowups = allDropped.flatMap((d, i) => (asked.has(clipFollowupDetail(d)) ? [i] : []));
+  const droppedAsked = new Set(droppedCands.map((c) => c.detail));
+  const droppedFollowups = allDropped.flatMap((d, i) => (droppedAsked.has(clipFollowupDetail(d)) ? [i] : []));
 
   const data: GraphProposalData = {
     kind: "graph-proposal",
@@ -816,6 +907,13 @@ export async function getGraphThreadView(
       })
     : null;
   const includePrivateOk = snapshot?.private ? await includePrivateAllowed(userId).catch(() => false) : false;
+  if (thread.focusNodeId && graph) {
+    // 이미 채운 것·이미 답한 것을 바꿔 묻는 열린 질문을 정리한 뒤 보여 준다(예전에 쌓인 중복도 여기서 사라진다).
+    const g = graph;
+    await Promise.resolve()
+      .then(() => reconcileProjectFollowups(userId, assertGraphOwner(g, userId), [thread.focusNodeId!]))
+      .catch((err) => console.error("[graph-chat followups]", threadId, err));
+  }
   const followups = await listFollowups(
     userId,
     thread.focusNodeId
@@ -1025,14 +1123,29 @@ export async function runGraphChatReply(
     }
     // 후속 질문에 대한 답이면: 그 질문(아직 열려 있을 때만)과, 프로젝트 대화면 그 프로젝트의 남은 열린 질문을 프롬프트에 넣는다.
     const answering = latest.data?.kind === "followup-answer" ? await getFollowup(userId, latest.data.followupId).catch(() => null) : null;
-    const current = answering?.status === "open" ? answering : null;
+    // 이 대화 범위의 프로젝트: 프로젝트 대화면 그 프로젝트, 일반 대화면 답하는 질문의 프로젝트 + 최근 메시지에서 이름이 나온 프로젝트.
+    const scopeProjects = focusNodeId
+      ? [focusNodeId]
+      : [...new Set([...(answering?.projectNodeId ? [answering.projectNodeId] : []), ...mentionedProjectIds(graph, latest.content)])];
+    // 이미 채운 것·이미 답한 것을 바꿔 묻는 열린 질문을 먼저 정리한다(적용된 그래프 기준 — 확인 대기 변경안으로는 상태를 바꾸지 않는다).
+    if (!doc && !repoImport) {
+      await reconcileProjectFollowups(userId, graph, scopeProjects).catch((err) => console.error("[graph-chat followups]", threadId, err));
+    }
+    const currentRow = answering ? await getFollowup(userId, answering.id).catch(() => null) : null;
+    const current = currentRow?.status === "open" ? currentRow : null;
+    // 확인 대기 중인 변경안까지 얹은 그래프: 이미 들은 것(아직 적용 전)도 다시 묻지 않게 판정할 때만 쓴다.
+    const pendingGraph = withPendingProposals(graph, messages);
     // 이 대화에서 이미 답한 질문(변경안을 아직 적용하지 않았거나 "모르겠어요"로 끝난 것)은 다시 묻지 않는다(P2) — 사용자가 목록에서 골라 답할 수 있다.
     const answeredHere = followupIdsAnsweredIn(messages);
+    const pendingFilled = focusNodeId ? filledTopics(pendingGraph, focusNodeId) : new Set<never>();
     const rest = focusNodeId
       ? (await listFollowups(userId, { projectNodeId: focusNodeId, statuses: ["open"], limit: 20 }).catch(() => []))
           .filter((f) => f.id !== current?.id && !answeredHere.has(f.id))
+          // 확인 대기 변경안이 이미 채우는 것을 묻는 질문은 넣지 않는다(상태는 그대로 — 거절하면 다시 묻는다).
+          .filter((f) => f.kind !== "question" || coverOf(f.text, followupTopicKeys(f.text), pendingFilled, []).kind === "new")
           .map((f) => f.text)
       : [];
+    const history = scopeProjects.length > 0 ? await recentProjectFollowups(userId, scopeProjects).catch(() => []) : [];
     // GitHub 저장소: 가져오기 메시지면 그 저장소, 이후 대화면 이 프로젝트에 이은 저장소(비공개는 지금도 허용한 경우만).
     let repo: RepoSnapshot | null = null;
     if (repoImport) {
@@ -1110,6 +1223,7 @@ export async function runGraphChatReply(
         followups: { current: current?.text ?? null, rest },
         repoBrief: repo?.brief ?? null,
         openFollowups: promptFollowups,
+        asked: scopeProjects.flatMap((pid) => askedSummary(graph, pendingGraph, pid, history) ?? []),
       });
       const res = await client.generate({
         task: "graph-chat",
@@ -1123,6 +1237,27 @@ export async function runGraphChatReply(
       proposal = proposalFromOutput(res.output, graph, { focusNodeId });
       answered = resolveAnsweredKeys(res.output.answeredFollowups, promptFollowups);
     }
+    // 새 후속 질문 가리기: 이 답변의 변경안까지 얹은 그래프에 이미 있는 것, 이미 답한·건너뛴 질문, 열린 질문과 같은 것을 바꿔 묻는 질문은
+    // 쌓지도 보이지도 않는다(열린 질문과 같으면 그 질문으로 바꿔 묻는다). 지금 답하는 질문·이 답변이 답했다고 표시한 질문은 답한 것으로 본다.
+    const afterGraph = overlayGraphOps(pendingGraph, proposal.data.ops, "reply:");
+    const guardProjects = [
+      ...new Set([...scopeProjects, ...proposal.followups.flatMap((c) => (!c.projectRef && c.projectNodeId ? [c.projectNodeId] : []))]),
+    ];
+    const extra = guardProjects.filter((pid) => !scopeProjects.includes(pid));
+    const resolvedNow = new Set([...(current ? [current.id] : []), ...answered.map((f) => f.id)]);
+    const existing = [...history, ...(extra.length > 0 ? await recentProjectFollowups(userId, extra).catch(() => []) : [])].map((e) =>
+      resolvedNow.has(e.id) ? { ...e, status: "answered" as const } : e,
+    );
+    const guarded = guardFollowupQuestions({
+      questions: proposal.data.followUpQuestions,
+      candidates: proposal.followups,
+      graph: afterGraph,
+      existing,
+      focusProjectId: doc ? null : focusNodeId,
+      skipIds: answeredHere,
+    });
+    proposal.data.followUpQuestions = guarded.questions;
+    proposal.followups = guarded.candidates;
     // 변경안이 있으면 답한 후속 질문을 단다(적용하면 answered).
     const data: GraphProposalData = current && proposal.status === "proposed" ? { ...proposal.data, followupId: current.id } : proposal.data;
     if (answered.length > 0) {
@@ -1142,7 +1277,7 @@ export async function runGraphChatReply(
     const candidates = proposal.followups.filter((c) => !justAnswered.has(normalizeFollowupText(c.text)));
     if (saved && candidates.length > 0) {
       // 후속 질문 목록에 쌓는다. 실패해도 답변은 그대로 둔다.
-      await saveProposalFollowups(userId, { threadId, messageId: saved.id, candidates }).catch((err) =>
+      await saveProposalFollowups(userId, { threadId, messageId: saved.id, candidates, graph: afterGraph }).catch((err) =>
         console.error("[graph-chat followups]", threadId, err),
       );
     }

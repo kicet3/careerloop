@@ -54,6 +54,8 @@ export const CHAT_TAGS = {
   followupQuestions: "followup_questions",
   /** 열린 후속 질문 표(`f1. (프로젝트) 질문` 한 줄씩, graph-chat.ts openFollowupsBlock). LLM은 최근 메시지가 답한 것의 id를 answeredFollowups로 낸다. */
   openFollowups: "open_followups",
+  /** 이미 정리했거나 이미 물은 것(채운 항목·확인 대기 변경안이 채우는 항목·답한/건너뛴 질문, graph-chat.ts askedFollowupsBlock). 다시 묻지 않는다. */
+  askedFollowups: "asked_followups",
   /** 그래프에 묻기: 번호를 붙인 근거 노드 표(qa-context.ts buildContext), LLM 리랭크 후보 표 */
   graphSources: "graph_sources",
   /** 면접 연습: id를 붙인 근거 줄 표(`[r1] (이력서 · 위치) 본문` 한 줄씩, domain/interview.ts InterviewSourceLine) */
@@ -94,6 +96,13 @@ export const GraphChatOutputSchema = z.object({
     .max(MAX_PROMPT_FOLLOWUPS)
     .default([])
     .describe("<open_followups>의 질문 중 사용자의 최근 메시지(<latest_message>)가 실제로 답한 것의 id(f1, f2, …). 없으면 []"),
+  // 상한을 두지 않는다: 보조 표시라 개수가 어긋나도(LLM이 주제를 한 칸씩 나눠 써도) 출력 전체를 버리지 않게 한다(앞의 것만 질문 순서대로 쓴다).
+  followUpTopics: z
+    .array(z.string())
+    .default([])
+    .describe(
+      "followUpQuestions 각각이 채우는 항목(같은 순서, 질문 하나에 문자열 하나, 여러 개면 쉼표): background, role, team, period, affiliation, tech, actions, result, metric-basis, learned, limitations, challenge, collaboration",
+    ),
 });
 /** 입력 형태(answeredFollowups는 생략 가능 — 가져오기 출력·테스트도 같은 모양으로 쓴다). 검증 뒤에는 항상 배열이다. */
 export type GraphChatOutput = z.input<typeof GraphChatOutputSchema>;

@@ -89,10 +89,11 @@ describe("후속 질문 저장", () => {
   });
 
   it("열린 질문 상한을 넘으면 더 쌓지 않는다", async () => {
-    const many = Array.from({ length: MAX_OPEN_FOLLOWUPS + 5 }, (_, i) => cand(`질문 ${i}`, "p1"));
+    // 프로젝트당 상한(MAX_OPEN_FOLLOWUPS_PER_PROJECT)에 걸리지 않게 프로젝트를 나눈다.
+    const many = Array.from({ length: MAX_OPEN_FOLLOWUPS + 5 }, (_, i) => cand(`질문 ${i}`, `p${i}`));
     const saved = await fu.saveProposalFollowups("u1", { threadId: null, messageId: null, candidates: many });
     expect(saved).toHaveLength(MAX_OPEN_FOLLOWUPS);
-    expect(await fu.saveProposalFollowups("u1", { threadId: null, messageId: null, candidates: [cand("하나 더", "p2")] })).toEqual([]);
+    expect(await fu.saveProposalFollowups("u1", { threadId: null, messageId: null, candidates: [cand("하나 더", "p_extra")] })).toEqual([]);
   });
 
   it("상태 전이: 건너뛰기 → 다시 열기, 같은 열린 질문이 있으면 다시 열기는 409, 남의 질문은 404", async () => {
@@ -105,7 +106,12 @@ describe("후속 질문 저장", () => {
     expect(reopened).toMatchObject({ status: "open", resolvedAt: null });
 
     await fu.setFollowupStatus("u1", q!.id, "skipped");
-    await fu.saveProposalFollowups("u1", { threadId: null, messageId: null, candidates: [cand("역할은", "p1")] });
+    // 건너뛴 질문과 같은 질문은 새로 쌓지 않는다(바꿔 쓴 것도) — 다시 열기 충돌은 직접 만든 열린 중복으로 본다.
+    expect(await fu.saveProposalFollowups("u1", { threadId: null, messageId: null, candidates: [cand("역할은", "p1")] })).toEqual([]);
+    expect(await fu.saveProposalFollowups("u1", { threadId: null, messageId: null, candidates: [cand("맡은 역할이 뭐였나요?", "p1")] })).toEqual([]);
+    await tdb.prisma.graphFollowup.create({
+      data: { id: "dup1", userId: "u1", projectNodeId: "p1", kind: "question", text: "역할은", dedupeKey: "역할은", status: "open" },
+    });
     await expect(fu.setFollowupStatus("u1", q!.id, "open")).rejects.toMatchObject({ status: 409 });
     await expect(fu.setFollowupStatus("u2", q!.id, "skipped")).rejects.toMatchObject({ status: 404 });
     const answered = await fu.setFollowupStatus("u1", q!.id, "answered");
@@ -338,9 +344,9 @@ describe("후속 질문 정리(적용·거절·삭제)", () => {
     const reply = await gc.runGraphChatReply("u1", t.id, "anthropic", null, d);
     expect(await fu.listFollowups("u1")).toEqual([]);
     // 숨은(ref) 질문은 열린 질문 상한을 깎지 않는다
-    const many = Array.from({ length: MAX_OPEN_FOLLOWUPS }, (_, i) => cand(`질문 ${i}번`, "p1"));
+    const many = Array.from({ length: MAX_OPEN_FOLLOWUPS }, (_, i) => cand(`질문 ${i}번`, `p${i}`));
     expect(await fu.saveProposalFollowups("u1", { threadId: null, messageId: null, candidates: many })).toHaveLength(MAX_OPEN_FOLLOWUPS);
-    await tdb.prisma.graphFollowup.deleteMany({ where: { userId: "u1", projectNodeId: "p1" } });
+    await tdb.prisma.graphFollowup.deleteMany({ where: { userId: "u1", projectNodeId: { startsWith: "p" }, projectRef: null, kind: "question", text: { startsWith: "질문 " } } });
 
     await gc.dismissGraphProposal("u1", reply!.id);
     const items = await fu.listFollowups("u1", { projectNodeId: null });
@@ -396,7 +402,7 @@ describe("후속 질문 정리(적용·거절·삭제)", () => {
     const [q1, q2, q3] = await fu.saveProposalFollowups("u1", {
       threadId: t0.id,
       messageId: null,
-      candidates: [cand("검색 품질은 어떻게 쟀나요?", "p_wiki"), cand("팀은 몇 명이었나요?", "p_wiki"), cand("기간은?", "p_wiki")],
+      candidates: [cand("검색 품질은 어떻게 쟀나요?", "p_wiki"), cand("팀은 몇 명이었나요?", "p_wiki"), cand("맡은 역할은?", "p_wiki")],
     });
     const { deps: d, prompts } = deps({ output: { reply: "알겠어요", summary: "", followUpQuestions: [], ops: [] } });
     await gc.startGraphChatMessage("u1", t0.id, "모르겠어요", d, { followupId: q1!.id });
