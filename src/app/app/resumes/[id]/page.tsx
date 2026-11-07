@@ -15,10 +15,12 @@ import { listPortfolios } from "@/lib/portfolios/service";
 import { getEditDraft } from "@/lib/resumes/edit-draft";
 import { getResumeDetail, getResumeMeta, getResumePostingLink, listVersions } from "@/lib/resumes/service";
 import { resumeToText } from "@/lib/resumes/layout";
-import { getAgentReportForResume } from "@/lib/resume-agent/jobs";
+import { agentAvailableFor, getAgentReportForResume } from "@/lib/resume-agent/jobs";
+import { graphEnabled } from "@/lib/graph/service";
+import { findActiveRegenerate, regenerateJobHref } from "@/lib/resumes/regenerate";
 import type { ResumeDetail } from "@/lib/resumes/types";
 
-type Props = { params: Promise<{ id: string }>; searchParams?: Promise<{ report?: string | string[] }> };
+type Props = { params: Promise<{ id: string }>; searchParams?: Promise<{ report?: string | string[]; reportJob?: string | string[]; regenerated?: string | string[] }> };
 
 export const dynamic = "force-dynamic";
 
@@ -47,12 +49,16 @@ export default async function ResumePage({ params, searchParams }: Props) {
     loadError = err.message;
   }
   if (!detail) notFound();
-  const [portfolios, photoUrl, agent, editDraft] = await Promise.all([
+  const reportJob = typeof sp.reportJob === "string" ? sp.reportJob.slice(0, 64) : null;
+  const canRegenerate = graphEnabled();
+  const [portfolios, photoUrl, agent, editDraft, agentAvailable, regenerating] = await Promise.all([
     listPortfolios(user.id),
     getProfilePhotoUrl(user.id),
-    getAgentReportForResume(user.id, detail.resume.id),
+    getAgentReportForResume(user.id, detail.resume.id, reportJob),
     // 임시 저장본(새 버전으로 저장하지 않은 작업본)이 있으면 편집 화면이 그 내용으로 연다.
     getEditDraft(user.id, detail.resume.id),
+    canRegenerate ? agentAvailableFor(user).catch(() => false) : Promise.resolve(false),
+    canRegenerate ? findActiveRegenerate(user.id, detail.resume.id).catch(() => null) : Promise.resolve(null),
   ]);
   const r = detail.resume;
 
@@ -66,7 +72,9 @@ export default async function ResumePage({ params, searchParams }: Props) {
         <AgentReport
           report={agent.report}
           currentText={detail.current ? resumeToText(detail.current.document, r.templateId) : ""}
-          defaultOpen={sp.report === "1"}
+          defaultOpen={sp.report === "1" || reportJob !== null}
+          shownJobId={agent.jobId}
+          history={agent.history.map((h) => ({ ...h, href: `/app/resumes/${encodeURIComponent(r.id)}?reportJob=${encodeURIComponent(h.jobId)}` }))}
           rerun={{ kind: r.kind, company: r.company, roleTitle: r.roleTitle, jdText: r.jdText ?? "", postingId: r.postingId, templateId: r.templateId }}
         />
       )}
@@ -81,6 +89,8 @@ export default async function ResumePage({ params, searchParams }: Props) {
         portfolios={portfolios.map(toPortfolioPickOption)}
         photoUrl={photoUrl}
         initialDraft={editDraft?.draft ?? null}
+        regenerate={canRegenerate ? { agentAvailable, runningHref: regenerating ? regenerateJobHref(regenerating) : null } : null}
+        regenerated={sp.regenerated === "1"}
       />
     </div>
   );

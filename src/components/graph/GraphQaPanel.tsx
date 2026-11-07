@@ -12,6 +12,7 @@ import { type ChatMessage, type ChatThread, MAX_QA_QUESTION_CHARS } from "@/lib/
 import { NO_ENGINE_MESSAGE, type ProviderId } from "@/lib/domain/providers";
 import { askGraphChat } from "./api";
 import { chatApi as api, useElapsed, useProviderChoice } from "./chat-client";
+import { AgentAnswer } from "./AgentAnswer";
 import { AnswerText, SourceChips } from "./CitationChips";
 import { ScopeNotice } from "./ScopeNotice";
 
@@ -312,7 +313,7 @@ export function GraphQaPanel() {
 }
 
 function AnswerMessage({ message: m, canRetry, onRetry, retrying }: { message: ChatMessage; canRetry: boolean; onRetry: () => void; retrying: boolean }) {
-  if (m.status === "failed" && m.data === null) {
+  if (m.status === "failed" && (m.data === null || m.data.kind === "graph-agent-blocked")) {
     return (
       <Alert tone="error">
         {m.content}
@@ -328,6 +329,39 @@ function AnswerMessage({ message: m, canRetry, onRetry, retrying }: { message: C
     );
   }
   if (m.data?.kind === "scope-notice") return <ScopeNotice text={m.content} mode="qa" />;
+  if (m.data?.kind === "graph-agent-answer") {
+    const agent = m.data;
+    return (
+      <div className="flex">
+        <div className="max-w-[95%] min-w-0 space-y-2">
+          <AgentAnswer data={agent} />
+          {(agent.insufficient || !agent.grounded) && (
+            <Alert tone="warning" title={agent.grounded ? "그래프에 정보가 부족해요" : "근거를 확인한 답이 아니에요"}>
+              {agent.missingInfo.length > 0 && (
+                <ul className="list-disc space-y-0.5 pl-4">
+                  {agent.missingInfo.map((x, i) => (
+                    <li key={i}>{x}</li>
+                  ))}
+                </ul>
+              )}
+              <div className="mt-2 flex flex-wrap gap-1.5">
+                {agent.suggestions.map((s) => (
+                  <button
+                    key={s.categoryId}
+                    type="button"
+                    onClick={() => askGraphChat(s.chatStarter)}
+                    className="rounded-full border border-amber-300 bg-white px-2.5 py-1 text-xs text-amber-900 hover:bg-amber-100"
+                  >
+                    {s.name} 채우기
+                  </button>
+                ))}
+              </div>
+            </Alert>
+          )}
+        </div>
+      </div>
+    );
+  }
   const data = m.data?.kind === "graph-answer" ? m.data : null;
   const sources = data?.sources ?? [];
   return (

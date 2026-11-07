@@ -1,7 +1,11 @@
 import { describe, expect, it } from "vitest";
 import { emptyResumeDocument, type ResumeDocument } from "./resumes";
 import {
+  ApplyPolishDocSchema,
   isPolishPath,
+  isPolishTargetPath,
+  polishFieldFromPath,
+  polishSectionLabel,
   polishContinuationStart,
   polishMaxChars,
   polishPathFromField,
@@ -93,5 +97,35 @@ describe("이전 글에 대한 대화", () => {
     const msgs = [user, reply("옛 문장", ["X1"]), user, reply("지금 문장", ["Y1"])];
     expect(polishContinuationStart(msgs, "지금 문장")).toBe(2);
     expect(polishContinuationStart(msgs, "직접 고친 문장")).toBe(4);
+  });
+});
+
+describe("전체 이력서 모드 계약", () => {
+  it("대상은 'document' 또는 다듬을 수 있는 칸, 지원 동기·연락처는 아니다", () => {
+    expect(isPolishTargetPath("document")).toBe(true);
+    expect(isPolishTargetPath("summary")).toBe(true);
+    for (const p of ["motivation", "basics.email", "Document", "document.summary"]) expect(isPolishTargetPath(p)).toBe(false);
+  });
+
+  it("경로 ↔ 시트 칸, 구역 이름", () => {
+    expect(polishFieldFromPath("experience[0].bullets[1]")).toBe("experience.0.bullets.1");
+    expect(polishPathFromField(polishFieldFromPath("projects[2].result"))).toBe("projects[2].result");
+    expect(polishSectionLabel("basics.tagline")).toBe("소개");
+    expect(polishSectionLabel("summary")).toBe("소개");
+    expect(polishSectionLabel("experience[0].scope")).toBe("경력");
+    expect(polishSectionLabel("extras[1].items[0]")).toBe("기타");
+  });
+
+  it("includeEmpty면 빈 칸도 넣는다", () => {
+    const d = doc();
+    expect(polishTargets(d).some((t) => t.path === "experience[0].bullets[1]")).toBe(false);
+    expect(polishTargets(d, { includeEmpty: true }).some((t) => t.path === "experience[0].bullets[1]")).toBe(true);
+  });
+
+  it("적용 본문: 1~6개, 중복 없이", () => {
+    expect(ApplyPolishDocSchema.safeParse({ messageId: "m", indices: [0, 2] }).success).toBe(true);
+    expect(ApplyPolishDocSchema.safeParse({ messageId: "m", indices: [] }).success).toBe(false);
+    expect(ApplyPolishDocSchema.safeParse({ messageId: "m", indices: [1, 1] }).success).toBe(false);
+    expect(ApplyPolishDocSchema.safeParse({ messageId: "m", indices: [6] }).success).toBe(false);
   });
 });

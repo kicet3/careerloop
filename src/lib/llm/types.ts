@@ -26,12 +26,18 @@ export interface LlmUsage {
  * - graph-repo-import: GitHub 저장소 정보 → 프로젝트 하나의 변경안·후속 질문(GraphRepoImportOutputSchema, src/lib/chat/graph-repo-import.ts)
  * - graph-qa: 그래프에 묻기 답변(GraphQaOutputSchema)
  * - graph-qa-rerank: 그래프에 묻기 후보 관련도 매기기(GraphQaRerankSchema, 선택 단계)
+ * - graph-agent-step / -final: 경험 질문하기 에이전트의 스텝(도구 호출 또는 최종 답)·최종 답 강제(src/lib/rag/agent.ts)
+ * - graph-agent-entail: 에이전트 최종 답의 보조 함의 검사(선택, RAG_ENTAILMENT=on — 덜어내기 전용)
  * - interview-questions: 이력서·포트폴리오·공고 근거 줄 → 면접 예상 질문(InterviewQuestionsOutputSchema)
  * - interview-feedback: 연습 답변 피드백·모범 답변 개요·꼬리 질문(InterviewFeedbackOutputSchema)
  * - resume-agent-plan / -write / -revise: 그래프 이력서 에이전트의 근거 매핑·초안·수정 패치(src/lib/resume-agent/schemas.ts)
  * - resume-agent-jd / -review: 에이전트가 패널 단계(jd·심사)를 재사용한 호출의 사용량 구분(GenerateRequest.usageTask로만 쓴다)
+ * - resume-agent-brief / -section / -compose / -critique / -motivation: 구역별 에이전트(파이프라인 v2)의 총괄 작전·구역 작성·조립·총괄 피드백·
+ *   지원 동기 초안·추천(src/lib/resume-agent/schemas.ts, docs/RESUME-SECTION-AGENTS.md)
  * - resume-polish: 이력서 AI로 다듬기 — 한 칸의 대안 문구 2~3개(ResumePolishOutputSchema, src/lib/resumes/polish.ts)
  * - resume-motivation-suggest: 지원 동기 쓸 거리 추천 — 문단은 쓰지 않는다(MotivationSuggestionSchema, src/lib/resumes/motivation.ts)
+ * - resume-jd-tips: JD 맞춤 작성 팁 — 공고 요약·구역별 팁·키워드·쓸 만한 경험(JdTipsOutputSchema, src/lib/resumes/jd-tips.ts)
+ * - portfolio-share-chat: 공개 포트폴리오 방문자 챗봇 — 공개본만 근거로 답한다(ShareChatOutputSchema, src/lib/portfolios/share-chat.ts). 사용량은 소유자에게 매긴다
  */
 export const LLM_TASKS = [
   "graph-chat",
@@ -44,6 +50,9 @@ export const LLM_TASKS = [
   "graph-repo-import",
   "graph-qa",
   "graph-qa-rerank",
+  "graph-agent-step",
+  "graph-agent-final",
+  "graph-agent-entail",
   "interview-questions",
   "interview-feedback",
   "resume-agent-jd",
@@ -51,8 +60,15 @@ export const LLM_TASKS = [
   "resume-agent-write",
   "resume-agent-revise",
   "resume-agent-review",
+  "resume-agent-brief",
+  "resume-agent-section",
+  "resume-agent-compose",
+  "resume-agent-critique",
+  "resume-agent-motivation",
   "resume-polish",
   "resume-motivation-suggest",
+  "resume-jd-tips",
+  "portfolio-share-chat",
 ] as const;
 export type LlmTask = (typeof LLM_TASKS)[number];
 

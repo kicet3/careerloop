@@ -57,6 +57,8 @@ let service: typeof import("@/lib/resumes/service");
 
 beforeAll(async () => {
   for (const k of ["R2_ACCOUNT_ID", "R2_ACCESS_KEY_ID", "R2_SECRET_ACCESS_KEY", "R2_BUCKET", "VERCEL", "RESUME_AGENT", "RESUME_AGENT_CHAIN_SECRET", "RESUME_AGENT_MAX_REVISIONS"]) delete process.env[k];
+  // 이 파일은 v1 단계 계획(전체 작성·패치 수정)을 시험한다 — v2(구역별 에이전트)는 jobs-v2.test.ts.
+  process.env.RESUME_AGENT_PIPELINE = "1";
   tdb = await createTestDb();
   jobs = await import("./jobs");
   resumesRoute = await import("@/app/api/resumes/route");
@@ -67,7 +69,10 @@ beforeAll(async () => {
   layout = await import("@/lib/resumes/layout");
   service = await import("@/lib/resumes/service");
 });
-afterAll(() => tdb.close());
+afterAll(() => {
+  delete process.env.RESUME_AGENT_PIPELINE;
+  return tdb.close();
+});
 
 /** 가짜 LLM을 감싸 호출(단계·task와 user 프롬프트)을 기록한다. fail이 true를 돌려주면 그 호출을 실패시킨다. */
 function recordingClient(fail?: (req: LlmRequest<unknown>) => Error | null, delayMs = 0): LlmClient {

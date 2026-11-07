@@ -6,11 +6,21 @@ import { Badge } from "@/components/ui/Badge";
 import { Button } from "@/components/ui/Button";
 import { cn } from "@/components/ui/cn";
 import type { ChatMessage } from "@/lib/domain/chat";
-import { MAX_POLISH_MESSAGE_CHARS, polishContinuationStart, polishTargetText, polishTargets, type ResumePolishData } from "@/lib/domain/resume-polish";
+import {
+  isPolishDocumentPath,
+  MAX_POLISH_MESSAGE_CHARS,
+  POLISH_DOCUMENT_LABEL,
+  POLISH_DOCUMENT_PATH,
+  polishContinuationStart,
+  polishTargetText,
+  polishTargets,
+  type ResumePolishData,
+} from "@/lib/domain/resume-polish";
 import type { ResumeDocument } from "@/lib/domain/resumes";
 import type { ResumeMeta, ResumeVersionMeta } from "@/lib/resumes/types";
 import { smallInputClass } from "../styles";
-import { wordDiff } from "./diff";
+import { DiffView } from "./DiffView";
+import { PolishDocumentChat } from "./PolishDocumentChat";
 
 export interface PolishApplied {
   version: ResumeVersionMeta;
@@ -31,7 +41,10 @@ async function readError(res: Response, fallback: string): Promise<string> {
   return data?.error ?? fallback;
 }
 
-/** 다듬기 패널(오른쪽 서랍): 대상 칸 고르기 · 지금 글 · 대화 · 제안 → 차이 미리보기 → 적용(새 버전). */
+/**
+ * 다듬기 패널(오른쪽 서랍): 대상 고르기 — 전체 이력서(묻고 대화, 여러 칸 제안) 또는 칸 하나(지금 글 · 대화 · 제안 → 차이 미리보기 → 적용).
+ * 적용은 서버가 새 버전으로 저장한다.
+ */
 export function PolishPanel({
   resumeId,
   versionId,
@@ -41,6 +54,7 @@ export function PolishPanel({
   onTargetChange,
   onClose,
   onApplied,
+  onJump,
 }: {
   resumeId: string;
   /** 편집기의 현재(저장된) 버전 id. 바뀌면(저장·복원·적용) 저장된 지금 글과 대화를 다시 읽는다. */
@@ -52,6 +66,8 @@ export function PolishPanel({
   onTargetChange: (path: string) => void;
   onClose: () => void;
   onApplied: (result: PolishApplied) => void;
+  /** 전체 이력서 제안의 '칸으로 이동'. */
+  onJump: (path: string) => void;
 }) {
   const [view, setView] = useState<View | null>(null);
   const [loading, setLoading] = useState(false);
@@ -62,16 +78,19 @@ export function PolishPanel({
   const [preview, setPreview] = useState<{ messageId: string; index: number } | null>(null);
   const listRef = useRef<HTMLDivElement>(null);
   const targets = useMemo(() => polishTargets(doc), [doc]);
-  const localText = target ? polishTargetText(doc, target) : null;
+  const isDoc = target !== null && isPolishDocumentPath(target);
+  const fieldTarget = isDoc ? null : target;
+  const localText = fieldTarget ? polishTargetText(doc, fieldTarget) : null;
 
   useEffect(() => {
-    if (!target) return;
+    // 전체 이력서 대화는 PolishDocumentChat이 읽는다.
+    if (!fieldTarget) return;
     const ctrl = new AbortController();
     // eslint-disable-next-line react-hooks/set-state-in-effect -- 대상·저장된 버전이 바뀌면 그 칸의 대화를 다시 읽는다
     setLoading(true);
     setError(null);
     setPreview(null);
-    fetch(`/api/resumes/${resumeId}/polish?target=${encodeURIComponent(target)}`, { signal: ctrl.signal, cache: "no-store" })
+    fetch(`/api/resumes/${resumeId}/polish?target=${encodeURIComponent(fieldTarget)}`, { signal: ctrl.signal, cache: "no-store" })
       .then(async (res) => {
         if (!res.ok) {
           setView(null);
@@ -87,7 +106,7 @@ export function PolishPanel({
         if (!ctrl.signal.aborted) setLoading(false);
       });
     return () => ctrl.abort();
-  }, [resumeId, target, versionId]);
+  }, [resumeId, fieldTarget, versionId]);
 
   useEffect(() => {
     listRef.current?.scrollTo({ top: listRef.current.scrollHeight });
@@ -95,7 +114,7 @@ export function PolishPanel({
 
   async function send(text: string) {
     const message = text.trim();
-    if (!target || !message || sending) return;
+    if (!fieldTarget || !message || sending) return;
     setSending(true);
     setError(null);
     setPreview(null);
@@ -103,7 +122,7 @@ export function PolishPanel({
       const res = await fetch(`/api/resumes/${resumeId}/polish`, {
         method: "POST",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ targetPath: target, message }),
+        body: JSON.stringify({ targetPath: fieldTarget, message }),
       });
       if (!res.ok) {
         setError(await readError(res, "요청을 보내지 못했습니다."));
@@ -167,7 +186,7 @@ export function PolishPanel({
       <div className="flex items-center justify-between border-b border-slate-200 px-4 py-3">
         <div>
           <h2 className="text-sm font-semibold text-slate-900">AI로 다듬기</h2>
-          <p className="text-xs text-slate-500">이력서·공고·경험 그래프에 있는 사실로만 문구를 제안해요.</p>
+          <p className="text-xs text-slate-500">이력서·공고·경험 그래프에 있는 사실로만 답하고 문구를 제안해요.</p>
         </div>
         <button type="button" className="rounded p-1 text-slate-500 hover:bg-slate-100" onClick={onClose} aria-label="닫기">
           ×
@@ -176,14 +195,15 @@ export function PolishPanel({
 
       <div className="space-y-2 border-b border-slate-200 px-4 py-3">
         <label className="block text-xs font-medium text-slate-600">
-          다듬을 항목
+          대상
           <select
             className={cn(smallInputClass, "mt-1")}
             value={target ?? ""}
             onChange={(e) => e.target.value && onTargetChange(e.target.value)}
           >
             <option value="">항목을 고르세요</option>
-            {target && !targets.some((t) => t.path === target) && <option value={target}>{view?.target.label ?? target}</option>}
+            <option value={POLISH_DOCUMENT_PATH}>{POLISH_DOCUMENT_LABEL} — 묻고 대화하기</option>
+            {fieldTarget && !targets.some((t) => t.path === fieldTarget) && <option value={fieldTarget}>{view?.target.label ?? fieldTarget}</option>}
             {targets.map((t) => (
               <option key={t.path} value={t.path}>
                 {t.label} — {t.text.slice(0, 30)}
@@ -191,7 +211,7 @@ export function PolishPanel({
             ))}
           </select>
         </label>
-        {target && (
+        {fieldTarget && (
           <div className="rounded-md bg-slate-50 px-3 py-2 text-sm whitespace-pre-wrap text-slate-800">
             <span className="mb-1 block text-xs font-medium text-slate-500">저장된 지금 글</span>
             {loading ? "불러오는 중…" : savedText || <span className="text-slate-400">(비어 있음)</span>}
@@ -204,6 +224,10 @@ export function PolishPanel({
         )}
       </div>
 
+      {isDoc ? (
+        <PolishDocumentChat resumeId={resumeId} versionId={versionId} dirty={dirty} onApplied={onApplied} onJump={onJump} />
+      ) : (
+        <>
       <div ref={listRef} className="flex-1 space-y-3 overflow-y-auto px-4 py-3">
         {!target && <p className="text-sm text-slate-500">다듬을 항목을 고르거나, 시트에서 칸에 마우스를 올리고 ‘AI로 다듬기’를 누르세요.</p>}
         {target && !loading && view && view.messages.length === 0 && (
@@ -293,6 +317,8 @@ export function PolishPanel({
           </Button>
         </div>
       </form>
+        </>
+      )}
     </aside>
   );
 }
@@ -345,26 +371,6 @@ function MessageBubble({
       })}
       {data?.followUpQuestion && <p className="text-xs text-slate-600">질문: {data.followUpQuestion}</p>}
       {data && data.graphSources > 0 && <p className="text-[11px] text-slate-400">경험 그래프 근거 {data.graphSources}개를 참고했어요.</p>}
-    </div>
-  );
-}
-
-function DiffView({ before, after }: { before: string; after: string }) {
-  const parts = wordDiff(before, after);
-  return (
-    <div className="grid gap-2 text-sm">
-      <div className="rounded-md border border-slate-200 bg-white px-3 py-2 whitespace-pre-wrap">
-        <span className="mb-1 block text-[11px] font-medium text-slate-500">전</span>
-        {parts
-          .filter((p) => p.kind !== "add")
-          .map((p, i) => (p.kind === "del" ? <del key={i} className="bg-rose-100 text-rose-800">{p.text}</del> : <span key={i}>{p.text}</span>))}
-      </div>
-      <div className="rounded-md border border-slate-200 bg-white px-3 py-2 whitespace-pre-wrap">
-        <span className="mb-1 block text-[11px] font-medium text-slate-500">후</span>
-        {parts
-          .filter((p) => p.kind !== "del")
-          .map((p, i) => (p.kind === "add" ? <ins key={i} className="bg-emerald-100 text-emerald-800 no-underline">{p.text}</ins> : <span key={i}>{p.text}</span>))}
-      </div>
     </div>
   );
 }

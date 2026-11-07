@@ -122,9 +122,14 @@ export async function deleteAccount(userId: string, deps: DeleteAccountDeps = {}
   const revoke = deps.revokeGithub ?? (async (id: string) => (await import("@/lib/github/account")).revokeGithubGrant(id));
   await revoke(userId).catch((err) => console.error("[deleteAccount] GitHub 권한 해지 실패", err));
 
+  // 공개 링크 행은 CASCADE로 지워진다 — 그 공유의 챗봇 레이트 기록(공유 id를 키에 쓴 IP 해시 등)은 FK가 없어 함께 지운다.
+  const shareIds = (await prisma.portfolioShare.findMany({ select: { id: true }, where: { userId } })).map((r) => r.id);
+  const { shareRateEventsWhere } = await import("@/lib/portfolios/shares");
+
   await prisma.$transaction([
     // rate_events는 사용자 FK가 없다 — 사용자 id를 키로 쓴 기록만 지운다(IP 키는 해시라 사용자와 연결되지 않는다).
     prisma.rateEvent.deleteMany({ where: { key: userId } }),
+    ...(shareIds.length > 0 ? [prisma.rateEvent.deleteMany({ where: shareRateEventsWhere(shareIds) })] : []),
     prisma.user.deleteMany({ where: { id: userId } }),
   ]);
 

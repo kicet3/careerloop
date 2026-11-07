@@ -23,10 +23,19 @@ export function formatsLabel(accept: string[]): string {
     .join(" · ");
 }
 
-/** 확장자·크기 검사. 문제가 없으면 null. maxBytes는 서버가 정한 파일당 상한(uploadLimitsFor). */
-export function validateUpload(file: File, accept: string[], maxBytes: number = SELF_HOSTED_UPLOAD_LIMITS.perFileBytes): string | null {
+/**
+ * 확장자·크기 검사. 문제가 없으면 null. maxBytes는 서버가 정한 파일당 상한(uploadLimitsFor).
+ * typeError: 확장자가 맞지 않을 때 쓸 문구(비우면 기본 문구 — 포트폴리오는 'PDF만').
+ */
+export function validateUpload(
+  file: File,
+  accept: string[],
+  maxBytes: number = SELF_HOSTED_UPLOAD_LIMITS.perFileBytes,
+  typeError?: string,
+): string | null {
   const ext = file.name.toLowerCase().match(/\.[a-z0-9]+$/)?.[0] ?? "";
   if (!accept.includes(ext)) {
+    if (typeError) return typeError;
     if (ext === ".doc") return "DOC 파일은 읽지 못합니다. DOCX나 PDF로 저장해 올려 주세요.";
     return `${accept.join(", ")} 파일만 올릴 수 있습니다.`;
   }
@@ -43,6 +52,8 @@ export function FileDrop({
   label,
   hint,
   maxBytes = SELF_HOSTED_UPLOAD_LIMITS.perFileBytes,
+  acceptAttr,
+  typeError,
 }: {
   file: File | null;
   onChange: (file: File | null, error: string | null) => void;
@@ -51,6 +62,10 @@ export function FileDrop({
   hint?: string;
   /** 파일당 상한(바이트). */
   maxBytes?: number;
+  /** 파일 고르기 창의 accept 값(비우면 accept 확장자를 잇는다). */
+  acceptAttr?: string;
+  /** 확장자가 맞지 않을 때 문구(validateUpload). */
+  typeError?: string;
 }) {
   const inputId = useId();
   const inputRef = useRef<HTMLInputElement>(null);
@@ -58,7 +73,7 @@ export function FileDrop({
 
   function pick(f: File | undefined | null) {
     if (!f) return;
-    const error = validateUpload(f, accept, maxBytes);
+    const error = validateUpload(f, accept, maxBytes, typeError);
     onChange(error ? null : f, error);
   }
 
@@ -109,7 +124,7 @@ export function FileDrop({
         ref={inputRef}
         id={inputId}
         type="file"
-        accept={accept.join(",")}
+        accept={acceptAttr ?? accept.join(",")}
         className="sr-only"
         onChange={(e) => pick(e.target.files?.[0])}
       />

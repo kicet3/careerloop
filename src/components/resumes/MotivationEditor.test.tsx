@@ -1,7 +1,7 @@
 import { renderToStaticMarkup } from "react-dom/server";
 import { describe, expect, it } from "vitest";
 import type { MotivationSuggestResponse } from "@/lib/domain/resume-motivation";
-import { appendDraft, appendMemo, fillWithDraft, memoLine, MotivationEditor, MotivationSuggestionPanel, parseFolds, toggleAllFolds, type FoldState } from "./MotivationEditor";
+import { appendDraft, appendMemo, draftBanner, fillWithDraft, memoLine, MotivationEditor, MotivationSuggestionPanel, parseFolds, savedSuggestionNote, toggleAllFolds, type FoldState } from "./MotivationEditor";
 
 const suggestion: MotivationSuggestResponse["suggestion"] = {
   companyPoints: [{ point: "결제 안정성", jdQuote: "결제 안정성" }],
@@ -23,7 +23,20 @@ describe("MotivationEditor", () => {
     expect(html).toContain("<textarea");
     expect(html).toContain('maxLength="1500"');
     expect(html).toContain("2 / 1500자");
-    expect(html).toContain("칸에 바로 넣지 않습니다");
+    expect(html).toContain("추천의 초안은 눌러야 칸에 들어갑니다");
+  });
+
+  it("AI 초안([ADD] 자리표시가 남은 글)이면 칸 위에 안내를 보이고, 다 채우면 숨긴다", () => {
+    const html = renderToStaticMarkup(<MotivationEditor resumeId="r1" value="[ADD: 지원 계기 — 직접 쓰기] 결제 안정성에 기여하고 싶습니다." onChange={() => {}} />);
+    expect(html).toContain("AI 초안입니다. [ADD] 자리를 채우고 내 말로 고쳐 주세요.");
+    expect(draftBanner("다 채운 글")).toBeNull();
+  });
+
+  it("저장된 추천 안내: 에이전트가 미리 받은 추천 / 지난 추천 / 공고가 바뀌면 다시 받기 권유", () => {
+    expect(savedSuggestionNote(null)).toBeNull();
+    expect(savedSuggestionNote({ source: "agent", jdChanged: false })).toContain("미리 받아 둔 추천");
+    expect(savedSuggestionNote({ source: "button", jdChanged: false })).toContain("지난번");
+    expect(savedSuggestionNote({ source: "agent", jdChanged: true })).toContain("공고가 바뀌었습니다. 다시 추천 받기를 권합니다");
   });
 
   it("메모로 넣기: 글 끝에 [ADD: 메모 — …] 한 줄(대괄호 제거), 상한을 넘으면 넣지 않는다", () => {

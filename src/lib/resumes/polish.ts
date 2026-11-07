@@ -24,6 +24,7 @@ import { CHAT_TAGS, type ChatMessage, type ChatThread, type ScopeCategory, type 
 import type { CareerGraph } from "@/lib/domain/graph";
 import type { ProviderId } from "@/lib/domain/providers";
 import {
+  POLISH_DOCUMENT_TAG,
   POLISH_TARGET_TAG,
   polishContinuationStart,
   type PolishSuggestion,
@@ -58,7 +59,7 @@ export const POLISH_MAX_TOKENS = 4000;
 export const POLISH_GRAPH_K = 6;
 export const POLISH_GRAPH_MAX_CHARS = 4000;
 /** 마지막 사용자 메시지에 답이 없을 때 이 시간이 지나면(요청이 죽었다) 실패로 보고 새 메시지를 받는다. */
-const PENDING_STALE_MS = POLISH_TIMEOUT_MS + 30_000;
+export const PENDING_STALE_MS = POLISH_TIMEOUT_MS + 30_000;
 const TARGET_NOT_FOUND = "다듬을 항목을 찾을 수 없습니다. 저장된 이력서에 그 칸이 있는지 확인해 주세요.";
 
 export interface PolishDeps {
@@ -136,10 +137,10 @@ export function polishHistory(all: readonly ChatMessage[], currentText?: string)
   return historyToPrompt(out, { maxMessages: 8, maxChars: 3000, maxCharsPerMessage: 800 });
 }
 
-const TARGET_TAG_RE = new RegExp(`<(/?)(${POLISH_TARGET_TAG})(?=[\\s>])`, "gi");
-/** 채팅·패널 태그는 wrapData·field가 무력화한다. 다듬기 칸 태그도 모든 사용자 자료에서 무력화한다(자료로 칸 태그를 흉내 내지 못하게). */
-const safe = (text: string) => text.replace(TARGET_TAG_RE, "‹$1$2");
-const wrap = (tag: string, body: string) => wrapData(tag, safe(body));
+const TARGET_TAG_RE = new RegExp(`<(/?)(${POLISH_TARGET_TAG}|${POLISH_DOCUMENT_TAG})(?=[\\s>])`, "gi");
+/** 채팅·패널 태그는 wrapData·field가 무력화한다. 다듬기 칸·전체 이력서 태그도 모든 사용자 자료에서 무력화한다(자료로 칸 태그를 흉내 내지 못하게). */
+export const safe = (text: string) => text.replace(TARGET_TAG_RE, "‹$1$2");
+export const wrap = (tag: string, body: string) => wrapData(tag, safe(body));
 
 export function buildPolishPrompt(input: {
   targetLabel: string;
@@ -196,7 +197,7 @@ export function polishGraphEvidence(graph: CareerGraph, query: string): { text: 
   return { text: ctx.text, count: ctx.sources.length };
 }
 
-const norm = (s: string) => s.replace(/\s+/g, " ").trim();
+export const norm = (s: string) => s.replace(/\s+/g, " ").trim();
 
 /**
  * LLM 제안 → 저장할 제안(결정적). 빈 것·원문과 같은 것·중복을 빼고, 근거(source)에 없는 숫자가 든 문장은
@@ -234,7 +235,7 @@ export interface PolishThreadSummary {
   updatedAt: number;
 }
 
-async function findPolishThread(userId: string, resumeId: string, targetPath: string): Promise<ChatThread | null> {
+export async function findPolishThread(userId: string, resumeId: string, targetPath: string): Promise<ChatThread | null> {
   const row = await prisma.chatThread.findFirst({
     where: { userId, kind: POLISH_KIND, resumeId, targetPath },
     orderBy: [{ updatedAt: "desc" }, { id: "desc" }],
@@ -242,7 +243,7 @@ async function findPolishThread(userId: string, resumeId: string, targetPath: st
   return row ? toChatThread(row as ChatThreadRow) : null;
 }
 
-async function ensurePolishThread(userId: string, resumeId: string, targetPath: string, title: string): Promise<ChatThread> {
+export async function ensurePolishThread(userId: string, resumeId: string, targetPath: string, title: string): Promise<ChatThread> {
   const found = await findPolishThread(userId, resumeId, targetPath);
   if (found) return found;
   const now = new Date();
@@ -291,17 +292,24 @@ export async function getPolishView(userId: string, resumeId: string, targetPath
 // 보내기
 // ---------------------------------------------------------------------------
 
-async function saveNotice(userId: string, threadId: string, latestId: string, notice: ScopeNoticeData, usage?: UsageTotals): Promise<void> {
+export async function saveNotice(
+  userId: string,
+  threadId: string,
+  latestId: string,
+  notice: ScopeNoticeData,
+  usage?: UsageTotals,
+  text: (category: ScopeCategory) => string = polishScopeNoticeText,
+): Promise<void> {
   const saved = await addMessage(
     userId,
-    { threadId, role: "assistant", content: polishScopeNoticeText(notice.category), data: notice, status: null, ...(usage ? { usage } : {}) },
+    { threadId, role: "assistant", content: text(notice.category), data: notice, status: null, ...(usage ? { usage } : {}) },
     { expectLastId: latestId },
   );
   if (saved) await recordScopeEvent(userId, { threadId, notice }).catch((err) => console.error("[resume-polish guard]", threadId, err));
 }
 
 /** 그래프 근거(그래프를 못 쓰면 빈 근거 — 이력서·JD만으로 다듬는다). 다른 사용자 그래프면 던진다(버그 — 프롬프트에 넣지 않는다). */
-async function graphEvidenceFor(userId: string, query: string, deps: PolishDeps, signal: AbortSignal): Promise<{ text: string; count: number }> {
+export async function graphEvidenceFor(userId: string, query: string, deps: PolishDeps, signal: AbortSignal): Promise<{ text: string; count: number }> {
   if (!graphEnabled()) return { text: "", count: 0 };
   let graph: CareerGraph;
   try {
@@ -327,22 +335,7 @@ export async function sendPolishMessage(
   const t = await loadTarget(userId, resumeId, input.targetPath);
   await assertNotScopeBlocked(userId, CHAT_SCOPE_GUARD, deps.now(), { feature: "polish" });
   const thread = await ensurePolishThread(userId, resumeId, input.targetPath, t.label);
-  const prior = (await listMessages(userId, thread.id, { limit: 20 })) ?? [];
-  let lastId = prior.at(-1)?.id ?? null;
-  const last = prior.at(-1);
-  if (last?.role === "user") {
-    if (deps.now() - last.createdAt < PENDING_STALE_MS) throw new FeatureError("이전 요청에 답하는 중입니다. 잠시 후 다시 보내 주세요.", 409);
-    const marker = await addMessage(
-      userId,
-      { threadId: thread.id, role: "assistant", content: "답변을 받지 못했습니다.", status: "failed", data: null },
-      { expectLastId: lastId },
-    ).catch(rethrowConcurrent);
-    lastId = marker?.id ?? lastId;
-  }
-  await assertWithinLimit(RESUME_POLISH_LIMIT, userId);
-  await assertWithinLimit(RESUME_POLISH_DAILY_LIMIT, userId);
-  const userMsg = await addMessage(userId, { threadId: thread.id, role: "user", content: input.message }, { expectLastId: lastId }).catch(rethrowConcurrent);
-  if (!userMsg) throw new FeatureError("대화를 찾을 수 없습니다.", 404);
+  const { prior, userMsg } = await beginPolishTurn(userId, thread.id, input.message, deps);
 
   const deadline = AbortSignal.timeout(POLISH_TIMEOUT_MS);
   try {
@@ -407,6 +400,36 @@ export async function sendPolishMessage(
   }
   const messages = (await listMessages(userId, thread.id, { limit: 60 })) ?? [];
   return { target: { path: input.targetPath, label: t.label, text: t.text, versionId: t.version.id }, threadId: thread.id, messages };
+}
+
+/**
+ * 한 턴 시작(칸·전체 모드 공용): 답이 없는 지난 요청이 오래됐으면 실패 표시를 남기고(아직 답하는 중이면 409), 요청 한도를 확인한 뒤
+ * 사용자 메시지를 저장한다. prior는 이번 메시지 앞의 최근 대화(최대 limit개).
+ */
+export async function beginPolishTurn(
+  userId: string,
+  threadId: string,
+  message: string,
+  deps: Pick<PolishDeps, "now">,
+  limit = 20,
+): Promise<{ prior: ChatMessage[]; userMsg: ChatMessage }> {
+  const prior = (await listMessages(userId, threadId, { limit })) ?? [];
+  let lastId = prior.at(-1)?.id ?? null;
+  const last = prior.at(-1);
+  if (last?.role === "user") {
+    if (deps.now() - last.createdAt < PENDING_STALE_MS) throw new FeatureError("이전 요청에 답하는 중입니다. 잠시 후 다시 보내 주세요.", 409);
+    const marker = await addMessage(
+      userId,
+      { threadId, role: "assistant", content: "답변을 받지 못했습니다.", status: "failed", data: null },
+      { expectLastId: lastId },
+    ).catch(rethrowConcurrent);
+    lastId = marker?.id ?? lastId;
+  }
+  await assertWithinLimit(RESUME_POLISH_LIMIT, userId);
+  await assertWithinLimit(RESUME_POLISH_DAILY_LIMIT, userId);
+  const userMsg = await addMessage(userId, { threadId, role: "user", content: message }, { expectLastId: lastId }).catch(rethrowConcurrent);
+  if (!userMsg) throw new FeatureError("대화를 찾을 수 없습니다.", 404);
+  return { prior, userMsg };
 }
 
 async function savePolishReply(

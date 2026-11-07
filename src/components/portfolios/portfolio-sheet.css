@@ -16,7 +16,8 @@
 .ps-pages {
   display: flex;
   flex-direction: column;
-  align-items: center;
+  /* 카드가 칸보다 넓을 때(줄이기 전·zoom 미지원) 왼쪽이 잘리지 않게 safe — 넘친 부분은 오른쪽으로만 생겨 가로 스크롤로 볼 수 있다. */
+  align-items: safe center;
   gap: var(--ps-gap);
   padding: 4px 0 8px;
 }
@@ -129,6 +130,7 @@
   .ps-pages {
     display: block;
     padding: 0;
+    zoom: 1 !important;
   }
   .ps-page {
     border: 0;

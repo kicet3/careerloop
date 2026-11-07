@@ -1,19 +1,8 @@
 import { featureErrorResponse } from "@/lib/api/errors";
 import { requireApiUser } from "@/lib/auth/session";
-import { jsonError } from "@/lib/diagnoses/http";
-import { IngestError } from "@/lib/ingest/extract";
 import { portfolioNotFound } from "@/lib/portfolios/http";
-import {
-  DOCX_HTML_MAX_BYTES,
-  docxToHtmlDocument,
-  ORIGINAL_PRESIGN_TTL_SEC,
-  ORIGINAL_PROXY_MAX_BYTES,
-  originalResponseHeaders,
-  originalServeSpec,
-  SANDBOX_CSP,
-} from "@/lib/portfolios/original";
+import { serveStoredOriginal } from "@/lib/portfolios/original-serve";
 import { getPortfolioOriginalRef } from "@/lib/portfolios/service";
-import { getObject, presignGetObject, storageKind } from "@/lib/storage";
 
 export const runtime = "nodejs";
 // 큰 원본(최대 30MB)을 저장소에서 읽어 내려주거나 DOCX를 HTML로 바꾸는 시간.
@@ -29,64 +18,21 @@ export const maxDuration = 60;
  * - 저장소가 R2이고 원본이 ORIGINAL_PROXY_MAX_BYTES(4MB)보다 크면 본문을 싣지 않고 소유자 확인 뒤 60초짜리 서명 GET 주소로 302
  *   (Vercel 응답 본문 4.5MB 상한). 서명에 내용 유형(HTML은 octet-stream)·Content-Disposition·Cache-Control을 넣는다.
  *   R2는 다른 출처라 우리 쿠키·화면에 닿지 않는다 — 그래도 TXT·MD는 그쪽에서 inline으로 열지 않고 첨부로 보낸다.
+ * - ?viewer=1(PDF만): 화면의 PDF 보기(PdfViewer)가 Range 요청(206, 조각 ≤ 4MB)으로 받아 간다 — 302 없이 우리 출처에서. 범위 밖은 416.
+ * 내려주는 규칙은 공개 링크 라우트(/api/p/[token]/original)와 같다(src/lib/portfolios/original-serve.ts).
  */
 export async function GET(req: Request, { params }: { params: Promise<{ id: string }> }) {
   const user = await requireApiUser();
   if (user instanceof Response) return user;
   const { id } = await params;
-  const url = new URL(req.url);
   try {
     const ref = await getPortfolioOriginalRef(user.id, id.slice(0, 64));
     if (!ref) return portfolioNotFound();
-
-    if (url.searchParams.get("view") === "html") {
-      if (ref.portfolio.original?.view !== "docx") return jsonError("DOCX 파일만 HTML로 볼 수 있습니다.", 400);
-      const bytes = await getObject(ref.key);
-      if (!bytes) return portfolioNotFound();
-      let html: string;
-      try {
-        html = await docxToHtmlDocument(bytes, ref.fileName);
-      } catch (err) {
-        if (err instanceof IngestError) return jsonError(err.message, err.status);
-        console.error("[GET /api/portfolios/[id]/original] DOCX 변환 실패", err);
-        return jsonError("DOCX를 화면에 보이지 못했습니다. 원본을 내려받아 확인해 주세요.", 422);
-      }
-      if (Buffer.byteLength(html, "utf8") > DOCX_HTML_MAX_BYTES) {
-        return jsonError("DOCX 내용이 커서 화면 미리보기를 만들지 못했습니다. 원본을 내려받아 확인해 주세요.", 422);
-      }
-      return new Response(html, {
-        headers: {
-          "Content-Type": "text/html; charset=utf-8",
-          "Content-Security-Policy": SANDBOX_CSP,
-          "X-Content-Type-Options": "nosniff",
-          "Cache-Control": "private, no-store",
-          "Cross-Origin-Resource-Policy": "same-origin",
-          "Referrer-Policy": "no-referrer",
-        },
-      });
-    }
-
-    const download = url.searchParams.get("download") === "1";
-    if (ref.size > ORIGINAL_PROXY_MAX_BYTES && storageKind() === "r2") {
-      const spec = originalServeSpec({ mime: ref.mime, fileName: ref.fileName, download, forceAttachmentForText: true });
-      const signed = await presignGetObject(ref.key, {
-        contentType: spec.contentType,
-        contentDisposition: spec.disposition,
-        cacheControl: "private, no-store",
-        expiresIn: ORIGINAL_PRESIGN_TTL_SEC,
-      });
-      if (signed) {
-        return new Response(null, {
-          status: 302,
-          headers: { Location: signed, "Cache-Control": "private, no-store", "Referrer-Policy": "no-referrer" },
-        });
-      }
-    }
-
-    const bytes = await getObject(ref.key);
-    if (!bytes) return portfolioNotFound();
-    const headers = originalResponseHeaders({ mime: ref.mime, size: bytes.byteLength, fileName: ref.fileName, download });
-    return new Response(new Uint8Array(bytes), { headers });
+    return await serveStoredOriginal(
+      req,
+      { key: ref.key, mime: ref.mime, size: ref.size, fileName: ref.fileName, view: ref.portfolio.original?.view ?? null },
+      { notFound: portfolioNotFound, context: "GET /api/portfolios/[id]/original" },
+    );
   } catch (err) {
     return featureErrorResponse(err, "GET /api/portfolios/[id]/original");
   }

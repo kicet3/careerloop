@@ -18,6 +18,16 @@ import { GithubError, type GithubThreadRepo, type RepoFacts } from "./types";
 
 export const SNAPSHOT_TTL_MS = 24 * 60 * 60_000;
 
+/**
+ * 경험 질문하기 문서 색인(src/lib/rag/chunks/sync.ts): 저장소 요약을 쓰거나 프로젝트 연결을 바꾼 뒤 그 요약의 청크를 다시 만든다.
+ * 원문은 넘기지 않는다(sync가 소유 조건으로 다시 읽는다). 실패해도 이 기능은 성공한다(로그만 — 재색인이 복구).
+ */
+async function syncRepoChunks(userId: string, snapshotIds: readonly string[]): Promise<void> {
+  if (snapshotIds.length === 0) return;
+  const { syncSourceSafely } = await import("@/lib/rag/chunks/sync");
+  for (const id of snapshotIds) await syncSourceSafely(userId, "repo-brief", id);
+}
+
 export interface RepoSnapshot {
   id: string;
   repoId: string;
@@ -80,6 +90,7 @@ async function refreshBriefIfNeeded(userId: string, row: Row): Promise<Row> {
   if (row.builderVersion === BRIEF_BUILDER_VERSION) return row;
   const brief = buildRepoBrief(row.data as unknown as RepoFacts);
   await prisma.githubRepoSnapshot.updateMany({ where: { userId, id: row.id }, data: { brief, builderVersion: BRIEF_BUILDER_VERSION } });
+  await syncRepoChunks(userId, [row.id]);
   return { ...row, brief, builderVersion: BRIEF_BUILDER_VERSION };
 }
 
@@ -152,6 +163,7 @@ export async function getOrFetchSnapshot(
     update: data,
   })) as Row;
   await prisma.githubAccount.updateMany({ where: { userId }, data: { lastSyncedAt: now } });
+  await syncRepoChunks(userId, [row.id]);
   return { snapshot: toSnapshot(row), fetched: true };
 }
 
@@ -170,15 +182,21 @@ export async function linkSnapshotToProject(userId: string, snapshotId: string, 
     if (isUniqueViolation(err)) throw new FeatureError("이 프로젝트에는 이미 다른 저장소가 연결되어 있습니다.", 409);
     throw err;
   }
+  await syncRepoChunks(userId, [snapshotId]);
 }
 
 /** 지운 Project 노드에 이어 둔 저장소 연결을 푼다(Neo4j id라 FK가 없다). 없는 id는 무시한다. */
 export async function unlinkDeletedProjects(userId: string, deletedNodeIds: readonly string[]): Promise<void> {
   if (deletedNodeIds.length === 0) return;
+  const affected = await prisma.githubRepoSnapshot.findMany({ where: { userId, projectNodeId: { in: [...deletedNodeIds] } }, select: { id: true } });
   await prisma.githubRepoSnapshot.updateMany({
     where: { userId, projectNodeId: { in: [...deletedNodeIds] } },
     data: { projectNodeId: null },
   });
+  await syncRepoChunks(
+    userId,
+    affected.map((r) => r.id),
+  );
 }
 
 export async function snapshotForProject(userId: string, projectNodeId: string): Promise<RepoSnapshot | null> {

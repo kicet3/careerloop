@@ -42,6 +42,15 @@ export interface ResumeDraftJobView {
   href?: string;
   /** 단계 이름(에이전트 작업). 없으면 stage로 정한다. */
   stageLabel?: string;
+  /** '다시 생성' 작업이면 true(결과는 targetResumeId 이력서의 새 버전). */
+  regenerate?: boolean;
+  targetResumeId?: string | null;
+}
+
+/** 완료된 작업이 연 이력서 경로. 다시 생성이면 ?regenerated=1(새 버전 배너). 알림 링크와 같은 값이다(regenerate.ts regeneratedResumeHref). */
+export function completedResumeHref(job: Pick<ResumeDraftJobView, "resumeId" | "regenerate">): string | null {
+  if (!job.resumeId) return null;
+  return job.regenerate ? `/app/resumes/${job.resumeId}?regenerated=1` : `/app/resumes/${job.resumeId}`;
 }
 
 /** 진행 화면 경로. */

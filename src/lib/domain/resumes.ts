@@ -38,7 +38,7 @@ export const RESUME_SECTION_LABELS: Record<ResumeSectionKey, string> = {
   motivation: "지원 동기",
 };
 
-/** 지원 동기 칸 글자 상한. 지원처별 이력서(kind 'company')에만 쓰고, 사용자가 직접 쓴다(AI는 쓸 거리만 추천 — src/lib/resumes/motivation.ts). */
+/** 지원 동기 칸 글자 상한. 지원처별 이력서(kind 'company')에만 쓴다. AI는 [ADD] 자리표시가 든 초안을 기본 제공하고(에이전트 v2), 사용자가 다듬는다(src/lib/resumes/motivation.ts). */
 export const MAX_RESUME_MOTIVATION_CHARS = 1500;
 
 /** AI 초안(단일 호출·에이전트)이 쓰는 섹션 순서: 지원 동기는 사용자가 쓰므로 프롬프트의 섹션 순서에서 뺀다. */

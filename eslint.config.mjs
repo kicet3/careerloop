@@ -27,6 +27,42 @@ const eslintConfig = defineConfig([
       ],
     },
   },
+  // 에이전트 RAG(docs/AGENTIC-GRAPH-RAG.md §9, §7.1): 모듈 전역 가변 상태(최상위 let·new Map/Set/WeakMap/WeakSet) 금지 — 요청 상태는
+  // RequestScope 객체에만 둔다. console.* 금지(ragLog만). 검증 결과 캐스트(as ValidatedResult)는 validator.ts 밖에서 금지.
+  ...(() => {
+    const topLevelState = [
+      { selector: "Program > VariableDeclaration[kind='let']", message: "rag/: 모듈 전역 let 금지 — 요청 상태는 RequestScope에 둡니다." },
+      { selector: "Program > ExportNamedDeclaration > VariableDeclaration[kind='let']", message: "rag/: 모듈 전역 let 금지." },
+      {
+        selector: "Program > VariableDeclaration > VariableDeclarator > NewExpression[callee.name=/^(Map|Set|WeakMap|WeakSet)$/]",
+        message: "rag/: 모듈 전역 Map·Set 금지 — 요청 상태는 RequestScope에 둡니다.",
+      },
+      {
+        selector: "Program > ExportNamedDeclaration > VariableDeclaration > VariableDeclarator > NewExpression[callee.name=/^(Map|Set|WeakMap|WeakSet)$/]",
+        message: "rag/: 모듈 전역 Map·Set 금지.",
+      },
+    ];
+    const castValidated = {
+      selector: "TSAsExpression[typeAnnotation.typeName.name='ValidatedResult']",
+      message: "ValidatedResult는 rag/validator.ts만 만듭니다(검증 우회 금지).",
+    };
+    return [
+      {
+        files: ["src/**/*.{ts,tsx}"],
+        ignores: ["src/lib/rag/**", "src/**/*.test.{ts,tsx}"],
+        rules: { "no-restricted-syntax": ["error", castValidated] },
+      },
+      {
+        files: ["src/lib/rag/**/*.ts"],
+        ignores: ["src/lib/rag/**/*.test.ts", "src/lib/rag/__fixtures__/**", "src/lib/rag/validator.ts"],
+        rules: { "no-console": "error", "no-restricted-syntax": ["error", ...topLevelState, castValidated] },
+      },
+      {
+        files: ["src/lib/rag/validator.ts"],
+        rules: { "no-console": "error", "no-restricted-syntax": ["error", ...topLevelState] },
+      },
+    ];
+  })(),
   // Override default ignores of eslint-config-next.
   globalIgnores([
     // Default ignores of eslint-config-next:

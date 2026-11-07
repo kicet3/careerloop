@@ -4,6 +4,8 @@
  * - 최종 심사: 심사위원 7명 판정(진단과 같은 "7명 중 n명 통과"), 라운드별 핵심 심사·적합도·바뀐 점(전/후).
  * - 요건 표: JD 요건마다 충족/부분/공백, 이력서 줄, 근거(그래프 노드 이름·경로). 작성 시점 기준 — 이후 고친 줄은 흐리게.
  * - 남은 공백: 그래프 채팅으로 답하기(/app/graph?ask=…#graph-chat). '그래프를 채운 뒤 다시 실행'은 새 이력서를 하나 더 만들고 하루 한도 1회를 쓴다.
+ * - 구역별 에이전트 리포트(version 2): '구역별 작성' 표(구역·담당 요건·재작성 횟수·분량/예산·최종 라운드), '총괄 피드백 기록',
+ *   지원 동기 안내(초안의 [ADD] n곳을 채워 주세요), 바뀐 점에 구역 라벨.
  */
 import Link from "next/link";
 import { useRouter } from "next/navigation";
@@ -16,7 +18,7 @@ import { normalizeForQuote } from "@/lib/panel/quotes";
 import { NODE_LABEL_META } from "@/lib/domain/graph";
 import { REVIEWERS } from "@/lib/domain/reviewers";
 import type { ReviewerId } from "@/lib/domain/schemas";
-import { EXTRA_REVIEWER_LABELS, PATCH_OP_LABELS, STOP_REASON_LABELS, type FinalPanelView } from "@/lib/resume-agent/job-types";
+import { EXTRA_REVIEWER_LABELS, PATCH_OP_LABELS, SECTION_LABELS, STOP_REASON_LABELS, type FinalPanelView } from "@/lib/resume-agent/job-types";
 import type { AgentReport as AgentReportModel } from "@/lib/resume-agent/schemas";
 import { AgentRoundScores, roundTitle } from "./AgentRoundScores";
 
@@ -47,17 +49,37 @@ export function reportHeadline(report: Pick<AgentReportModel, "stopReason" | "ga
 
 const reviewerName = (id: string): string => REVIEWERS[id as ReviewerId]?.name ?? EXTRA_REVIEWER_LABELS[id] ?? id;
 
+/** 바뀐 점 경로의 구역 라벨(v2). */
+export function changeSectionLabel(path: string): string | null {
+  const m = /^(experience|projects|highlights|skills|extras|education|certifications)\b/.exec(path);
+  if (!m) return path === "summary" || path.startsWith("basics.") ? "요약·상단" : null;
+  const key = m[1] === "education" || m[1] === "certifications" ? "extras" : (m[1] as keyof typeof SECTION_LABELS);
+  return SECTION_LABELS[key];
+}
+
+/** 지원 동기 안내 문장(v2). 초안이 없으면 null. */
+export function motivationNotice(m: AgentReportModel["motivation"]): string | null {
+  if (!m?.drafted) return null;
+  return m.placeholders > 0 ? `지원 동기 초안을 넣어 두었습니다. [ADD] ${m.placeholders}곳을 채우고 내 말로 고쳐 주세요.` : "지원 동기 초안을 넣어 두었습니다. 내 말로 고쳐 주세요.";
+}
+
 export function AgentReport({
   report,
   currentText,
   defaultOpen,
   rerun,
+  history = [],
+  shownJobId = null,
 }: {
   report: AgentReportModel;
   currentText: string;
   defaultOpen: boolean;
   /** '그래프를 채운 뒤 다시 실행'에 쓸 입력(이력서의 연결 공고·회사·직무·현재 JD 칸). 공용 이력서면 kind general. */
   rerun: { kind: "company" | "general"; company: string; roleTitle: string; jdText: string; postingId: string | null; templateId: string } | null;
+  /** 이 이력서의 리포트 기록(최근 순 — 다시 생성할 때마다 하나씩 늘어난다). 2개 이상이면 이전 리포트로 가는 링크를 보인다. */
+  history?: { jobId: string; completedAt: number; regenerate: boolean; href: string }[];
+  /** 지금 보이는 리포트의 작업 id. */
+  shownJobId?: string | null;
 }) {
   const router = useRouter();
   const [starting, setStarting] = useState(false);
@@ -101,6 +123,24 @@ export function AgentReport({
             작성 시점({new Date(report.generatedAt).toLocaleString("ko-KR", { timeZone: "Asia/Seoul" })}) 기준 — 이후 편집한 내용은 반영되지 않습니다.
             {report.jd.source === "inferred" && " 공고 없이 직무명으로 요건을 추정했습니다(추정)."}
           </p>
+          {history.length > 1 && (
+            <nav aria-label="리포트 기록" className="-mt-4 flex flex-wrap items-center gap-x-2 gap-y-1 text-xs text-slate-500">
+              <span>리포트 기록</span>
+              {history.map((h, i) => {
+                const label = `${i === 0 ? "최신 · " : ""}${new Date(h.completedAt).toLocaleString("ko-KR", { timeZone: "Asia/Seoul", month: "numeric", day: "numeric", hour: "2-digit", minute: "2-digit" })}${h.regenerate ? " 다시 생성" : ""}`;
+                const shown = h.jobId === (shownJobId ?? history[0]!.jobId);
+                return shown ? (
+                  <span key={h.jobId} aria-current="true" className="font-medium text-slate-800" suppressHydrationWarning>
+                    {label}
+                  </span>
+                ) : (
+                  <Link key={h.jobId} href={h.href} className="text-indigo-700 hover:underline" suppressHydrationWarning>
+                    {label}
+                  </Link>
+                );
+              })}
+            </nav>
+          )}
 
           <section aria-label="라운드별 심사">
             <h3 className="mb-2 text-sm font-semibold text-slate-900">심사위원 심사</h3>
@@ -144,6 +184,73 @@ export function AgentReport({
             </ul>
           </section>
 
+          {report.version === 2 && report.sections && report.sections.length > 0 && (
+            <section aria-label="구역별 작성">
+              <h3 className="mb-2 text-sm font-semibold text-slate-900">구역별 작성(구역 에이전트 + 총괄 피드백)</h3>
+              {report.jdReused && <p className="mb-2 text-xs text-slate-500">{report.jdReused.kind === "diagnosis" ? "저장된 진단의 JD 분석을 그대로 썼습니다." : "이 이력서의 이전 JD 분석을 그대로 썼습니다."}</p>}
+              <div className="overflow-x-auto">
+                <table className="w-full min-w-[32rem] text-left text-sm">
+                  <thead className="text-xs text-slate-500">
+                    <tr>
+                      <th className="py-1 pr-3 font-medium">구역</th>
+                      <th className="py-1 pr-3 font-medium">담당 요건</th>
+                      <th className="py-1 pr-3 font-medium">다시 쓰기</th>
+                      <th className="py-1 pr-3 font-medium">분량/예산</th>
+                      <th className="py-1 font-medium">최종본</th>
+                    </tr>
+                  </thead>
+                  <tbody>
+                    {report.sections.map((sec) => (
+                      <tr key={sec.section} className="border-t border-slate-100">
+                        <td className="py-1.5 pr-3 font-medium text-slate-900">
+                          {sec.label}
+                          {sec.fallback && <span className="ml-1 text-xs font-normal text-amber-700">(대체)</span>}
+                        </td>
+                        <td className="py-1.5 pr-3 font-mono text-xs text-slate-600">{sec.requirementIds.join(", ") || "—"}</td>
+                        <td className="py-1.5 pr-3 tabular-nums text-slate-700">{sec.rewrites}회</td>
+                        <td className="py-1.5 pr-3 tabular-nums text-slate-700">{sec.budget > 0 ? `${sec.chars}/${sec.budget}자` : sec.chars > 0 ? `${sec.chars}자` : "—"}</td>
+                        <td className="py-1.5 text-slate-700">{sec.finalRound === 0 ? "초안" : `${sec.finalRound}회차`}</td>
+                      </tr>
+                    ))}
+                  </tbody>
+                </table>
+              </div>
+              {motivationNotice(report.motivation ?? null) && (
+                <p className="mt-2 rounded-lg bg-amber-50 px-3 py-2 text-sm text-amber-900">
+                  {motivationNotice(report.motivation ?? null)}{" "}
+                  <a href="#motivation" className="font-medium underline" onClick={(e) => {
+                    const el = document.querySelector('[data-section="motivation"]');
+                    if (el) {
+                      e.preventDefault();
+                      el.scrollIntoView({ behavior: "smooth", block: "start" });
+                    }
+                  }}>
+                    지원 동기 열기
+                  </a>
+                </p>
+              )}
+              {report.orchestration && report.orchestration.length > 0 && (
+                <details className="mt-2 rounded-lg bg-slate-50 px-3 py-2 text-sm">
+                  <summary className="cursor-pointer font-medium text-slate-800">총괄 피드백 기록</summary>
+                  <ul className="mt-2 grid gap-2">
+                    {report.orchestration.map((o) => (
+                      <li key={o.round}>
+                        <p className="text-xs text-slate-500">{roundTitle(o.round)} 뒤 · {o.summary}</p>
+                        <ul className="ml-3 list-disc text-xs text-slate-600">
+                          {o.feedback.map((f) => (
+                            <li key={f.section}>
+                              <span className="font-medium text-slate-700">{f.section}</span>: {f.instructions.join(" / ")}
+                            </li>
+                          ))}
+                        </ul>
+                      </li>
+                    ))}
+                  </ul>
+                </details>
+              )}
+            </section>
+          )}
+
           {report.rounds.some((r) => r.changes.length > 0) && (
             <section aria-label="바뀐 점">
               <h3 className="mb-2 text-sm font-semibold text-slate-900">심사 지적으로 바뀐 점</h3>
@@ -152,7 +259,8 @@ export function AgentReport({
                   r.changes.map((c, i) => (
                     <li key={`${r.round}-${i}`} className="rounded-lg bg-slate-50 px-3 py-2">
                       <p className="text-xs text-slate-500">
-                        {roundTitle(r.round)} · {PATCH_OP_LABELS[c.op] ?? "수정"}
+                        {roundTitle(r.round)} · {report.version === 2 && changeSectionLabel(c.path) ? `${changeSectionLabel(c.path)} · ` : ""}
+                        {PATCH_OP_LABELS[c.op] ?? "수정"}
                         {c.reviewers.length > 0 && ` · 지적: ${c.reviewers.map(reviewerName).join(", ")}`}
                       </p>
                       {c.before && <p className="text-slate-500 line-through">{c.before}</p>}
@@ -182,7 +290,7 @@ export function AgentReport({
                   <Button type="button" size="sm" variant="secondary" loading={starting} onClick={() => void startAgain()}>
                     그래프를 채운 뒤 다시 실행
                   </Button>
-                  <span className="text-xs text-slate-500">새 이력서가 하나 더 생기고 하루 한도(5회) 중 1회를 씁니다.</span>
+                  <span className="text-xs text-slate-500">새 이력서가 하나 더 생기고 하루 한도(5회) 중 1회를 씁니다. 이 이력서를 새 버전으로 다시 쓰려면 편집 화면의 &lsquo;다시 생성&rsquo;을 쓰세요.</span>
                   {error && <span className="text-xs text-red-700">{error}</span>}
                 </div>
               )}

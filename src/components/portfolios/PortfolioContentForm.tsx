@@ -8,10 +8,13 @@ import { inputClass, textareaClass } from "@/components/resumes/styles";
 import { Alert } from "@/components/ui/Alert";
 import { Button } from "@/components/ui/Button";
 import {
+  checkPortfolioPdf,
   MAX_PORTFOLIO_DESCRIPTION_CHARS,
   MAX_PORTFOLIO_TITLE_CHARS,
   MAX_PORTFOLIO_URL_CHARS,
+  PORTFOLIO_PDF_ONLY_MESSAGE,
   PORTFOLIO_UPLOAD_ACCEPT,
+  PORTFOLIO_UPLOAD_ACCEPT_ATTR,
   type PortfolioUploadConfig,
 } from "@/lib/domain/portfolios";
 import { formatMb } from "@/lib/ingest/upload-limits";
@@ -83,7 +86,7 @@ export function PortfolioContentForm({
     const init = await fetch("/api/portfolios/uploads", {
       method: "POST",
       headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({ fileName: f.name, size: f.size }),
+      body: JSON.stringify({ fileName: f.name, size: f.size, type: f.type }),
     });
     if (!init.ok) return init;
     const { uploadId, url, headers } = (await init.json()) as { uploadId: string; url: string; headers: Record<string, string> };
@@ -102,6 +105,11 @@ export function PortfolioContentForm({
     if (mode === "file") {
       if (!file) {
         setError(fileError ?? "올릴 파일을 골라 주세요.");
+        return;
+      }
+      const notPdf = await checkPortfolioPdf(file);
+      if (notPdf) {
+        setError(notPdf);
         return;
       }
       if (file.size > upload.directMaxBytes && upload.presigned) {
@@ -167,8 +175,10 @@ export function PortfolioContentForm({
             file={file}
             maxBytes={maxBytes}
             accept={PORTFOLIO_UPLOAD_ACCEPT}
-            label="포트폴리오 파일을 끌어다 놓거나 눌러서 선택"
-            hint={`${FORMATS_LABEL}, ${formatMb(maxBytes)} 이하. 원본 파일을 그대로 보관해 화면에 보여 주고, 면접 질문·진단에는 파일에서 뽑은 글을 씁니다(이미지는 글을 뽑지 않습니다).`}
+            acceptAttr={PORTFOLIO_UPLOAD_ACCEPT_ATTR}
+            typeError={PORTFOLIO_PDF_ONLY_MESSAGE}
+            label="포트폴리오 PDF를 끌어다 놓거나 눌러서 선택"
+            hint={`포트폴리오 파일은 ${FORMATS_LABEL}만 올릴 수 있습니다(${formatMb(maxBytes)} 이하). 원본 파일을 그대로 보관해 화면에 보여 주고, 면접 질문·진단에는 파일에서 뽑은 글을 씁니다. 다른 형식은 PDF로 저장(내보내기)해 올려 주세요.`}
             onChange={(f, err) => {
               setFile(f);
               setFileError(err);

@@ -6,6 +6,7 @@ import { afterAll, beforeAll, beforeEach, describe, expect, it, vi } from "vites
 import { type PortfolioInfo, type PortfolioListItem } from "@/lib/domain/portfolios";
 import { emptyResumeDocument } from "@/lib/domain/resumes";
 import { createTestDb, type TestDb } from "@/test/db";
+import { makeTestPdf } from "@/test/pdf";
 
 vi.mock("server-only", () => ({}));
 
@@ -46,9 +47,11 @@ const BASE = "http://localhost/api/portfolios";
 const ctx = (id: string) => ({ params: Promise.resolve({ id }) });
 const TEXT = "결제 정산 배치를 Kotlin으로 다시 만들었습니다. 처리 시간을 4시간에서 40분으로 줄였습니다.\n".repeat(3);
 
-function uploadReq(u: string, method: "POST" | "PUT", name: string, content: string, extra: Record<string, string> = {}) {
+/** .pdf 이름에 글을 주면 그 글이 든 PDF로 만든다(그 밖은 받은 바이트 그대로 — 거절 확인용). */
+function uploadReq(u: string, method: "POST" | "PUT", name: string, content: string | Uint8Array, extra: Record<string, string> = {}) {
   const fd = new FormData();
-  fd.set("file", new File([content], name, { type: "text/plain" }));
+  const body = typeof content === "string" && name.endsWith(".pdf") ? makeTestPdf(content) : content;
+  fd.set("file", new File([body as BlobPart], name, { type: name.endsWith(".pdf") ? "application/pdf" : "text/plain" }));
   for (const [k, v] of Object.entries(extra)) fd.set(k, v);
   return new Request(u, { method, body: fd });
 }
@@ -63,8 +66,8 @@ async function create(body: Request): Promise<PortfolioInfo> {
 
 describe("/api/portfolios", () => {
   it("파일·링크로 만들고 목록에 붙인 이력서와 함께 보인다", async () => {
-    const file = await create(uploadReq(BASE, "POST", "정산.md", TEXT, { title: "정산 개편", description: "배치 담당" }));
-    expect(file).toMatchObject({ title: "정산 개편", kind: "file", fileName: "정산.md", description: "배치 담당" });
+    const file = await create(uploadReq(BASE, "POST", "정산.pdf", TEXT, { title: "정산 개편", description: "배치 담당" }));
+    expect(file).toMatchObject({ title: "정산 개편", kind: "file", fileName: "정산.pdf", description: "배치 담당" });
     const link = await create(json(BASE, "POST", { url: "https://me.dev", description: "개인 사이트" }));
     expect(link).toMatchObject({ title: "me.dev", kind: "url", url: "https://me.dev" });
 
@@ -78,9 +81,39 @@ describe("/api/portfolios", () => {
   it("입력 검증: 잘못된 주소·긴 이름 400, 지원하지 않는 형식 415, 빈 폼 400", async () => {
     expect((await listRoute.POST(json(BASE, "POST", { url: "ftp://x" }))).status).toBe(400);
     expect((await listRoute.POST(json(BASE, "POST", { url: "https://x.dev", title: "가".repeat(121) }))).status).toBe(400);
-    expect((await listRoute.POST(uploadReq(BASE, "POST", "a.md", TEXT, { title: "가".repeat(121) }))).status).toBe(400);
+    expect((await listRoute.POST(uploadReq(BASE, "POST", "a.pdf", TEXT, { title: "가".repeat(121) }))).status).toBe(400);
     expect((await listRoute.POST(uploadReq(BASE, "POST", "a.exe", TEXT))).status).toBe(415);
     expect((await listRoute.POST(new Request(BASE, { method: "POST", body: new FormData() }))).status).toBe(400);
+  });
+
+  it("새 업로드는 PDF만: DOCX·PNG·HWP·MD는 415(PDF만 안내), 확장자만 .pdf로 바꾼 PNG는 매직 바이트로 415, 진짜 PDF는 201", async () => {
+    const PNG = new Uint8Array([0x89, 0x50, 0x4e, 0x47, 0x0d, 0x0a, 0x1a, 0x0a, 0, 0, 0, 0]);
+    const DOCX = new Uint8Array([0x50, 0x4b, 0x03, 0x04, 0, 0, 0, 0]);
+    const HWP = new Uint8Array([0xd0, 0xcf, 0x11, 0xe0, 0xa1, 0xb1, 0x1a, 0xe1, 0, 0]);
+    for (const [name, bytes] of [
+      ["a.docx", DOCX],
+      ["a.png", PNG],
+      ["a.hwp", HWP],
+      ["a.md", new TextEncoder().encode(TEXT)],
+    ] as const) {
+      const res = await listRoute.POST(uploadReq(BASE, "POST", name, bytes));
+      expect(res.status, name).toBe(415);
+      expect(((await res.json()) as { error: string }).error).toContain("포트폴리오 파일은 PDF만 올릴 수 있습니다");
+    }
+    const renamed = await listRoute.POST(uploadReq(BASE, "POST", "renamed.pdf", PNG));
+    expect(renamed.status).toBe(415);
+    expect(((await renamed.json()) as { error: string }).error).toContain("PDF 형식이 아닙니다");
+    expect(await tdb.prisma.portfolio.count({ where: { userId: "ua" } })).toBe(0);
+    expect(await create(uploadReq(BASE, "POST", "진짜.pdf", TEXT))).toMatchObject({ kind: "file", fileName: "진짜.pdf", original: { mime: "application/pdf" } });
+  });
+
+  it("내용 바꾸기도 PDF만(415), 기존 내용은 그대로", async () => {
+    const p = await create(uploadReq(BASE, "POST", "a.pdf", TEXT));
+    const u = `${BASE}/${p.id}`;
+    expect((await itemRoute.PUT(uploadReq(u, "PUT", "b.docx", new Uint8Array([0x50, 0x4b, 0x03, 0x04])), ctx(p.id))).status).toBe(415);
+    expect((await itemRoute.PUT(uploadReq(u, "PUT", "b.pdf", new TextEncoder().encode("<html>")), ctx(p.id))).status).toBe(415);
+    const got = (await (await itemRoute.GET(new Request(u), ctx(p.id))).json()) as { portfolio: PortfolioInfo };
+    expect(got.portfolio).toMatchObject({ fileName: "a.pdf" });
   });
 
   it("개수 제한 없음(많이 있어도 201), 파일 업로드는 레이트 리밋 429", async () => {
@@ -88,10 +121,10 @@ describe("/api/portfolios", () => {
       data: Array.from({ length: 45 }, (_, i) => ({ id: `p${i}`, userId: "ua", title: `p${i}`, kind: "url", url: "https://a.dev" })),
     });
     expect((await listRoute.POST(json(BASE, "POST", { url: "https://x.dev" }))).status).toBe(201);
-    expect((await listRoute.POST(uploadReq(BASE, "POST", "a.md", TEXT))).status).toBe(201);
+    expect((await listRoute.POST(uploadReq(BASE, "POST", "a.pdf", TEXT))).status).toBe(201);
     state.user = { id: "ub" };
     for (let i = 0; i < limits.PORTFOLIO_UPLOAD_LIMIT.limit; i++) await limits.hitDbLimit(limits.PORTFOLIO_UPLOAD_LIMIT, "ub");
-    const res = await listRoute.POST(uploadReq(BASE, "POST", "a.md", TEXT));
+    const res = await listRoute.POST(uploadReq(BASE, "POST", "a.pdf", TEXT));
     expect(res.status).toBe(429);
     expect(Number(res.headers.get("Retry-After"))).toBeGreaterThan(0);
   });
@@ -105,7 +138,7 @@ describe("/api/portfolios", () => {
 
 describe("/api/portfolios/[id]", () => {
   it("상세(미리보기·include=text) → 이름·설명 고치기 → 내용 바꾸기(파일 → 링크) → 지우기(이력서에서 떨어짐)", async () => {
-    const p = await create(uploadReq(BASE, "POST", "a.md", TEXT));
+    const p = await create(uploadReq(BASE, "POST", "a.pdf", TEXT));
     const u = `${BASE}/${p.id}`;
     const got = (await (await itemRoute.GET(new Request(u), ctx(p.id))).json()) as { portfolio: PortfolioListItem; chars: number; preview: string; text?: string };
     expect(got.portfolio.id).toBe(p.id);
@@ -119,8 +152,8 @@ describe("/api/portfolios/[id]", () => {
     expect((await itemRoute.PATCH(json(u, "PATCH", { title: "" }), ctx(p.id))).status).toBe(400);
     expect((await itemRoute.PATCH(json(u, "PATCH", {}), ctx(p.id))).status).toBe(400);
 
-    const replaced = await itemRoute.PUT(uploadReq(u, "PUT", "b.md", `두 번째 ${TEXT}`), ctx(p.id));
-    expect(((await replaced.json()) as { portfolio: PortfolioInfo }).portfolio).toMatchObject({ fileName: "b.md", title: "새 이름" });
+    const replaced = await itemRoute.PUT(uploadReq(u, "PUT", "b.pdf", `두 번째 ${TEXT}`), ctx(p.id));
+    expect(((await replaced.json()) as { portfolio: PortfolioInfo }).portfolio).toMatchObject({ fileName: "b.pdf", title: "새 이름" });
     const toUrl = await itemRoute.PUT(json(u, "PUT", { url: "https://me.dev" }), ctx(p.id));
     expect(((await toUrl.json()) as { portfolio: PortfolioInfo }).portfolio).toMatchObject({ kind: "url", url: "https://me.dev", description: "역할 메모" });
 
@@ -139,7 +172,7 @@ describe("/api/portfolios/[id]", () => {
     expect((await itemRoute.GET(new Request(u), ctx(p.id))).status).toBe(404);
     expect((await itemRoute.PATCH(json(u, "PATCH", { title: "x" }), ctx(p.id))).status).toBe(404);
     expect((await itemRoute.PUT(json(u, "PUT", { url: "https://x.dev" }), ctx(p.id))).status).toBe(404);
-    expect((await itemRoute.PUT(uploadReq(u, "PUT", "a.md", TEXT), ctx(p.id))).status).toBe(404);
+    expect((await itemRoute.PUT(uploadReq(u, "PUT", "a.pdf", TEXT), ctx(p.id))).status).toBe(404);
     expect((await itemRoute.DELETE(new Request(u, { method: "DELETE" }), ctx(p.id))).status).toBe(404);
     state.user = { id: "ua" };
     expect((await itemRoute.GET(new Request(u), ctx(p.id))).status).toBe(200);

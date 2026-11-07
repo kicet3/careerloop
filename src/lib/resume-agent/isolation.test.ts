@@ -143,7 +143,7 @@ describe("사용자 간 격리", () => {
     expect(job.failedStep).toBe("r0.retrieve");
     const step = await tdb.prisma.resumeAgentStep.findFirstOrThrow({ where: { jobId: id, key: "r0.retrieve" } });
     expect(step.attempt).toBe(1);
-    expect(state.calls.filter((c) => c.label === "resume-agent-plan")).toHaveLength(0);
+    expect(state.calls.filter((c) => c.label === "resume-agent-plan" || c.label === "resume-agent-brief" || c.label === "resume-agent-section")).toHaveLength(0);
   });
 
   it("B는 A의 작업을 볼 수 없다(404)", async () => {
@@ -162,6 +162,12 @@ describe("소스 검사(그래프 읽기 경로)", () => {
       const p = path.join(d, f);
       return statSync(p).isDirectory() ? files(p) : p.endsWith(".ts") && !p.endsWith(".test.ts") && !p.includes("__fixtures__") ? [p] : [];
     });
+
+  it("v2 근거 검색(evidence-source.ts)은 loadAgentGraph로만 그래프를 읽는다", () => {
+    const src = readFileSync(path.join(dir, "evidence-source.ts"), "utf8");
+    expect(src).toContain("load: (job: { userId: string }) => Promise<CareerGraph> = loadAgentGraph");
+    expect(src).not.toMatch(/getCareerGraph\(/);
+  });
 
   it("resume-agent 안에서 getCareerGraph는 evidence.ts loadAgentGraph 본문에서만 부른다", () => {
     for (const f of files(dir)) {

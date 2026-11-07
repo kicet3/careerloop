@@ -54,6 +54,8 @@ vi.mock("@/lib/graph/service", async () => {
 
 // 엔진: API 키만 있는 서버로 보이게 하고(CLI 상태 확인 없음), 클라이언트는 결정적 가짜로 바꿔 실제 호출을 막는다.
 process.env.ANTHROPIC_API_KEY = "test-key";
+// 기존(결정적 검색·리랭크) 파이프라인을 본다. 에이전트 경로(GRAPH_RAG 기본 켬)는 src/lib/rag/*.test.ts.
+process.env.GRAPH_RAG = "0";
 delete process.env.CLI_PROVIDERS;
 vi.mock("@/lib/llm", async (importOriginal) => {
   const { FakeLlmClient } = await import("@/test/fake-llm");

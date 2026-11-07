@@ -1,11 +1,11 @@
 /**
- * 보관한 포트폴리오 원본을 그대로 보여 준다(서버·클라이언트 공용, 상태 없음). 내용은 소유자만 읽는 GET /api/portfolios/[id]/original.
- * - PDF: 브라우저 PDF 보기(iframe). 모바일처럼 iframe PDF를 그리지 못하는 기기는 새 탭·내려받기 안내(PortfolioPdfFrame). 이미지: img. DOCX: 서버가 바꾼 HTML을 sandbox iframe(스크립트 불가)으로.
+ * 보관한 포트폴리오 원본을 그대로 보여 준다(서버·클라이언트 공용, 상태 없음). 내용은 소유자만 읽는 GET /api/portfolios/[id]/original, 공개 링크 화면은 GET /api/p/[token]/original(src).
+ * - PDF: 화면 안 PDF 보기(PdfViewer — pdf.js 캔버스, 모바일 포함. 원본 라우트 ?viewer=1의 Range 조각을 받는다). 이미지: img. DOCX: 서버가 바꾼 HTML을 sandbox iframe(스크립트 불가)으로.
  * - HWP·HWPX·HTML·TXT·MD: 화면에 원본을 그리지 않는다(뽑은 글은 상세 화면이 따로 보인다) — 원본 내려받기만.
  */
 import { buttonClass } from "@/components/ui/Button";
 import type { PortfolioOriginalInfo } from "@/lib/domain/portfolios";
-import { PortfolioPdfFrame } from "./PortfolioPdfFrame";
+import { PdfViewer } from "./PdfViewer";
 
 // FileDrop.formatBytes와 같은 꼴(그 모듈은 클라이언트 전용이라 서버 화면에서 부를 수 없다).
 function formatBytes(n: number): string {
@@ -14,25 +14,38 @@ function formatBytes(n: number): string {
   return `${(n / 1024 / 1024).toFixed(1)} MB`;
 }
 
-/** 원본 주소. version(수정 시각)을 붙여 내용을 바꾼 뒤 iframe·img가 옛 응답을 다시 쓰지 않게 한다. */
-export function portfolioOriginalUrl(portfolioId: string, opts: { download?: boolean; html?: boolean; version?: number } = {}): string {
+/** 소유자 라우트의 원본 주소(쿼리 없이). */
+export function ownerOriginalBase(portfolioId: string): string {
+  return `/api/portfolios/${encodeURIComponent(portfolioId)}/original`;
+}
+
+/** 원본 주소. version(수정 시각)을 붙여 내용을 바꾼 뒤 iframe·img가 옛 응답을 다시 쓰지 않게 한다. base: 쿼리 없는 원본 라우트 주소. */
+export function portfolioOriginalUrl(
+  base: string,
+  opts: { download?: boolean; html?: boolean; viewer?: boolean; version?: number } = {},
+): string {
   const q = new URLSearchParams();
   if (opts.download) q.set("download", "1");
   else if (opts.html) q.set("view", "html");
+  else if (opts.viewer) q.set("viewer", "1");
   if (opts.version) q.set("v", String(opts.version));
   const qs = q.toString();
-  return `/api/portfolios/${encodeURIComponent(portfolioId)}/original${qs ? `?${qs}` : ""}`;
+  return `${base}${qs ? `?${qs}` : ""}`;
 }
 
 export function PortfolioOriginalViewer({
   portfolioId,
+  src: srcBase,
   fileName,
   original,
   version,
   /** 보기 칸 높이(PDF·DOCX). 목록 카드에서는 낮게. */
   height = "80vh",
 }: {
-  portfolioId: string;
+  /** 소유자 화면: 포트폴리오 id(소유자 라우트). */
+  portfolioId?: string;
+  /** 공개 링크 화면: 쿼리 없는 원본 주소(/api/p/<token>/original). portfolioId보다 먼저 쓴다. */
+  src?: string;
   fileName: string | null;
   original: PortfolioOriginalInfo;
   /** 포트폴리오 수정 시각(주소에 붙인다). */
@@ -40,11 +53,17 @@ export function PortfolioOriginalViewer({
   height?: string;
 }) {
   const name = fileName ?? "포트폴리오";
-  const src = portfolioOriginalUrl(portfolioId, { version });
+  const base = srcBase ?? ownerOriginalBase(portfolioId ?? "");
+  const src = portfolioOriginalUrl(base, { version });
   return (
     <div className="space-y-2">
       {original.view === "pdf" && (
-        <PortfolioPdfFrame src={src} downloadHref={portfolioOriginalUrl(portfolioId, { download: true, version })} title={`${name} 원본`} height={height} />
+        <PdfViewer
+          src={portfolioOriginalUrl(base, { viewer: true, version })}
+          downloadHref={portfolioOriginalUrl(base, { download: true, version })}
+          title={`${name} 원본`}
+          height={height}
+        />
       )}
       {original.view === "image" && (
         // 소유자만 읽는 같은 출처 라우트라 next/image 최적화(공개 캐시)를 쓰지 않는다.
@@ -53,7 +72,7 @@ export function PortfolioOriginalViewer({
       )}
       {original.view === "docx" && (
         <iframe
-          src={portfolioOriginalUrl(portfolioId, { html: true, version })}
+          src={portfolioOriginalUrl(base, { html: true, version })}
           title={`${name} 미리보기`}
           sandbox=""
           className="w-full rounded-lg border border-slate-200 bg-white"
@@ -67,7 +86,7 @@ export function PortfolioOriginalViewer({
         </p>
       )}
       <div className="flex flex-wrap items-center gap-2 text-xs text-slate-500">
-        <a href={portfolioOriginalUrl(portfolioId, { download: true, version })} className={buttonClass("secondary", "sm")}>
+        <a href={portfolioOriginalUrl(base, { download: true, version })} className={buttonClass("secondary", "sm")}>
           원본 내려받기
         </a>
         {(original.view === "pdf" || original.view === "image") && (

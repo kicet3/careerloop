@@ -28,8 +28,29 @@ export interface PortfolioOriginalInfo {
   view: PortfolioOriginalView;
 }
 
-/** 포트폴리오 업로드에서 받는 확장자(이력서·공고 업로드에 이미지를 더한 것 — 이미지는 포트폴리오만 받는다). */
-export const PORTFOLIO_UPLOAD_ACCEPT = [".pdf", ".docx", ".hwp", ".hwpx", ".html", ".htm", ".txt", ".md", ".png", ".jpg", ".jpeg", ".webp"];
+/**
+ * 포트폴리오 새 업로드(새로 만들기·내용 바꾸기·이력서에서 바로 올리기)는 PDF만 받는다. 서버(src/lib/portfolios/original.ts)도 확장자 +
+ * 내용(%PDF-)으로 다시 거른다. 예전에 올린 DOCX·HWP·이미지·글 원본은 그대로 보이고 내려받을 수 있다(보기 쪽 형식 목록은 서버가 따로 갖는다).
+ */
+export const PORTFOLIO_UPLOAD_ACCEPT = [".pdf"];
+/** 파일 고르기 창의 accept 값(확장자 + MIME). */
+export const PORTFOLIO_UPLOAD_ACCEPT_ATTR = ".pdf,application/pdf";
+/** PDF가 아닌 파일을 고르거나 보냈을 때(화면·서버 공용 문구). */
+export const PORTFOLIO_PDF_ONLY_MESSAGE = "포트폴리오 파일은 PDF만 올릴 수 있습니다. 다른 형식은 PDF로 저장(내보내기)해 올려 주세요.";
+/** 확장자는 .pdf인데 내용이 PDF가 아닐 때. */
+export const PORTFOLIO_NOT_PDF_CONTENT_MESSAGE = "파일 내용이 PDF 형식이 아닙니다. 확장자만 바꾼 파일은 올릴 수 없습니다. PDF로 저장(내보내기)해 올려 주세요.";
+/** 앞부분에서 찾는 PDF 표식 범위(명세상 %PDF- 앞에 다른 바이트가 조금 올 수 있다). */
+export const PDF_SIGNATURE_SCAN_BYTES = 1024;
+
+/** 앞 PDF_SIGNATURE_SCAN_BYTES 안에 %PDF- 표식이 있는지(화면·서버 공용 — Buffer 없이). */
+export function hasPdfSignature(bytes: Uint8Array): boolean {
+  const sig = [0x25, 0x50, 0x44, 0x46, 0x2d]; // %PDF-
+  const end = Math.min(bytes.length, PDF_SIGNATURE_SCAN_BYTES) - sig.length;
+  for (let i = 0; i <= end; i++) {
+    if (sig.every((v, j) => bytes[i + j] === v)) return true;
+  }
+  return false;
+}
 
 /** 포트폴리오 파일 하나의 기본 상한(MB). 서버는 PORTFOLIO_MAX_UPLOAD_MB로 바꿀 수 있다. */
 export const DEFAULT_PORTFOLIO_MAX_UPLOAD_MB = 30;
@@ -162,10 +183,22 @@ export const PortfolioUploadIdSchema = z
   .string()
   .regex(/^[a-z0-9]{12,40}\.(pdf|docx|hwp|hwpx|html|txt|md|png|jpg|webp)$/, "업로드 정보가 올바르지 않습니다. 파일을 다시 올려 주세요.");
 
-/** POST /api/portfolios/uploads — 큰 파일을 R2에 바로 올릴 서명 주소 받기. */
+/** 화면: 올리기 전에 앞부분을 읽어 PDF 표식(%PDF-)을 확인한다(서버도 다시 확인한다). 문제가 없거나 읽지 못하면 null(서버 판단에 맡긴다). */
+export async function checkPortfolioPdf(file: Blob): Promise<string | null> {
+  let head: Uint8Array;
+  try {
+    head = new Uint8Array(await file.slice(0, PDF_SIGNATURE_SCAN_BYTES).arrayBuffer());
+  } catch {
+    return null;
+  }
+  return hasPdfSignature(head) ? null : PORTFOLIO_NOT_PDF_CONTENT_MESSAGE;
+}
+
+/** POST /api/portfolios/uploads — 큰 파일을 R2에 바로 올릴 서명 주소 받기. type은 브라우저가 알려 준 MIME(비었을 수 있다 — PDF가 아니면 거절). */
 export const PortfolioUploadInitSchema = z.object({
   fileName: z.string().trim().min(1, "파일 이름이 없습니다.").max(200, "파일 이름이 너무 깁니다."),
   size: z.number().int().positive("빈 파일입니다."),
+  type: z.string().trim().max(200).optional(),
 });
 
 /** R2에 바로 올린 뒤 마무리(만들기·내용 바꾸기·이력서에 붙이기 공용). */

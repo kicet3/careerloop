@@ -7,6 +7,7 @@ import { requireUser } from "@/lib/auth/session";
 import { listVisibleGraphPortfolioJobs } from "@/lib/portfolios/graph-jobs";
 import { portfolioUploadLimits } from "@/lib/portfolios/http";
 import { listPortfolios } from "@/lib/portfolios/service";
+import { listSharedPortfolioIds } from "@/lib/portfolios/shares";
 import { listPostings } from "@/lib/postings/service";
 import { listProviderOptions, pickDefault } from "@/lib/providers/options";
 
@@ -23,11 +24,12 @@ export default async function PortfoliosPage({ searchParams }: { searchParams: P
   const user = await requireUser("/app/portfolios");
   const sp = await searchParams;
   const wantGraph = sp.new === "graph";
-  const [items, jobs, postings, providers] = await Promise.all([
+  const [items, jobs, postings, providers, sharedIds] = await Promise.all([
     listPortfolios(user.id),
     listVisibleGraphPortfolioJobs(user.id),
     listPostings(user.id),
     listProviderOptions(),
+    listSharedPortfolioIds(user.id),
   ]);
   const { config: upload } = portfolioUploadLimits();
 
@@ -76,7 +78,7 @@ export default async function PortfoliosPage({ searchParams }: { searchParams: P
         <ul className="grid gap-4 xl:grid-cols-2">
           {items.map((p) => (
             <li key={p.id}>
-              <PortfolioItem portfolio={p} upload={upload} variant="card" />
+              <PortfolioItem portfolio={p} upload={upload} variant="card" shared={sharedIds.has(p.id)} />
             </li>
           ))}
         </ul>

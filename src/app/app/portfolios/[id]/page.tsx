@@ -4,11 +4,14 @@ import { notFound } from "next/navigation";
 import { GraphPortfolioView } from "@/components/portfolios/GraphPortfolioView";
 import { PortfolioItem } from "@/components/portfolios/PortfolioItem";
 import { PortfolioOriginalViewer } from "@/components/portfolios/PortfolioOriginalViewer";
+import { PortfolioSharePanel } from "@/components/portfolios/PortfolioSharePanel";
 import { Card, CardBody, CardHeader } from "@/components/ui/Card";
 import { requireUser } from "@/lib/auth/session";
+import { countPortfolioAddMarkers } from "@/lib/domain/graph-portfolio";
 import { findActiveRegenerateJob } from "@/lib/portfolios/graph-jobs";
 import { portfolioUploadLimits } from "@/lib/portfolios/http";
 import { getPortfolio, getPortfolioText } from "@/lib/portfolios/service";
+import { getShareStatus } from "@/lib/portfolios/shares";
 import { listPostings } from "@/lib/postings/service";
 import { listProviderOptions, pickDefault } from "@/lib/providers/options";
 
@@ -33,10 +36,21 @@ export async function generateMetadata({ params }: Props): Promise<Metadata> {
 export default async function PortfolioPage({ params }: Props) {
   const { id } = await params;
   const user = await requireUser(`/app/portfolios/${id}`);
-  const [portfolio, got] = await Promise.all([getPortfolio(user.id, id), getPortfolioText(user.id, id)]);
+  const [portfolio, got, shareStatus] = await Promise.all([getPortfolio(user.id, id), getPortfolioText(user.id, id), getShareStatus(user.id, id)]);
   if (!portfolio || !got) notFound();
   const text = got.text ?? "";
   const { config: upload } = portfolioUploadLimits();
+  const share = shareStatus?.share ?? null;
+  const sharePanel = (
+    <PortfolioSharePanel
+      portfolioId={portfolio.id}
+      kind={portfolio.kind}
+      hasOriginal={!!portfolio.original}
+      openMarkers={portfolio.kind === "graph" ? countPortfolioAddMarkers(text) : 0}
+      ownerName={user.name}
+      initial={share}
+    />
+  );
 
   if (portfolio.kind === "graph") {
     const [postings, providers, regenerating] = await Promise.all([
@@ -50,8 +64,9 @@ export default async function PortfolioPage({ params }: Props) {
           <span aria-hidden>←</span> 포트폴리오 목록
         </Link>
         <div className="print:hidden">
-          <PortfolioItem portfolio={portfolio} upload={upload} variant="detail" />
+          <PortfolioItem portfolio={portfolio} upload={upload} variant="detail" shared={!!share} />
         </div>
+        {sharePanel}
         {/* 본문이 없어도(저장소 객체 유실 등) 같은 화면에서 다시 만들기·직접 쓰기로 이 포트폴리오를 채운다(붙인 이력서가 그대로 이어진다). */}
         <GraphPortfolioView
           key={regenerating?.id ?? "idle"}
@@ -71,7 +86,8 @@ export default async function PortfolioPage({ params }: Props) {
       <Link href="/app/portfolios" className="inline-flex items-center gap-1 text-sm text-slate-500 hover:text-slate-800">
         <span aria-hidden>←</span> 포트폴리오 목록
       </Link>
-      <PortfolioItem portfolio={portfolio} upload={upload} variant="detail" />
+      <PortfolioItem portfolio={portfolio} upload={upload} variant="detail" shared={!!share} />
+      {sharePanel}
 
       {portfolio.kind === "file" && (
         <Card>

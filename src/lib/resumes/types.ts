@@ -23,6 +23,8 @@ export const MAX_RESUME_META_CHARS = 120;
 /** JD 붙여넣기 한도(진단 입력과 같다). */
 export const MAX_RESUME_JD_CHARS = 30_000;
 export const MAX_RESUME_NOTE_CHARS = 200;
+/** '다시 생성'의 강조할 점 메모 길이. */
+export const MAX_RESUME_EMPHASIS_CHARS = 500;
 /** 사용자당 이력서 수, 이력서당 버전 수. */
 export const MAX_RESUMES_PER_USER = 100;
 export const MAX_VERSIONS_PER_RESUME = 200;
@@ -83,6 +85,13 @@ export const CreateResumeInputSchema = z
      * 비우면 에이전트를 쓸 수 있을 때 'agent'. 진단 출처는 항상 'single'.
      */
     mode: z.enum(["agent", "single"]).optional(),
+    /** 사용자가 강조해 달라고 적은 점('다시 생성' 메모). 프롬프트에는 데이터로만 넣는다(사실 근거가 아니다). */
+    emphasis: z.string().trim().max(MAX_RESUME_EMPHASIS_CHARS, `강조할 점은 ${MAX_RESUME_EMPHASIS_CHARS}자 이내로 적어 주세요.`).optional(),
+    /**
+     * '다시 생성'에서 사용자가 JD를 고쳤으면 true — 완료 뒤 이 jdText를 이력서 JD 칸에 반영한다. 고치지 않았으면 이력서 JD를 건드리지 않는다
+     * (에이전트 작업은 저장 입력의 JD를 잘라 두므로, 이것 없이 비교하면 긴 JD가 잘린 값으로 바뀐다).
+     */
+    replaceJd: z.boolean().optional(),
   })
   .superRefine((v, ctx) => {
     if (v.kind !== "company") return;
@@ -92,6 +101,35 @@ export const CreateResumeInputSchema = z
 export type CreateResumeInput = z.infer<typeof CreateResumeInputSchema>;
 /** 화면이 보내는 본문(기본값 채우기 전). */
 export type CreateResumeRequest = z.input<typeof CreateResumeInputSchema>;
+
+/**
+ * POST /api/resumes/[id]/regenerate — 이미 만든 이력서를 다시 생성한다(결과는 이 이력서의 새 버전, 새 이력서가 아니다).
+ * - mode: 'agent'(심사위원 검토, 쓸 수 있을 때 기본) | 'single'(빠른 초안). 비우면 에이전트를 쓸 수 있을 때 'agent'.
+ * - jdText: 주면 이 JD로 다시 쓴다(완료되면 이력서의 JD 칸도 바꾼다). 생략하면 이력서의 JD 그대로. 공용 이력서는 무시.
+ * - templateId: 주면 그 양식으로 다시 쓰고, 완료되면 이력서 양식도 바꾼다. 생략하면 지금 양식.
+ * - note: 강조할 점(선택).
+ */
+export const RegenerateResumeInputSchema = z.object({
+  mode: z.enum(["agent", "single"]).optional(),
+  jdText: jdText.optional(),
+  templateId: ResumeTemplateIdSchema.optional(),
+  note: z.string().trim().max(MAX_RESUME_EMPHASIS_CHARS, `강조할 점은 ${MAX_RESUME_EMPHASIS_CHARS}자 이내로 적어 주세요.`).optional().default(""),
+  /** AI 엔진(providers). 비우면 기본 엔진. */
+  provider: z.string().max(40).nullable().optional(),
+});
+export type RegenerateResumeInput = z.infer<typeof RegenerateResumeInputSchema>;
+export type RegenerateResumeRequest = z.input<typeof RegenerateResumeInputSchema>;
+
+/** POST /api/resumes/[id]/regenerate 202: 시작한 작업(진행 화면 경로). modeFallback은 에이전트를 요청했지만 쓸 수 없어 빠른 초안으로 시작했을 때. */
+export interface RegenerateResumeResponse {
+  mode: "agent" | "single";
+  jobId: string;
+  href: string;
+  modeFallback?: "agent_unavailable";
+}
+
+/** 다시 생성 버전의 메모(버전 목록·배너가 이것으로 '다시 생성' 버전을 알아본다). */
+export const REGENERATE_VERSION_NOTES = { agent: "AI 다시 생성 (에이전트)", single: "AI 다시 생성 (빠른 초안)" } as const;
 
 /** PATCH /api/resumes/[id] — 메타만(본문은 버전 저장). 양식 전환·'사진 넣기'도 여기서 한다. */
 export const UpdateResumeMetaSchema = z

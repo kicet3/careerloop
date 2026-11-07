@@ -518,8 +518,11 @@ export async function deletePortfolio(userId: string, id: string): Promise<{ det
   const row = await ownedRow(userId, id);
   if (!row) return null;
   const detached = await prisma.companyResume.count({ where: { userId, portfolioId: id } });
+  // 공개 링크 행은 CASCADE로 지워진다 — 그 공유의 챗봇 레이트 기록(IP 해시)은 FK가 없어 따로 지운다.
+  const shareIds = (await prisma.portfolioShare.findMany({ select: { id: true }, where: { portfolioId: id, userId } })).map((r) => r.id);
   const { count } = await prisma.portfolio.deleteMany({ where: { id, userId } });
   if (count === 0) return null;
+  if (shareIds.length > 0) await (await import("./shares")).deleteShareRateEvents(shareIds);
   try {
     const keys = new Set<string>([row.textKey, row.originalKey].filter((k): k is string => !!k));
     for (const k of await listByPrefix(userPrefix(userId, "portfolios", id))) keys.add(k);

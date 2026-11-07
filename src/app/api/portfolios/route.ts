@@ -22,7 +22,7 @@ export async function GET() {
 
 /**
  * 새 포트폴리오(개수 제한 없음).
- * - multipart/form-data: file(PDF·DOCX·HWP·HWPX·HTML·TXT·MD·PNG·JPG·WEBP, Vercel 4MB 이하) + 선택 title·description.
+ * - multipart/form-data: file(PDF만 — 확장자 .pdf + 내용 %PDF-, 아니면 415. Vercel 4MB 이하) + 선택 title·description.
  *   원본을 그대로 보관하고(화면에 그대로 보인다) AI용 글을 뽑아 둔다. 사용자당 24시간 30회(PORTFOLIO_UPLOAD_LIMIT). → 201 { portfolio, truncated, warnings }
  * - application/json { uploadId, fileName, title?, description? }: R2에 바로 올린 큰 파일 마무리(POST /api/portfolios/uploads 참고). → 201 같은 꼴
  * - application/json: { url, title?, description? }(http/https). 서버는 그 주소를 열지 않는다. → 201 { portfolio, truncated: false, warnings: [] }

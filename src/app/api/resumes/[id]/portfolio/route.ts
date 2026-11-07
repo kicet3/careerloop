@@ -54,7 +54,7 @@ export async function GET(req: Request, { params }: Ctx) {
  * 포트폴리오 붙이기·바꾸기(이력서당 하나 — 있던 첨부는 대체되고, 보관함의 이전 포트폴리오는 그대로 남는다).
  * - application/json { portfolioId }: 내 보관함의 포트폴리오를 붙인다(남의 것·없는 것은 404). → { resume }
  * - application/json { url, title?, description? }: 링크로 보관함에 새 포트폴리오를 만들어 붙인다. → { resume, portfolio }
- * - multipart/form-data: file(+ 선택 title·description). 보관함에 새로 올리고(원본 보관) 붙인다. 업로드 레이트 리밋(PORTFOLIO_UPLOAD_LIMIT)을 센다.
+ * - multipart/form-data: file(PDF만, 아니면 415)(+ 선택 title·description). 보관함에 새로 올리고(원본 보관) 붙인다. 업로드 레이트 리밋(PORTFOLIO_UPLOAD_LIMIT)을 센다.
  *   → { resume, portfolio, truncated, warnings }
  * - application/json { uploadId, fileName, title?, description? }: R2에 바로 올린 큰 파일을 보관함에 넣고 붙인다. → 같은 꼴
  */

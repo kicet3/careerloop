@@ -266,6 +266,16 @@ export interface SaveVersionOptions {
    * AI 다듬기 적용·AI 초안처럼 작업본과 상관없는 저장은 작업본을 남겨 두고, 화면이 기준 버전이 바뀐 것을 충돌로 알린다.
    */
   clearEditDraft?: boolean;
+  /**
+   * 미리 정한 버전 id(newVersionId로 만든 값). '다시 생성' 작업이 저장하기 전에 id를 작업에 적어 두고, 완료 기록 전에 끊긴 시도의
+   * 버전을 다음 시도가 지울 수 있게 한다(같은 작업이 버전을 둘 만들지 않게).
+   */
+  versionId?: string;
+}
+
+/** saveVersion에 넘길 새 버전 id. */
+export function newVersionId(): string {
+  return newId();
 }
 
 /**
@@ -289,7 +299,7 @@ async function reserveVersion(userId: string, resumeId: string, opts: SaveVersio
     const versionNo = (agg._max.versionNo ?? 0) + 1;
     const row = await tx.resumeVersion.create({
       data: {
-        id: newId(),
+        id: opts.versionId ?? newId(),
         resumeId,
         versionNo,
         storageKey: versionStorageKey(userId, resumeId, versionNo),
@@ -497,6 +507,28 @@ export async function restoreVersion(userId: string, resumeId: string, versionId
   const found = await getVersionDocument(userId, resumeId, versionId);
   if (!found) return null;
   return saveVersion(userId, resumeId, found.document, { source: "manual", note: `v${found.version.versionNo}에서 복원`, clearEditDraft: true });
+}
+
+/**
+ * 버린 버전 지우기('다시 생성' 작업이 저장한 뒤 완료 기록 전에 끊기거나 버려진 시도의 버전). 내 이력서의 그 버전만 지운다.
+ * 현재 버전이었으면 남은 버전 중 가장 새 번호로 포인터를 되돌린다. 본문 객체는 이력서 잠금 안에서 지운다 — 같은 번호를 다른 저장이
+ * 다시 예약하기 전에(잠금을 풀기 전에) 지워야 새 본문을 지우지 않는다. 지웠으면 true.
+ */
+export async function discardVersion(userId: string, resumeId: string, versionId: string): Promise<boolean> {
+  return prisma.$transaction(async (tx) => {
+    await lockResume(tx, resumeId);
+    const r = await tx.companyResume.findFirst({ select: { currentVersionId: true }, where: { id: resumeId, userId } });
+    if (!r) return false;
+    const v = await tx.resumeVersion.findFirst({ select: { id: true, storageKey: true }, where: { id: versionId, resumeId } });
+    if (!v) return false;
+    await tx.resumeVersion.deleteMany({ where: { id: v.id } });
+    if (r.currentVersionId === v.id) {
+      const prev = await tx.resumeVersion.findFirst({ select: { id: true }, where: { resumeId }, orderBy: { versionNo: "desc" } });
+      await tx.companyResume.updateMany({ where: { id: resumeId, userId }, data: { currentVersionId: prev?.id ?? null } });
+    }
+    await deleteObject(v.storageKey).catch((err) => console.error("[discardVersion] 저장소 객체 삭제 실패", resumeId, (err as Error)?.name));
+    return true;
+  });
 }
 
 /**

@@ -67,7 +67,7 @@ export async function PATCH(req: Request, { params }: Ctx) {
 
 /**
  * 내용 바꾸기(이름·설명·첨부한 이력서는 그대로).
- * - multipart/form-data: file. 업로드 레이트 리밋을 센다. 원본도 새 파일로 바꾸고 옛 원본·글은 지운다. → { portfolio, truncated, warnings }
+ * - multipart/form-data: file(PDF만, 아니면 415). 업로드 레이트 리밋을 센다. 원본도 새 파일로 바꾸고 옛 원본·글은 지운다. → { portfolio, truncated, warnings }
  * - application/json { uploadId, fileName }: R2에 바로 올린 큰 파일로 바꾸기. → 같은 꼴
  * - application/json: { url }. 옛 원본·글은 지운다. → { portfolio, truncated: false, warnings: [] }
  */

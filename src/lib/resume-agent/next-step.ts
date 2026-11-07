@@ -7,9 +7,13 @@
  * - 'failed' 행: 시도를 다 썼거나 영구 오류. round 0 단계면 작업 실패, review·revise면 가장 좋은 검증 초안으로 마무리(review_failed),
  *   final_panel이면 건너뛴다(리포트 finalPanel = null).
  */
-import type { AgentStepKind } from "./job-types";
+import type { AgentStepKind, SectionId } from "./job-types";
 import { stepKey } from "./job-types";
 import {
+  BriefStepOutputSchema,
+  ComposeStepOutputSchema,
+  CritiqueStepOutputSchema,
+  SectionStepOutputSchema,
   FinalPanelStepOutputSchema,
   FinalizeStepOutputSchema,
   JdStepOutputSchema,
@@ -41,6 +45,11 @@ export const STEP_TOKEN_ESTIMATE: Record<AgentStepKind, number> = {
   revise: 30_000,
   final_panel: 45_000,
   finalize: 0,
+  // v2(구역별 값은 next-step-v2.ts SECTION_TOKEN_ESTIMATE)
+  brief: 25_000,
+  section: 10_000,
+  compose: 14_000,
+  critique: 20_000,
 };
 /** 단계 시작 조건에 쓰는 소요 추정(초). 새 호출의 첫 단계는 언제나 시작할 수 있다(최대 180 + 15 < 270). */
 export const STEP_ESTIMATE_SEC: Record<AgentStepKind, number> = {
@@ -53,6 +62,10 @@ export const STEP_ESTIMATE_SEC: Record<AgentStepKind, number> = {
   revise: 150,
   final_panel: 120,
   finalize: 15,
+  brief: 90,
+  section: 60,
+  compose: 60,
+  critique: 60,
 };
 /** 단계 시간 상한(초). 실제 상한 = min(이 값, 남은 시간 − 15초). */
 export const STEP_CAP_SEC: Record<AgentStepKind, number> = {
@@ -65,6 +78,10 @@ export const STEP_CAP_SEC: Record<AgentStepKind, number> = {
   revise: 200,
   final_panel: 200,
   finalize: 30,
+  brief: 150,
+  section: 150,
+  compose: 150,
+  critique: 150,
 };
 
 export const STEP_OUTPUT_SCHEMAS = {
@@ -77,6 +94,10 @@ export const STEP_OUTPUT_SCHEMAS = {
   revise: ReviseStepOutputSchema,
   final_panel: FinalPanelStepOutputSchema,
   finalize: FinalizeStepOutputSchema,
+  brief: BriefStepOutputSchema,
+  section: SectionStepOutputSchema,
+  compose: ComposeStepOutputSchema,
+  critique: CritiqueStepOutputSchema,
 } as const satisfies Record<AgentStepKind, z.ZodType>;
 export type StepOutputs = { [K in AgentStepKind]: z.infer<(typeof STEP_OUTPUT_SCHEMAS)[K]> };
 
@@ -101,6 +122,8 @@ export interface NextStep {
   key: string;
   kind: AgentStepKind;
   round: number;
+  /** kind 'section'(v2)이면 구역 id. */
+  section?: SectionId;
 }
 
 export interface RunState {

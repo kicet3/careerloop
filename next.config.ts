@@ -48,6 +48,14 @@ const nextConfig: NextConfig = {
     "/api/portfolios": ["./node_modules/pdfjs-dist/cmaps/**/*"],
     "/api/portfolios/*": ["./node_modules/pdfjs-dist/cmaps/**/*"],
     "/api/resumes/*/portfolio": ["./node_modules/pdfjs-dist/cmaps/**/*"],
+    // 화면 PDF 보기(PdfViewer)의 pdf.js 워커·CMap·표준 글꼴·디코더 wasm·ICC를 내려주는 라우트(src/app/pdfjs/[version]/[dir]/[file]).
+    "/pdfjs/**/*": [
+      "./node_modules/pdfjs-dist/legacy/build/pdf.worker.min.mjs",
+      "./node_modules/pdfjs-dist/cmaps/**/*",
+      "./node_modules/pdfjs-dist/standard_fonts/**/*",
+      "./node_modules/pdfjs-dist/wasm/**/*",
+      "./node_modules/pdfjs-dist/iccs/**/*",
+    ],
     "/api/diagnoses/*/pdf": ["./src/lib/report/fonts/**/*"],
     "/api/share/*/pdf": ["./src/lib/report/fonts/**/*"],
     // 이력서 PDF도 보고서와 같은 나눔고딕을 쓴다 (src/lib/resumes/pdf-fonts.ts)

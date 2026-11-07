@@ -4,6 +4,7 @@ import path from "node:path";
 import { strToU8, zipSync } from "fflate";
 import { describe, expect, it, vi } from "vitest";
 import { portfolioOriginalView, portfolioReadable } from "@/lib/domain/portfolios";
+import { makeTestPdf } from "@/test/pdf";
 
 vi.mock("server-only", () => ({}));
 
@@ -58,12 +59,12 @@ describe("상한", () => {
   });
 });
 
-describe("ingestPortfolioFile", () => {
-  it("글 파일은 글을 뽑는다", async () => {
-    const r = await original.ingestPortfolioFile({ name: "a.md", bytes: enc(TEXT) }, MB);
-    expect(r.spec.mime).toBe("text/markdown");
+describe("ingestPortfolioFile (새 업로드 — PDF만)", () => {
+  it("PDF는 글을 뽑는다", async () => {
+    const r = await original.ingestPortfolioFile({ name: "a.pdf", bytes: makeTestPdf(TEXT) }, MB);
+    expect(r.spec.mime).toBe("application/pdf");
     expect(r.text).toContain("40분");
-  });
+  }, 30_000);
 
   it("한국어 PDF에서 글을 뽑는다", async () => {
     const bytes = new Uint8Array(readFileSync(path.join(import.meta.dirname, "../ingest/__fixtures__/korean-cid.pdf")));
@@ -72,24 +73,61 @@ describe("ingestPortfolioFile", () => {
     expect(r.text.length).toBeGreaterThan(10);
   }, 30_000);
 
-  it("이미지는 글을 뽑지 않고(빈 글) AI가 못 읽는다는 경고를 준다", async () => {
-    const r = await original.ingestPortfolioFile({ name: "a.png", bytes: PNG }, MB);
-    expect(r.text).toBe("");
-    expect(r.warnings.join()).toContain("AI");
-  });
-
-  it("글을 뽑지 못한 파일(너무 짧음·손상)은 거절하지 않고 원본만(빈 글 + 경고)", async () => {
-    const short = await original.ingestPortfolioFile({ name: "a.txt", bytes: enc("짧음") }, MB);
+  it("글을 뽑지 못한 PDF(너무 짧음·손상)는 거절하지 않고 원본만(빈 글 + 경고)", async () => {
+    const short = await original.ingestPortfolioFile({ name: "a.pdf", bytes: makeTestPdf("짧음") }, MB);
     expect(short.text).toBe("");
     expect(short.warnings[0]).toContain("원본 파일은 그대로 보관");
     const broken = await original.ingestPortfolioFile({ name: "a.pdf", bytes: enc("%PDF-1.4 broken") }, MB);
     expect(broken.text).toBe("");
   });
 
-  it("크기 초과 413, 빈 파일 400, 형식 거절 415", async () => {
-    await expect(original.ingestPortfolioFile({ name: "a.md", bytes: enc(TEXT) }, 10)).rejects.toMatchObject({ status: 413 });
-    await expect(original.ingestPortfolioFile({ name: "a.md", bytes: new Uint8Array() }, MB)).rejects.toMatchObject({ status: 400 });
-    await expect(original.ingestPortfolioFile({ name: "a.png", bytes: enc(TEXT) }, MB)).rejects.toMatchObject({ status: 415 });
+  it("PDF가 아닌 형식(DOCX·HWP·이미지·글·HTML)은 내용이 맞아도 415 + PDF만 안내", async () => {
+    const docx = zipSync({ "word/document.xml": strToU8("<w:document/>") });
+    const hwp = new Uint8Array([0xd0, 0xcf, 0x11, 0xe0, 0xa1, 0xb1, 0x1a, 0xe1, 0, 0]);
+    for (const [name, bytes] of [
+      ["a.docx", docx],
+      ["a.hwp", hwp],
+      ["a.png", PNG],
+      ["a.jpg", JPG],
+      ["a.webp", WEBP],
+      ["a.md", enc(TEXT)],
+      ["a.txt", enc(TEXT)],
+      ["a.html", enc("<p>x</p>")],
+    ] as const) {
+      await expect(original.ingestPortfolioFile({ name, bytes }, MB), name).rejects.toMatchObject({
+        status: 415,
+        message: expect.stringContaining("PDF만 올릴 수 있습니다"),
+      });
+    }
+  });
+
+  it("확장자만 .pdf로 바꾼 파일(PNG·DOCX·글)은 매직 바이트로 415", async () => {
+    for (const bytes of [PNG, zipSync({ "a.xml": strToU8("<x/>") }), enc(TEXT)]) {
+      await expect(original.ingestPortfolioFile({ name: "renamed.pdf", bytes }, MB)).rejects.toMatchObject({
+        status: 415,
+        message: expect.stringContaining("PDF 형식이 아닙니다"),
+      });
+    }
+  });
+
+  it("%PDF- 표식은 앞 1024바이트 안이어야 한다", async () => {
+    const late = new Uint8Array([...new Uint8Array(1100).fill(0x20), ...enc("%PDF-1.4")]);
+    await expect(original.ingestPortfolioFile({ name: "a.pdf", bytes: late }, MB)).rejects.toMatchObject({ status: 415 });
+    const lead = new Uint8Array([...new Uint8Array(10).fill(0x20), ...makeTestPdf(TEXT)]);
+    expect((await original.ingestPortfolioFile({ name: "a.pdf", bytes: lead }, MB)).spec.ext).toBe("pdf");
+  });
+
+  it("크기 초과 413, 빈 파일 400", async () => {
+    await expect(original.ingestPortfolioFile({ name: "a.pdf", bytes: makeTestPdf(TEXT) }, 10)).rejects.toMatchObject({ status: 413 });
+    await expect(original.ingestPortfolioFile({ name: "a.pdf", bytes: new Uint8Array() }, MB)).rejects.toMatchObject({ status: 400 });
+  });
+
+  it("업로드 형식은 PDF 하나, 보기 형식(예전 원본)은 그대로 안다", () => {
+    expect([...original.PORTFOLIO_UPLOAD_KINDS]).toEqual(["pdf"]);
+    expect(original.portfolioUploadKindFromName("a.PDF")).toBe("pdf");
+    for (const n of ["a.docx", "a.hwp", "a.png", "a.txt", "a.pdf.png", "pdf"]) expect(original.portfolioUploadKindFromName(n)).toBeNull();
+    expect(original.portfolioKindFromName("a.docx")).toBe("docx");
+    expect(original.portfolioKindSpec("png").mime).toBe("image/png");
   });
 });
 

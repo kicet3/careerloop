@@ -11,7 +11,8 @@ import type { ReaderResult, ReviewerId, StageKey, StageOutputs } from "@/lib/dom
 import { runPanelStage } from "@/lib/panel/pipeline";
 import { verifyQuote } from "@/lib/panel/quotes";
 import { isDocPath, locateQuote } from "../citations";
-import { currentPack, draftOfRound, evaluateRun, parsedOutput } from "../next-step";
+import { parsedOutput } from "../next-step";
+import { draftAt, evaluateAny, packAt, pipelineOf, planOf, verifyAt } from "../pipeline";
 import { ReviewPartialSchema, type AgentDraft, type EvidencePack, type FinalPanelStepOutput, type ResumeAgentPlan, type ReviewIssue, type ReviewRound, type ReviewStepOutput, type VerifyReport } from "../schemas";
 import { CORE_REVIEWERS, FINAL_READERS, panelScore } from "../stop";
 import { AgentStepError, panelInputFor, reviewText, UsageMeter, type StepContext, type StepResult } from "./shared";
@@ -129,14 +130,15 @@ export function collectIssues(
 }
 
 function verifyOfRound(ctx: StepContext, k: number): VerifyReport | null {
-  return k === 0 ? (parsedOutput(ctx.rows, "write_top", 0)?.verify ?? null) : (parsedOutput(ctx.rows, "revise", k)?.verify ?? null);
+  return verifyAt(ctx.rows, pipelineOf(ctx.pipeline), k);
 }
 
 export async function runReviewStep(ctx: StepContext, k: number): Promise<StepResult<ReviewStepOutput>> {
+  const version = pipelineOf(ctx.pipeline);
   const jd = parsedOutput(ctx.rows, "jd", 0);
-  const plan = parsedOutput(ctx.rows, "plan", 0);
-  const draft = draftOfRound(ctx.rows, k);
-  const pack = currentPack(ctx.rows, k);
+  const plan = planOf(ctx.rows, version);
+  const draft = draftAt(ctx.rows, version, k);
+  const pack = packAt(ctx.rows, version, k);
   if (!jd || !plan || !draft || !pack) throw new AgentStepError("missing_input", "심사할 초안이 없습니다.", false);
   const full = ctx.settings.panel === "full";
   const reviewers: readonly ReviewerId[] = full ? FULL_REVIEWERS : CORE_REVIEWERS;
@@ -164,7 +166,7 @@ export async function runReviewStep(ctx: StepContext, k: number): Promise<StepRe
     matchScore: fit.matchScore,
     fitItems: fit.items,
     atsKeywordsMissing: ats.keywordsMissing.slice(0, 40),
-    issues: collectIssues(k, outputs, draft.document, text, jd.jd, pack, plan.plan, verifyOfRound(ctx, k)),
+    issues: collectIssues(k, outputs, draft.document, text, jd.jd, pack, plan, verifyOfRound(ctx, k)),
     panelScore: panelScore(verdicts, failedReviewers.length, reviewers.length, fit.matchScore),
     atsPass: isPositiveVerdict("ats", ats.verdict),
     incomplete: failedReviewers.length > 0,
@@ -180,9 +182,10 @@ export async function runReviewStep(ctx: StepContext, k: number): Promise<StepRe
 
 export async function runFinalPanelStep(ctx: StepContext): Promise<StepResult<FinalPanelStepOutput>> {
   const jd = parsedOutput(ctx.rows, "jd", 0);
-  const state = evaluateRun(ctx.rows, { maxRevisions: ctx.settings.maxRevisions, minFit: ctx.settings.minFit, panel: ctx.settings.panel });
+  const version = pipelineOf(ctx.pipeline);
+  const state = evaluateAny(ctx.rows, { version, settings: ctx.settings, company: ctx.job.input.kind === "company" });
   const chosen = state.chosenRound;
-  const draft = chosen === null ? null : draftOfRound(ctx.rows, chosen);
+  const draft = chosen === null ? null : draftAt(ctx.rows, version, chosen);
   if (!jd || !draft || chosen === null) throw new AgentStepError("missing_input", "최종 심사할 초안이 없습니다.", false);
   const round = state.rounds.find((r) => r.round === chosen)!;
   const have = new Set(round.verdicts.map((v) => v.reviewer));

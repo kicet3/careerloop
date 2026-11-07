@@ -744,7 +744,8 @@ export function proposalFromOutput(
 
 /** 답변 생성 실패로 남긴 assistant 메시지. */
 export function isReplyError(m: Pick<ChatMessage, "role" | "status" | "data">): boolean {
-  return m.role === "assistant" && m.status === "failed" && m.data === null;
+  // 경험 질문하기 에이전트가 검증 실패·권한 변경으로 멈춘 답(graph-agent-blocked)도 다시 시도할 수 있다.
+  return m.role === "assistant" && m.status === "failed" && (m.data === null || m.data.kind === "graph-agent-blocked");
 }
 
 export interface ThreadReplyState {
@@ -1454,6 +1455,21 @@ async function requireProposal(userId: string, messageId: string): Promise<ChatM
   return msg as ChatMessage & { data: GraphProposalData };
 }
 
+/** 이 스레드의 가져온 문서 메시지 청크를 다시 만든다(실패해도 적용은 성공 — 로그만). */
+async function syncImportedDocuments(userId: string, threadId: string, deps: Pick<GraphChatDeps, "getGraph">): Promise<void> {
+  try {
+    const messages = (await listMessages(userId, threadId)) ?? [];
+    const docs = messages.filter((m) => m.role === "user" && m.data?.kind === "document-import");
+    if (docs.length === 0) return;
+    const graph = await deps.getGraph(userId, null).catch(() => null);
+    const graphIds = graph ? new Set(graph.nodes.map((n) => n.id)) : null;
+    const { syncSourceSafely } = await import("@/lib/rag/chunks/sync");
+    for (const m of docs) await syncSourceSafely(userId, "document-import", m.id, { graphIds });
+  } catch {
+    // 색인은 품질 문제다 — 다음 재색인이 복구한다.
+  }
+}
+
 /**
  * 변경안을 적용한다. 'proposed' → 'applied'로 먼저 선점(동시 클릭·중복 요청 방지)한 뒤 applyGraphOps를 부르고,
  * 실패하면 'failed'(+사유)로 바꾼다. applyGraphOps는 한 트랜잭션이라 실패하면 그래프는 그대로다.
@@ -1485,6 +1501,8 @@ export async function applyGraphProposal(
       else delete data.droppedFollowups;
     }
     const message = await updateMessage(userId, messageId, { data });
+    // 경험 질문하기 문서 색인: 가져온 문서(이 스레드의 document-import 메시지)의 청크를 새 노드와 이어 다시 만든다(원문은 sync가 소유 조건으로 다시 읽는다).
+    if (msg.data.source === "document-import") await syncImportedDocuments(userId, msg.threadId, deps);
     // 지운 Project에 이어 둔 GitHub 저장소 연결을 푼다(Neo4j id라 FK가 없다).
     const deletedIds = deduped.ops.flatMap((o) => (o.op === "deleteNode" ? [o.id] : []));
     await unlinkDeletedProjects(userId, deletedIds).catch((err) => console.error("[graph-chat github]", messageId, err));

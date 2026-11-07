@@ -14,6 +14,8 @@ import {
   type ChatMessage,
   type ChatThread,
   type GraphAnswerData,
+  type GraphAgentAnswerData,
+  type GraphAgentBlockedData,
   type GraphAnswerSuggestion,
   type GraphQaOutput,
   GraphQaOutputSchema,
@@ -31,6 +33,12 @@ import { answerK, llmRerank, MIN_K, type Ranked, rerank, shouldLlmRerank } from 
 import { INTENT_TAG, type QueryIntent, retrieve } from "@/lib/graph/retrieve";
 import { graphEnabled, GraphUnavailableError } from "@/lib/graph/service";
 import { LlmPermanentError } from "@/lib/llm";
+import { analyzeQuery } from "@/lib/graph/retrieve";
+import { type AgentDeps, type AgentOutcome, defaultAgentDeps, runAgentQa } from "@/lib/rag/agent";
+import { historyMessagesForPrompt, revalidateAgentMessages, toClientCitation } from "@/lib/rag/citations";
+import { ragEnabled } from "@/lib/rag/config";
+import { ragLog } from "@/lib/rag/log";
+import { readRagState } from "@/lib/rag/versions";
 import {
   assertWithinLimit,
   defaultGraphChatDeps,
@@ -58,7 +66,16 @@ const debugEnabled = () => process.env.NODE_ENV !== "production";
 /** 답변 호출 max_tokens(thinking 포함). */
 export const QA_MAX_TOKENS = 8000;
 
-export type GraphQaDeps = Pick<GraphChatDeps, "getGraph" | "createClient" | "now">;
+export type GraphQaDeps = Pick<GraphChatDeps, "getGraph" | "createClient" | "now"> & {
+  /** 에이전트 경로(GRAPH_RAG)의 의존성 일부를 바꾼다(테스트: 검색기·실행기·출처 읽기 주입). 범위는 바꿀 수 없다 — 결과는 늘 검증기를 거친다. */
+  agent?: Partial<AgentDeps>;
+};
+
+/** 에이전트가 검증 실패로 멈췄을 때·권한이 바뀌었을 때의 고정 문구(근거·데이터를 담지 않는다). */
+export const AGENT_BLOCKED_TEXT = "확인할 수 없는 자료가 섞여 답을 멈췄어요. 다시 시도해 주세요.";
+export const AGENT_POLICY_TEXT = "계정 설정이 바뀌어 답을 멈췄어요. 다시 시도해 주세요.";
+/** 에이전트가 폴백을 요청했지만 남은 시간이 이보다 적으면 기존 파이프라인을 다시 돌리지 않고 시간 초과로 남긴다. */
+export const FALLBACK_MIN_REMAINING_MS = 60_000;
 
 // ---------------------------------------------------------------------------
 // 프롬프트 (순수)
@@ -87,8 +104,9 @@ export function qaHistory(all: readonly ChatMessage[]): string {
   for (let i = 0; i < messages.length; i++) {
     const m = messages[i]!;
     const next = messages[i + 1];
-    if (m.role === "assistant" && m.status === "failed" && m.data === null) continue;
-    if (m.role === "user" && next && next.role === "assistant" && next.status === "failed" && next.data === null) continue;
+    const failed = (x: ChatMessage | undefined) => !!x && x.role === "assistant" && x.status === "failed" && (x.data === null || x.data.kind === "graph-agent-blocked");
+    if (failed(m)) continue;
+    if (m.role === "user" && failed(next)) continue;
     out.push({ role: m.role, content: m.content });
   }
   if (out.at(-1)?.role === "user") out.pop();
@@ -285,14 +303,29 @@ export async function getQaThreadView(
 ): Promise<GraphQaThreadView> {
   const thread = await requireQaThread(userId, threadId);
   const messages = (await listMessages(userId, threadId)) ?? [];
-  const withSources = messages.some((m) => m.data?.kind === "graph-answer" && m.data.sources.length > 0);
-  let live: Set<string> | null = null;
-  if (withSources && graphEnabled()) {
-    const graph = await deps.getGraph(userId, personName).catch(() => null);
-    live = graph ? new Set(graph.nodes.map((n) => n.id)) : null;
+  const withSources = messages.some(
+    (m) => (m.data?.kind === "graph-answer" && m.data.sources.length > 0) || (m.data?.kind === "graph-agent-answer" && m.data.citations.length > 0),
+  );
+  let graph: CareerGraph | null = null;
+  if (withSources && graphEnabled()) graph = await deps.getGraph(userId, personName).catch(() => null);
+  const live = graph ? new Set(graph.nodes.map((n) => n.id)) : null;
+  // 에이전트 답의 인용은 볼 때마다 본인 범위로 다시 확인한다(삭제·변경된 근거는 exists:false, 내용은 지운다).
+  const hasAgent = messages.some((m) => m.data?.kind === "graph-agent-answer");
+  const checked = hasAgent ? await revalidateAgentMessages(userId, messages, graph) : messages;
+  // 색인 최신 여부는 저장하지 않고 지금 상태로 계산해 마지막 에이전트 답에만 붙인다(재색인 뒤 옛 답에 안내가 남지 않게).
+  let indexStale = false;
+  if (hasAgent) {
+    const st = await readRagState(userId).catch(() => null);
+    indexStale = !!st && st.sourceVersion > st.indexedSourceVersion;
   }
+  const lastAgentId = [...checked].reverse().find((m) => m.data?.kind === "graph-agent-answer")?.id;
   const showDebug = debugEnabled();
-  const view = messages.map((m) => {
+  const view = checked.map((m) => {
+    if (m.data?.kind === "graph-agent-answer") {
+      // eslint-disable-next-line @typescript-eslint/no-unused-vars
+      const { indexStale: _saved, ...data } = m.data;
+      return { ...m, data: { ...data, citations: data.citations.map(toClientCitation), ...(indexStale && m.id === lastAgentId ? { indexStale: true } : {}) } };
+    }
     if (m.data?.kind !== "graph-answer") return m;
     const { debug, ...rest } = m.data;
     const data: GraphAnswerData = {
@@ -378,6 +411,27 @@ export async function runQaReply(
     // 범위 사전 검사: 뚜렷한 범위 밖·남용 질문이면 그래프·LLM 없이 안내만 남긴다.
     const pre = prefilterChatScope(latest.content);
     if (pre) return await saveScopeNotice(userId, threadId, latest.id, scopeNoticeData({ ...pre, source: "prefilter" }), "qa");
+    // 이전 대화: 에이전트 답은 지금도 근거가 확인되는 fact만(삭제·변경한 경험이 이전 답을 통해 다시 LLM에 들어가지 않게, §9).
+    // 에이전트 경로·폴백·GRAPH_RAG 꺼짐 모두 이 목록을 쓴다. 그래프를 못 읽으면 그래프 근거 fact는 빠진다(fail-closed).
+    const promptMessages = await historyMessagesForPrompt(userId, messages, () =>
+      graphEnabled() ? untilAborted(deps.getGraph(userId, personName), deadline) : Promise.resolve(null),
+    );
+    if (ragEnabled()) {
+      const agentReply = await runAgentReply({
+        userId,
+        threadId,
+        provider,
+        personName,
+        deps,
+        history: promptMessages,
+        latest,
+        deadline,
+        startedAt: opts.startedAt ?? Date.now(),
+      });
+      if (agentReply !== FALL_BACK) return agentReply;
+      // 남은 시간이 적으면 기존 파이프라인을 다시 돌리지 않는다(사용량 두 배·마감 초과 방지).
+      if (deadlineAt - Date.now() < FALLBACK_MIN_REMAINING_MS) return await save(replyErrorMessage(null, { timedOut: true }), null);
+    }
     // 프롬프트에 넣을 그래프는 이 사용자 것이어야 한다(graph/owner.ts).
     const graph = assertGraphOwner(await untilAborted(deps.getGraph(userId, personName), deadline), userId);
     const checklist = assessExperienceChecklist(graph);
@@ -401,7 +455,7 @@ export async function runQaReply(
     });
     const ctx = buildContext(r.selected, graph, { checklist, noDirectMatch: r.fallback });
     r.debug.contextChars = ctx.chars;
-    const prompt = buildGraphQaPrompt({ question: latest.content, contextText: ctx.text, history: qaHistory(messages) });
+    const prompt = buildGraphQaPrompt({ question: latest.content, contextText: ctx.text, history: qaHistory(promptMessages) });
     const { output, usage } = await client.generate({
       task: "graph-qa",
       system: prompt.system,
@@ -432,6 +486,68 @@ export async function runQaReply(
     if (!(err instanceof LlmPermanentError)) console.error("[graph-qa reply]", threadId, err);
     else console.warn(`[graph-qa reply] ${threadId} LLM 실패: ${err.reason}`);
     return save(replyErrorMessage(err, { timedOut: deadline.aborted }), null).catch(() => null);
+  }
+}
+
+const FALL_BACK = Symbol("fallback");
+
+/**
+ * 에이전트 경로(docs/AGENTIC-GRAPH-RAG.md). 결과를 저장하고 메시지를 돌려준다. 보안 실패·권한 변경은 고정 문구로 멈추고 기존 경로로 넘어가지 않는다.
+ * 보안과 무관한 실패(출력 형식·내부 오류·최종 답 없음)면 FALL_BACK — 호출자가 기존 파이프라인으로 답한다.
+ */
+async function runAgentReply(input: {
+  userId: string;
+  threadId: string;
+  provider: ProviderId;
+  personName: string | null;
+  deps: GraphQaDeps;
+  /** 이전 대화용 메시지(historyMessagesForPrompt로 이미 재검증한 것). */
+  history: ChatMessage[];
+  latest: ChatMessage;
+  deadline: AbortSignal;
+  startedAt: number;
+}): Promise<ChatMessage | null | typeof FALL_BACK> {
+  const { userId, threadId, deps, latest } = input;
+  const save = (content: string, data: GraphAgentAnswerData | GraphAgentBlockedData | null, status: "failed" | null, usage?: Parameters<typeof addMessage>[1]["usage"]) =>
+    addMessage(userId, { threadId, role: "assistant", content, data, status, ...(usage ? { usage } : {}) }, { expectLastId: latest.id });
+  const loadGraph = async (uid: string) => assertGraphOwner(await deps.getGraph(uid, input.personName), uid);
+  const agentDeps: AgentDeps = { ...defaultAgentDeps(loadGraph, deps.now), ...deps.agent };
+  const client = deps.createClient(input.provider, { userId, referenceId: threadId });
+  const outcome: AgentOutcome = await runAgentQa({
+    userId,
+    threadId,
+    question: latest.content,
+    history: qaHistory(input.history),
+    client,
+    deps: agentDeps,
+    startedAt: input.startedAt,
+    signal: input.deadline,
+  });
+  switch (outcome.kind) {
+    case "answer": {
+      const checklist = outcome.graph ? assessExperienceChecklist(outcome.graph) : null;
+      const intents = analyzeQuery(latest.content).intents;
+      const data: GraphAgentAnswerData = { ...outcome.data, suggestions: suggestionsFor(intents, checklist, outcome.data.insufficient) };
+      return save(outcome.content, data, null, outcome.usage);
+    }
+    case "scope":
+      return saveScopeNotice(userId, threadId, latest.id, scopeNoticeData({ ...outcome.verdict, source: "model" }), "qa", outcome.usage);
+    case "empty-graph":
+      // 그래프·문서가 모두 비었다: 기존 경로가 LLM 없이 고정 안내를 남긴다.
+      return FALL_BACK;
+    case "blocked":
+      return save(AGENT_BLOCKED_TEXT, { kind: "graph-agent-blocked", code: "security_blocked", requestId: outcome.requestId }, "failed", outcome.usage);
+    case "policy":
+      return save(AGENT_POLICY_TEXT, { kind: "graph-agent-blocked", code: "policy_changed", requestId: outcome.requestId ?? "" }, "failed");
+    case "unavailable":
+      return save(replyErrorMessage(new GraphUnavailableError()), null, "failed");
+    case "llm-error":
+      return save(replyErrorMessage(new LlmPermanentError("", outcome.reason as LlmPermanentError["reason"])), null, "failed");
+    case "timeout":
+      return save(replyErrorMessage(null, { timedOut: true }), null, "failed");
+    case "fallback":
+      ragLog("agent_fallback", { threadId, code: outcome.code });
+      return FALL_BACK;
   }
 }
 

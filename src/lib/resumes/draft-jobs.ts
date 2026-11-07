@@ -23,7 +23,15 @@ import { stageErrorMessage } from "@/lib/panel/runner";
 import { graphEnabled } from "@/lib/graph/service";
 import { resolveRequestedProvider } from "@/lib/providers/options";
 import { draftContextFor, saveNewResume } from "./create";
-import { generateResumeDraft, loadDraftMaterial } from "./draft";
+import {
+  applyRegeneratedMeta,
+  assertRegenerateSlot,
+  discardRegeneratedVersion,
+  REGENERATE_TARGET_GONE,
+  regeneratedResumeHref,
+  saveRegeneratedVersion,
+} from "./regenerate";
+import { generateResumeDraft, loadDraftMaterial, type DraftOutput } from "./draft";
 import {
   RESUME_DRAFT_JOB_STAGES,
   RESUME_DRAFT_JOB_STATUSES,
@@ -71,6 +79,7 @@ interface DraftJobRow {
   provider: string | null;
   error: string | null;
   resumeId: string | null;
+  targetResumeId: string | null;
   result: Prisma.JsonValue | null;
   attempts: number;
   startedAt: Date;
@@ -91,6 +100,7 @@ export function toDraftJobView(row: DraftJobRow): ResumeDraftJobView {
     : "failed";
   const stage: ResumeDraftJobStage = (RESUME_DRAFT_JOB_STAGES as readonly string[]).includes(row.stage) ? (row.stage as ResumeDraftJobStage) : "material";
   const result = (row.result ?? {}) as { notes?: unknown; missingInfo?: unknown };
+  const regenerate = row.targetResumeId !== null;
   return {
     id: row.id,
     status,
@@ -106,6 +116,7 @@ export function toDraftJobView(row: DraftJobRow): ResumeDraftJobView {
     createdAt: row.createdAt.getTime(),
     updatedAt: row.updatedAt.getTime(),
     completedAt: row.completedAt?.getTime() ?? null,
+    ...(regenerate ? { regenerate: true, targetResumeId: row.targetResumeId } : {}),
   };
 }
 
@@ -125,22 +136,30 @@ async function precheckSource(user: { id: string; name: string | null }, source:
   if (source.kind === "diagnosis") await loadDraftMaterial(user, source);
 }
 
-/** 이력서 수 + 진행 중인 초안 작업 수가 상한에 닿았으면 409. 빈 문서·복사 생성도 이것으로 센다(진행 중인 초안이 저장 단계에서 막히지 않게). */
+/**
+ * 이력서 수 + 진행 중인 초안 작업 수가 상한에 닿았으면 409. 빈 문서·복사 생성도 이것으로 센다(진행 중인 초안이 저장 단계에서 막히지 않게).
+ * '다시 생성' 작업(target_resume_id 있음)은 새 이력서를 만들지 않으므로 세지 않는다. 반환은 진행 중인 초안 작업 수(다시 생성 포함 — 동시 작업 상한용).
+ */
 export async function assertResumeSlots(userId: string, now: number = Date.now(), db: Prisma.TransactionClient = prisma): Promise<number> {
   const resumes = await db.companyResume.count({ where: { userId } });
-  const active = await db.resumeDraftJob.count({
-    where: { userId, status: "running", startedAt: { gt: new Date(now - draftStaleMs()) } },
-  });
+  const running = { userId, status: "running", startedAt: { gt: new Date(now - draftStaleMs()) } } satisfies Prisma.ResumeDraftJobWhereInput;
+  const creating = await db.resumeDraftJob.count({ where: { ...running, targetResumeId: null } });
   // 진행 중인 그래프 에이전트 작업(running·waiting)도 곧 이력서가 된다.
-  const agents = await db.resumeAgentJob.count({ where: { userId, status: { in: ["running", "waiting"] } } });
-  if (resumes + active + agents >= MAX_RESUMES_PER_USER) {
+  const agents = await db.resumeAgentJob.count({ where: { userId, status: { in: ["running", "waiting"] }, targetResumeId: null } });
+  if (resumes + creating + agents >= MAX_RESUMES_PER_USER) {
     throw new FeatureError(`이력서는 ${MAX_RESUMES_PER_USER}개까지 만들 수 있습니다. 쓰지 않는 이력서를 지워 주세요.`, 409);
   }
-  return active;
+  return activeDraftJobCount(userId, now, db);
 }
 
-async function assertCapacity(userId: string, now: number, db: Prisma.TransactionClient = prisma): Promise<void> {
-  const active = await assertResumeSlots(userId, now, db);
+/** 진행 중인(멈추지 않은) 초안 작업 수 — 새로 만들기와 다시 생성을 함께 센다(동시 작업 상한). */
+async function activeDraftJobCount(userId: string, now: number, db: Prisma.TransactionClient = prisma): Promise<number> {
+  return db.resumeDraftJob.count({ where: { userId, status: "running", startedAt: { gt: new Date(now - draftStaleMs()) } } });
+}
+
+/** 동시 작업 상한(+ 새로 만들기면 이력서 수 상한). 다시 생성은 이력서 수를 늘리지 않는다. */
+async function assertCapacity(userId: string, now: number, db: Prisma.TransactionClient = prisma, opts: { regenerate?: boolean } = {}): Promise<void> {
+  const active = opts.regenerate ? await activeDraftJobCount(userId, now, db) : await assertResumeSlots(userId, now, db);
   if (active >= MAX_ACTIVE_DRAFT_JOBS) {
     throw new FeatureError(`AI 초안은 동시에 ${MAX_ACTIVE_DRAFT_JOBS}개까지 만들 수 있습니다. 진행 중인 초안이 끝난 뒤 다시 시도해 주세요.`, 409);
   }
@@ -157,6 +176,11 @@ export interface StartDraftJobDeps {
   resolveProvider?: (requested: string | null) => Promise<ProviderId>;
   /** 레이트 리밋 등 마지막 확인(라우트가 넘긴다 — 잘못된 요청이 한도를 깎지 않게 다른 확인 뒤에 부른다). */
   beforeCreate?: () => Promise<void>;
+  /**
+   * '다시 생성': 새 이력서 대신 이 이력서(호출자가 소유권을 확인한 id)의 새 버전을 저장한다. label은 작업 표시 이름.
+   * exceptAgentJobId는 이 초안으로 넘기는 에이전트 작업(빠른 초안 전환 — 같은 이력서 진행 중 확인에서 뺀다).
+   */
+  regenerate?: { resumeId: string; label: string; exceptAgentJobId?: string };
 }
 
 /**
@@ -170,9 +194,10 @@ export async function startResumeDraftJob(
 ): Promise<{ job: ResumeDraftJobView; runId: string; provider: ProviderId }> {
   if (input.source.kind === "blank" || input.sourceResumeId) throw new FeatureError("AI 초안 출처(경험 그래프·진단 재작성본)를 골라 주세요.", 400);
   const now = deps.now?.() ?? Date.now();
+  const regen = deps.regenerate ?? null;
   await precheckSource(user, input.source);
   const provider = await (deps.resolveProvider ?? resolveRequestedProvider)(input.provider ?? null);
-  await assertCapacity(user.id, now);
+  await assertCapacity(user.id, now, prisma, { regenerate: !!regen });
   await deps.beforeCreate?.();
 
   // 끝난 지 오래된 작업은 정리한다(진행 화면 링크는 알림 보관 기간보다 짧게 남는다 — 이력서는 그대로).
@@ -184,8 +209,9 @@ export async function startResumeDraftJob(
   const stored = { ...input, provider } satisfies CreateResumeInput;
   // 앞의 확인은 빨리 거절하려는 것이고, 동시에 온 요청이 함께 통과하지 않게 잠금 안에서 한 번 더 세고 만든다.
   const row = await prisma.$transaction(async (tx) => {
+    if (regen) await assertRegenerateSlot(tx, user.id, regen.resumeId, { now, exceptAgentJobId: regen.exceptAgentJobId });
     await lockDraftJobs(tx, user.id);
-    await assertCapacity(user.id, now, tx);
+    await assertCapacity(user.id, now, tx, { regenerate: !!regen });
     return tx.resumeDraftJob.create({
       data: {
         id: nanoid(16),
@@ -193,7 +219,8 @@ export async function startResumeDraftJob(
         runId,
         status: "running",
         stage: "material",
-        label: stripNul(draftJobLabel(input)),
+        label: stripNul(regen ? regen.label : draftJobLabel(input)),
+        targetResumeId: regen?.resumeId ?? null,
         input: stripNulDeep(stored) as Prisma.InputJsonValue,
         provider,
         startedAt: new Date(now),
@@ -211,7 +238,7 @@ async function closeStale(row: DraftJobRow, now: number): Promise<boolean> {
     where: { id: row.id, runId: row.runId, status: "running" },
     data: { status: "failed", error: STALE_ERROR, updatedAt: new Date(now) },
   });
-  if (count > 0) await notifyFailed(row.userId, row.id, row.label, STALE_ERROR);
+  if (count > 0) await notifyFailed(row.userId, row.id, row.label, STALE_ERROR, row.targetResumeId !== null);
   return count > 0;
 }
 
@@ -284,12 +311,14 @@ export async function restartDraftJob(
   // 저장해 둔 엔진을 지금 쓸 수 없으면 기본 엔진으로.
   const saved = row.provider && isProviderId(row.provider) ? row.provider : null;
   const provider = await resolveRequestedProvider(saved).catch(() => resolveRequestedProvider(null));
-  await assertCapacity(userId, now);
+  const regenerate = row.targetResumeId !== null;
+  await assertCapacity(userId, now, prisma, { regenerate });
   await deps.beforeRestart?.();
   const runId = nanoid();
   const updated = await prisma.$transaction(async (tx) => {
+    if (row.targetResumeId) await assertRegenerateSlot(tx, userId, row.targetResumeId, { now, exceptDraftJobId: row.id });
     await lockDraftJobs(tx, userId);
-    await assertCapacity(userId, now, tx);
+    await assertCapacity(userId, now, tx, { regenerate });
     const [next] = await tx.resumeDraftJob.updateManyAndReturn({
       where: { id: jobId, userId, runId: row.runId, status: row.status },
       data: {
@@ -319,10 +348,10 @@ export function draftErrorMessage(err: unknown): string {
   return "초안을 만들지 못했습니다. 잠시 후 다시 시도해 주세요.";
 }
 
-function notifyFailed(userId: string, jobId: string, label: string, error: string): Promise<void> {
+function notifyFailed(userId: string, jobId: string, label: string, error: string, regenerate = false): Promise<void> {
   return notify(userId, {
     kind: "resume-draft-failed",
-    title: "AI 이력서 초안을 만들지 못했습니다",
+    title: regenerate ? "이력서를 다시 생성하지 못했습니다" : "AI 이력서 초안을 만들지 못했습니다",
     body: `${label} — ${error}`,
     link: `/app/resumes/drafts/${jobId}`,
   });
@@ -360,17 +389,26 @@ export async function runResumeDraftJob(userId: string, jobId: string, runId: st
     if (count === 0) throw new DraftSupersededError();
   };
   let label = "새 이력서";
+  let regenerate = false;
   // 저장은 됐는데 완료 기록 전에 실패하면 이 이력서를 지운다(작업은 실패로 보이는데 이력서만 남지 않게).
   let savedResumeId: string | null = null;
+  // 다시 생성: 저장한 버전(완료 기록 전에 실패하면 지운다).
+  let savedVersion: { resumeId: string; versionId: string } | null = null;
   try {
     const row = (await prisma.resumeDraftJob.findFirst({ where: mine })) as DraftJobRow | null;
     if (!row) return;
     label = row.label;
+    const target = row.targetResumeId;
+    regenerate = target !== null;
     const parsed = CreateResumeInputSchema.safeParse(row.input);
     if (!parsed.success) throw new FeatureError("초안 입력을 읽지 못했습니다. 새 이력서 화면에서 다시 만들어 주세요.", 400);
     const input = parsed.data;
     const user = await prisma.user.findUnique({ select: { id: true, name: true, email: true }, where: { id: userId } });
     if (!user) return;
+    // 다시 생성 대상이 그사이 지워졌으면 AI를 부르기 전에 실패로 닫는다.
+    if (target && !(await prisma.companyResume.findFirst({ select: { id: true }, where: { id: target, userId } }))) {
+      throw new FeatureError(REGENERATE_TARGET_GONE, 404);
+    }
 
     const material = await loadDraftMaterial(user, input.source);
     if (!material) throw new FeatureError("AI 초안 출처를 찾지 못했습니다.", 400);
@@ -387,6 +425,12 @@ export async function runResumeDraftJob(userId: string, jobId: string, runId: st
       { timeoutMs: timeLimitMs, message: "AI 초안을 만드는 데 시간이 너무 오래 걸려 중단했습니다. 다시 시도하거나 빈 문서로 시작해 주세요." },
     );
     await setStage("saving");
+
+    if (target) {
+      await completeRegenerate({ userId, mine, row, target, input, draft, now, deps, onSaved: (v) => (savedVersion = v) });
+      savedVersion = null;
+      return;
+    }
 
     // 그사이 연결할 공고가 지워졌으면 공고 없이 만든다(FK 위반 방지).
     let postingId = input.kind === "general" ? null : (input.postingId ?? null);
@@ -424,12 +468,73 @@ export async function runResumeDraftJob(userId: string, jobId: string, runId: st
     });
   } catch (err) {
     if (savedResumeId) await discardResume(userId, savedResumeId);
+    const sv = savedVersion as { resumeId: string; versionId: string } | null;
+    if (sv) await discardRegeneratedVersion(userId, sv.resumeId, sv.versionId);
     if (err instanceof DraftSupersededError) return;
     if (!(err instanceof LlmPermanentError) && !(err instanceof FeatureError)) console.error("[resume draft]", jobId, err);
     const message = draftErrorMessage(err);
     const { count } = await prisma.resumeDraftJob
       .updateMany({ where: mine, data: { status: "failed", error: stripNul(message), updatedAt: new Date(now()) } })
       .catch(() => ({ count: 0 }));
-    if (count > 0) await notifyFailed(userId, jobId, label, message);
+    if (count > 0) await notifyFailed(userId, jobId, label, message, regenerate);
   }
+}
+
+/** 작업 result의 pendingVersionId(다시 생성: 저장하기 직전에 적어 둔 버전 id). */
+function pendingVersionOf(result: Prisma.JsonValue | null): string | null {
+  const v = (result as { pendingVersionId?: unknown } | null)?.pendingVersionId;
+  return typeof v === "string" && v.length > 0 && v.length <= 40 ? v : null;
+}
+
+/**
+ * 다시 생성 저장(빠른 초안): 이전 시도가 남긴 버전(pendingVersionId)을 지우고 → 새 버전 id를 소유 조건으로 작업에 적고 →
+ * 대상 이력서의 새 버전으로 저장하고 → 완료 기록. 완료 기록이 0행이면(멈춤 판정·다시 시도로 버려짐) 저장한 버전을 지운다.
+ * onSaved는 저장 직후에 부른다(호출자 catch가 실패 시 그 버전을 지우게).
+ */
+async function completeRegenerate(p: {
+  userId: string;
+  mine: Prisma.ResumeDraftJobWhereInput;
+  row: DraftJobRow;
+  target: string;
+  input: CreateResumeInput;
+  draft: Pick<DraftOutput, "document" | "notes" | "missingInfo">;
+  now: () => number;
+  deps: RunDraftJobDeps;
+  onSaved: (v: { resumeId: string; versionId: string }) => void;
+}): Promise<void> {
+  const { userId, mine, row, target, input, draft, now } = p;
+  const prior = pendingVersionOf(row.result);
+  if (prior) await discardRegeneratedVersion(userId, target, prior);
+  const { newVersionId } = await import("./service");
+  const versionId = newVersionId();
+  const marked = await prisma.resumeDraftJob.updateMany({
+    where: mine,
+    data: { result: { pendingVersionId: versionId } as Prisma.InputJsonValue, updatedAt: new Date(now()) },
+  });
+  if (marked.count === 0) throw new DraftSupersededError();
+  const version = await saveRegeneratedVersion(userId, target, draft.document, { mode: "single", versionId, templateId: input.templateId });
+  p.onSaved({ resumeId: target, versionId: version.id });
+  await p.deps.onSaved?.(target);
+  const { count } = await prisma.resumeDraftJob.updateMany({
+    where: mine,
+    data: {
+      status: "completed",
+      stage: "saving",
+      error: null,
+      resumeId: target,
+      result: stripNulDeep({ notes: draft.notes, missingInfo: draft.missingInfo, versionId: version.id }) as Prisma.InputJsonValue,
+      input: Prisma.DbNull,
+      completedAt: new Date(now()),
+      updatedAt: new Date(now()),
+    },
+  });
+  // 멈춤 판정·다시 시도로 이 실행을 버렸다 — 호출자 catch가 저장한 버전을 지운다.
+  if (count === 0) throw new DraftSupersededError();
+  await applyRegeneratedMeta(userId, target, input);
+  await notify(userId, {
+    kind: "resume-draft-completed",
+    title: "이력서를 다시 생성했습니다",
+    body: `${row.label} — 새 버전 v${version.versionNo}${draft.missingInfo.length > 0 ? ` · 채워야 할 정보 ${draft.missingInfo.length}개` : ""}`,
+    link: regeneratedResumeHref(target, "single"),
+  });
 }

@@ -25,6 +25,7 @@ import type { LlmClient } from "@/lib/llm";
 import { TAGS } from "@/lib/panel/prompts";
 import type { ResumeDraftSource } from "./types";
 import { RESUME_FACT_RULES } from "./draft-rules";
+import { emphasisLines } from "./emphasis";
 import { extrasMissingQuestions, isNewcomerDocument, normalizeExtras } from "./extras-guide";
 import { RESUME_WRITING_CRITERIA_PROMPT } from "./writing-guide";
 
@@ -43,6 +44,8 @@ export interface DraftContext {
   personName?: string | null;
   /** 로그인(Google) 메일 주소. 프롬프트에는 넣지 않고, 초안의 email이 비었을 때 기본값으로만 채운다(사용자가 편집에서 바꿀 수 있다). */
   personEmail?: string | null;
+  /** 사용자가 강조해 달라고 적은 점('다시 생성' 메모). 무엇을 앞에 둘지 정하는 참고일 뿐 사실 근거가 아니다. */
+  emphasis?: string | null;
 }
 
 const SYSTEM = [
@@ -75,6 +78,7 @@ export function buildResumeDraftPrompt(ctx: DraftContext): { system: string; use
     );
   }
   if (ctx.personName?.trim()) lines.push(field("지원자 이름(계정)", ctx.personName.trim()));
+  lines.push(...emphasisLines(ctx.emphasis));
   lines.push("");
   if (ctx.material.kind === "graph") {
     lines.push("지원자의 경험 그래프(노드와 관계). 이 안의 사실만 쓴다:", wrapData(CHAT_TAGS.careerGraph, ctx.material.text));

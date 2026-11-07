@@ -11,7 +11,9 @@ import type { PanelInput } from "@/lib/panel/prompts";
 import { resumeToText } from "@/lib/resumes/layout";
 import type { CreateResumeInput } from "@/lib/resumes/types";
 import type { AgentSettings } from "../config";
+import type { EvidenceSource } from "../evidence-source";
 import type { StepRowLike } from "../next-step";
+import type { PipelineVersion } from "../pipeline";
 
 export type AgentInput = CreateResumeInput;
 
@@ -26,6 +28,16 @@ export interface StepContext {
   nowYear?: number;
   /** 같은 단계 이전 시도의 출력(심사의 partial 재사용). */
   previousOutput: unknown;
+  /** 단계 계획 버전(없으면 1). */
+  pipeline?: PipelineVersion;
+  /** v2: 근거 검색(작업 행 userId로만 — evidence-source.ts). */
+  evidence?: EvidenceSource;
+  /** 이번 시도 번호(1부터). v2 구역 단계는 마지막 시도에 대체 경로를 쓴다. */
+  attempt?: number;
+  /** '다시 생성' 대상 이력서(v2 jd 단계가 같은 이력서의 이전 JD 분석을 찾는다). */
+  targetResumeId?: string | null;
+  /** v2: 같은 배치 안 단계가 나눠 쓰는 결과(라운드 0 대체 경로의 v1 본문·상단 호출을 한 번만). */
+  memo?: Map<string, Promise<unknown>>;
 }
 
 export interface StepResult<T = unknown> {
@@ -40,7 +52,7 @@ export interface StepResult<T = unknown> {
  */
 export class AgentStepError extends Error {
   constructor(
-    readonly code: "insufficient_graph" | "draft_empty" | "review_incomplete" | "missing_input" | "final_panel_failed",
+    readonly code: "insufficient_graph" | "draft_empty" | "review_incomplete" | "missing_input" | "final_panel_failed" | "section_empty",
     message: string,
     readonly permanent: boolean,
     readonly partial?: unknown,
@@ -110,7 +122,7 @@ export function previewText(doc: ResumeDocument, templateId: ResumeTemplateId): 
   return resumeToText(d, templateId).slice(0, 20_000);
 }
 
-export function agentPromptContext(input: AgentInput): { company: string; roleTitle: string; templateId: ResumeTemplateId } {
+export function agentPromptContext(input: AgentInput): { company: string; roleTitle: string; templateId: ResumeTemplateId; emphasis: string | null } {
   const general = input.kind === "general";
-  return { company: general ? "" : input.company, roleTitle: general ? "" : input.roleTitle, templateId: input.templateId };
+  return { company: general ? "" : input.company, roleTitle: general ? "" : input.roleTitle, templateId: input.templateId, emphasis: input.emphasis ?? null };
 }

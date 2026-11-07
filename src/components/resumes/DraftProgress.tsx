@@ -13,7 +13,7 @@ import { Button, buttonClass } from "@/components/ui/Button";
 import { Card } from "@/components/ui/Card";
 import { Spinner } from "@/components/ui/Spinner";
 import { cn } from "@/components/ui/cn";
-import { draftStepStates, formatElapsed, RESUME_DRAFT_STEP_LABELS, type ResumeDraftJobView } from "@/lib/resumes/draft-job-types";
+import { completedResumeHref, draftStepStates, formatElapsed, RESUME_DRAFT_STEP_LABELS, type ResumeDraftJobView } from "@/lib/resumes/draft-job-types";
 import { saveDraftNotes } from "@/lib/resumes/prefill";
 
 export const DRAFT_POLL_MS = 2500;
@@ -105,8 +105,9 @@ export function DraftProgress({
     if (job.status !== "completed" || !job.resumeId || handled.current === job.id + job.resumeId) return;
     handled.current = job.id + job.resumeId;
     saveDraftNotes(job.resumeId, { notes: job.notes, missingInfo: job.missingInfo });
-    void markNotificationsReadByLink([`/app/resumes/${job.resumeId}`, `/app/resumes/drafts/${job.id}`]);
-    if (autoOpen) router.replace(`/app/resumes/${job.resumeId}`);
+    const href = completedResumeHref(job) ?? `/app/resumes/${job.resumeId}`;
+    void markNotificationsReadByLink([href, `/app/resumes/drafts/${job.id}`]);
+    if (autoOpen) router.replace(href);
   }, [job, autoOpen, router]);
 
   useEffect(() => {
@@ -217,17 +218,23 @@ export function DraftProgress({
                 다시 시도
               </Button>
             )}
-            <Link href="/app/resumes/new" className={buttonClass("secondary", "sm")}>
-              새 이력서 화면으로
-            </Link>
+            {job.regenerate && job.targetResumeId ? (
+              <Link href={`/app/resumes/${job.targetResumeId}`} className={buttonClass("secondary", "sm")}>
+                이력서로 돌아가기
+              </Link>
+            ) : (
+              <Link href="/app/resumes/new" className={buttonClass("secondary", "sm")}>
+                새 이력서 화면으로
+              </Link>
+            )}
           </div>
         </Alert>
       )}
 
       {job.status === "completed" && job.resumeId && (
-        <Alert tone="info" title="초안이 완성됐습니다">
-          <p>편집 화면으로 이동합니다.</p>
-          <Link href={`/app/resumes/${job.resumeId}`} className={cn(buttonClass("primary", "sm"), "mt-3")}>
+        <Alert tone="info" title={job.regenerate ? "이력서를 다시 생성했습니다" : "초안이 완성됐습니다"}>
+          <p>{job.regenerate ? "새 버전으로 저장했습니다. 편집 화면으로 이동합니다." : "편집 화면으로 이동합니다."}</p>
+          <Link href={completedResumeHref(job) ?? `/app/resumes/${job.resumeId}`} className={cn(buttonClass("primary", "sm"), "mt-3")}>
             이력서 열기
           </Link>
         </Alert>

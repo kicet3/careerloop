@@ -9,6 +9,9 @@ export const LLM_USAGE_TASK_LABELS: Record<string, string> = {
   "graph-repo-import": "경험 가져오기(GitHub)",
   "graph-qa": "경험 질문하기",
   "graph-qa-rerank": "경험 질문하기(관련도)",
+  "graph-agent-step": "경험 질문하기 · 에이전트 스텝",
+  "graph-agent-final": "경험 질문하기 · 에이전트 답",
+  "graph-agent-entail": "경험 질문하기 · 근거 확인",
   "reviewer-chat": "심사위원 채팅",
   "resume-draft": "이력서 초안",
   "portfolio-draft": "포트폴리오(경험 그래프)",
@@ -21,8 +24,15 @@ export const LLM_USAGE_TASK_LABELS: Record<string, string> = {
   "resume-agent-write": "이력서 에이전트 · 초안",
   "resume-agent-revise": "이력서 에이전트 · 수정",
   "resume-agent-review": "이력서 에이전트 · 심사",
+  "resume-agent-brief": "이력서 에이전트 · 총괄 작전",
+  "resume-agent-section": "이력서 에이전트 · 구역 작성",
+  "resume-agent-compose": "이력서 에이전트 · 조립·요약",
+  "resume-agent-critique": "이력서 에이전트 · 총괄 피드백",
+  "resume-agent-motivation": "이력서 에이전트 · 지원 동기",
   "resume-polish": "이력서 AI로 다듬기",
   "resume-motivation-suggest": "지원 동기 쓸 거리 추천",
+  "resume-jd-tips": "JD 맞춤 작성 팁",
+  "portfolio-share-chat": "공개 포트폴리오 챗봇",
 };
 
 /** 'diagnosis:ats' 같은 작업 키 → 표시 이름. 모르는 키는 그대로. */

@@ -2,6 +2,8 @@ import "server-only";
 /**
  * 포트폴리오 원본 파일: 형식 판별(확장자 + 매직 바이트), 크기 상한, 텍스트 추출(AI용), 내려줄 때의 헤더.
  *
+ * - 새 업로드는 PDF만 받는다(PORTFOLIO_UPLOAD_KINDS — 확장자 .pdf + 내용 %PDF-). 아래 형식 목록(SPECS)은 예전에 올린 원본(DOCX·HWP·이미지·글 등)을
+ *   보여 주고 내려주는 데 그대로 쓴다.
  * - 형식은 확장자로 고르고 내용의 앞부분(매직 바이트)이 그 형식과 맞아야 받는다. MIME은 브라우저가 보낸 값이 아니라 서버가 정한다.
  * - 원본은 그대로 보관한다(users/<u>/portfolios/<id>/original-<꼬리>.<확장자>). AI에는 뽑은 글만 넘긴다 — 이미지는 글을 뽑지 않고,
  *   글을 뽑지 못한 파일(스캔 PDF·쪽 수 초과 등)도 원본은 보관하고 경고만 돌려준다(설명을 적으면 AI가 그걸 읽는다).
@@ -10,7 +12,13 @@ import "server-only";
  */
 import { assertDocxWithinLimits, extractText, IngestError } from "@/lib/ingest/extract";
 import { formatMb, VERCEL_UPLOAD_LIMITS } from "@/lib/ingest/upload-limits";
-import { DEFAULT_PORTFOLIO_MAX_UPLOAD_MB, MAX_PORTFOLIO_TEXT_CHARS } from "@/lib/domain/portfolios";
+import {
+  DEFAULT_PORTFOLIO_MAX_UPLOAD_MB,
+  hasPdfSignature,
+  MAX_PORTFOLIO_TEXT_CHARS,
+  PORTFOLIO_NOT_PDF_CONTENT_MESSAGE,
+  PORTFOLIO_PDF_ONLY_MESSAGE,
+} from "@/lib/domain/portfolios";
 
 const MB = 1024 * 1024;
 
@@ -32,10 +40,7 @@ const ZIP = [0x50, 0x4b, 0x03, 0x04];
 const looksText = (b: Uint8Array) => !b.subarray(0, 8192).includes(0);
 
 /** PDF: 앞 1024바이트 안에 %PDF- (명세상 앞에 다른 바이트가 올 수 있다). */
-function isPdf(b: Uint8Array): boolean {
-  const head = Buffer.from(b.subarray(0, 1024)).toString("latin1");
-  return head.includes("%PDF-");
-}
+const isPdf = hasPdfSignature;
 
 const SPECS: Record<PortfolioFileKind, KindSpec> = {
   pdf: { ext: "pdf", mime: "application/pdf", image: false, magic: isPdf },
@@ -66,13 +71,21 @@ const EXT_ALIASES: Record<string, PortfolioFileKind> = {
   webp: "webp",
 };
 
-export const UNSUPPORTED_PORTFOLIO_FILE =
-  "지원하지 않는 파일 형식입니다. PDF, DOCX, HWP, HWPX, HTML, TXT, MD, PNG, JPG, WEBP 파일만 올릴 수 있습니다. (DOC 등은 PDF로 변환해 올려 주세요.)";
+/** 새로 올릴 수 있는 형식. 그 밖의 형식은 예전 원본을 보여 주는 데만 쓴다. */
+export const PORTFOLIO_UPLOAD_KINDS: ReadonlySet<PortfolioFileKind> = new Set<PortfolioFileKind>(["pdf"]);
+
+export const UNSUPPORTED_PORTFOLIO_FILE = PORTFOLIO_PDF_ONLY_MESSAGE;
 
 /** 파일 이름의 확장자로 형식을 고른다(모르는 확장자는 null). */
 export function portfolioKindFromName(name: string): PortfolioFileKind | null {
   const ext = name.toLowerCase().match(/\.([a-z0-9]+)$/)?.[1] ?? "";
   return EXT_ALIASES[ext] ?? null;
+}
+
+/** 새 업로드로 받는 형식이면 그 형식(지금은 'pdf'), 아니면 null. 서명 주소 받기·마무리·multipart가 모두 이것으로 거른다. */
+export function portfolioUploadKindFromName(name: string): PortfolioFileKind | null {
+  const kind = portfolioKindFromName(name);
+  return kind && PORTFOLIO_UPLOAD_KINDS.has(kind) ? kind : null;
 }
 
 export function portfolioKindSpec(kind: PortfolioFileKind): Readonly<KindSpec> {
@@ -85,6 +98,7 @@ export function detectPortfolioFile(name: string, bytes: Uint8Array): Readonly<K
   if (!kind) throw new IngestError(UNSUPPORTED_PORTFOLIO_FILE, 415);
   const spec = SPECS[kind];
   if (!spec.magic(bytes)) {
+    if (kind === "pdf") throw new IngestError(PORTFOLIO_NOT_PDF_CONTENT_MESSAGE, 415);
     throw new IngestError(`파일 내용이 ${kind.toUpperCase()} 형식이 아닙니다. 확장자가 실제 형식과 맞는지 확인해 주세요.`, 415);
   }
   return spec;
@@ -118,12 +132,13 @@ export interface IngestedPortfolioFile {
 }
 
 /**
- * 원본 확인 + 글 뽑기. 형식이 틀리면 IngestError(415), 크기를 넘으면 IngestError(413).
+ * 새 업로드 원본 확인 + 글 뽑기. PDF(확장자 .pdf + 내용 %PDF-)가 아니면 IngestError(415), 크기를 넘으면 IngestError(413).
  * 글을 뽑지 못한 경우(이미지, 스캔 PDF, 쪽 수 초과, 손상 등)는 거절하지 않고 text ""와 경고를 돌려준다 — 원본은 그대로 보여 줄 수 있다.
  */
 export async function ingestPortfolioFile(file: { name: string; bytes: Uint8Array }, maxBytes: number): Promise<IngestedPortfolioFile> {
   if (file.bytes.byteLength === 0) throw new IngestError("빈 파일입니다. 다른 파일을 올려 주세요.");
   if (file.bytes.byteLength > maxBytes) throw new IngestError(tooLargeMessage(maxBytes), 413);
+  if (!portfolioUploadKindFromName(file.name)) throw new IngestError(PORTFOLIO_PDF_ONLY_MESSAGE, 415);
   const spec = detectPortfolioFile(file.name, file.bytes);
   if (spec.image) {
     return {

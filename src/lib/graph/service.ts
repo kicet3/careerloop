@@ -25,7 +25,7 @@ import {
 import { normalizeStoredDates } from "@/lib/domain/graph-dates";
 import { ensureGraphSchema, getDriver, graphDatabase } from "./client";
 import { GraphOpError } from "./errors";
-import { markGraphOwner } from "./owner";
+import { GraphOwnerMismatchError, markGraphOwner } from "./owner";
 import { planGraphOps, type PlanStep } from "./plan";
 
 export { GraphOpError, GraphUnavailableError } from "./errors";
@@ -46,6 +46,20 @@ function assertRel(type: string): RelType {
 
 function assertUserId(userId: string): void {
   if (!userId || typeof userId !== "string") throw new Error("userId가 필요합니다");
+}
+
+/**
+ * 쓰기 성공 직후 에이전트 RAG 데이터 버전을 올리고(캐시 무효화·진행 중 요청의 빠른 중단), 지운 노드를 청크 연결에서 뺀다.
+ * Neo4j와 Postgres는 한 트랜잭션이 아니다 — 실패해도 안전하다(최종 검증은 버전이 아니라 스냅샷 재로딩으로 한다). 오류는 코드만 남긴다.
+ */
+async function afterGraphWrite(userId: string, deletedNodeIds: readonly string[] = []): Promise<void> {
+  try {
+    const { bumpDataVersion } = await import("@/lib/rag/versions");
+    await bumpDataVersion(userId);
+    if (deletedNodeIds.length > 0) await (await import("@/lib/rag/chunks/store")).removeNodesFromChunks(userId, deletedNodeIds);
+  } catch (err) {
+    (await import("@/lib/rag/log")).ragLog("version_bump_failed", { name: err instanceof Error ? err.name : "Error" });
+  }
 }
 
 async function session() {
@@ -75,6 +89,7 @@ export async function getCareerGraph(userId: string, opts: { personName?: string
   assertUserId(userId);
   const s = await session();
   try {
+    // 트랜잭션 타임아웃(드라이버 5초 — 서버 쪽 db.transaction.timeout과 함께 LIMIT만 믿지 않는 장치, docs/AGENTIC-GRAPH-RAG.md §5.3).
     return await s.executeRead(async (tx) => {
       const nodeRes = await tx.run(
         `MATCH (n:Career {userId: $userId})
@@ -87,7 +102,8 @@ export async function getCareerGraph(userId: string, opts: { personName?: string
         const label = r.get("label");
         const props = r.get("props");
         // 심층 방어: MATCH가 userId로 거르지만, 다른 사용자 노드가 섞여 나오면(쿼리 회귀) 그래프 전체를 버린다.
-        if (props?.userId !== userId) throw new Error("다른 사용자의 경험 그래프 노드가 조회되었습니다.");
+        // 보안 실패로 분류되게 GraphOwnerMismatchError(rag/errors.ts sanitizeError → security_violation, 에이전트는 폴백 없이 멈춘다).
+        if (props?.userId !== userId) throw new GraphOwnerMismatchError();
         if (isLabel(label)) nodes.push(toGraphNode(r.get("id"), label, props));
       }
       const edgeRes = await tx.run(
@@ -106,7 +122,7 @@ export async function getCareerGraph(userId: string, opts: { personName?: string
         edges.push({ id: edgeId(type, from, to), type, from, to });
       }
       return markGraphOwner<CareerGraph>({ person: { id: PERSON_ID, name: opts.personName ?? null }, nodes, edges }, userId);
-    });
+    }, { timeout: 5000 });
   } finally {
     await s.close();
   }
@@ -197,32 +213,40 @@ export async function applyGraphOps(
   assertUserId(userId);
   if (ops.length === 0) return { created: {}, applied: 0 };
   const s = await session();
+  let result: ApplyGraphOpsResult;
+  let deleted: string[] = [];
   try {
-    return await s.executeWrite(async (tx) => {
+    result = await s.executeWrite(async (tx) => {
       const now = Date.now();
       await tx.run(`MERGE (p:Person {userId: $userId}) ON CREATE SET p.createdAt = $now`, { userId, now });
       const existing = await existingNodes(tx, userId);
       const { steps, created } = planGraphOps(existing.labels, ops, () => `n_${nanoid(12)}`, { ...opts, existingProps: existing.dates });
       for (const step of steps) await runStep(tx, userId, step, now);
+      deleted = steps.flatMap((st) => (st.kind === "delete" ? [st.id] : []));
       return { created, applied: steps.length };
     });
   } finally {
     await s.close();
   }
+  await afterGraphWrite(userId, deleted);
+  return result;
 }
 
 /** 노드 하나를 관계와 함께 지운다. 없거나 다른 사용자 노드면 false. */
 export async function deleteNode(userId: string, id: string): Promise<boolean> {
   assertUserId(userId);
   const s = await session();
+  let removed: boolean;
   try {
-    return await s.executeWrite(async (tx) => {
+    removed = await s.executeWrite(async (tx) => {
       const res = await tx.run(`MATCH (n:Career {id: $id, userId: $userId}) DETACH DELETE n RETURN count(*) AS c`, { id, userId });
       return (res.records[0]?.get("c") ?? 0) > 0;
     });
   } finally {
     await s.close();
   }
+  if (removed) await afterGraphWrite(userId, [id]);
+  return removed;
 }
 
 /** 사용자의 그래프 전체(Person 포함)를 지운다. 계정 삭제·테스트 정리용. */
@@ -237,4 +261,5 @@ export async function deleteUserGraph(userId: string): Promise<void> {
   } finally {
     await s.close();
   }
+  await afterGraphWrite(userId);
 }

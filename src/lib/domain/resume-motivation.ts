@@ -1,7 +1,9 @@
 /**
  * 지원 동기 '쓸 거리 추천'(task 'resume-motivation-suggest') 계약 — 클라이언트·서버 공용(순수).
- * 지원 동기는 사용자가 직접 쓴다. AI는 재료(공고가 강조하는 점·이어지는 경험·문단 구성·물어볼 질문·주의점 — 문장 금지)와,
+ * AI는 [ADD: …] 자리표시가 든 초안을 기본 제공하고(에이전트로 만든 지원처별 이력서는 지원 동기 칸에 검증된 초안이 들어간다),
+ * 사용자가 자리표시를 채우고 내 말로 다듬는다. '추천 받기'는 재료(공고가 강조하는 점·이어지는 경험·문단 구성·물어볼 질문·주의점 — 문장 금지)와,
  * 그 재료를 종합한 짧은 초안(draft — 제안일 뿐, 사용자가 '초안으로 채우기'를 눌러야 칸에 들어간다)을 추천한다.
+ * 에이전트가 미리 계산한 추천과 버튼으로 받은 추천은 이력서당 마지막 하나를 저장한다(GET이 돌려준다).
  * 서버(src/lib/resumes/motivation.ts)가 공고 인용·그래프 노드 id·숫자·문장형 여부를, 초안은 근거 없는 숫자·지어낸 동기 표현을 결정적으로 다시 거른다.
  */
 import { z } from "zod";
@@ -73,4 +75,14 @@ export interface MotivationLinkedExperience {
 
 export interface MotivationSuggestResponse {
   suggestion: Omit<MotivationSuggestion, "linkedExperiences"> & { linkedExperiences: MotivationLinkedExperience[] };
+}
+
+/** 저장·응답용 추천(서버 거르기 통과본 — 이어지는 경험은 그래프에서 확인한 노드). */
+export const StoredMotivationSuggestionSchema = MotivationSuggestionSchema.omit({ linkedExperiences: true }).extend({
+  linkedExperiences: z.array(z.object({ nodeId: z.string().max(80), name: z.string().max(120), kind: z.string().max(40), why: z.string().max(MOTIVATION_HINT_MAX) })).max(3),
+});
+
+/** GET /api/resumes/[id]/motivation/suggest: 저장된 마지막 추천(없으면 null). jdChanged: 추천을 만든 뒤 이력서 JD가 바뀌었다. */
+export interface SavedMotivationSuggestResponse {
+  saved: { suggestion: MotivationSuggestResponse["suggestion"]; source: "agent" | "button"; createdAt: number; jdChanged: boolean } | null;
 }

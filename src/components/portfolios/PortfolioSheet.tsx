@@ -73,6 +73,10 @@ export function sheetAtoms(blocks: readonly Block[], heights: readonly { height:
 export function PortfolioSheet({ source }: { source: string }) {
   const blocks = useMemo(() => parseMarkdownBlocks(source), [source]);
   const measureRef = useRef<HTMLDivElement>(null);
+  const rootRef = useRef<HTMLDivElement>(null);
+  // 화면이 A4 폭(약 794px)보다 좁으면(휴대폰) 쪽 카드를 통째로 줄여 맞춘다 — 가운데 정렬한 넓은 카드의 왼쪽이 잘려 스크롤로도 못 보는 일을 막는다.
+  // 쪽 나눔 측정(.ps-measure)은 줄이지 않은 A4 폭 그대로이고, 인쇄할 때는 CSS에서 zoom을 되돌린다.
+  const [scale, setScale] = useState(1);
   const [layout, setLayout] = useState<{ pages: number[][]; overflow: number[] } | null>(null);
 
   useLayoutEffect(() => {
@@ -104,9 +108,24 @@ export function PortfolioSheet({ source }: { source: string }) {
     };
   }, [blocks]);
 
+  useLayoutEffect(() => {
+    const root = rootRef.current;
+    if (!root || typeof ResizeObserver === "undefined") return;
+    const fit = () => {
+      const width = root.clientWidth;
+      // 카드 테두리(양쪽 1px)까지 들어가게 조금 여유를 둔다.
+      const next = width > 0 ? Math.min(1, Math.floor(((width - 4) / A4.widthPx) * 1000) / 1000) : 1;
+      setScale((prev) => (prev === next ? prev : next));
+    };
+    fit();
+    const ro = new ResizeObserver(fit);
+    ro.observe(root);
+    return () => ro.disconnect();
+  }, []);
+
   const pages = layout?.pages ?? [blocks.map((_, i) => i)];
   return (
-    <div className="ps-root">
+    <div ref={rootRef} className="ps-root">
       <div ref={measureRef} className="ps-measure ps-content" aria-hidden>
         {blocks.map((b, i) => (
           <div key={i} className="ps-block">
@@ -114,7 +133,7 @@ export function PortfolioSheet({ source }: { source: string }) {
           </div>
         ))}
       </div>
-      <div className="ps-pages">
+      <div className="ps-pages" style={scale < 1 ? { zoom: scale } : undefined}>
         {pages.map((ids, p) => (
           <section
             key={p}

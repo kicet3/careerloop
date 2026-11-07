@@ -14,7 +14,7 @@
 import { mkdtempSync } from "node:fs";
 import { tmpdir } from "node:os";
 import path from "node:path";
-import { afterAll, beforeAll, beforeEach, describe, expect, it, vi } from "vitest";
+import { afterAll, afterEach, beforeAll, beforeEach, describe, expect, it, vi } from "vitest";
 import { createTestDb, type TestDb } from "@/test/db";
 import type { ApplyGraphOpsResult, CareerGraph, GraphNode, GraphOp, NodeLabel } from "@/lib/domain/graph";
 
@@ -22,6 +22,8 @@ vi.mock("server-only", () => ({}));
 
 process.env.STORAGE_DIR = path.join(mkdtempSync(path.join(tmpdir(), "rp-isolation-")), "storage");
 for (const k of ["R2_ACCOUNT_ID", "R2_ACCESS_KEY_ID", "R2_SECRET_ACCESS_KEY", "R2_BUCKET", "VERCEL"]) delete process.env[k];
+// 그래프에 묻기는 기본으로 기존 파이프라인을 본다. 에이전트 경로(GRAPH_RAG=1)는 아래 "그래프에 묻기(에이전트)" 묶음에서 따로 켠다.
+process.env.GRAPH_RAG = "0";
 
 /** B의 데이터에만 들어 있는 표지. 어떤 A용 프롬프트·응답에도 나오면 안 된다. */
 const B_MARK = "ZQXBMARK";
@@ -626,6 +628,60 @@ describe("그래프 API: A는 B의 데이터를 읽거나 바꿀 수 없다", ()
     expect(pr.status).toBe(404);
     await expectNoBMark(pr);
     await flushAfter();
+    expect(state.calls).toHaveLength(0);
+  });
+});
+
+// ---------------------------------------------------------------------------
+// 그래프에 묻기(에이전트, src/lib/rag): 같은 id(p1)·같은 저장소를 쓰는 B가 있어도 A의 근거만
+// ---------------------------------------------------------------------------
+
+describe("그래프에 묻기(에이전트): 프롬프트·도구 결과·저장·조회에 B 데이터 없음", () => {
+  beforeEach(async () => {
+    process.env.GRAPH_RAG = "1";
+    const { CONSENT_DOCS, REQUIRED_CONSENT_TYPES } = await import("@/lib/legal/consents");
+    for (const u of [A, B]) {
+      await tdb.prisma.userConsent.createMany({
+        data: REQUIRED_CONSENT_TYPES.map((type) => ({ userId: u.id, type, version: CONSENT_DOCS[type].version, agreed: true, source: "signup" })),
+      });
+    }
+    const { syncSource } = await import("@/lib/rag/chunks/sync");
+    for (const [u, id] of [
+      [A.id, `snap_${A.id}`],
+      [B.id, `snap_${B.id}`],
+      [B.id, "snap_b_only"],
+    ] as const) {
+      await syncSource(u, "repo-brief", id);
+    }
+  });
+  afterEach(() => {
+    process.env.GRAPH_RAG = "0";
+  });
+
+  it("라우트 → after() → 에이전트 루프: A의 그래프·저장소 요약만", async () => {
+    const res = await routes.qaThreads.POST(post({}));
+    const threadId = ((await res.json()) as { thread: { id: string } }).thread.id;
+    expect((await routes.qaMessages.POST(post({ message: "결제개선 프로젝트 저장소요약과 성과는?" }), p({ threadId }))).status).toBe(202);
+    await flushAfter();
+    expectOnlyAData(["graph-agent-step"]);
+    const view = await routes.qaThread.GET(get(), p({ threadId }));
+    await expectNoBMark(view);
+    const body = (await view.json()) as { messages: { data: { kind: string; citations?: unknown[] } | null }[] };
+    expect(body.messages.at(-1)!.data).toMatchObject({ kind: "graph-agent-answer" });
+    expect(JSON.stringify(body)).not.toContain("sourceKey");
+    await bUntouched();
+  });
+
+  it("그래프 로더가 B의 그래프를 돌려주면 차단(graph-agent-blocked), LLM 호출 없음", async () => {
+    const service = await import("@/lib/graph/service");
+    const thread = await qa.createQaThread(A.id);
+    await qa.startQaMessage(A.id, thread.id, "성과는?");
+    const reply = await qa.runQaReply(A.id, thread.id, "anthropic", A.name, {
+      ...chat.defaultGraphChatDeps,
+      getGraph: () => service.getCareerGraph(B.id, { personName: B.name }),
+    });
+    expect(reply).toMatchObject({ role: "assistant", status: "failed", data: { kind: "graph-agent-blocked" } });
+    expect(reply!.content).not.toContain(B_MARK);
     expect(state.calls).toHaveLength(0);
   });
 });

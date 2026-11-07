@@ -9,13 +9,13 @@ import type { ExperienceCategoryId } from "./experience-categories";
 import type { FollowupAnswerData } from "./followups";
 import { type GraphOp, LlmGraphOpSchema, MAX_OPS_PER_BATCH, type NodeLabel, type RelType } from "./graph";
 import type { ReviewerId } from "./schemas";
-import type { ResumePolishData } from "./resume-polish";
+import type { ResumePolishData, ResumePolishDocData } from "./resume-polish";
 
 /**
  * - graph: 그래프 만들기 채팅(변경안 제안)
  * - reviewer: 심사위원 채팅
  * - graph-qa: 그래프에 묻기(그래프 근거 Q&A, 출처 표기) — docs/GRAPH-QA.md
- * - resume-polish: 이력서 AI로 다듬기(이력서 한 칸의 대안 문구, resumeId·targetPath 필수 — src/lib/resumes/polish.ts)
+ * - resume-polish: 이력서 AI로 다듬기(이력서 한 칸의 대안 문구 또는 target_path 'document'면 전체 이력서 대화, resumeId·targetPath 필수 — src/lib/resumes/polish.ts·polish-document.ts)
  */
 export const CHAT_THREAD_KINDS = ["graph", "reviewer", "graph-qa", "resume-polish"] as const;
 export type ChatThreadKind = (typeof CHAT_THREAD_KINDS)[number];
@@ -72,6 +72,12 @@ export const CHAT_TAGS = {
   resumePlan: "resume_plan",
   /** 이력서 에이전트: 요건별 결정적 검색 후보·기술 대조 표 */
   requirementCandidates: "requirement_candidates",
+  /** 경험 질문하기(에이전트): 스텝마다 쌓는 검증된 도구 결과(src/lib/rag/agent.ts). 문서 속 가짜 닫는 태그를 무력화하려고 등록한다. */
+  toolResults: "tool_results",
+  /** 경험 질문하기(에이전트): 근거 하나(서버가 붙인 evidence_id·handle 머리줄 + 본문, src/lib/rag/scope.ts). */
+  evidence: "evidence",
+  /** 경험 질문하기(에이전트): 이번 질문 원문. */
+  question: "question",
 } as const;
 
 /** 그래프 채팅 프롬프트에 넣는 열린 후속 질문 수 상한(<open_followups>). */
@@ -326,7 +332,63 @@ export interface ScopeNoticeData {
   reason?: string;
 }
 
+/** 경험 질문하기(에이전트) 인용 하나. sourceKey·version·inputIds·sourceRef는 서버 전용 — 화면 응답에서 지운다(toClientCitation). */
+export interface GraphAgentCitation {
+  n: number;
+  evidenceId: string;
+  kind: "node" | "edge" | "path" | "aggregate" | "chunk" | "source-span" | "derived";
+  /** 출처 라벨(노드 라벨 이름 또는 출처 유형 이름). */
+  label: string;
+  name: string;
+  snippet: string;
+  pathText?: string;
+  /** 문서 조각이면 출처 유형. */
+  sourceType?: "repo-brief" | "document-import" | "portfolio-text";
+  /** 노드 근거면 노드 id(그래프에서 보기). */
+  nodeId?: string;
+  /** 조회 때 다시 확인한 접근 가능 여부(삭제·변경이면 false — snippet·pathText를 비운다). */
+  exists?: boolean;
+  sourceKey?: string;
+  version?: string;
+  inputIds?: string[];
+  sourceRef?: { type: "repo-brief" | "document-import" | "portfolio-text"; id: string; version: string; start: number; end: number; hash: string };
+  /** 집계 근거의 검증된 계획(서버 전용 — 조회 때 새 그래프에서 다시 계산해 비교한다, src/lib/rag/citations.ts). */
+  aggregatePlan?: unknown;
+}
+
+export interface GraphAgentSegment {
+  text: string;
+  /** fact: 근거로 확인한 사실, advice: 일반 조언(사실 주장 없음), gap: "그래프에 아직 없습니다" 류. */
+  kind: "fact" | "advice" | "gap";
+  citations: number[];
+}
+
+/** 경험 질문하기(에이전트, docs/AGENTIC-GRAPH-RAG.md §8.5). 저장 = 결정적 최종 검증을 통과한 뒤 한 번(스트리밍 없음). */
+export interface GraphAgentAnswerData {
+  kind: "graph-agent-answer";
+  segments: GraphAgentSegment[];
+  citations: GraphAgentCitation[];
+  insufficient: boolean;
+  grounded: boolean;
+  missingInfo: string[];
+  suggestions: GraphAnswerSuggestion[];
+  requestId: string;
+  /** 버린 segment·근거 사유 코드(데이터 없음). */
+  dropped?: { reason: string }[];
+  /** 문서 색인이 최신이 아닐 수 있음(출처 버전 > 색인 버전). 저장하지 않고 조회 때 현재 상태로 마지막 답에만 붙인다. */
+  indexStale?: boolean;
+}
+
+/** 검증 실패로 답을 멈춤(status 'failed'). 고정 문구만 — 근거·데이터를 담지 않는다. */
+export interface GraphAgentBlockedData {
+  kind: "graph-agent-blocked";
+  code: "security_blocked" | "policy_changed";
+  requestId: string;
+}
+
 export type ChatMessageData =
+  | GraphAgentAnswerData
+  | GraphAgentBlockedData
   | ScopeNoticeData
   | GraphProposalData
   | ReviewerFeedbackData
@@ -334,7 +396,8 @@ export type ChatMessageData =
   | DocumentImportData
   | FollowupAnswerData
   | RepoImportData
-  | ResumePolishData;
+  | ResumePolishData
+  | ResumePolishDocData;
 
 // ---------------------------------------------------------------------------
 // API 응답 형태 (날짜는 epoch ms)

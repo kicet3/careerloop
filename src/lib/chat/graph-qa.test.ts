@@ -14,6 +14,8 @@ vi.mock("server-only", () => ({}));
 vi.mock("next/server", () => ({ after: () => {} }));
 
 process.env.NEO4J_URI ??= "bolt://unused"; // graphEnabled() — 그래프 저장소는 deps로 바꾼다
+// 기존(결정적 검색·리랭크) 파이프라인을 본다. 에이전트 경로(GRAPH_RAG 기본 켬)는 src/lib/rag/*.test.ts.
+process.env.GRAPH_RAG = "0";
 
 let qa: typeof import("./graph-qa");
 let tdb: TestDb;

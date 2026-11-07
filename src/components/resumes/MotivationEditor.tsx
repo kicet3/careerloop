@@ -1,21 +1,37 @@
 "use client";
 
 /**
- * 지원 동기 칸(지원처별 이력서만 — ResumeEditor가 kind 'company'일 때만 붙인다). 사용자가 직접 쓴다.
- * '추천 받기'는 쓸 거리와, 그 재료(강조하는 점·이어지는 경험·구성안)를 종합한 초안을 받아 온다(POST /api/resumes/[id]/motivation/suggest).
+ * 지원 동기 칸(지원처별 이력서만 — ResumeEditor가 kind 'company'일 때만 붙인다). AI 에이전트로 만든 이력서는 [ADD] 자리표시가 든 초안이
+ * 미리 들어 있고, 사용자가 자리를 채우고 내 말로 다듬는다(칸에 [ADD: …]가 남아 있으면 위에 안내를 보인다).
+ * 처음 열 때 저장된 마지막 추천(에이전트가 미리 계산했거나 전에 버튼으로 받은 것)을 GET으로 받아 바로 펼친다(LLM 호출 없음).
+ * '추천 받기'(추천이 있으면 '다시 추천 받기')는 쓸 거리와, 그 재료(강조하는 점·이어지는 경험·구성안)를 종합한 초안을 새로 받아 온다
+ * (POST /api/resumes/[id]/motivation/suggest — 결과는 이 이력서의 마지막 추천으로 저장된다). 추천을 만든 뒤 공고가 바뀌었으면 다시 받기를 권한다.
  * 초안은 제안일 뿐이다: '초안으로 채우기'(칸이 비어 있으면 바로, 아니면 확인 후 바꾸기)·'아래에 덧붙이기'를 눌러야 칸에 들어가고, 저장은 하지 않는다.
  * 추천 카드의 '메모로 넣기'는 글 끝에 `- [ADD: 메모 — …]` 한 줄을 붙인다: 미리보기에서 노란 자리표시로 보여 지울 때까지 남은 칸으로 센다.
  * 추천 묶음(초안·강조하는 점·경험·구성·질문·주의)은 제목을 눌러 접고 편다. 접힘 상태는 이 브라우저 localStorage에 기억한다(막혀 있으면 이 화면 동안만).
  */
-import { useId, useState, type ReactNode } from "react";
+import { useEffect, useId, useState, type ReactNode } from "react";
 import { Alert } from "@/components/ui/Alert";
 import { Button } from "@/components/ui/Button";
 import { Card } from "@/components/ui/Card";
 import { MAX_RESUME_MOTIVATION_CHARS } from "@/lib/domain/resumes";
-import type { MotivationSuggestResponse } from "@/lib/domain/resume-motivation";
+import type { MotivationSuggestResponse, SavedMotivationSuggestResponse } from "@/lib/domain/resume-motivation";
 import { textareaClass } from "./styles";
 
 type Suggestion = MotivationSuggestResponse["suggestion"];
+type SavedMeta = { source: "agent" | "button"; jdChanged: boolean };
+
+/** 칸 위 안내: [ADD] 자리표시가 남은 AI 초안이면. @internal 테스트용. */
+export function draftBanner(value: string): string | null {
+  return /\[ADD:[^\]]*\]/.test(value) ? "AI 초안입니다. [ADD] 자리를 채우고 내 말로 고쳐 주세요." : null;
+}
+
+/** 저장된 추천 안내. @internal 테스트용. */
+export function savedSuggestionNote(meta: SavedMeta | null): string | null {
+  if (!meta) return null;
+  if (meta.jdChanged) return "추천을 받은 뒤 공고가 바뀌었습니다. 다시 추천 받기를 권합니다.";
+  return meta.source === "agent" ? "AI 에이전트가 이력서를 쓸 때 미리 받아 둔 추천입니다." : "지난번에 받은 추천입니다.";
+}
 
 /** 메모 한 줄(자리표시 안에 대괄호가 들어가지 않게). @internal 테스트용으로 내보낸다. */
 export function memoLine(text: string): string {
@@ -258,7 +274,30 @@ export function MotivationEditor({ resumeId, value, onChange }: { resumeId: stri
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [suggestion, setSuggestion] = useState<Suggestion | null>(null);
+  const [savedMeta, setSavedMeta] = useState<SavedMeta | null>(null);
   const [folds, setFolds] = useState<FoldState>({});
+
+  // 저장된 마지막 추천을 바로 펼친다(실패해도 조용히 — 버튼으로 받을 수 있다).
+  useEffect(() => {
+    let stopped = false;
+    void (async () => {
+      try {
+        const res = await fetch(`/api/resumes/${resumeId}/motivation/suggest`, { cache: "no-store" });
+        if (!res.ok) return;
+        const data = (await res.json().catch(() => null)) as SavedMotivationSuggestResponse | null;
+        if (stopped || !data?.saved) return;
+        const saved = data.saved;
+        setFolds(readFolds());
+        setSuggestion((cur) => cur ?? { ...saved.suggestion, draft: saved.suggestion.draft ?? "" });
+        setSavedMeta((cur) => cur ?? { source: saved.source, jdChanged: saved.jdChanged });
+      } catch {
+        // 네트워크 오류: 버튼으로 받는다.
+      }
+    })();
+    return () => {
+      stopped = true;
+    };
+  }, [resumeId]);
 
   async function suggest() {
     setBusy(true);
@@ -277,6 +316,7 @@ export function MotivationEditor({ resumeId, value, onChange }: { resumeId: stri
       // 접힘 상태는 추천이 처음 보일 때 읽는다(서버 렌더와 어긋나지 않게 effect·초기값에서 읽지 않는다).
       if (!suggestion) setFolds(readFolds());
       setSuggestion({ ...data.suggestion, draft: data.suggestion.draft ?? "" });
+      setSavedMeta({ source: "button", jdChanged: false });
     } catch {
       setError("추천을 받지 못했습니다. 네트워크를 확인해 주세요.");
     } finally {
@@ -321,12 +361,17 @@ export function MotivationEditor({ resumeId, value, onChange }: { resumeId: stri
       <div className="flex flex-wrap items-start justify-between gap-2">
         <div className="min-w-0">
           <h2 className="text-base font-semibold text-slate-900">지원 동기</h2>
-          <p className="mt-0.5 text-xs text-slate-500">직접 쓰는 칸입니다. AI는 쓸 거리와 초안을 추천할 뿐 칸에 바로 넣지 않습니다. 비워 두면 이력서에 나오지 않습니다.</p>
+          <p className="mt-0.5 text-xs text-slate-500">내 말로 다듬는 칸입니다. AI 에이전트로 만든 이력서는 초안이 미리 들어가고, 추천의 초안은 눌러야 칸에 들어갑니다. 비워 두면 이력서에 나오지 않습니다.</p>
         </div>
         <Button size="sm" variant="secondary" onClick={suggest} loading={busy} disabled={busy}>
-          추천 받기
+          {suggestion ? "다시 추천 받기" : "추천 받기"}
         </Button>
       </div>
+      {draftBanner(value) && (
+        <div className="mt-3">
+          <Alert tone="info">{draftBanner(value)}</Alert>
+        </div>
+      )}
       <label className="mt-3 block">
         <span className="sr-only">지원 동기</span>
         <textarea
@@ -345,6 +390,11 @@ export function MotivationEditor({ resumeId, value, onChange }: { resumeId: stri
         <div className="mt-2">
           <Alert tone="error">{error}</Alert>
         </div>
+      )}
+      {suggestion && savedSuggestionNote(savedMeta) && (
+        <p className={`mt-3 text-xs ${savedMeta?.jdChanged ? "font-medium text-amber-800" : "text-slate-500"}`} role={savedMeta?.jdChanged ? "status" : undefined}>
+          {savedSuggestionNote(savedMeta)}
+        </p>
       )}
       {suggestion && (
         <MotivationSuggestionPanel

@@ -6,8 +6,10 @@ import "server-only";
  * READ COMMITTED에서는 "개수 세고 INSERT"를 한 문장으로 써도 동시 트랜잭션이 함께 통과할 수 있기 때문이다.
  * (pg_advisory_xact_lock은 트랜잭션이 끝나면 풀리므로 Supabase Transaction pooler에서도 안전하다.)
  */
-import { createHash } from "node:crypto";
+import { createHash, createHmac, randomBytes } from "node:crypto";
+import { isIP } from "node:net";
 import { prisma } from "@/lib/db/client";
+import { consentHashSecret } from "@/lib/legal/service";
 
 export type DbRateLimit = { bucket: string; limit: number; windowMs: number };
 
@@ -27,6 +29,8 @@ export const RESUME_POLISH_LIMIT: DbRateLimit = { bucket: "resume-polish", limit
 export const RESUME_POLISH_DAILY_LIMIT: DbRateLimit = { bucket: "resume-polish-day", limit: 150, windowMs: 24 * 60 * 60_000 };
 /** 지원 동기 쓸 거리 추천: 사용자당 24시간 20회(그래프·공고가 들어가는 LLM 호출 1회). */
 export const RESUME_MOTIVATION_LIMIT: DbRateLimit = { bucket: "resume-motivation", limit: 20, windowMs: 24 * 60 * 60_000 };
+/** JD 맞춤 작성 팁 만들기·다시 만들기: 사용자당 24시간 10회(같은 JD 팁을 다시 쓰는 것은 세지 않는다). */
+export const RESUME_JD_TIPS_LIMIT: DbRateLimit = { bucket: "resume-jd-tips", limit: 10, windowMs: 24 * 60 * 60_000 };
 /** 이력서·포트폴리오로 그래프 채우기: 사용자당 24시간 10회(긴 문서 1건이 큰 LLM 호출 1회). */
 export const GRAPH_IMPORT_LIMIT: DbRateLimit = { bucket: "graph-import", limit: 10, windowMs: 24 * 60 * 60_000 };
 /** 진단 생성: IP당 24시간 20건(계정을 여러 개 만들어 하루 제한을 우회하는 것을 늦춘다). */
@@ -59,6 +63,80 @@ export const GITHUB_CONNECT_LIMIT: DbRateLimit = { bucket: "github-connect", lim
 export const GITHUB_SYNC_LIMIT: DbRateLimit = { bucket: "github-sync", limit: 30, windowMs: 60 * 60_000 };
 /** GitHub 저장소로 프로젝트 정리 시작(LLM 호출 1회)·그 재시도: 사용자당 24시간 20회. */
 export const GITHUB_IMPORT_LIMIT: DbRateLimit = { bucket: "github-import", limit: 20, windowMs: 24 * 60 * 60_000 };
+
+/** 공개 포트폴리오 챗봇: 방문자 IP(키 있는 해시, IPv6는 /64)·공유당 10분 20회(key = <공유 id>:<visitorIpKey>). */
+export const SHARE_CHAT_IP_LIMIT: DbRateLimit = { bucket: "share-chat-ip", limit: 20, windowMs: 10 * 60_000 };
+/** 공개 포트폴리오 챗봇: 방문자 IP(같은 해시)당 모든 공유를 합쳐 24시간 60회(key = visitorIpKey) — 한 사람이 여러 공유·전체 상한을 소진하지 못하게. */
+export const SHARE_CHAT_IP_DAILY_LIMIT: DbRateLimit = { bucket: "share-chat-ip-day", limit: 60, windowMs: 24 * 60 * 60_000 };
+/** 공개 포트폴리오 챗봇: 공유(링크) 하나당 24시간 200회(key = 공유 id) — 소유자에게 매기는 비용 상한. */
+export const SHARE_CHAT_TOKEN_DAILY_LIMIT: DbRateLimit = { bucket: "share-chat-token", limit: 200, windowMs: 24 * 60 * 60_000 };
+/** 공개 포트폴리오 챗봇: 서비스 전체 24시간 상한(key 'all'). PORTFOLIO_SHARE_CHAT_DAILY_LIMIT로 바꾼다(기본 500, 0이면 챗봇 끔). */
+export function shareChatGlobalLimit(env: Record<string, string | undefined> = process.env): DbRateLimit {
+  const raw = env.PORTFOLIO_SHARE_CHAT_DAILY_LIMIT?.trim();
+  const n = raw ? Number(raw) : NaN;
+  return { bucket: "share-chat-global", limit: Number.isInteger(n) && n >= 0 ? n : 500, windowMs: 24 * 60 * 60_000 };
+}
+
+/** 공개 포트폴리오 챗봇이 rate_events에 남기는 버킷(창이 지난 행은 sweepExpiredRateEvents로 버킷 전체를 지운다). */
+export const SHARE_CHAT_LIMITS: readonly DbRateLimit[] = [SHARE_CHAT_IP_LIMIT, SHARE_CHAT_IP_DAILY_LIMIT, SHARE_CHAT_TOKEN_DAILY_LIMIT, shareChatGlobalLimit()];
+
+/**
+ * 레이트 리밋용 IP 정규화: IPv4는 그대로, IPv6는 앞 64비트(/64 — 한 가입자가 보통 통째로 받는 범위)만 남긴다.
+ * IPv4-mapped IPv6(::ffff:1.2.3.4)는 IPv4로 본다. IP 꼴이 아니면 그대로(빈 값은 'unknown').
+ */
+export function normalizeIpForLimit(ip: string): string {
+  let v = ip.trim();
+  if (!v) return "unknown";
+  if (v.startsWith("[") && v.includes("]")) v = v.slice(1, v.indexOf("]"));
+  const zone = v.indexOf("%");
+  if (zone >= 0) v = v.slice(0, zone);
+  const mapped = /^::ffff:(\d{1,3}(?:\.\d{1,3}){3})$/i.exec(v);
+  if (mapped && isIP(mapped[1]!) === 4) return mapped[1]!;
+  if (isIP(v) !== 6) return v;
+  let groups: string[];
+  const [head, tail] = v.split("::");
+  if (tail === undefined) groups = v.split(":");
+  else {
+    const h = head ? head.split(":") : [];
+    const t = tail ? tail.split(":") : [];
+    // 끝에 IPv4 꼴(::1.2.3.4)이 붙으면 두 그룹으로 센다 — 앞 64비트만 쓰므로 값은 버린다.
+    const tailGroups = t.flatMap((g) => (g.includes(".") ? ["0", "0"] : [g]));
+    groups = [...h, ...Array<string>(Math.max(0, 8 - h.length - tailGroups.length)).fill("0"), ...tailGroups];
+  }
+  return `${groups
+    .slice(0, 4)
+    .map((g) => (parseInt(g || "0", 16) || 0).toString(16))
+    .join(":")}::/64`;
+}
+
+const globalForIpKey = globalThis as unknown as { __visitorIpKeyFallback?: Buffer };
+
+/**
+ * 로그인하지 않은 방문자 IP를 rate_events 키로 쓸 때: 정규화(normalizeIpForLimit)한 뒤 서버 비밀키로 HMAC한다 — 저장된 값만으로는
+ * IP를 되돌릴 수 없다(평문 SHA-256은 IPv4 전체를 몇 초면 거꾸로 찾을 수 있다). 비밀키는 동의 기록 IP 해시와 같은 값
+ * (CONSENT_HASH_SECRET, 없으면 GOOGLE_CLIENT_SECRET)에서 용도별로 뽑는다. 둘 다 없으면(로컬) 프로세스마다 새 난수 키.
+ */
+export function visitorIpKey(ip: string, env: Record<string, string | undefined> = process.env): string {
+  const secret = consentHashSecret(env);
+  const key = secret
+    ? createHmac("sha256", secret).update("rp-visitor-ip-rate-limit-v1").digest()
+    : (globalForIpKey.__visitorIpKeyFallback ??= randomBytes(32));
+  return createHmac("sha256", key).update(normalizeIpForLimit(ip)).digest("base64url").slice(0, 32);
+}
+
+/**
+ * 버킷 전체에서 창이 지난 행을 지운다. hitDbLimit은 같은 키의 지난 행만 지우므로, 한 번만 오고 다시 오지 않는 방문자 IP 키는
+ * 이 정리가 없으면 계속 남는다. (bucket, created_at) 인덱스로 좁힌다. 실패해도 요청은 막지 않는다.
+ */
+export async function sweepExpiredRateEvents(rules: readonly DbRateLimit[], now: number = Date.now()): Promise<void> {
+  try {
+    await prisma.$transaction(
+      rules.map((r) => prisma.rateEvent.deleteMany({ where: { bucket: r.bucket, createdAt: { lte: new Date(now - r.windowMs) } } })),
+    );
+  } catch (err) {
+    console.error("[rate-limit] 지난 기록 정리 실패", err);
+  }
+}
 
 /** IP는 원문 대신 해시로 저장한다. */
 export function ipKey(ip: string): string {

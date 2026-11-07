@@ -36,6 +36,7 @@ import {
   MAX_RESUME_META_CHARS,
   type ChangeResumeStatusResult,
   type ResumeDetail,
+  REGENERATE_VERSION_NOTES,
   RESUME_EDIT_DRAFT_CHANGED,
   type ResumeEditDraftClash,
   type ResumeEditDraftResponse,
@@ -46,6 +47,7 @@ import {
 } from "@/lib/resumes/types";
 import { PerformanceSheet } from "./PerformanceSheet";
 import { MotivationEditor } from "./MotivationEditor";
+import { RegenerateDialog } from "./RegenerateDialog";
 import { ResumeDocumentForm } from "./ResumeDocumentForm";
 import { ResumePortfolioCard } from "./ResumePortfolioCard";
 import { ResumePreview } from "./ResumePreview";
@@ -54,6 +56,8 @@ import { ResumeWritingTips } from "./ResumeWritingTips";
 import { inputClass, textareaClass } from "./styles";
 import { TemplatePicker } from "./TemplatePicker";
 import { PolishHoverLayer } from "./polish/PolishHoverLayer";
+import { POLISH_DOCUMENT_PATH } from "@/lib/domain/resume-polish";
+import { highlightPolishField } from "./polish/jump";
 import { type PolishApplied, PolishPanel } from "./polish/PolishPanel";
 
 type Pane = "edit" | "preview";
@@ -84,6 +88,8 @@ export function ResumeEditor({
   portfolios = [],
   photoUrl = null,
   initialDraft = null,
+  regenerate = null,
+  regenerated = false,
 }: {
   resume: ResumeMeta;
   versions: ResumeVersionMeta[];
@@ -101,6 +107,10 @@ export function ResumeEditor({
   photoUrl?: string | null;
   /** 이 이력서의 임시 저장본(새 버전으로 저장하지 않은 작업본). 있으면 그 내용으로 연다. */
   initialDraft?: ResumeEditDraftView | null;
+  /** '다시 생성' 버튼 설정(경험 그래프를 쓸 수 없으면 null — 버튼을 숨긴다). runningHref는 이 이력서를 다시 생성 중인 작업의 진행 화면. */
+  regenerate?: { agentAvailable: boolean; runningHref: string | null } | null;
+  /** 다시 생성 완료 알림으로 들어왔다(?regenerated=1): 새 버전 안내와 이전 버전 비교·되돌리기를 보인다. */
+  regenerated?: boolean;
 }) {
   const router = useRouter();
   // meta.templateId는 화면에서 고른 양식(저장 전일 수 있음), savedTemplateId는 서버에 저장된 양식.
@@ -145,6 +155,12 @@ export function ResumeEditor({
   const [polishUndo, setPolishUndo] = useState<{ previousId: string; appliedId: string; notice: string } | null>(null);
   const [viewing, setViewing] = useState<{ version: ResumeVersionMeta; document: ResumeDocument } | null>(null);
   const [metaOpen, setMetaOpen] = useState(false);
+  const [regenOpen, setRegenOpen] = useState(false);
+  const [regenBanner, setRegenBanner] = useState(regenerated);
+  // 버전 미리보기를 열면 그 자리로 옮긴다(다시 생성 배너의 '이전 버전과 비교'는 화면 위에 있다).
+  useEffect(() => {
+    if (viewing) document.getElementById("resume-version-preview")?.scrollIntoView?.({ behavior: "smooth", block: "start" });
+  }, [viewing]);
   const [metaForm, setMetaForm] = useState({
     company: meta.company,
     roleTitle: meta.roleTitle,
@@ -651,6 +667,9 @@ export function ResumeEditor({
   const isPerformance = meta.templateId === "performance";
   const draftStatus = draftStatusText(autosave, dirty ? draftSavedAt : null);
   const hasDraftWork = dirty || draftSavedAt !== null;
+  // 다시 생성 배너: 지금 버전이 다시 생성 버전이면 그 바로 앞 버전과 비교·되돌리기를 보인다.
+  const regenCurrent = regenBanner ? versions.find((v) => v.id === baseVersionId && isRegeneratedVersion(v)) : undefined;
+  const regenPrevious = regenCurrent ? versions.filter((v) => v.versionNo < regenCurrent.versionNo).sort((a, b) => b.versionNo - a.versionNo)[0] : undefined;
   const versionLabel = (id: string | null) => {
     const v = id ? versions.find((x) => x.id === id) : undefined;
     return v ? `v${v.versionNo}` : null;
@@ -668,6 +687,14 @@ export function ResumeEditor({
     const message = `AI 제안을 적용해 v${result.version.versionNo}로 저장했습니다.`;
     setNotice(message);
     setPolishUndo(previousId ? { previousId, appliedId: result.version.id, notice: message } : null);
+  }
+
+  /** 다듬기 제안의 칸으로 이동(시트 편집 칸만 찾을 수 있다 — 입력 폼이면 시트로 바꾼 뒤 찾는다). */
+  function jumpToPolishField(path: string) {
+    if (isPerformance && perfPane !== "sheet") setPerfPane("sheet");
+    window.setTimeout(() => {
+      if (!highlightPolishField(path)) setNotice("이 칸은 성과 중심 양식의 ‘시트에서 편집’ 화면에서 찾을 수 있어요.");
+    }, 80);
   }
 
   /** 방금 적용한 다듬기를 되돌린다: 적용 전 버전을 복원한다(복원은 새 버전을 만든다). */
@@ -767,6 +794,16 @@ export function ResumeEditor({
           <Button variant="secondary" onClick={startDiagnosis} disabled={busy !== null}>
             이 이력서로 진단
           </Button>
+          {regenerate && (
+            <Button
+              variant="secondary"
+              onClick={() => (regenerate.runningHref ? router.push(regenerate.runningHref) : setRegenOpen(true))}
+              disabled={busy !== null}
+              title={regenerate.runningHref ? "이 이력서를 다시 생성하고 있습니다 — 진행 화면을 엽니다" : "경험 그래프로 이 이력서를 다시 써서 새 버전으로 저장합니다"}
+            >
+              {regenerate.runningHref ? "다시 생성 중…" : "다시 생성"}
+            </Button>
+          )}
           {hasDraftWork && (
             <Button variant="ghost" onClick={discardDraft} loading={busy === "discard"} disabled={busy !== null}>
               임시 저장 버리기
@@ -900,11 +937,39 @@ export function ResumeEditor({
           </button>
         </Alert>
       )}
+      {regenerate?.runningHref && (
+        <Alert tone="info" title="이 이력서를 다시 생성하고 있습니다">
+          끝나면 새 버전으로 저장하고 알림으로 알려 드립니다.{" "}
+          <Link href={regenerate.runningHref} className="font-medium underline">
+            진행 상황 보기
+          </Link>
+        </Alert>
+      )}
+      {regenCurrent && (
+        <Alert tone="info" title={`AI가 이력서를 다시 생성해 v${regenCurrent.versionNo}로 저장했습니다`}>
+          <p>지원 동기·이름·연락처·링크는 이전 버전 값을 그대로 두었습니다. 이전 버전은 아래 버전 목록에 남아 있습니다.</p>
+          <div className="mt-2 flex flex-wrap gap-2">
+            {regenPrevious && (
+              <>
+                <Button size="sm" variant="secondary" onClick={() => void viewVersion(regenPrevious)} loading={busy === "view"} disabled={busy !== null}>
+                  이전 버전과 비교
+                </Button>
+                <Button size="sm" variant="ghost" onClick={() => void restore(regenPrevious)} loading={busy === "restore"} disabled={busy !== null}>
+                  이전 버전(v{regenPrevious.versionNo})으로 되돌리기
+                </Button>
+              </>
+            )}
+            <Button size="sm" variant="ghost" onClick={() => setRegenBanner(false)}>
+              닫기
+            </Button>
+          </div>
+        </Alert>
+      )}
       {conflict && (
         <Alert tone="warning" title="임시 저장본 이후에 새 버전이 저장됐습니다">
           <p>
             지금 편집 중인 임시 저장본은 {versionLabel(conflict.draftBaseVersionId) ?? "이전 버전"}을(를) 바탕으로 했는데, 그 뒤에{" "}
-            {versionLabel(conflict.latestVersionId) ?? "새 버전"}이(가) 저장됐습니다(AI 다듬기 적용·다른 탭에서 저장 등). 어느 쪽도 말없이 덮어쓰지 않습니다.
+            {versionLabel(conflict.latestVersionId) ?? "새 버전"}이(가) 저장됐습니다(AI 다듬기 적용·AI 다시 생성·다른 탭에서 저장 등). 어느 쪽도 말없이 덮어쓰지 않습니다.
           </p>
           <p className="mt-1">
             임시 저장본을 유지하면 ‘저장(새 버전)’ 때 최신 버전 위에 이 내용으로 새 버전이 저장됩니다(그 사이 버전은 버전 목록에 남습니다).
@@ -968,14 +1033,20 @@ export function ResumeEditor({
         onChange={(resume) => setMeta((m) => ({ ...resume, templateId: m.templateId }))}
       />
 
-      <ResumeWritingTips resumeId={meta.id} kind={meta.kind} document={doc} />
+      <ResumeWritingTips
+        resumeId={meta.id}
+        kind={meta.kind}
+        document={doc}
+        jdAvailable={meta.kind === "company" && (!!meta.jdText?.trim() || !!meta.postingId)}
+        jdKey={`${meta.company}\n${meta.roleTitle}\n${meta.jdText ?? ""}\n${meta.postingId ?? ""}`}
+      />
 
       {/* 지원 동기: 지원처별 이력서만(사용자가 쓰고, AI는 쓸 거리만 추천). */}
       {!isGeneral && <MotivationEditor resumeId={meta.id} value={doc.motivation} onChange={(motivation) => edit({ ...doc, motivation })} />}
 
       <div className="flex flex-wrap items-center justify-end gap-2">
-        <span className="text-xs text-slate-500">문장 하나를 골라 AI와 대화하며 문구를 다듬을 수 있어요.</span>
-        <Button size="sm" variant="secondary" onClick={() => setPolish({ target: polish?.target ?? null })}>
+        <span className="text-xs text-slate-500">이력서 전체를 두고 AI에게 묻거나, 문장 하나를 골라 문구를 다듬을 수 있어요.</span>
+        <Button size="sm" variant="secondary" onClick={() => setPolish({ target: polish?.target ?? POLISH_DOCUMENT_PATH })}>
           AI로 다듬기
         </Button>
       </div>
@@ -1116,7 +1187,7 @@ export function ResumeEditor({
       </Card>
 
       {viewing && (
-        <Card className="p-4 sm:p-5">
+        <Card id="resume-version-preview" className="scroll-mt-4 p-4 sm:p-5">
           <div className="mb-3 flex flex-wrap items-center justify-between gap-2">
             <h2 className="text-base font-semibold text-slate-900">v{viewing.version.versionNo} 미리보기</h2>
             <div className="flex gap-2">
@@ -1140,6 +1211,20 @@ export function ResumeEditor({
         </Button>
       </div>
 
+      {regenerate && (
+        <RegenerateDialog
+          open={regenOpen}
+          onClose={() => setRegenOpen(false)}
+          resumeId={meta.id}
+          kind={meta.kind}
+          jdText={meta.jdText ?? ""}
+          templateId={savedTemplateId}
+          agentAvailable={regenerate.agentAvailable}
+          hasUnsavedWork={hasDraftWork}
+          onSaveFirst={async () => (await save()) !== null}
+        />
+      )}
+
       {polish && (
         <PolishPanel
           resumeId={meta.id}
@@ -1150,6 +1235,7 @@ export function ResumeEditor({
           onTargetChange={(target) => setPolish({ target })}
           onClose={() => setPolish(null)}
           onApplied={polishApplied}
+          onJump={jumpToPolishField}
         />
       )}
     </div>
@@ -1166,8 +1252,14 @@ function AutosaveHint() {
   );
 }
 
-/** 버전 배지: AI로 다듬기로 만든 버전(메모 'AI로 다듬기 · …')은 'AI 다듬기', 그 밖의 AI 버전은 'AI 초안'. */
+/** 다시 생성으로 저장한 버전(source 'ai', 메모 'AI 다시 생성 (…)'). */
+function isRegeneratedVersion(v: Pick<ResumeVersionMeta, "source" | "note">): boolean {
+  return v.source === "ai" && (Object.values(REGENERATE_VERSION_NOTES) as string[]).includes(v.note ?? "");
+}
+
+/** 버전 배지: AI로 다듬기로 만든 버전(메모 'AI로 다듬기 · …')은 'AI 다듬기', 다시 생성은 'AI 다시 생성', 그 밖의 AI 버전은 'AI 초안'. */
 function versionSourceLabel(v: Pick<ResumeVersionMeta, "source" | "note">): string {
   if (v.source !== "ai") return "직접 저장";
+  if (isRegeneratedVersion(v)) return "AI 다시 생성";
   return v.note?.startsWith("AI로 다듬기") ? "AI 다듬기" : "AI 초안";
 }

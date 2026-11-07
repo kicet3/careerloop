@@ -28,7 +28,7 @@ import {
 } from "@/lib/domain/chat";
 import { extractKeywords } from "@/lib/skills/dictionary";
 import { emptyResumeDocument, type ResumeDraftOutput } from "@/lib/domain/resumes";
-import { POLISH_TARGET_TAG, type ResumePolishOutput } from "@/lib/domain/resume-polish";
+import { POLISH_DOCUMENT_TAG, POLISH_TARGET_TAG, type ResumePolishDocOutput, type ResumePolishOutput } from "@/lib/domain/resume-polish";
 import type { GraphPortfolioOutput } from "@/lib/domain/graph-portfolio";
 import { getPortfolioTemplate } from "@/lib/domain/portfolio-templates";
 import type { InterviewFeedbackOutput, InterviewQuestionsOutput } from "@/lib/domain/interview";
@@ -978,6 +978,45 @@ function fakeGraphQa(user: string): GraphQaOutput {
   };
 }
 
+/** 에이전트 대화록의 근거 블록: [ev_…] 머리줄 + 본문 첫 줄. */
+export function agentEvidence(user: string): { id: string; handle: string | null; kind: string; first: string }[] {
+  const out: { id: string; handle: string | null; kind: string; first: string }[] = [];
+  for (const m of user.matchAll(/<evidence>\n\[(ev_[A-Za-z0-9_-]{22})\](?: (N\d+|C\d+))? · ([^\n·]+)[^\n]*\n([^\n]*)/g)) {
+    out.push({ id: m[1]!, handle: m[2] ?? null, kind: m[3]!.trim(), first: m[4]!.trim() });
+  }
+  return out;
+}
+
+/**
+ * 가짜 경험 질문하기 에이전트: 1스텝은 resolve_entity + search_chunks, 그다음(또는 마지막 스텝)은 받은 근거 앞 2개를 그대로 옮긴 fact로 답한다.
+ * 근거가 없으면 gap 한 개(insufficient).
+ */
+function fakeGraphAgentStep(user: string, finalOnly: boolean): unknown {
+  const question = (extractTag(user, CHAT_TAGS.question) ?? "").trim();
+  const evidence = agentEvidence(user).filter((e) => e.kind !== "스키마(정적 문서, 근거 아님)");
+  const started = /\n스텝 \d+/.test(user);
+  if (!finalOnly && !started) {
+    return {
+      action: "call_tools",
+      thought: "엔티티 연결과 문서 검색",
+      calls: [
+        { tool: "resolve_entity", args: { text: question.slice(0, 100) || "경험" } },
+        { tool: "search_chunks", args: { query: question.slice(0, 300) || "경험" } },
+      ],
+    };
+  }
+  const picked = evidence.slice(0, 2);
+  const answer =
+    picked.length > 0
+      ? {
+          segments: picked.map((e) => ({ text: e.first.slice(0, 300) || "근거", kind: "fact", evidenceIds: [e.id] })),
+          insufficient: false,
+          missingInfo: [],
+        }
+      : { segments: [{ text: "그래프에 아직 이 질문에 답할 정보가 없습니다.", kind: "gap", evidenceIds: [] }], insufficient: true, missingInfo: ["질문과 관련된 경험"] };
+  return { action: "final", answer };
+}
+
 /** 가짜 리랭크: 후보 순서를 관련도로(앞 3개 3, 다음 3개 2, 나머지 1). */
 function fakeGraphQaRerank(user: string): GraphQaRerankOutput {
   const body = extractTag(user, CHAT_TAGS.graphSources) ?? "";
@@ -1237,6 +1276,187 @@ function fakeResumePolish(user: string): ResumePolishOutput {
   };
 }
 
+/**
+ * 가짜 전체 이력서 다듬기: <polish_document> 표의 글이 있는 칸 앞쪽 2개에 제안을 내고, 서버 거르기를 시험하려고
+ * 다듬을 수 없는 칸(basics.email·motivation)과 없는 칸(experience[9].bullets[0]) 제안을 섞는다.
+ * 질문에 "[가짜:수치]"가 있으면 답변·첫 제안에 근거 없는 숫자(73%)를 넣는다.
+ */
+function fakeResumePolishDoc(user: string): ResumePolishDocOutput {
+  const table = extractTag(user, POLISH_DOCUMENT_TAG) ?? "";
+  const message = extractTag(user, CHAT_TAGS.latestMessage) ?? "";
+  const fields = [...table.matchAll(/^- \[([^\]]+)\] ([^(\n]+?) \(최대 \d+자\): (.+)$/gm)]
+    .map((m) => ({ path: m[1]!, label: m[2]!, text: m[3]!.trim() }))
+    .filter((f) => f.text !== "(비어 있음)");
+  const fake = message.includes("[가짜:수치]");
+  const suggestions = fields.slice(0, 2).map((f, i) => ({
+    path: f.path,
+    after: i === 0 && fake ? `${f.text.replace(/[.。]$/, "")}, 처리 시간 73% 단축` : `${f.text.replace(/[.。]$/, "")} — [ADD: 수치 확인 — 개선 전후 지표]`,
+    reason: `${f.label}에 결과 자리를 더했다.`,
+  }));
+  suggestions.push(
+    { path: "basics.email", after: "fake@example.com", reason: "연락처" },
+    { path: "motivation", after: "지원 동기를 대신 썼다", reason: "동기" },
+    { path: "experience[9].bullets[0]", after: "없는 칸", reason: "없는 칸" },
+  );
+  const weakest = fields[0]?.label ?? "요약";
+  return {
+    scope: "on_topic",
+    scopeReason: "",
+    answer: fake ? `가장 약한 부분은 ${weakest}입니다. 응답 시간을 73% 줄인 경험이 강점입니다.` : `가장 약한 부분은 ${weakest}입니다. 결과 수치가 빠져 있어요.`,
+    suggestions,
+    followUpQuestion: "가장 자랑하고 싶은 성과의 지표를 알려 주실 수 있나요?",
+  };
+}
+
+// ---------------------------------------------------------------------------
+// 구역별 에이전트(파이프라인 v2: resume-agent-brief · -section · -compose · -critique · -motivation)
+// ---------------------------------------------------------------------------
+
+/** 총괄 작전: v1 가짜 전략 + 경력·프로젝트 둘 다 같은 요건을 주 책임으로 낸다(서버의 중복 강등 시험). 소유·분량은 서버가 채운다. */
+function fakeAgentBrief(user: string): unknown {
+  const plan = fakeAgentPlan(user) as { requirementMap: { requirementId: string; status: string }[]; positioning: string };
+  const strong = plan.requirementMap.filter((r) => r.status !== "gap").map((r) => r.requirementId);
+  const budget = { items: 4, linesPerItem: 5, chars: 5000 };
+  const company = (extractField(user, "지원 회사") ?? "").includes("공용") ? null : { companyAngle: "공고의 핵심 업무와 이어지는 경험", linkRefs: [] };
+  return {
+    ...plan,
+    pageTarget: 2,
+    assignments: [
+      { section: "experience", primaryRequirementIds: strong, secondaryRequirementIds: [], refs: [], angle: "경력 첫 줄에 필수 요건", keywords: [], budget },
+      { section: "projects", primaryRequirementIds: strong, secondaryRequirementIds: [], refs: [], angle: "대표 프로젝트로 증명", keywords: [], budget },
+    ],
+    evidenceOwner: [],
+    motivation: company,
+    summaryAngle: plan.positioning,
+  };
+}
+
+/** 구역 에이전트: '- 작성 구역: …' 줄로 구역을 고른다. 총괄 피드백(<orchestrator_feedback>)의 keywords는 근거 줄을 찾아 경력에 넣는다. */
+function fakeAgentSection(user: string): unknown {
+  const section = (extractField(user, "작성 구역") ?? "").trim();
+  const ev = evidenceLines(user);
+  const plan = extractJson<{ include: { experience: { ref: string }[]; projects: { ref: string; requirementIds: string[] }[] } }>(user, CHAT_TAGS.resumePlan);
+  const feedback = extractJson<{ keywords?: string[] }>(user, "orchestrator_feedback");
+  const byRef = new Map(ev.map((e) => [e.ref, e]));
+  const citations: { path: string; refs: string[]; requirementIds: string[] }[] = [];
+  const common = { citations, notes: [], missingInfo: [], needEvidence: [], coveredRequirementIds: [] };
+  if (section === "experience") {
+    const roles = (plan?.include.experience ?? []).map((e) => byRef.get(e.ref)).filter((e): e is FakeEvidence => !!e && !/다른 구역 담당/.test(e.line));
+    const achievements = ev.filter((e) => e.label === "성과" && !/다른 구역 담당/.test(e.line));
+    const experience = roles.map((r, i) => {
+      const [start, end] = periodParts(r.period);
+      const mine = achievements.filter((a) => a.path.includes(`${r.name}(직무)`));
+      const company = ev.find((e) => e.label === "회사" && e.name === companyOfPath(r.path));
+      citations.push({ path: `experience[${i}]`, refs: [r.ref, ...(company ? [company.ref] : []), ...mine.map((a) => a.ref)], requirementIds: [] });
+      const bullets = [...mine.map((a) => a.name), ...(i === 0 ? ["장애 대응 시간을 99% 줄였다"] : [])];
+      return { company: companyOfPath(r.path), department: r.props.department ?? "", title: r.name, startDate: start, endDate: end, location: "", scope: r.props.summary ?? "", bullets };
+    });
+    const ranked = [...ev].filter((e) => !/다른 구역 담당/.test(e.line)).sort((a, b) => Number(a.label === "기술") - Number(b.label === "기술"));
+    const inserted: string[] = [];
+    for (const kw of feedback?.keywords ?? []) {
+      if (!experience[0] || inserted.some((t) => t.toLowerCase().includes(kw.toLowerCase()))) continue;
+      const hit = ranked.find((e) => e.line.toLowerCase().includes(kw.toLowerCase()));
+      if (!hit) continue;
+      const text = Object.values(hit.props).find((v) => v.toLowerCase().includes(kw.toLowerCase())) ?? `${hit.name} (${hit.techs.join(", ")})`;
+      inserted.push(text);
+      experience[0].bullets.unshift(text.slice(0, 480));
+      citations.forEach((c) => {
+        const m = /^experience\[0\]\.bullets\[(\d+)\]$/.exec(c.path);
+        if (m) c.path = `experience[0].bullets[${Number(m[1]) + 1}]`;
+      });
+      citations.push({ path: "experience[0].bullets[0]", refs: [hit.ref], requirementIds: [] });
+    }
+    return { experience, ...common };
+  }
+  if (section === "projects") {
+    // 총괄 피드백의 누락 키워드가 든 프로젝트 근거(전체 줄)가 있으면 대표 프로젝트로 더한다.
+    const picks = [...(plan?.include.projects ?? [])];
+    for (const kw of feedback?.keywords ?? []) {
+      const hit = ev.find((e) => e.label === "프로젝트" && !/다른 구역 담당/.test(e.line) && e.line.toLowerCase().includes(kw.toLowerCase()));
+      if (hit && !picks.some((p) => p.ref === hit.ref)) picks.push({ ref: hit.ref, requirementIds: [] });
+    }
+    const projects = picks.flatMap((p, i) => {
+      const e = byRef.get(p.ref);
+      if (!e) return [];
+      const [start, end] = periodParts(e.period);
+      citations.push({ path: `projects[${i}]`, refs: [e.ref], requirementIds: p.requirementIds });
+      return [{ name: e.name, company: companyOfPath(e.path), team: "", role: e.props.myRole ?? "", startDate: start, endDate: end, summary: e.props.summary ?? "", problem: e.props.situation ?? "", action: e.props.action ?? "", result: e.props.result ?? "", evidence: "", bullets: [], techs: e.techs }];
+    });
+    return { projects, ...common };
+  }
+  if (section === "extras") {
+    const education = ev.filter((e) => e.label === "학력").map((e, i) => {
+      citations.push({ path: `education[${i}]`, refs: [e.ref], requirementIds: [] });
+      const [start, end] = periodParts(e.period);
+      return { school: e.name, degree: e.props.degree ?? "", major: e.props.major ?? "", startDate: start, endDate: end, note: "" };
+    });
+    return { extras: [], education, certifications: [], ...common };
+  }
+  if (section === "highlights") {
+    const achievements = ev.filter((e) => e.label === "성과" && /\d/.test(e.name) && !/다른 구역 담당/.test(e.line)).slice(0, 2);
+    achievements.forEach((a, i) => citations.push({ path: `highlights[${i}]`, refs: [a.ref], requirementIds: [] }));
+    return { highlights: achievements.map((a) => ({ title: `핵심 성과 — ${a.name}`, context: "" })), ...common };
+  }
+  if (section === "skills") {
+    const main = ev.find((e) => e.ref === plan?.include.projects[0]?.ref);
+    if (main) citations.push({ path: "skills[0]", refs: [main.ref], requirementIds: [] });
+    return { skills: main ? [{ category: "기술", detail: "", items: main.techs }] : [], ...common };
+  }
+  return { experience: [], ...common };
+}
+
+/** 총괄 조립의 상단: 본문에 인용된 첫 프로젝트(없으면 첫 근거)로 요약·태그라인. */
+function fakeAgentCompose(user: string): unknown {
+  const ev = evidenceLines(user);
+  const plan = extractJson<{ headline: string; allowedRefs: string[] }>(user, CHAT_TAGS.resumePlan);
+  const allowed = new Set(plan?.allowedRefs ?? []);
+  const main = ev.find((e) => e.label === "프로젝트" && allowed.has(e.ref)) ?? ev.find((e) => allowed.has(e.ref));
+  return {
+    headline: plan?.headline ?? "",
+    tagline: main ? `${main.name}을(를) 맡은 개발자` : "",
+    summary: main ? `${main.name}에서 ${main.props.action ?? main.name}` : "",
+    citations: main ? [{ path: "summary", refs: [main.ref], requirementIds: [] }] : [],
+  };
+}
+
+/** 총괄 피드백: 서버 1차 배정(routed)을 그대로 revise로 낸다. */
+function fakeAgentCritique(user: string): unknown {
+  const fb = extractJson<{ routed: { section: string; issueIds: string[]; requirementIds: string[]; keywords: string[] }[] }>(user, CHAT_TAGS.reviewerFeedback);
+  const sections = (fb?.routed ?? []).slice(0, 6).map((r) => ({
+    section: r.section,
+    score: 60,
+    decision: "revise" as const,
+    instructions: r.keywords.length ? [`누락 키워드 ${r.keywords.join(", ")}를 근거 줄로 넣어라`] : ["지적을 근거 안에서 반영하라"],
+    issueIds: r.issueIds.slice(0, 12),
+    requirementIds: r.requirementIds.slice(0, 8),
+    keepPaths: [],
+    targetChars: null,
+    evidenceQueries: [],
+  }));
+  return { sections, crossSection: [], summary: sections.length ? "누락 키워드와 요건 공백을 근거 줄로 채우게 했다." : "고칠 곳이 없다." };
+}
+
+/** 지원 동기 초안(구역 에이전트): 근거 있는 문장 + 지어낸 동기 문장 + 근거 없는 숫자 문장 + 자리표시(서버 검증 시험). */
+function fakeMotivationDraft(user: string): unknown {
+  const jd = extractTag(user, TAGS.jobPosting) ?? "";
+  const resume = (extractTag(user, CHAT_TAGS.resume) ?? "").split(/\r?\n/).map((l) => l.trim()).filter(Boolean);
+  const quote = jd.split(/\r?\n/).map((l) => l.replace(/^[-•\s]+/, "").trim()).find((l) => l.length >= 4) ?? "";
+  return {
+    draft: [
+      "어릴 때부터 이 회사를 동경해 왔습니다.",
+      quote ? `공고의 '${quote.slice(0, 60)}' 요건은 제가 이력서에 쓴 '${(resume[0] ?? "경험").slice(0, 40)}'과 이어집니다.` : `제가 이력서에 쓴 '${(resume[0] ?? "경험").slice(0, 40)}'을 이 직무에서 이어가고 싶습니다.`,
+      "그 경험으로 결제 지연을 45% 줄였습니다.",
+      "[ADD: 이 회사여야 하는 이유] 입사 후에는 공고 업무에 기여하고 싶습니다.",
+    ].join(" "),
+    usedPoints: [1],
+    usedRefs: [],
+  };
+}
+
+function fakeAgentMotivation(user: string): unknown {
+  return user.includes("지원 동기 초안 작성(구역 에이전트)") ? fakeMotivationDraft(user) : fakeMotivationSuggest(user);
+}
+
 function fakeAgentWrite(user: string): unknown {
   return user.includes("이력서 본문(경력·프로젝트") ? fakeAgentBody(user) : fakeAgentTop(user);
 }
@@ -1250,7 +1470,11 @@ function fakeMotivationSuggest(user: string): unknown {
   const jd = extractTag(user, TAGS.jobPosting) ?? "";
   const graph = extractTag(user, CHAT_TAGS.careerGraph) ?? "";
   const quote = jd.split(/\r?\n/).map((l) => l.replace(/^[-•\s]+/, "").trim()).find((l) => l.length >= 4) ?? "";
-  const nodes = [...graph.matchAll(/^- \[([^\]]+)\] ([^(\n]+)/gm)].map((m) => ({ nodeId: m[1]!, name: m[2]!.trim() }));
+  const nodes = [
+    ...[...graph.matchAll(/^- \[([^\]]+)\] ([^(\n]+)/gm)].map((m) => ({ nodeId: m[1]!, name: m[2]!.trim() })),
+    // 에이전트 pack 형식("E1 [프로젝트] 이름 (경로) …") — nodeId 자리에 E… ref를 쓴다.
+    ...[...graph.matchAll(/^(E\d+) \[[^\]]+\] (.+?) \(/gm)].map((m) => ({ nodeId: m[1]!, name: m[2]!.trim() })),
+  ];
   return {
     companyPoints: [
       ...(quote ? [{ point: "공고가 강조하는 업무", jdQuote: quote.slice(0, 200) }] : []),
@@ -1276,6 +1500,33 @@ function fakeMotivationSuggest(user: string): unknown {
   };
 }
 
+function fakeJdTips(user: string): unknown {
+  const jd = extractTag(user, TAGS.jobPosting) ?? "";
+  const graph = extractTag(user, CHAT_TAGS.careerGraph) ?? "";
+  const lines = jd.split(/\r?\n/).map((l) => l.replace(/^[-•\s]+/, "").trim()).filter((l) => l.length >= 4);
+  const nodes = [...graph.matchAll(/^- \[([^\]]+)\] ([^(\n]+)/gm)].map((m) => m[1]!);
+  const words = [...new Set(jd.match(/[A-Za-z][A-Za-z0-9.+#]{1,30}/g) ?? [])];
+  return {
+    summary: [
+      ...lines.slice(0, 3).map((l, i) => ({ kind: i === 0 ? "duty" : "required", text: l.slice(0, 200) })),
+      { kind: "preferred", text: "공고에 없는 경력 7년 이상" },
+    ],
+    sections: [
+      { section: "first", tips: lines.slice(0, 2).map((l) => ({ tip: `한 줄 소개에 '${l.slice(0, 40)}' 경험을 드러내세요`, jdQuote: l.slice(0, 200) })) },
+      {
+        section: "highlights",
+        tips: [
+          ...(lines[0] ? [{ tip: "공고 요건과 이어지는 대표 성과를 맨 위에 두세요", jdQuote: lines[0].slice(0, 200) }] : []),
+          { tip: "처리량을 4500% 늘린 성과를 쓰세요", jdQuote: lines[0]?.slice(0, 200) ?? "" },
+          { tip: "공고에 없는 인용의 팁", jdQuote: "공고 원문에 없는 문장입니다" },
+        ],
+      },
+    ],
+    keywords: [...words.slice(0, 5), "공고에없는키워드"],
+    experiences: [...nodes.slice(0, 2).map((nodeId) => ({ nodeId, section: "projects", why: "공고 요건과 같은 종류의 일" })), { nodeId: "n-unknown", section: "projects", why: "그래프에 없는 노드" }],
+  };
+}
+
 function fakeTaskOutput(task: LlmTask, user: string): unknown {
   switch (task) {
     case "graph-chat":
@@ -1298,6 +1549,12 @@ function fakeTaskOutput(task: LlmTask, user: string): unknown {
       return fakeGraphQa(user);
     case "graph-qa-rerank":
       return fakeGraphQaRerank(user);
+    case "graph-agent-step":
+      return fakeGraphAgentStep(user, false);
+    case "graph-agent-final":
+      return fakeGraphAgentStep(user, true);
+    case "graph-agent-entail":
+      return { supported: true };
     case "interview-questions":
       return fakeInterviewQuestions(user);
     case "interview-feedback":
@@ -1308,10 +1565,26 @@ function fakeTaskOutput(task: LlmTask, user: string): unknown {
       return fakeAgentWrite(user);
     case "resume-agent-revise":
       return fakeAgentRevise(user);
+    case "resume-agent-brief":
+      return fakeAgentBrief(user);
+    case "resume-agent-section":
+      return fakeAgentSection(user);
+    case "resume-agent-compose":
+      return fakeAgentCompose(user);
+    case "resume-agent-critique":
+      return fakeAgentCritique(user);
+    case "resume-agent-motivation":
+      return fakeAgentMotivation(user);
     case "resume-polish":
-      return fakeResumePolish(user);
+      // 전체 이력서 모드(칸 표 <polish_document>가 있다)와 칸 모드를 같은 task로 부른다.
+      return extractTag(user, POLISH_DOCUMENT_TAG) !== null ? fakeResumePolishDoc(user) : fakeResumePolish(user);
     case "resume-motivation-suggest":
       return fakeMotivationSuggest(user);
+    case "resume-jd-tips":
+      return fakeJdTips(user);
+    case "portfolio-share-chat":
+      // 공개 포트폴리오 챗봇: 첫 구역을 근거로 짧게 답한다(테스트는 보통 자체 가짜 클라이언트로 프롬프트를 확인한다).
+      return { scope: "on_topic", scopeReason: "", answer: "포트폴리오의 첫 구역에 적힌 내용입니다.", citations: ["s1"], notInPortfolio: false };
     case "resume-agent-jd":
     case "resume-agent-review":
       // 패널 단계 재사용 호출의 사용량 구분(usageTask)일 뿐 task로는 오지 않는다.

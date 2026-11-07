@@ -1,6 +1,8 @@
 "use client";
 /**
  * 그래프 이력서 에이전트 진행 화면. 단계 타임라인(단계별 요약), 라운드별 심사 점수표, 지금까지 가장 좋은 초안 미리 보기, 취소·다시 시도·빠른 초안.
+ * 구역별 에이전트(pipelineVersion 2): 위는 총괄 타임라인(JD 분석 → 작전 → 구역 작성 → 조립 → 심사 → 피드백 …), 아래는 구역 카드 7개
+ * (라운드별 칩: 대기·작성 중·완료·유지·실패→이전 결과 사용)와 라운드별 '총괄 피드백' 접이식. v1 작업은 예전 화면 그대로.
  * GET /api/resumes/agent-jobs/[id]를 2초(30초 뒤 5초) 간격으로 폴링하고 탭이 숨겨지면 멈춘다. needsKick이면 POST …/advance를
  * 한 번에 하나만 보낸다(연쇄가 막힌 배포의 안전망 — 서버는 리스가 비어 있을 때만 실행한다). 작업은 서버에서 계속되므로 화면을 떠나도 된다.
  */
@@ -14,7 +16,18 @@ import { Button, buttonClass } from "@/components/ui/Button";
 import { Card } from "@/components/ui/Card";
 import { Spinner } from "@/components/ui/Spinner";
 import { cn } from "@/components/ui/cn";
-import { AGENT_STEP_LABELS, agentHeading, STOP_REASON_LABELS, stepTitle, type AgentStepView, type ResumeAgentJobView } from "@/lib/resume-agent/job-types";
+import {
+  AGENT_STEP_LABELS,
+  agentCompletedHref,
+  agentHeading,
+  STOP_REASON_LABELS,
+  stepTitle,
+  type AgentStepView,
+  type OrchestratorFeedbackView,
+  type ResumeAgentJobView,
+  type SectionCardView,
+  type SectionRoundView,
+} from "@/lib/resume-agent/job-types";
 import { formatElapsed } from "@/lib/resumes/draft-job-types";
 import { AgentRoundScores } from "./AgentRoundScores";
 
@@ -54,7 +67,98 @@ export function agentStatusMessage(job: Pick<ResumeAgentJobView, "status" | "err
 
 function stepLabel(s: AgentStepView): string {
   if (s.kind === "review" || s.kind === "revise") return stepTitle(s.kind, s.round);
+  if (s.kind === "section" && !s.section) return s.round === 0 ? (s.status === "done" ? "구역 에이전트 작성" : "구역 에이전트들이 쓰는 중") : `지시받은 구역 다시 쓰기 ${s.round}회차`;
+  if ((s.kind === "compose" || s.kind === "critique") && (s.round > 0 || s.status === "done")) return stepTitle(s.kind, s.round);
   return s.status === "done" ? AGENT_STEP_LABELS[s.kind].done : AGENT_STEP_LABELS[s.kind].label;
+}
+
+const CHIP: Record<SectionRoundView["status"], { text: string; className: string }> = {
+  pending: { text: "대기", className: "bg-slate-100 text-slate-500" },
+  running: { text: "작성 중", className: "bg-indigo-100 text-indigo-700" },
+  done: { text: "완료", className: "bg-emerald-100 text-emerald-700" },
+  failed: { text: "실패", className: "bg-rose-100 text-rose-700" },
+  skipped: { text: "건너뜀", className: "bg-slate-100 text-slate-400" },
+  kept: { text: "유지", className: "bg-slate-100 text-slate-600" },
+};
+
+function chipText(r: SectionRoundView): string {
+  const base = r.round === 0 ? "초안" : `${r.round}회차`;
+  if (r.status === "failed") return `${base} 실패 → 이전 결과 사용`;
+  if (r.fallback && r.status === "done") return `${base} 완료(대체 작성)`;
+  return `${base} ${CHIP[r.status].text}`;
+}
+
+/** 구역 카드 그리드(v2). @internal 테스트용으로 내보낸다. */
+export function SectionCards({ sections }: { sections: readonly SectionCardView[] }) {
+  return (
+    <ul className="grid gap-3 sm:grid-cols-2" aria-label="구역 에이전트">
+      {sections.map((c) => {
+        const last = c.rounds.at(-1);
+        // 요약은 내용이 있는 가장 최근 라운드(지금 쓰는 중이면 직전 결과).
+        const shown = [...c.rounds].reverse().find((r) => r.summary.length > 0);
+        const busy = c.rounds.some((r) => r.status === "running");
+        return (
+          <li key={c.section} className={cn("rounded-lg border p-3", c.skipped ? "border-slate-100 bg-slate-50" : "border-slate-200 bg-white")}>
+            <div className="flex items-center justify-between gap-2">
+              <p className={cn("text-sm font-semibold", c.skipped ? "text-slate-400" : "text-slate-900")}>
+                {c.label}
+                {busy && <Spinner size="sm" className="ml-1.5 inline-block align-[-2px]" />}
+              </p>
+              {last?.score !== null && last?.score !== undefined && <span className="text-xs text-slate-500 tabular-nums">총괄 점수 {last.score}</span>}
+            </div>
+            {c.skipped ? (
+              <p className="mt-1 text-xs text-slate-400">이 이력서에는 쓰지 않습니다</p>
+            ) : (
+              <>
+                <div className="mt-1.5 flex flex-wrap gap-1">
+                  {c.rounds.map((r) => (
+                    <span key={r.round} className={cn("rounded-full px-2 py-0.5 text-xs", r.status === "failed" ? CHIP.failed.className : r.fallback ? "bg-amber-100 text-amber-800" : CHIP[r.status].className)}>
+                      {chipText(r)}
+                    </span>
+                  ))}
+                </div>
+                {shown && (
+                  <ul className="mt-1.5 text-xs text-slate-500">
+                    {shown.summary.map((line) => (
+                      <li key={line}>{line}</li>
+                    ))}
+                  </ul>
+                )}
+              </>
+            )}
+          </li>
+        );
+      })}
+    </ul>
+  );
+}
+
+/** 라운드별 총괄 피드백(접이식). @internal 테스트용. */
+export function OrchestratorFeedback({ items }: { items: readonly OrchestratorFeedbackView[] }) {
+  if (items.length === 0) return null;
+  return (
+    <div className="grid gap-2">
+      {items.map((o) => (
+        <details key={o.round} className="rounded-lg bg-slate-50 px-3 py-2 text-sm">
+          <summary className="cursor-pointer font-medium text-slate-800">
+            총괄 피드백 {o.round + 1}회차 — {o.summary}
+          </summary>
+          <ul className="mt-2 grid gap-1.5">
+            {o.feedback.map((f) => (
+              <li key={f.section}>
+                <p className="text-xs font-semibold text-slate-700">{f.label}</p>
+                <ul className="ml-3 list-disc text-xs text-slate-600">
+                  {f.instructions.map((x) => (
+                    <li key={x}>{x}</li>
+                  ))}
+                </ul>
+              </li>
+            ))}
+          </ul>
+        </details>
+      ))}
+    </div>
+  );
 }
 
 async function fetchJob(id: string): Promise<ResumeAgentJobView | "gone" | "signed-out" | null> {
@@ -133,8 +237,9 @@ export function AgentProgress({ initialJob, autoOpen = true }: { initialJob: Res
   useEffect(() => {
     if (job.status !== "completed" || !job.resumeId || handled.current === job.id) return;
     handled.current = job.id;
-    void markNotificationsReadByLink([`/app/resumes/${job.resumeId}?report=1`, `/app/resumes/agent/${job.id}`]);
-    if (autoOpen) router.replace(`/app/resumes/${job.resumeId}?report=1`);
+    const href = agentCompletedHref(job) ?? `/app/resumes/${job.resumeId}?report=1`;
+    void markNotificationsReadByLink([href, `/app/resumes/agent/${job.id}`]);
+    if (autoOpen) router.replace(href);
   }, [job, autoOpen, router]);
 
   async function act(kind: "retry" | "single" | "cancel") {
@@ -195,7 +300,7 @@ export function AgentProgress({ initialJob, autoOpen = true }: { initialJob: Res
 
         <ol className="mt-6 grid gap-3" aria-label="진행 단계">
           {job.steps.map((s, i) => {
-            const isCurrent = active && s.key === job.currentStep && s.status !== "done";
+            const isCurrent = active && (s.key === job.currentStep || (s.kind === "section" && !s.section && job.currentStep.startsWith(`r${s.round}.sec.`))) && s.status !== "done";
             const state = s.status === "done" ? "done" : s.status === "failed" ? "failed" : isCurrent ? "active" : s.status === "skipped" ? "skipped" : "todo";
             return (
               <li key={s.key} className="flex gap-3" aria-current={state === "active" ? "step" : undefined}>
@@ -231,6 +336,19 @@ export function AgentProgress({ initialJob, autoOpen = true }: { initialJob: Res
             );
           })}
         </ol>
+
+        {job.pipelineVersion === 2 && job.sections && (
+          <div className="mt-6 border-t border-slate-100 pt-4">
+            <h3 className="mb-2 text-sm font-semibold text-slate-900">구역 에이전트</h3>
+            <p className="mb-3 text-xs text-slate-500">구역마다 에이전트가 JD 분석과 내 경험 그래프만으로 쓰고, 총괄 에이전트가 심사 결과로 피드백한 구역만 다시 씁니다.</p>
+            <SectionCards sections={job.sections} />
+            {job.orchestrator && job.orchestrator.length > 0 && (
+              <div className="mt-3">
+                <OrchestratorFeedback items={job.orchestrator} />
+              </div>
+            )}
+          </div>
+        )}
 
         {(job.rounds.length > 0 || job.finalPanel) && (
           <div className="mt-6 border-t border-slate-100 pt-4">
@@ -289,9 +407,15 @@ export function AgentProgress({ initialJob, autoOpen = true }: { initialJob: Res
                 그래프 채팅으로 정리하기
               </Link>
             )}
-            <Link href="/app/resumes/new" className={buttonClass("secondary", "sm")}>
-              새 이력서 화면으로
-            </Link>
+            {job.regenerate && job.targetResumeId ? (
+              <Link href={`/app/resumes/${job.targetResumeId}`} className={buttonClass("secondary", "sm")}>
+                이력서로 돌아가기
+              </Link>
+            ) : (
+              <Link href="/app/resumes/new" className={buttonClass("secondary", "sm")}>
+                새 이력서 화면으로
+              </Link>
+            )}
           </div>
         </Alert>
       )}
@@ -300,9 +424,15 @@ export function AgentProgress({ initialJob, autoOpen = true }: { initialJob: Res
         <Alert tone="info" title="취소했습니다">
           {actionError && <p className="mb-2 font-medium">{actionError}</p>}
           <div className="flex flex-wrap gap-2">
-            <Link href="/app/resumes/new" className={buttonClass("primary", "sm")}>
-              새로 만들기
-            </Link>
+            {job.regenerate && job.targetResumeId ? (
+              <Link href={`/app/resumes/${job.targetResumeId}`} className={buttonClass("primary", "sm")}>
+                이력서로 돌아가기
+              </Link>
+            ) : (
+              <Link href="/app/resumes/new" className={buttonClass("primary", "sm")}>
+                새로 만들기
+              </Link>
+            )}
             {job.canFallback && (
               <Button type="button" size="sm" variant="secondary" loading={busy === "single"} onClick={() => void act("single")}>
                 빠른 초안으로 만들기
@@ -313,9 +443,9 @@ export function AgentProgress({ initialJob, autoOpen = true }: { initialJob: Res
       )}
 
       {job.status === "completed" && job.resumeId && (
-        <Alert tone="info" title="이력서가 완성됐습니다">
-          <p>편집 화면으로 이동해 심사 리포트를 보여 드립니다.</p>
-          <Link href={`/app/resumes/${job.resumeId}?report=1`} className={cn(buttonClass("primary", "sm"), "mt-3")}>
+        <Alert tone="info" title={job.regenerate ? "이력서를 다시 생성했습니다" : "이력서가 완성됐습니다"}>
+          <p>{job.regenerate ? "새 버전으로 저장했습니다. 편집 화면으로 이동해 새 심사 리포트를 보여 드립니다." : "편집 화면으로 이동해 심사 리포트를 보여 드립니다."}</p>
+          <Link href={agentCompletedHref(job) ?? `/app/resumes/${job.resumeId}?report=1`} className={cn(buttonClass("primary", "sm"), "mt-3")}>
             이력서·리포트 열기
           </Link>
         </Alert>

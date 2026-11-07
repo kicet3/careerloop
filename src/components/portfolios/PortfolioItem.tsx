@@ -37,10 +37,13 @@ export function PortfolioItem({
   portfolio: p,
   upload,
   variant,
+  shared = false,
 }: {
   portfolio: PortfolioListItem;
   upload: PortfolioUploadConfig;
   variant: "card" | "detail";
+  /** 공개 링크로 공개 중('공개 중' 표시). */
+  shared?: boolean;
 }) {
   const router = useRouter();
   const [panel, setPanel] = useState<Panel>(null);
@@ -88,7 +91,8 @@ export function PortfolioItem({
 
   async function remove() {
     const used = p.resumes.length > 0 ? `\n이 포트폴리오를 붙인 이력서 ${p.resumes.length}개에서도 떨어집니다(이력서는 남습니다).` : "";
-    if (!window.confirm(`'${p.title}' 포트폴리오를 지울까요? 보관한 원본 파일과 저장해 둔 글도 함께 지워집니다.${used}`)) return;
+    const publicNote = shared ? "\n공개 중인 링크도 함께 사라집니다." : "";
+    if (!window.confirm(`'${p.title}' 포트폴리오를 지울까요? 보관한 원본 파일과 저장해 둔 글도 함께 지워집니다.${used}${publicNote}`)) return;
     setBusy("delete");
     setError(null);
     try {
@@ -124,6 +128,11 @@ export function PortfolioItem({
           <div className="flex min-w-0 items-center gap-2">
             <Badge tone={p.kind === "graph" ? "accent" : "info"}>{PORTFOLIO_KIND_LABELS[p.kind]}</Badge>
             {heading}
+            {shared && (
+              <Badge tone="positive" className="shrink-0">
+                공개 중
+              </Badge>
+            )}
           </div>
           <p className="flex min-w-0 flex-wrap items-center gap-x-2 gap-y-1 text-sm text-slate-600">
             {p.kind === "graph" ? (

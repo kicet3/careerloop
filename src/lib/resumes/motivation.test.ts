@@ -3,7 +3,7 @@ import type { CareerGraph, GraphNode } from "@/lib/domain/graph";
 import { MotivationSuggestionSchema } from "@/lib/domain/resume-motivation";
 
 vi.mock("server-only", () => ({}));
-const { buildMotivationPrompt, DRAFT_MOTIVE_PLACEHOLDER, filterMotivationSuggestion, looksLikeProse, verifyMotivationDraft } = await import("./motivation");
+const { buildMotivationPrompt, DRAFT_MOTIVE_PLACEHOLDER, filterMotivationSuggestion, looksLikeProse, verifyMotivationDraft, runMotivationSuggest, writeMotivationDraft, buildMotivationDraftPrompt } = await import("./motivation");
 
 const graph: CareerGraph = {
   person: { id: "me", name: null },
@@ -108,6 +108,19 @@ describe("지원 동기 추천 프롬프트", () => {
     expect(verifyMotivationDraft("가".repeat(900), "").length).toBeLessThanOrEqual(800);
   });
 
+  it("초안 숫자: 공고 요건의 숫자('5년 이상')를 지원자 사실처럼 쓰면 [ADD: 수치 확인], 공고 인용 구절을 그대로 담은 숫자는 통과", () => {
+    const jd = "결제 서버 5년 이상 경험자 우대. 하루 10만 건 결제를 처리하는 플랫폼을 운영합니다.";
+    const own = "Kotlin 기반 서버 개발\n주문 시스템 개편";
+    const sources = { text: `${jd}\n${own}`, numbers: own, jdQuotes: ["하루 10만 건 결제를 처리하는 플랫폼"] };
+    const out = verifyMotivationDraft("저는 5년간 결제 서버를 운영했습니다. 하루 10만 건 결제를 처리하는 플랫폼에 주문 시스템 개편 경험을 잇겠습니다.", sources);
+    expect(out).toContain("[ADD: 수치 확인 — 저는 5년간 결제 서버를 운영했습니다.]");
+    expect(out).toContain("하루 10만 건 결제를 처리하는 플랫폼에 주문 시스템 개편 경험을 잇겠습니다.");
+    expect(out).not.toContain("수치 확인 — 하루");
+    // 추천 거르기의 초안도 같은 규칙(공고 원문은 숫자 근거가 아니다).
+    const raw = MotivationSuggestionSchema.parse({ companyPoints: [], linkedExperiences: [], outline: [], questions: [], cautions: [], draft: "저는 5년간 결제 서버를 운영했습니다. 주문 시스템 개편 경험을 잇겠습니다." });
+    expect(filterMotivationSuggestion(raw, { jdText: jd, graph, motivation: "", company: "페이랩", roleTitle: "백엔드" }).draft).toContain("[ADD: 수치 확인");
+  });
+
   it("스키마: 초안이 없는 예전 출력도 받고(빈 초안), 거르기 결과에 draft가 있다", () => {
     const raw = MotivationSuggestionSchema.parse({ companyPoints: [], linkedExperiences: [], outline: [], questions: [], cautions: [] });
     expect(raw.draft).toBe("");
@@ -118,5 +131,86 @@ describe("지원 동기 추천 프롬프트", () => {
       { jdText: "결제", graph, motivation: "", company: "페이랩", roleTitle: "백엔드" },
     );
     expect(withDraft.draft).toBe("주문 시스템 개편에서 처리 시간을 300ms로 줄인 경험이 있습니다. [ADD: 수치 확인 — 매출을 30% 늘렸습니다.]");
+  });
+});
+
+describe("지원 동기 에이전트(파이프라인 v2 — 추천 버튼과 같은 모듈)", () => {
+  const pack = {
+    version: 1,
+    graphFingerprint: "g",
+    items: [
+      { ref: "E1", nodeId: "p1", label: "Project" as const, name: "주문 시스템 개편", path: "나 → 주문 시스템 개편", text: "result: 처리 시간 1200ms → 300ms", period: "2022.01 ~ 2022.12", skills: ["Kafka"], hasMetric: true, completeness: 1, facts: null },
+      { ref: "E2", nodeId: "r1", label: "Role" as const, name: "백엔드 개발자", path: "나 → 백엔드 개발자", text: "", period: "2021.03 ~ 현재", skills: [], hasMetric: false, completeness: 1, facts: null },
+    ],
+    byRequirement: [],
+    coverage: { mustFound: 0, mustTotal: 0, niceFound: 0, niceTotal: 0 },
+    truncated: false,
+    skillKeys: [],
+  };
+  const empty: CareerGraph = { person: { id: "me", name: null }, nodes: [], edges: [] };
+
+  it("pack 근거: LLM이 낸 E… ref를 pack의 노드로 바꾸고(이름·종류는 pack 값), pack 밖 ref는 버린다. 숫자는 pack 텍스트로 대조", () => {
+    const raw = MotivationSuggestionSchema.parse({
+      companyPoints: [],
+      linkedExperiences: [
+        { nodeId: "E1", name: "엉뚱한 이름", why: "공고 업무와 같은 종류의 일" },
+        { nodeId: "[E2]", name: "x", why: "같은 도메인" },
+        { nodeId: "E9", name: "없는 근거", why: "x" },
+      ],
+      outline: [],
+      questions: ["처리 시간을 1200ms에서 줄인 계기는?", "매출을 777% 늘렸나요?"],
+      cautions: [],
+      draft: "주문 시스템 개편으로 처리 시간을 300ms로 줄였습니다. 매출을 777% 늘렸습니다.",
+    });
+    const out = filterMotivationSuggestion(raw, { jdText: "", graph: empty, pack, motivation: "", company: "토스", roleTitle: "백엔드" });
+    expect(out.linkedExperiences).toEqual([
+      { nodeId: "p1", name: "주문 시스템 개편", kind: "프로젝트", why: "공고 업무와 같은 종류의 일" },
+      { nodeId: "r1", name: "백엔드 개발자", kind: expect.any(String), why: "같은 도메인" },
+    ]);
+    expect(out.questions).toEqual(["처리 시간을 1200ms에서 줄인 계기는?"]);
+    expect(out.draft).toContain("300ms로 줄였습니다");
+    expect(out.draft).toContain("[ADD: 수치 확인");
+    expect(out.cautions.some((c) => c.includes("그래프가 비어"))).toBe(false);
+  });
+
+  it("추천 에이전트: 저장된 JD 분석·pack(E… 줄)을 프롬프트에 넣고 노드 id는 넣지 않는다. 사용량 task를 고를 수 있다", async () => {
+    const calls: { task?: string; user: string }[] = [];
+    const { FakeLlmClient } = await import("@/test/fake-llm");
+    const fake = new FakeLlmClient();
+    const llm = { name: "t", generate: async (req: Parameters<typeof fake.generate>[0]) => (calls.push({ task: req.task, user: req.user }), fake.generate(req)) };
+    const jd = { source: "jd" as const, roleTitle: "백엔드", company: "토스", seniority: "", summary: "결제 안정성", mustHave: [{ id: "R1", text: "Kafka 운영", category: "skill" as const, jdQuote: null }], niceToHave: [], keywords: ["Kafka"], responsibilities: [], hiddenSignals: [] };
+    const res = await runMotivationSuggest(
+      { company: "토스", roleTitle: "백엔드", jdText: "- 결제 시스템 안정성\n- Kafka 운영", jd, material: { kind: "pack", pack }, motivation: "" },
+      { llm: llm as never, task: "resume-agent-motivation" },
+    );
+    expect(calls[0]!.task).toBe("resume-agent-motivation");
+    expect(calls[0]!.user).toContain("저장된 JD 분석");
+    expect(calls[0]!.user).toContain("E1 [");
+    expect(/\b(p1|r1)\b/.test(calls[0]!.user)).toBe(false);
+    expect(res.suggestion.linkedExperiences.map((e) => e.nodeId)).toEqual(["p1", "r1"]);
+    expect(res.suggestion.companyPoints[0]?.jdQuote).toBe("결제 시스템 안정성");
+  });
+
+  it("초안 에이전트: 회사가 강조하는 점 → 이력서에 쓴 줄 → 기여 순서, 지어낸 동기는 자리표시, 근거 없는 숫자는 [ADD: 수치 확인]", async () => {
+    const { FakeLlmClient } = await import("@/test/fake-llm");
+    const input = {
+      company: "토스",
+      roleTitle: "백엔드",
+      jdText: "- 결제 시스템 안정성",
+      pack,
+      suggestion: null,
+      resumeLines: ["주문 처리 시간을 1200ms에서 300ms로 줄였다"],
+      angle: { companyAngle: "결제 안정성", linkRefs: ["E1"] },
+    };
+    const prompt = buildMotivationDraftPrompt(input);
+    expect(prompt.system).toContain("[ADD: 지원 계기");
+    expect(prompt.user).toContain("<resume>");
+    expect(prompt.user).toContain("- 총괄이 정한 각도: 결제 안정성");
+    const res = await writeMotivationDraft(input, { llm: new FakeLlmClient() as never });
+    expect(res.draft).toContain(DRAFT_MOTIVE_PLACEHOLDER);
+    expect(res.draft).not.toContain("어릴 때부터");
+    expect(res.draft).toContain("[ADD: 수치 확인");
+    expect(res.draft).toContain("주문 처리 시간을 1200ms에서 300ms로 줄였다");
+    expect(res.placeholders).toBeGreaterThanOrEqual(2);
   });
 });

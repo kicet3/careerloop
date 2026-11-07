@@ -4,9 +4,12 @@
  * 이력서 작성 팁 패널(접기·펼치기). 편집기(ResumeEditor)에 붙어 있다.
  * 내용: 첫 화면 4요소(지금 문서에서 채워졌는지 표시), 프로젝트 구조 반복, 성과 숫자 정의·기준, 협업·개성은 행동으로,
  * 제출 전 12개 체크리스트(체크 상태는 이력서별 localStorage). 문구 원천은 src/lib/resumes/writing-guide.ts — 초안·심사 프롬프트와 같은 기준.
+ * 지원처별 이력서에 JD가 있으면 'JD 맞춤 팁' 탭(JdTipsTab — 공고별로 AI가 만든 구역별 팁·키워드)이 맨 앞이자 기본 탭이다.
+ * 공용 이력서·JD 없음이면 그 탭 없이 기본 작성 팁만 보인다.
  */
 import { useMemo, useState, useSyncExternalStore } from "react";
 import { cn } from "@/components/ui/cn";
+import { JdTipsTab } from "./JdTipsTab";
 import type { ResumeDocument, ResumeKind } from "@/lib/domain/resumes";
 import {
   BEHAVIOR_STRUCTURE,
@@ -70,7 +73,8 @@ function parseChecks(raw: string | null): Set<string> {
   }
 }
 
-type Tab = "first" | "project" | "numbers" | "behavior" | "checklist";
+type Tab = "jd" | "first" | "project" | "numbers" | "behavior" | "checklist";
+const JD_TAB: { id: Tab; label: string } = { id: "jd", label: "JD 맞춤 팁" };
 const TABS: { id: Tab; label: string }[] = [
   { id: "first", label: "첫 화면 4요소" },
   { id: "project", label: "프로젝트 구조" },
@@ -79,12 +83,35 @@ const TABS: { id: Tab; label: string }[] = [
   { id: "checklist", label: "제출 전 체크리스트" },
 ];
 
-export function ResumeWritingTips({ resumeId, kind, document }: { resumeId: string; kind: ResumeKind; document: ResumeDocument }) {
+/** 보일 탭 목록과 기본 탭: 지원처별 이력서에 JD가 있으면 'JD 맞춤 팁'이 맨 앞이자 기본. */
+export function writingTipTabs(kind: ResumeKind, jdAvailable: boolean): { tabs: { id: Tab; label: string }[]; defaultTab: Tab } {
+  const showJd = jdAvailable && kind === "company";
+  return showJd ? { tabs: [JD_TAB, ...TABS], defaultTab: "jd" } : { tabs: TABS, defaultTab: "first" };
+}
+
+export function ResumeWritingTips({
+  resumeId,
+  kind,
+  document,
+  jdAvailable = false,
+  jdKey = "",
+}: {
+  resumeId: string;
+  kind: ResumeKind;
+  document: ResumeDocument;
+  /** 지원처별 이력서이고 JD(또는 연결 공고)가 있다 — 'JD 맞춤 팁' 탭을 기본으로 보인다. */
+  jdAvailable?: boolean;
+  /** JD가 바뀌면 달라지는 값(바뀌면 저장된 팁을 다시 읽는다). */
+  jdKey?: string;
+}) {
   // 기본은 접힘(편집 공간을 가리지 않게). 한 번 펼치면 다음에도 펼친 채로 연다.
   const open = useStored(OPEN_KEY) === "1";
   const rawChecks = useStored(checksKey(resumeId));
   const checks = useMemo(() => parseChecks(rawChecks), [rawChecks]);
-  const [tab, setTab] = useState<Tab>("first");
+  const { tabs, defaultTab } = writingTipTabs(kind, jdAvailable);
+  const [picked, setPicked] = useState<Tab | null>(null);
+  // 고르지 않았으면 기본 탭. 고른 탭이 사라지면(JD를 지움) 기본 탭으로.
+  const tab: Tab = picked && tabs.some((t) => t.id === picked) ? picked : defaultTab;
   const signals = useMemo(() => resumeTipSignals(document), [document]);
   const firstDone = Object.values(signals.firstScreen).filter(Boolean).length;
 
@@ -119,13 +146,13 @@ export function ResumeWritingTips({ resumeId, kind, document }: { resumeId: stri
       {open && (
         <div id={`tips-body-${resumeId}`} className="border-t border-indigo-100 px-4 pb-4 pt-3 text-sm text-slate-700">
           <div className="flex flex-wrap gap-1.5" role="tablist" aria-label="작성 팁 주제">
-            {TABS.map((t) => (
+            {tabs.map((t) => (
               <button
                 key={t.id}
                 type="button"
                 role="tab"
                 aria-selected={tab === t.id}
-                onClick={() => setTab(t.id)}
+                onClick={() => setPicked(t.id)}
                 className={cn(
                   "rounded-full px-3 py-1 text-xs ring-1 ring-inset",
                   tab === t.id ? "bg-indigo-600 text-white ring-indigo-600" : "bg-white text-slate-700 ring-slate-200 hover:bg-slate-50",
@@ -136,6 +163,7 @@ export function ResumeWritingTips({ resumeId, kind, document }: { resumeId: stri
             ))}
           </div>
           <div className="mt-3" role="tabpanel">
+            {tab === "jd" && <JdTipsTab resumeId={resumeId} document={document} jdKey={jdKey} />}
             {tab === "first" && (
               <div className="space-y-2">
                 <p>읽는 사람이 위쪽만 훑어도 아래 네 가지가 바로 보이게 배치하세요.</p>

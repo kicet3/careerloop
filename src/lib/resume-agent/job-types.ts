@@ -5,8 +5,50 @@
 import type { ReviewerId } from "@/lib/domain/schemas";
 import type { StopReason } from "./schemas";
 
-export const AGENT_STEP_KINDS = ["jd", "retrieve", "plan", "write_body", "write_top", "review", "revise", "final_panel", "finalize"] as const;
+export const AGENT_STEP_KINDS = [
+  "jd",
+  "retrieve",
+  "plan",
+  "write_body",
+  "write_top",
+  "review",
+  "revise",
+  "final_panel",
+  "finalize",
+  // 파이프라인 v2(구역별 에이전트 + 총괄, docs/RESUME-SECTION-AGENTS.md)
+  "brief",
+  "section",
+  "compose",
+  "critique",
+] as const;
 export type AgentStepKind = (typeof AGENT_STEP_KINDS)[number];
+
+/** 파이프라인 v2의 구역 에이전트. 앞 5개는 이력서 본문 경로를 갖는 구역(WRITING_SECTIONS), 뒤 2개는 지원 동기 칸(심사 텍스트 밖). */
+export const SECTION_IDS = ["experience", "projects", "highlights", "skills", "extras", "motivation_draft", "motivation_suggest"] as const;
+export type SectionId = (typeof SECTION_IDS)[number];
+export const WRITING_SECTIONS = ["experience", "projects", "highlights", "skills", "extras"] as const;
+export type WritingSection = (typeof WRITING_SECTIONS)[number];
+export const MOTIVATION_SECTIONS = ["motivation_suggest", "motivation_draft"] as const;
+
+/** 구역 이름(화면·리포트). */
+export const SECTION_LABELS: Record<SectionId, string> = {
+  experience: "경력",
+  projects: "대표 프로젝트",
+  highlights: "핵심 성과",
+  skills: "직무 역량",
+  extras: "수상·기타·학력·자격",
+  motivation_draft: "지원 동기 초안",
+  motivation_suggest: "지원 동기 추천",
+};
+
+/** 라운드 0의 웨이브: 웨이브 2는 웨이브 1 결과(실제로 쓴 경력·프로젝트 줄, 지원 동기 재료)를 읽는다. */
+export const SECTION_WAVES: readonly (readonly SectionId[])[] = [
+  ["experience", "projects", "extras", "motivation_suggest"],
+  ["highlights", "skills", "motivation_draft"],
+];
+
+export const isSectionId = (v: string): v is SectionId => (SECTION_IDS as readonly string[]).includes(v);
+export const isWritingSection = (v: string): v is WritingSection => (WRITING_SECTIONS as readonly string[]).includes(v);
 
 export const AGENT_JOB_STATUSES = ["running", "waiting", "completed", "failed", "canceled"] as const;
 export type ResumeAgentJobStatus = (typeof AGENT_JOB_STATUSES)[number];
@@ -24,6 +66,10 @@ export const AGENT_STEP_LABELS: Record<AgentStepKind, { label: string; done: str
   revise: { label: "지적 반영해 고치는 중", done: "수정" },
   final_panel: { label: "최종본 심사위원 7명 심사 중", done: "최종 심사" },
   finalize: { label: "저장 중", done: "저장" },
+  brief: { label: "총괄 에이전트가 구역별 작전을 세우는 중", done: "총괄 작전(요건 배정·분량)" },
+  section: { label: "구역 에이전트가 쓰는 중", done: "구역 작성" },
+  compose: { label: "총괄 에이전트가 구역을 조립하고 요약·사실 확인 중", done: "조립·요약·사실 검증" },
+  critique: { label: "총괄 에이전트가 구역별 피드백을 정리하는 중", done: "총괄 피드백" },
 };
 
 /** 리포트 '바뀐 점'의 수정 종류 라벨(schemas.ts PATCH_OPS). */
@@ -59,6 +105,8 @@ export interface AgentStepView {
   key: string;
   kind: AgentStepKind;
   round: number;
+  /** kind 'section'이면 구역 id. */
+  section?: SectionId;
   status: AgentStepStatus;
   /** 화면용 한 줄 요약들(근거 커버리지, 포지셔닝, 수치 확인 n건 …). */
   summary: string[];
@@ -91,9 +139,41 @@ export interface FinalPanelView {
   verdicts: { reviewer: ReviewerId; verdict: string | null; positive: boolean; oneLiner: string }[];
 }
 
+/** v2 구역 카드의 라운드 칩. kept = 총괄이 이 라운드에 다시 쓰라고 하지 않아 이전 결과를 그대로 썼다. */
+export interface SectionRoundView {
+  round: number;
+  status: AgentStepStatus | "kept";
+  summary: string[];
+  /** 총괄 critique의 구역 점수(0~100, 없으면 null). */
+  score: number | null;
+  /** 실패해 이전 라운드 결과·대체 작성기를 썼다. */
+  fallback: boolean;
+}
+
+export interface SectionCardView {
+  section: SectionId;
+  label: string;
+  rounds: SectionRoundView[];
+  /** 공용 이력서·기능 꺼짐으로 돌리지 않는 구역. */
+  skipped: boolean;
+}
+
+/** 총괄 피드백(라운드별). 지시문 안의 근거 ref(E…)는 근거 이름으로 바꿨다. */
+export interface OrchestratorFeedbackView {
+  round: number;
+  summary: string;
+  feedback: { section: SectionId | "compose"; label: string; instructions: string[] }[];
+}
+
 export interface ResumeAgentJobView {
   id: string;
   mode: "agent";
+  /** 단계 계획 버전(없으면 1). */
+  pipelineVersion?: 1 | 2;
+  /** v2만: 구역 카드. */
+  sections?: SectionCardView[];
+  /** v2만: 총괄 피드백 기록. */
+  orchestrator?: OrchestratorFeedbackView[];
   status: ResumeAgentJobStatus;
   label: string;
   currentStep: string;
@@ -120,6 +200,15 @@ export interface ResumeAgentJobView {
   createdAt: number;
   updatedAt: number;
   completedAt: number | null;
+  /** '다시 생성' 작업이면 true(결과는 targetResumeId 이력서의 새 버전·새 리포트). */
+  regenerate?: boolean;
+  targetResumeId?: string | null;
+}
+
+/** 완료된 작업이 연 이력서 경로(리포트 펼침, 다시 생성이면 새 버전 배너). 알림 링크와 같은 값이다. */
+export function agentCompletedHref(job: Pick<ResumeAgentJobView, "resumeId" | "regenerate">): string | null {
+  if (!job.resumeId) return null;
+  return job.regenerate ? `/app/resumes/${job.resumeId}?report=1&regenerated=1` : `/app/resumes/${job.resumeId}?report=1`;
 }
 
 /** POST /api/resumes(mode=agent) 202 응답. */
@@ -127,16 +216,26 @@ export interface StartResumeAgentResponse {
   agentJob: ResumeAgentJobView;
 }
 
-/** 단계 키 "r1.review" → { round: 1, kind: "review" }. "final_panel"·"finalize"는 round -1. */
-export function parseStepKey(key: string): { round: number; kind: AgentStepKind } | null {
+/** 단계 키 "r1.review" → { round: 1, kind: "review" }, "r1.sec.experience" → { round: 1, kind: "section", section }. "final_panel"·"finalize"는 round -1. */
+export function parseStepKey(key: string): { round: number; kind: AgentStepKind; section?: SectionId } | null {
   if (key === "final_panel" || key === "finalize") return { round: -1, kind: key };
+  const sec = /^r(\d)\.sec\.([a-z_]+)$/.exec(key);
+  if (sec) return isSectionId(sec[2]!) ? { round: Number(sec[1]), kind: "section", section: sec[2] } : null;
   const m = /^r(\d)\.([a-z_]+)$/.exec(key);
-  if (!m || !(AGENT_STEP_KINDS as readonly string[]).includes(m[2]!)) return null;
+  if (!m || m[2] === "section" || !(AGENT_STEP_KINDS as readonly string[]).includes(m[2]!)) return null;
   return { round: Number(m[1]), kind: m[2] as AgentStepKind };
 }
 
-export function stepKey(kind: AgentStepKind, round: number): string {
+export function stepKey(kind: AgentStepKind, round: number, section?: SectionId): string {
+  if (kind === "section") {
+    if (!section) throw new Error("구역 단계 키에는 구역 id가 필요하다");
+    return sectionStepKey(section, round);
+  }
   return kind === "final_panel" || kind === "finalize" ? kind : `r${round}.${kind}`;
+}
+
+export function sectionStepKey(section: SectionId, round: number): string {
+  return `r${round}.sec.${section}`;
 }
 
 /** 진행 화면 제목. */
@@ -154,8 +253,11 @@ export function agentHeading(status: ResumeAgentJobStatus): string {
 }
 
 /** 단계 이름(라운드 포함): "심사 1회차", "수정 2회차". */
-export function stepTitle(kind: AgentStepKind, round: number): string {
+export function stepTitle(kind: AgentStepKind, round: number, section?: SectionId): string {
   if (kind === "review") return round === 0 ? "초안 심사" : `심사 ${round + 1}회차`;
   if (kind === "revise") return `수정 ${round}회차`;
+  if (kind === "compose") return round === 0 ? "조립·요약·사실 검증" : `구역 재작성 반영·조립 ${round}회차`;
+  if (kind === "critique") return round === 0 ? "총괄 피드백" : `총괄 피드백 ${round + 1}회차`;
+  if (kind === "section" && section) return round === 0 ? `${SECTION_LABELS[section]} 작성` : `${SECTION_LABELS[section]} 다시 쓰기 ${round}회차`;
   return AGENT_STEP_LABELS[kind].done;
 }

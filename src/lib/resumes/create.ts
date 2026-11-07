@@ -37,6 +37,7 @@ export function draftContextFor(user: { name: string | null; email?: string | nu
     material,
     personName: user.name,
     personEmail: user.email ?? null,
+    emphasis: input.emphasis ?? null,
   };
 }
 

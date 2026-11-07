@@ -10,7 +10,7 @@ import "server-only";
  * - 키 검사: 영문·숫자·._- 와 / 만, 빈 조각·'.'·'..' 금지 → 로컬 경로 탈출과 다른 사용자 접두사 침범을 막는다.
  * - 로컬은 해석한 경로가 저장소 루트 안인지 한 번 더 확인한다.
  */
-import { mkdir, readdir, readFile, rm, rmdir, stat, writeFile } from "node:fs/promises";
+import { mkdir, open, readdir, readFile, rm, rmdir, stat, writeFile } from "node:fs/promises";
 import path from "node:path";
 import {
   CopyObjectCommand,
@@ -112,6 +112,8 @@ interface StorageBackend {
   readonly kind: "r2" | "local";
   put(key: string, body: Buffer, opts: PutOptions): Promise<void>;
   get(key: string): Promise<Buffer | null>;
+  /** start~end(포함) 바이트. 객체가 없으면 null. 객체 끝을 넘는 부분은 잘린다. */
+  getRange(key: string, start: number, end: number): Promise<Buffer | null>;
   delete(key: string): Promise<void>;
   list(prefix: string): Promise<string[]>;
   copy(from: string, to: string, opts: PutOptions): Promise<boolean>;
@@ -151,6 +153,18 @@ class R2Backend implements StorageBackend {
       return Buffer.from(await res.Body.transformToByteArray());
     } catch (e) {
       if (e instanceof NoSuchKey || (e as { name?: string }).name === "NoSuchKey") return null;
+      throw e;
+    }
+  }
+  async getRange(key: string, start: number, end: number) {
+    try {
+      const res = await this.client.send(new GetObjectCommand({ Bucket: this.cfg.bucket, Key: key, Range: `bytes=${start}-${end}` }));
+      if (!res.Body) return null;
+      return Buffer.from(await res.Body.transformToByteArray());
+    } catch (e) {
+      if (e instanceof NoSuchKey || (e as { name?: string }).name === "NoSuchKey") return null;
+      // 객체 끝을 넘는 범위(InvalidRange) — 호출자는 크기 안에서만 묻는다. 빈 조각으로 돌려준다.
+      if ((e as { name?: string }).name === "InvalidRange") return Buffer.alloc(0);
       throw e;
     }
   }
@@ -259,6 +273,25 @@ class LocalBackend implements StorageBackend {
       throw e;
     }
   }
+  async getRange(key: string, start: number, end: number) {
+    let fh;
+    try {
+      fh = await open(this.file(key), "r");
+    } catch (e) {
+      if ((e as NodeJS.ErrnoException).code === "ENOENT") return null;
+      throw e;
+    }
+    try {
+      const size = (await fh.stat()).size;
+      const last = Math.min(end, size - 1);
+      if (start > last) return Buffer.alloc(0);
+      const buf = Buffer.alloc(last - start + 1);
+      const { bytesRead } = await fh.read(buf, 0, buf.length, start);
+      return buf.subarray(0, bytesRead);
+    } finally {
+      await fh.close();
+    }
+  }
   async delete(key: string) {
     const f = this.file(key);
     await rm(f, { force: true });
@@ -339,6 +372,16 @@ export async function putObject(key: string, body: Buffer | Uint8Array | string,
 export async function getObject(key: string): Promise<Buffer | null> {
   assertValidKey(key);
   return backend().get(key);
+}
+
+/**
+ * key의 start~end(포함) 바이트만 읽는다(PDF 보기의 Range 요청 — 큰 원본을 한 번에 함수 메모리·응답에 싣지 않는다).
+ * 객체가 없으면 null, 객체 끝을 넘는 부분은 잘려서 돌아온다.
+ */
+export async function getObjectRange(key: string, start: number, end: number): Promise<Buffer | null> {
+  assertValidKey(key);
+  if (!Number.isSafeInteger(start) || !Number.isSafeInteger(end) || start < 0 || end < start) throw new RangeError("잘못된 바이트 범위입니다.");
+  return backend().getRange(key, start, end);
 }
 
 /** 없어도 오류 없이 끝난다. */

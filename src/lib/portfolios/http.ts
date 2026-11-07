@@ -1,6 +1,6 @@
 import "server-only";
 /**
- * 포트폴리오 라우트 공용(/api/portfolios·/api/resumes/[id]/portfolio): 파일 업로드 읽기(레이트 리밋 → 크기 제한 → 형식 확인 → 텍스트 추출),
+ * 포트폴리오 라우트 공용(/api/portfolios·/api/resumes/[id]/portfolio): 파일 업로드 읽기(레이트 리밋 → 크기 제한 → 형식 확인(PDF만) → 텍스트 추출),
  * R2에 바로 올린 파일 마무리(임시 키 읽기 → 확인 → 추출), 업로드 상한, 404·잘림 경고 문구.
  *
  * 업로드 두 경로:
@@ -16,7 +16,15 @@ import { MAX_PORTFOLIO_TEXT_CHARS, PortfolioDescriptionSchema, PortfolioTitleSch
 import { IngestError } from "@/lib/ingest/extract";
 import { parseJsonInput } from "@/lib/resumes/http";
 import { deleteObject, getObject, storageKind, uploadStagingKey } from "@/lib/storage";
-import { ingestPortfolioFile, portfolioDirectMaxBytes, portfolioKindFromName, portfolioMaxFileBytes, tooLargeMessage } from "./original";
+import {
+  ingestPortfolioFile,
+  portfolioDirectMaxBytes,
+  portfolioKindFromName,
+  portfolioMaxFileBytes,
+  portfolioUploadKindFromName,
+  tooLargeMessage,
+  UNSUPPORTED_PORTFOLIO_FILE,
+} from "./original";
 import { PORTFOLIO_NOT_FOUND, type PortfolioOriginalInput } from "./service";
 
 export const portfolioNotFound = () => jsonError(PORTFOLIO_NOT_FOUND, 404);
@@ -95,6 +103,8 @@ export async function readPortfolioUpload(req: Request, userId: string): Promise
   if (!f || typeof f !== "object" || !("arrayBuffer" in f) || f.size === 0) return jsonError("올릴 포트폴리오 파일을 골라 주세요.", 400);
   const file = f as File;
   const fileName = file.name || "portfolio";
+  // PDF만 받는다(이름 먼저 — 본문을 읽기 전에 거른다). 내용(%PDF-)은 ingestPortfolioFile이 다시 확인한다.
+  if (!portfolioUploadKindFromName(fileName)) return jsonError(UNSUPPORTED_PORTFOLIO_FILE, 415);
   try {
     const bytes = new Uint8Array(await file.arrayBuffer());
     const ingested = await ingestPortfolioFile({ name: fileName, bytes }, perFile);
@@ -123,7 +133,7 @@ const STAGED_UPLOAD_ONCE_BUCKET = "portfolio-upload-finalized";
 
 /**
  * R2에 바로 올린 파일 마무리: 세션 사용자의 임시 키만 읽는다(다른 사용자의 업로드 id를 보내도 자기 접두사에서 찾으므로 404).
- * 크기·형식이 틀리면 임시 객체를 지우고 오류 Response. 맞으면 PortfolioUpload — 원본은 여기서 확인한 바이트 그대로 저장하고
+ * PDF가 아니면(이름 .pdf·내용 %PDF-) 415. 크기·형식이 틀리면 임시 객체를 지우고 오류 Response. 맞으면 PortfolioUpload — 원본은 여기서 확인한 바이트 그대로 저장하고
  * 임시 키는 지우기만 한다(서명 주소로 확인 뒤에 덮어쓴 바이트가 원본이 되지 않는다).
  * 업로드 id는 한 번만 마무리한다(409) — 서명 주소를 다시 써서 레이트 리밋 1회로 여러 번 마무리하지 못하게.
  * 레이트 리밋은 서명 주소를 받을 때(POST /api/portfolios/uploads) 이미 셌다.

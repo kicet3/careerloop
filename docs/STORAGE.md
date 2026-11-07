@@ -18,15 +18,23 @@ Cloudflare R2, 없으면 로컬 폴더(`STORAGE_DIR`, 기본 `./data/storage`). 
 
 ## 포트폴리오 업로드 두 경로
 
+**받는 형식: PDF만.** 새로 만들기·내용 바꾸기·이력서에서 바로 올리기 모두 확장자 `.pdf` **그리고** 내용 앞 1024바이트 안의 `%PDF-` 표식을 서버가 확인한다
+(`src/lib/portfolios/original.ts` `PORTFOLIO_UPLOAD_KINDS`·`ingestPortfolioFile`). 그 밖의 형식(DOCX·HWP·이미지·글 등)이나 확장자만 `.pdf`로 바꾼 파일은
+415와 한국어 안내("포트폴리오 파일은 PDF만 올릴 수 있습니다…" / "파일 내용이 PDF 형식이 아닙니다…")로 거절한다. 화면(`PortfolioContentForm`)도
+`accept=".pdf,application/pdf"`로 고르게 하고, 보내기 전에 파일 앞부분의 `%PDF-`를 확인한다(서버 확인을 대신하지 않는다).
+예전에 올린 PDF 밖 원본(DOCX·HWP·이미지·TXT 등)은 데이터를 바꾸지 않으며 그대로 보이고 내려받고 공유할 수 있다 — 막는 것은 새 업로드뿐이다. 링크·그래프 포트폴리오는 영향이 없다.
+이력서 업로드(`FileDrop` `UPLOAD_ACCEPT`)는 그대로다.
+
 - **작은 파일**(Vercel 4MB 이하, 자체 호스팅은 파일 상한까지): 화면이 multipart로 `POST /api/portfolios`(새로)·`PUT /api/portfolios/[id]`(내용 바꾸기)·
   `PUT /api/resumes/[id]/portfolio`(이력서에서 바로)에 보낸다. Vercel 요청 본문 4.5MB 제한 때문에 4MB에서 끊는다.
 - **큰 파일**(4MB 초과 ~ `PORTFOLIO_MAX_UPLOAD_MB`, 기본 30MB, R2일 때만):
-  1. `POST /api/portfolios/uploads` `{ fileName, size }` → 서버가 확장자·크기를 확인하고 업로드 레이트 리밋을 센 뒤
+  1. `POST /api/portfolios/uploads` `{ fileName, size, type? }` → 서버가 확장자(`.pdf`)·브라우저가 알린 MIME(`type`이 있으면 `application/pdf`)·크기를
+     확인하고(PDF가 아니면 서명 주소를 주기 전에 415) 업로드 레이트 리밋을 센 뒤
      `uploads/<세션 사용자>/portfolio-<무작위>.<확장자>`에 대한 **서명된 PUT 주소**(10분, `Content-Type: application/octet-stream`과
      `Content-Length`를 서명에 포함)를 준다.
   2. 브라우저가 그 주소로 R2에 바로 `PUT`한다(**버킷 CORS 설정 필요 — 아래**).
-  3. 같은 endpoint에 JSON `{ uploadId, fileName, title?, description? }`로 마무리 → 서버가 세션 사용자의 임시 키만 읽어 크기·형식(매직 바이트)을
-     다시 확인하고 글을 뽑은 뒤, **확인한 바로 그 바이트**를 `users/<u>/portfolios/<id>/original-…`에 새로 쓰고 임시 파일을 지운다
+  3. 같은 endpoint에 JSON `{ uploadId, fileName, title?, description? }`로 마무리 → 서버가 세션 사용자의 임시 키만 읽어 크기·형식(`.pdf` + `%PDF-` 매직 바이트)을
+     다시 확인하고(틀리면 415 + 임시 파일 삭제) 글을 뽑은 뒤, **확인한 바로 그 바이트**를 `users/<u>/portfolios/<id>/original-…`에 새로 쓰고 임시 파일을 지운다
      (서버 쪽 복사를 쓰지 않는다 — 서명 주소가 살아 있는 동안 확인과 복사 사이에 다른 바이트로 덮어쓸 수 있기 때문).
      다른 사용자의 `uploadId`를 보내도 자기 `uploads/<u>/`에서 찾으므로 404다.
      `uploadId` 하나는 한 번만 마무리한다(`rate_events` 버킷 `portfolio-upload-finalized`, 25시간) — 서명 주소로 다시 올려 다시 마무리하면 409.
