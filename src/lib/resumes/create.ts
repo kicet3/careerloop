@@ -27,7 +27,7 @@ const GENERAL_DRAFT_ROLE = "(지정 없음 — 자료에서 가장 잘 드러나
 type NewResumeInput = Omit<CreateResumeInput, "kind"> & { kind?: ResumeKind };
 
 /** AI 초안 프롬프트 맥락(공용 이력서는 회사·직무·JD 없이). 백그라운드 초안 작업(draft-jobs.ts)도 쓴다. */
-export function draftContextFor(user: { name: string | null }, input: NewResumeInput, material: DraftMaterial): DraftContext {
+export function draftContextFor(user: { name: string | null; email?: string | null }, input: NewResumeInput, material: DraftMaterial): DraftContext {
   const general = input.kind === "general";
   return {
     company: general ? GENERAL_DRAFT_COMPANY : input.company,
@@ -36,6 +36,7 @@ export function draftContextFor(user: { name: string | null }, input: NewResumeI
     templateId: input.templateId,
     material,
     personName: user.name,
+    personEmail: user.email ?? null,
   };
 }
 

@@ -31,6 +31,8 @@ export interface DraftContext {
   material: DraftMaterial;
   /** 계정 이름(있으면 basics.name 후보). */
   personName?: string | null;
+  /** 로그인(Google) 메일 주소. 프롬프트에는 넣지 않고, 초안의 email이 비었을 때 기본값으로만 채운다(사용자가 편집에서 바꿀 수 있다). */
+  personEmail?: string | null;
 }
 
 const SYSTEM = [
@@ -112,6 +114,9 @@ export async function generateResumeDraft(client: LlmClient, ctx: DraftContext, 
   const draft = res.output;
   // 계정 이름이 있고 초안에 이름이 비었으면 채운다(지어낸 값이 아니다).
   if (!draft.document.basics.name.trim() && ctx.personName?.trim()) draft.document.basics.name = ctx.personName.trim().slice(0, 80);
+  // 메일 주소는 로그인 메일을 기본값으로 쓴다(비었거나 [ADD: …] 자리표시만 있을 때).
+  const email = draft.document.basics.email.trim();
+  if ((!email || /^\[ADD:[^\]]*\]$/.test(email)) && ctx.personEmail?.trim()) draft.document.basics.email = ctx.personEmail.trim().slice(0, 160);
   return { draft, usage: res.usage, model: res.model };
 }
 

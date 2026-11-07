@@ -72,4 +72,22 @@ describe("generateResumeDraft", () => {
     const r2 = await generateResumeDraft(empty as never, base);
     expect(r2.draft.document.basics.name).toBe("홍길동");
   });
+
+  it("메일이 비었거나 [ADD] 자리표시면 로그인 메일로 채우고, 프롬프트에는 메일을 넣지 않는다", async () => {
+    const client = new FakeLlmClient({ delayMs: 0 });
+    const { ResumeDraftOutputSchema } = await import("@/lib/domain/resumes");
+    const withEmail = (email: string) => ({
+      name: "fake",
+      generate: vi.fn(async () => {
+        const out = await client.generate({ task: "resume-draft", system: "", user: "", schema: ResumeDraftOutputSchema, effort: "low" });
+        out.output.document.basics.email = email;
+        return out;
+      }),
+    });
+    const ctx = { ...base, personEmail: "me@example.com" };
+    expect(buildResumeDraftPrompt(ctx).user).not.toContain("me@example.com");
+    expect((await generateResumeDraft(withEmail("") as never, ctx)).draft.document.basics.email).toBe("me@example.com");
+    expect((await generateResumeDraft(withEmail("[ADD: 이메일]") as never, ctx)).draft.document.basics.email).toBe("me@example.com");
+    expect((await generateResumeDraft(withEmail("work@corp.kr") as never, ctx)).draft.document.basics.email).toBe("work@corp.kr");
+  });
 });

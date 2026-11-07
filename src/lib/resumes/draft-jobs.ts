@@ -362,7 +362,7 @@ export async function runResumeDraftJob(userId: string, jobId: string, runId: st
     const parsed = CreateResumeInputSchema.safeParse(row.input);
     if (!parsed.success) throw new FeatureError("초안 입력을 읽지 못했습니다. 새 이력서 화면에서 다시 만들어 주세요.", 400);
     const input = parsed.data;
-    const user = await prisma.user.findUnique({ select: { id: true, name: true }, where: { id: userId } });
+    const user = await prisma.user.findUnique({ select: { id: true, name: true, email: true }, where: { id: userId } });
     if (!user) return;
 
     const material = await loadDraftMaterial(user, input.source);
