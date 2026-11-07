@@ -44,10 +44,24 @@ export const CONTRACT_PROCESSING: ProcessingRow[] = [
     basis: "계약 이행(법 제15조①4호)",
   },
   {
+    purpose: "포트폴리오 보관·보기, 면접 연습 질문·진단에 포트폴리오 반영",
+    items:
+      "이용자가 올린 포트폴리오 원본 파일(PDF·DOCX·HWP·HWPX·HTML·TXT·MD·PNG·JPG·WEBP — 화면에 그대로 보여 주기 위해 원본을 보관)과 파일 이름·크기·형식, 원본에서 뽑은 텍스트, 포트폴리오 링크 주소, 이용자가 적은 설명",
+    retention: "회원 탈퇴 또는 이용자가 해당 자료를 삭제할 때까지",
+    basis: "계약 이행(법 제15조①4호)",
+  },
+  {
     purpose: "경험 그래프 구성, 경력 정리 대화",
     items: "이용자가 입력한 경력·프로젝트·역량 정보, 대화 내용과 AI 응답",
     retention: "회원 탈퇴 또는 이용자가 해당 자료를 삭제할 때까지",
     basis: "계약 이행(법 제15조①4호)",
+  },
+  {
+    purpose: "(선택) 이력서 머리글에 프로필 사진 넣기",
+    items:
+      "이용자가 올린 프로필 사진(서버가 3:4 크기의 JPEG로 다시 만들어 보관하며, 촬영 위치 등 사진 정보(EXIF)는 지움). 올리지 않으면 처리하지 않음. AI에는 보내지 않음",
+    retention: "이용자가 사진을 지우거나 회원 탈퇴할 때까지",
+    basis: "계약 이행(법 제15조①4호) — 이용자가 올린 경우에만",
   },
   {
     purpose: "공용 공고 목록(공고 찾기) 제공",
@@ -121,7 +135,8 @@ export const OVERSEAS_TRANSFERS: TransferRow[] = [
     contact: "privacy@anthropic.com",
     country: "미국",
     when: `AI 분석·작성 요청 시 ${TRANSFER_TIMING}`,
-    items: "이력서·채용공고·경력 정보 등 AI 기능에 입력한 텍스트와 그 결과물, GitHub에서 가져온 저장소 정보",
+    items:
+      "이력서·채용공고·경력 정보 등 AI 기능에 입력한 텍스트와 그 결과물, 포트폴리오 원본에서 뽑은 텍스트와 설명, GitHub에서 가져온 저장소 정보. 프로필 사진과 포트폴리오 원본 파일 자체(이미지 등)는 보내지 않음",
     purpose: "AI 분석·작성 기능 처리(입력 정보는 AI 모델 학습에 쓰이지 않음)",
     retention: "처리 후 Anthropic 정책에 따라 최대 30일 보관 후 삭제(법령·정책 위반 대응 시 예외)",
   },
@@ -148,7 +163,7 @@ export const OVERSEAS_TRANSFERS: TransferRow[] = [
     contact: "privacy@cloudflare.com",
     country: "미국 등 Cloudflare 데이터센터 소재국",
     when: `파일 업로드 시 ${TRANSFER_TIMING}`,
-    items: "이용자가 올린 이력서·공고 파일, 생성한 PDF",
+    items: "이용자가 올린 이력서·공고 파일, 포트폴리오 원본 파일과 뽑은 텍스트, 프로필 사진, 생성한 PDF",
     purpose: "파일 저장(Cloudflare R2)",
     retention: "회원 탈퇴 또는 이용자가 해당 자료를 삭제할 때까지",
   },

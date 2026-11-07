@@ -129,6 +129,11 @@ export interface SubmittedCopy {
   resumeTitle: string | null;
   versionNo: number | null;
   copiedAt: number | null;
+  /**
+   * 사본을 만들 때 원본 이력서의 '사진 넣기'. 사진 자체는 고정하지 않는다 — PDF는 지금 계정의 프로필 사진을 넣는다
+   * (사진을 지우면 사본 PDF에서도 빠진다). 이 값이 생기기 전에 만든 사본은 false.
+   */
+  includePhoto: boolean;
 }
 
 /** 고정된 제출 사본. 지원이 남의 것이거나 사본이 없으면 null. */
@@ -147,6 +152,7 @@ export async function getSubmittedCopy(userId: string, id: string): Promise<Subm
     resumeTitle: typeof meta.resumeTitle === "string" ? meta.resumeTitle : null,
     versionNo: typeof meta.versionNo === "number" ? meta.versionNo : null,
     copiedAt: typeof meta.copiedAt === "number" ? meta.copiedAt : null,
+    includePhoto: meta.includePhoto === true,
   };
 }
 
@@ -186,6 +192,7 @@ async function copySubmitted(userId: string, applicationId: string, resumeId: st
     versionNo: found.version.versionNo,
     resumeId,
     resumeVersionId: found.version.id,
+    includePhoto: found.resume.includePhoto,
     copiedAt: Date.now(),
   });
   return {

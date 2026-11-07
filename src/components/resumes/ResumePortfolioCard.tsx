@@ -16,9 +16,11 @@ import {
   portfolioHasText,
   portfolioReadable,
   portfolioSourceLabel,
+  portfolioUnreadableHint,
   toPortfolioPickOption,
   type PortfolioInfo,
   type PortfolioPickOption,
+  type PortfolioUploadConfig,
 } from "@/lib/domain/portfolios";
 import type { ResumePortfolioInfo } from "@/lib/domain/resumes";
 import type { ResumeMeta } from "@/lib/resumes/types";
@@ -34,15 +36,15 @@ export function ResumePortfolioCard({
   resumeId,
   portfolio,
   library: initialLibrary,
-  maxBytes,
+  upload,
   onChange,
 }: {
   resumeId: string;
   portfolio: ResumePortfolioInfo | null;
   /** 내 포트폴리오 보관함(최근 수정 순). */
   library: PortfolioPickOption[];
-  /** 파일 하나 상한(바이트, 서버가 정한 값과 4MB 중 작은 값). */
-  maxBytes: number;
+  /** 서버가 정한 포트폴리오 업로드 설정(파일 상한·바로 보내는 상한·R2 바로 올리기). */
+  upload: PortfolioUploadConfig;
   onChange: (resume: ResumeMeta) => void;
 }) {
   const [library, setLibrary] = useState(initialLibrary);
@@ -205,7 +207,7 @@ export function ResumePortfolioCard({
           </p>
           {portfolio.description && <p className="line-clamp-3 text-xs whitespace-pre-wrap text-slate-600">{portfolio.description}</p>}
           {!portfolioReadable(portfolio) && (
-            <p className="text-xs text-slate-500">링크 내용은 AI가 열어 보지 못합니다. 포트폴리오 설명에 역할·결과를 적거나 파일로 올리면 질문·진단에 반영됩니다.</p>
+            <p className="text-xs text-slate-500">{portfolioUnreadableHint(portfolio)}</p>
           )}
           <p className="text-xs text-slate-500">
             <time dateTime={new Date(portfolio.updatedAt).toISOString()}>{formatDateTime(portfolio.updatedAt)}</time> 수정
@@ -272,7 +274,7 @@ export function ResumePortfolioCard({
               <PortfolioContentForm
                 endpoint={`/api/resumes/${resumeId}/portfolio`}
                 method="PUT"
-                maxBytes={maxBytes}
+                upload={upload}
                 withMeta
                 submitLabel="올리고 붙이기"
                 onCancel={() => setEditing(false)}

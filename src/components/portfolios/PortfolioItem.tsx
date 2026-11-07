@@ -17,19 +17,31 @@ import {
   PORTFOLIO_KIND_LABELS,
   portfolioReadable,
   portfolioSourceLabel,
+  portfolioUnreadableHint,
   type PortfolioListItem,
+  type PortfolioUploadConfig,
 } from "@/lib/domain/portfolios";
 import { NETWORK_ERROR, readError } from "./api";
 import { PortfolioContentForm } from "./PortfolioContentForm";
+import { PortfolioOriginalViewer } from "./PortfolioOriginalViewer";
 
-type Panel = "meta" | "content" | null;
+type Panel = "meta" | "content" | "original" | null;
 
 /**
  * 포트폴리오 하나: 이름·종류·파일 이름/주소·글자 수·수정 시각·첨부한 이력서 + 이름·설명 고치기, 내용 바꾸기, 지우기.
- * variant 'card'는 보관함 목록 카드(이름이 상세 링크), 'detail'은 상세 화면 머리(지우면 목록으로 간다).
+ * variant 'card'는 보관함 목록 카드(이름이 상세 링크, 원본 파일을 펼쳐 볼 수 있다), 'detail'은 상세 화면 머리(지우면 목록으로 간다 —
+ * 원본 보기는 상세 화면이 따로 그린다).
  * 바꾼 뒤에는 서버 화면을 새로 그린다(router.refresh — 목록·미리보기가 함께 갱신된다).
  */
-export function PortfolioItem({ portfolio: p, maxBytes, variant }: { portfolio: PortfolioListItem; maxBytes: number; variant: "card" | "detail" }) {
+export function PortfolioItem({
+  portfolio: p,
+  upload,
+  variant,
+}: {
+  portfolio: PortfolioListItem;
+  upload: PortfolioUploadConfig;
+  variant: "card" | "detail";
+}) {
   const router = useRouter();
   const [panel, setPanel] = useState<Panel>(null);
   const [title, setTitle] = useState(p.title);
@@ -76,7 +88,7 @@ export function PortfolioItem({ portfolio: p, maxBytes, variant }: { portfolio: 
 
   async function remove() {
     const used = p.resumes.length > 0 ? `\n이 포트폴리오를 붙인 이력서 ${p.resumes.length}개에서도 떨어집니다(이력서는 남습니다).` : "";
-    if (!window.confirm(`'${p.title}' 포트폴리오를 지울까요? 저장해 둔 글도 함께 지워집니다.${used}`)) return;
+    if (!window.confirm(`'${p.title}' 포트폴리오를 지울까요? 보관한 원본 파일과 저장해 둔 글도 함께 지워집니다.${used}`)) return;
     setBusy("delete");
     setError(null);
     try {
@@ -128,7 +140,14 @@ export function PortfolioItem({ portfolio: p, maxBytes, variant }: { portfolio: 
             ) : p.kind === "file" ? (
               <>
                 <span className="min-w-0 truncate">{p.fileName ?? "파일"}</span>
-                {p.chars !== null && <span className="text-xs text-slate-500">{p.chars.toLocaleString("ko-KR")}자</span>}
+                {p.chars !== null && p.chars > 0 && <span className="text-xs text-slate-500">{p.chars.toLocaleString("ko-KR")}자</span>}
+                {p.original ? (
+                  <span className="text-xs text-emerald-700">원본 보관</span>
+                ) : (
+                  <span className="text-xs text-slate-500" title="원본 보관 기능 전에 올린 파일입니다. ‘내용 바꾸기’로 다시 올리면 원본을 그대로 볼 수 있습니다.">
+                    원본 없음(예전 업로드)
+                  </span>
+                )}
               </>
             ) : (
               <>
@@ -145,6 +164,11 @@ export function PortfolioItem({ portfolio: p, maxBytes, variant }: { portfolio: 
           <Button size="sm" variant="secondary" onClick={() => open("meta")} disabled={busy !== null}>
             이름·설명
           </Button>
+          {variant === "card" && p.kind === "file" && p.original && (
+            <Button size="sm" variant="secondary" onClick={() => open("original")} disabled={busy !== null} aria-expanded={panel === "original"}>
+              {panel === "original" ? "원본 접기" : "원본 보기"}
+            </Button>
+          )}
           {p.kind === "graph" ? (
             variant === "card" && (
               <Link href={`/app/portfolios/${p.id}`} className={buttonClass("secondary", "sm")}>
@@ -165,8 +189,12 @@ export function PortfolioItem({ portfolio: p, maxBytes, variant }: { portfolio: 
       {p.description && panel !== "meta" && (
         <p className={`mt-3 text-sm whitespace-pre-wrap text-slate-700 ${variant === "card" ? "line-clamp-3" : ""}`}>{p.description}</p>
       )}
-      {!portfolioReadable(p) && (
-        <p className="mt-2 text-xs text-amber-700">링크 내용은 AI가 열어 보지 못합니다. 설명에 역할·결과를 적거나 파일로 올리면 면접 질문·진단에 반영됩니다.</p>
+      {!portfolioReadable(p) && <p className="mt-2 text-xs text-amber-700">{portfolioUnreadableHint(p)}</p>}
+
+      {panel === "original" && p.original && (
+        <div className="mt-4 border-t border-slate-100 pt-4">
+          <PortfolioOriginalViewer portfolioId={p.id} fileName={p.fileName} original={p.original} version={p.updatedAt} height="60vh" />
+        </div>
       )}
 
       <div className="mt-3 text-sm">
@@ -224,15 +252,15 @@ export function PortfolioItem({ portfolio: p, maxBytes, variant }: { portfolio: 
       {panel === "content" && p.kind !== "graph" && (
         <div className="mt-4 border-t border-slate-100 pt-4">
           <p className="mb-3 text-xs text-slate-500">
-            새 파일이나 링크로 바꿉니다. 이름·설명과 붙인 이력서는 그대로이고, 저장해 둔 이전 글은 지워집니다.
+            새 파일이나 링크로 바꿉니다. 이름·설명과 붙인 이력서는 그대로이고, 저장해 둔 이전 원본 파일과 글은 지워집니다.
           </p>
           <PortfolioContentForm
             endpoint={`/api/portfolios/${p.id}`}
             method="PUT"
-            maxBytes={maxBytes}
+            upload={upload}
             withMeta={false}
             submitLabel="바꾸기"
-            initialMode={p.kind}
+            initialMode={p.kind === "url" ? "url" : "file"}
             onCancel={() => setPanel(null)}
             onDone={(_data, w) => {
               setPanel(null);

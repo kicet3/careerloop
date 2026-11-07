@@ -8,6 +8,8 @@ import { FeatureError } from "@/lib/api/errors";
 import { toPortfolioPickOption } from "@/lib/domain/portfolios";
 import { emptyResumeDocument } from "@/lib/domain/resumes";
 import { uploadLimitsFor } from "@/lib/ingest/upload-limits";
+import { getProfilePhotoUrl } from "@/lib/account/photo";
+import { portfolioUploadLimits } from "@/lib/portfolios/http";
 import { listPortfolios } from "@/lib/portfolios/service";
 import { getResumeDetail, getResumeMeta, getResumePostingLink, listVersions } from "@/lib/resumes/service";
 import type { ResumeDetail } from "@/lib/resumes/types";
@@ -40,7 +42,7 @@ export default async function ResumePage({ params }: Props) {
     loadError = err.message;
   }
   if (!detail) notFound();
-  const portfolios = await listPortfolios(user.id);
+  const [portfolios, photoUrl] = await Promise.all([listPortfolios(user.id), getProfilePhotoUrl(user.id)]);
 
   return (
     <div className="space-y-4">
@@ -55,7 +57,9 @@ export default async function ResumePage({ params }: Props) {
         currentVersionId={detail.current?.versionId ?? detail.resume.currentVersionId}
         posting={detail.posting}
         uploadLimits={uploadLimitsFor()}
+        portfolioUpload={portfolioUploadLimits().config}
         portfolios={portfolios.map(toPortfolioPickOption)}
+        photoUrl={photoUrl}
       />
     </div>
   );

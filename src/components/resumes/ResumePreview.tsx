@@ -22,6 +22,7 @@ import {
   isProjectEmpty,
   period,
   projectStoryLines,
+  RESUME_PHOTO_PT,
   resumeLayout,
   sectionTitle,
   splitAddMarkers,
@@ -350,7 +351,7 @@ interface Model {
 }
 
 /** @internal 테스트용으로 내보낸다. */
-export function buildModel(doc: ResumeDocument, templateId: ResumeTemplateId): Model {
+export function buildModel(doc: ResumeDocument, templateId: ResumeTemplateId, photoUrl: string | null = null): Model {
   const t = RESUME_TEMPLATES[templateId];
   const g = geometry(t);
   const layout = resumeLayout(doc, templateId);
@@ -367,21 +368,35 @@ export function buildModel(doc: ResumeDocument, templateId: ResumeTemplateId): M
         paddingBottom: pt(10 * g.gap),
       }}
     >
-      <h2 style={{ fontSize: pt(g.base + 11), fontWeight: 800, color: C.ink, lineHeight: 1.25, overflowWrap: "anywhere" }}>
-        <Rich text={b.name.trim() || "이름"} />
-      </h2>
-      {(b.headline.trim() || b.totalExperience.trim()) && (
-        <p style={{ fontSize: pt(g.base + 1.5), fontWeight: 700, color: t.style.accent, marginTop: pt(3) }}>
-          {b.headline.trim() && <Rich text={b.headline} />}
-          {b.totalExperience.trim() && (
-            <span style={{ marginLeft: b.headline.trim() ? pt(8) : 0, fontSize: "0.85em", fontWeight: 400, color: C.muted }}>
-              총 경력 {b.totalExperience}
-            </span>
+      <div style={{ display: "flex", alignItems: "flex-start" }}>
+        <div style={{ flex: 1, minWidth: 0 }}>
+          <h2 style={{ fontSize: pt(g.base + 11), fontWeight: 800, color: C.ink, lineHeight: 1.25, overflowWrap: "anywhere" }}>
+            <Rich text={b.name.trim() || "이름"} />
+          </h2>
+          {(b.headline.trim() || b.totalExperience.trim()) && (
+            <p style={{ fontSize: pt(g.base + 1.5), fontWeight: 700, color: t.style.accent, marginTop: pt(3) }}>
+              {b.headline.trim() && <Rich text={b.headline} />}
+              {b.totalExperience.trim() && (
+                <span style={{ marginLeft: b.headline.trim() ? pt(8) : 0, fontSize: "0.85em", fontWeight: 400, color: C.muted }}>
+                  총 경력 {b.totalExperience}
+                </span>
+              )}
+            </p>
           )}
-        </p>
-      )}
-      {contact && <p style={contactStyle}>{contact}</p>}
-      {!hasSide && links.length > 0 && <p style={contactStyle}>{links.map((l) => joinParts([l.label, l.url], ": ")).join("  |  ")}</p>}
+          {contact && <p style={contactStyle}>{contact}</p>}
+          {!hasSide && links.length > 0 && <p style={contactStyle}>{links.map((l) => joinParts([l.label, l.url], ": ")).join("  |  ")}</p>}
+        </div>
+        {photoUrl ? (
+          // 소유자만 읽는 같은 출처 라우트. PDF는 서버가 같은 사진을 data URI로 넣는다(pdf.tsx).
+          // eslint-disable-next-line @next/next/no-img-element
+          <img
+            src={photoUrl}
+            alt="프로필 사진"
+            data-resume-photo
+            style={{ width: pt(RESUME_PHOTO_PT.width), height: pt(RESUME_PHOTO_PT.height), marginLeft: pt(14), objectFit: "cover", borderRadius: pt(2), flexShrink: 0 }}
+          />
+        ) : null}
+      </div>
     </header>
   );
   const headerAfterPt = 6 * g.gap;
@@ -486,19 +501,32 @@ export function ResumePreview({
   document: liveDoc,
   templateId,
   className,
+  photoUrl = null,
 }: {
   document: ResumeDocument;
   templateId: ResumeTemplateId;
   className?: string;
+  /** 머리글 프로필 사진 주소(소유자만 읽는 /api/account/photo). 없으면 사진 없이. */
+  photoUrl?: string | null;
 }) {
   // 성과 중심 양식은 원본 템플릿을 그대로 옮긴 A4 시트(읽기 전용)로 보인다.
-  if (templateId === "performance") return <PerformanceSheet document={liveDoc} className={className} />;
-  return <PagedPreview document={liveDoc} templateId={templateId} className={className} />;
+  if (templateId === "performance") return <PerformanceSheet document={liveDoc} className={className} photoUrl={photoUrl} />;
+  return <PagedPreview document={liveDoc} templateId={templateId} className={className} photoUrl={photoUrl} />;
 }
 
-function PagedPreview({ document: liveDoc, templateId, className }: { document: ResumeDocument; templateId: ResumeTemplateId; className?: string }) {
+function PagedPreview({
+  document: liveDoc,
+  templateId,
+  className,
+  photoUrl,
+}: {
+  document: ResumeDocument;
+  templateId: ResumeTemplateId;
+  className?: string;
+  photoUrl: string | null;
+}) {
   const doc = useDebounced(liveDoc, 150);
-  const model = useMemo(() => buildModel(doc, templateId), [doc, templateId]);
+  const model = useMemo(() => buildModel(doc, templateId, photoUrl), [doc, templateId, photoUrl]);
   const g = model.geo;
 
   // 측정 칸은 브라우저에서만 그린다(서버 렌더·하이드레이션 결과는 같게).

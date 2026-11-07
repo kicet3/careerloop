@@ -41,6 +41,11 @@ beforeAll(async () => {
   await tdb.prisma.resumeDraftJob.create({ data: { id: "dj_a", userId: "ua", runId: "r", label: "x", input: { jdText: "JD" } } });
   await storage.putJson(storage.userKey("ua", "resumes", "r1", "v1.json"), { a: 1 });
   await storage.putJson(storage.userKey("ub", "resumes", "r1", "v1.json"), { b: 1 });
+  // 포트폴리오 원본·프로필 사진·큰 파일 임시 자리(uploads/<u>/)도 탈퇴 때 지운다.
+  await storage.putObject(storage.userKey("ua", "portfolios", "p1", "original-x.pdf"), "%PDF-1.4");
+  await storage.putObject(storage.userKey("ua", "profile", "photo-x.jpg"), "jpeg");
+  await storage.putObject(storage.uploadStagingKey("ua", "portfolio-abc.pdf"), "%PDF-1.4");
+  await storage.putObject(storage.uploadStagingKey("ub", "portfolio-abc.pdf"), "%PDF-1.4");
 });
 afterAll(() => tdb.close());
 
@@ -72,6 +77,8 @@ describe("deleteAccount", () => {
     expect(await tdb.prisma.resumeDraftJob.count()).toBe(0);
     expect(await tdb.prisma.sharedPosting.findUniqueOrThrow({ where: { id: "sp" } })).toMatchObject({ createdBy: null, importerCount: 0 });
     expect(await storage.listByPrefix(storage.userPrefix("ua"))).toEqual([]);
+    expect(await storage.listByPrefix(storage.uploadStagingPrefix("ua"))).toEqual([]);
+    expect(await storage.listByPrefix(storage.uploadStagingPrefix("ub"))).toEqual(["uploads/ub/portfolio-abc.pdf"]);
     expect(existsSync(path.join(storageDir, "users", "ub", "resumes", "r1", "v1.json"))).toBe(true);
     expect(await account.deleteAccount("ua", { deleteGraph: graph })).toEqual({ ok: false, reason: "not_found" });
   });

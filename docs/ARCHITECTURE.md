@@ -294,7 +294,7 @@ export async function renderReportPdf(r: ReportModel): Promise<Uint8Array>;
 | 경험 그래프 후속 질문 | PostgreSQL `graph_followups` | 그래프 채팅 변경안의 후속 질문과, 변경안에서 뺀 항목 중 채울 수 있는 것(문서 근거 없음·기간/팀 규모 형식)을 템플릿 질문으로 쌓는다. `project_node_id`(Neo4j, FK 없음, null=미지정), `status` open→answered/skipped. 프로젝트 대화가 하나씩 묻고(`followupId`), 답한 변경안을 적용하면 answered — `src/lib/chat/followups.ts` |
 | 포트폴리오 | PostgreSQL `diagnoses.portfolio_text`·`portfolio_file_name` | 원본 파일은 보관하지 않고 추출 텍스트만 |
 | 회사별 이력서 메타·버전 | PostgreSQL `company_resumes`·`resume_versions` | 버전 번호는 이력서별 유일(이력서별 `pg_advisory_xact_lock` 트랜잭션에서 예약) |
-| 이력서 본문(버전별 JSON) | R2 또는 로컬 폴더 (`src/lib/storage`) | 키 `users/<userId>/resumes/<resumeId>/v<n>.json`. R2 변수 네 개가 모두 있으면 R2, 아니면 `STORAGE_DIR` |
+| 이력서 본문(버전별 JSON) | R2 또는 로컬 폴더 (`src/lib/storage`) | 키 `users/<userId>/resumes/<resumeId>/v<n>.json`. R2 변수 네 개가 모두 있으면 R2, 아니면 `STORAGE_DIR`. 전체 키 구조·포트폴리오 원본·프로필 사진·큰 파일 직접 업로드(R2 CORS)는 docs/STORAGE.md |
 
 테이블은 `prisma/migrations`의 baseline에 있다(예전 drizzle 0003에 해당). Neo4j 제약·인덱스는 첫 쿼리 때 `ensureGraphSchema()`가 만든다.
 

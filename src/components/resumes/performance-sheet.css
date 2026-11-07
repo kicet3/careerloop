@@ -133,6 +133,14 @@
 .pf-contact > div {
   white-space: normal;
 }
+/* 머리글 프로필 사진(3:4). PDF(pdf-performance.tsx st.photo)와 같은 값. */
+.pf-photo {
+  flex-shrink: 0;
+  width: 84px;
+  height: 112px;
+  object-fit: cover;
+  border-radius: 2px;
+}
 .pf-intro {
   margin: 16px 0 0;
   font-size: 10pt;
@@ -430,6 +438,10 @@
   }
   .pf-identity-row {
     display: block;
+  }
+  .pf-photo {
+    display: block;
+    margin-top: 12px;
   }
   .pf-contact {
     text-align: left;

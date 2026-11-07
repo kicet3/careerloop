@@ -6,6 +6,7 @@ import { SegmentedTabs } from "@/components/app/Tabs";
 import { Alert } from "@/components/ui/Alert";
 import { Button } from "@/components/ui/Button";
 import { Card } from "@/components/ui/Card";
+import type { PortfolioUploadConfig } from "@/lib/domain/portfolios";
 import type { ProviderId, ProviderOption } from "@/lib/domain/providers";
 import { GraphPortfolioForm, type GraphPostingOption } from "./GraphPortfolioForm";
 import { PortfolioContentForm } from "./PortfolioContentForm";
@@ -17,7 +18,7 @@ export type NewPortfolioMode = "file" | "url" | "graph";
  * 파일·링크로 만들면 서버 화면을 새로 그린다.
  */
 export function NewPortfolioPanel({
-  maxBytes,
+  upload,
   count,
   startOpen,
   initialMode = "file",
@@ -25,7 +26,7 @@ export function NewPortfolioPanel({
   providers,
   defaultProvider,
 }: {
-  maxBytes: number;
+  upload: PortfolioUploadConfig;
   count: number;
   startOpen: boolean;
   initialMode?: NewPortfolioMode;
@@ -94,7 +95,7 @@ export function NewPortfolioPanel({
               key={mode}
               endpoint="/api/portfolios"
               method="POST"
-              maxBytes={maxBytes}
+              upload={upload}
               withMeta
               submitLabel="보관함에 추가"
               initialMode={mode}

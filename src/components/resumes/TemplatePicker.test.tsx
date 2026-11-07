@@ -69,6 +69,7 @@ describe("TemplatePicker", () => {
       applyStatusChangedAt: null,
       submittedApplicationId: null,
       portfolio: null,
+      includePhoto: true,
       createdAt: 0,
       updatedAt: 0,
     };

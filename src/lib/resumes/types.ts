@@ -88,7 +88,7 @@ export type CreateResumeInput = z.infer<typeof CreateResumeInputSchema>;
 /** 화면이 보내는 본문(기본값 채우기 전). */
 export type CreateResumeRequest = z.input<typeof CreateResumeInputSchema>;
 
-/** PATCH /api/resumes/[id] — 메타만(본문은 버전 저장). 양식 전환도 여기서 한다. */
+/** PATCH /api/resumes/[id] — 메타만(본문은 버전 저장). 양식 전환·'사진 넣기'도 여기서 한다. */
 export const UpdateResumeMetaSchema = z
   .object({
     company: metaText("회사명"),
@@ -96,6 +96,8 @@ export const UpdateResumeMetaSchema = z
     jdText: jdText.nullable(),
     templateId: ResumeTemplateIdSchema,
     title: z.string().trim().min(1, "제목을 입력해 주세요.").max(MAX_RESUME_META_CHARS),
+    /** 머리글에 프로필 사진을 넣을지(사진이 있을 때만 그린다). */
+    includePhoto: z.boolean(),
   })
   .partial()
   .refine((v) => Object.values(v).some((x) => x !== undefined), "바꿀 항목이 없습니다.");
@@ -166,6 +168,8 @@ export interface ResumeMeta {
   submittedApplicationId: string | null;
   /** 첨부한 보관함 포트폴리오(없으면 null). 본문 텍스트는 싣지 않는다(resumes/portfolio.ts getResumePortfolioText). */
   portfolio: ResumePortfolioInfo | null;
+  /** 머리글에 프로필 사진을 넣을지(기본 true). 사진은 문서(ResumeDocument)에 넣지 않는다 — AI에 보내지 않고 그릴 때만 붙인다. */
+  includePhoto: boolean;
   createdAt: number;
   updatedAt: number;
 }

@@ -44,6 +44,10 @@ const nextConfig: NextConfig = {
   outputFileTracingIncludes: {
     // 한국어 CID 글꼴 PDF의 텍스트 추출에 필요한 CMap (src/lib/ingest/extract.ts)
     "/api/diagnoses": ["./node_modules/pdfjs-dist/cmaps/**/*"],
+    // 포트폴리오 업로드·R2 업로드 마무리도 같은 PDF 추출을 쓴다.
+    "/api/portfolios": ["./node_modules/pdfjs-dist/cmaps/**/*"],
+    "/api/portfolios/*": ["./node_modules/pdfjs-dist/cmaps/**/*"],
+    "/api/resumes/*/portfolio": ["./node_modules/pdfjs-dist/cmaps/**/*"],
     "/api/diagnoses/*/pdf": ["./src/lib/report/fonts/**/*"],
     "/api/share/*/pdf": ["./src/lib/report/fonts/**/*"],
     // 이력서 PDF도 보고서와 같은 나눔고딕을 쓴다 (src/lib/resumes/pdf-fonts.ts)

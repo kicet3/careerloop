@@ -52,6 +52,7 @@ const css = {
   overflow: "pf-overflow",
   page: "pf-page",
   pageNo: "pf-page-no",
+  photo: "pf-photo",
   pages: "pf-pages",
   paged: "pf-paged",
   period: "pf-period",
@@ -391,11 +392,14 @@ export function PerformanceSheet({
   document: doc,
   onChange,
   className,
+  photoUrl = null,
 }: {
   document: ResumeDocument;
   /** 있으면 편집 모드. */
   onChange?: (doc: ResumeDocument) => void;
   className?: string;
+  /** 머리글 프로필 사진 주소(소유자만 읽는 /api/account/photo). 없으면 사진 칸을 그리지 않는다. */
+  photoUrl?: string | null;
 }) {
   const editable = !!onChange;
   const bodyRef = useRef<HTMLDivElement>(null);
@@ -511,6 +515,11 @@ export function PerformanceSheet({
             onChange={on((v) => basics({ portfolioUrl: v }))}
           />
         </div>
+        {photoUrl ? (
+          // 소유자만 읽는 같은 출처 라우트(next/image 최적화를 거치지 않는다). PDF는 서버가 같은 사진을 data URI로 넣는다.
+          // eslint-disable-next-line @next/next/no-img-element
+          <img className={css.photo} src={photoUrl} alt="프로필 사진" data-resume-photo />
+        ) : null}
       </div>
       {/* 한 줄 소개: 지원 직무 줄이 아니라 이름·연락처 아래 독립 줄. */}
       <Field

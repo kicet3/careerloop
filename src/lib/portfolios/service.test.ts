@@ -3,7 +3,7 @@ import { mkdtempSync, rmSync } from "node:fs";
 import { tmpdir } from "node:os";
 import path from "node:path";
 import { afterAll, beforeAll, beforeEach, describe, expect, it, vi } from "vitest";
-import { MAX_PORTFOLIO_TEXT_CHARS } from "@/lib/domain/portfolios";
+import { MAX_PORTFOLIO_TEXT_CHARS, type PortfolioInfo } from "@/lib/domain/portfolios";
 import { emptyResumeDocument } from "@/lib/domain/resumes";
 import { createTestDb, type TestDb } from "@/test/db";
 
@@ -87,7 +87,7 @@ describe("포트폴리오 보관함", () => {
     const { portfolio: p } = await svc.createPortfolioFromFile("ua", { fileName: "a.md", text: "첫 번째", title: "내 포폴" });
     const k1 = (await keyOf(p.id))!;
     expect(await svc.replacePortfolioFile("ub", p.id, { fileName: "x.md", text: "x" })).toBeNull();
-    const r = (await svc.replacePortfolioFile("ua", p.id, { fileName: "b.md", text: "두 번째" }))!;
+    const r = (await svc.replacePortfolioFile("ua", p.id, { fileName: "b.md", text: "두 번째" })) as { portfolio: PortfolioInfo; truncated: boolean };
     expect(r.portfolio).toMatchObject({ title: "내 포폴", fileName: "b.md", chars: 4 });
     const k2 = (await keyOf(p.id))!;
     expect(k2).not.toBe(k1);
@@ -182,5 +182,53 @@ describe("이력서 첨부(보관함 항목 붙이기·떼기)", () => {
     await svc.createPortfolioFromUrl("ua", { url: "https://a.dev" });
     await tdb.prisma.user.delete({ where: { id: "ua" } });
     expect(await tdb.prisma.portfolio.count({ where: { userId: "ua" } })).toBe(0);
+  });
+});
+
+describe("원본 파일 보관", () => {
+  const bytes = new TextEncoder().encode("# 포트폴리오\n본문");
+  const original = { ext: "md", mime: "text/markdown", size: bytes.byteLength, source: { bytes } };
+
+  it("원본을 users/<u>/portfolios/<id>/original-*에 두고 소유자만 읽는다, 글이 비면 텍스트 키 없이 chars 0", async () => {
+    const { portfolio: p } = await svc.createPortfolioFromFile("ua", { fileName: "a.md", text: "", original });
+    expect(p).toMatchObject({ chars: 0, original: { mime: "text/markdown", size: bytes.byteLength, view: "text" } });
+    const row = (await tdb.prisma.portfolio.findUnique({ where: { id: p.id } }))!;
+    expect(row.textKey).toBeNull();
+    expect(row.originalKey).toMatch(new RegExp(`^users/ua/portfolios/${p.id}/original-[a-z0-9]+\\.md$`));
+    expect((await svc.getPortfolioOriginal("ua", p.id))!.bytes.toString("utf8")).toContain("포트폴리오");
+    expect(await svc.getPortfolioOriginal("ub", p.id)).toBeNull();
+    expect((await svc.getPortfolioText("ua", p.id))!.text).toBeNull();
+  });
+
+  it("남의 임시 업로드 키는 쓰지 않는다(행도 객체도 남기지 않는다)", async () => {
+    await storage.putObject(storage.uploadStagingKey("ub", "portfolio-x.md"), bytes);
+    const before = await storage.listByPrefix(storage.userPrefix("ua", "portfolios"));
+    await expect(
+      svc.createPortfolioFromFile("ua", { fileName: "a.md", text: "본문", original: { ...original, source: { bytes, stagedKey: "uploads/ub/portfolio-x.md" } } }),
+    ).rejects.toThrow();
+    expect(await tdb.prisma.portfolio.count({ where: { userId: "ua" } })).toBe(0);
+    expect(await storage.listByPrefix(storage.userPrefix("ua", "portfolios"))).toEqual(before);
+    expect(await storage.listByPrefix(storage.uploadStagingPrefix("ub"))).toEqual(["uploads/ub/portfolio-x.md"]);
+  });
+
+  it("내용 바꾸기가 동시에 두 번 오면 한쪽만 반영하고 진 쪽이 저장한 새 원본·글은 지운다(저장소에 고아 객체가 남지 않는다)", async () => {
+    const { portfolio: p } = await svc.createPortfolioFromFile("ua", { fileName: "a.md", text: "본문", original });
+    const results = await Promise.all([
+      svc.replacePortfolioFile("ua", p.id, { fileName: "b.md", text: "둘째", original }),
+      svc.replacePortfolioFile("ua", p.id, { fileName: "c.md", text: "셋째", original }),
+    ]);
+    expect(results.every((r) => r !== null)).toBe(true);
+    const row = await tdb.prisma.portfolio.findUniqueOrThrow({ where: { id: p.id } });
+    // 저장소에는 행이 가리키는 텍스트·원본만 남는다.
+    expect((await storage.listByPrefix(storage.userPrefix("ua", "portfolios", p.id))).sort()).toEqual([row.textKey, row.originalKey].sort());
+    // 두 요청이 같은 행을 읽은 뒤 쓰므로 한쪽은 진다.
+    expect(results.filter((r) => r === "conflict")).toHaveLength(1);
+  });
+
+  it("남의 포트폴리오 내용 바꾸기는 null이고 아무것도 저장하지 않는다", async () => {
+    const { portfolio: p } = await svc.createPortfolioFromFile("ua", { fileName: "a.md", text: "본문", original });
+    const before = await storage.listByPrefix(storage.userPrefix("ub"));
+    expect(await svc.replacePortfolioFile("ub", p.id, { fileName: "b.md", text: "남의 글", original })).toBeNull();
+    expect(await storage.listByPrefix(storage.userPrefix("ub"))).toEqual(before);
   });
 });

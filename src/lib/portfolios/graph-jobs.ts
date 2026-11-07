@@ -379,17 +379,24 @@ export async function runGraphPortfolioJob(
     const timeLimitMs = Math.min(limitMs, Math.max(1_000, row.startedAt.getTime() + limitMs - now()));
     const output = await withLlmDeadline(
       undefined,
-      (signal) => generateGraphPortfolio(client, material, { title: label, notes: input.notes }, signal),
+      (signal) => generateGraphPortfolio(client, material, { title: label, notes: input.notes, templateId: input.templateId }, signal),
       { timeoutMs: timeLimitMs, message: "포트폴리오를 만드는 데 시간이 너무 오래 걸려 중단했습니다. 프로젝트 수를 줄여 다시 시도해 주세요." },
     );
     await setStage("saving");
 
-    const text = graphPortfolioToMarkdown(output, { title: label, personName: material.personName, links: material.links });
+    const text = graphPortfolioToMarkdown(output, {
+      title: label,
+      personName: material.personName,
+      links: material.links,
+      contactLinks: material.contactLinks,
+      templateId: input.templateId,
+    });
     const source = {
       projectIds: input.projectIds,
       // 그사이 공고가 지워졌으면 공고 없이 만든 것으로 남긴다.
       postingId: material.posting ? (input.postingId ?? null) : null,
       notes: input.notes ?? "",
+      templateId: input.templateId,
       missingInfo: output.missingInfo,
       generatedAt: now(),
     };

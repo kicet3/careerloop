@@ -57,7 +57,7 @@ export default async function AccountPage({ searchParams }: { searchParams: Prom
         </p>
       </div>
 
-      <LoginInfoCard email={info.email} name={info.name} googleLinked={info.googleLinked} />
+      <LoginInfoCard email={info.email} name={info.name} googleLinked={info.googleLinked} photoUrl={info.photoUrl} />
 
       <Card>
         <CardHeader
@@ -121,7 +121,7 @@ export default async function AccountPage({ searchParams }: { searchParams: Prom
       <Card>
         <CardHeader
           title="회원 탈퇴"
-          description="탈퇴하면 계정과 진단·이력서·공고·지원 기록, 경험 그래프, MCP 연결 토큰, GitHub 연결과 가져온 저장소 정보, 올린 파일이 모두 삭제되며 되돌릴 수 없습니다."
+          description="탈퇴하면 계정과 진단·이력서·공고·지원 기록, 경험 그래프, MCP 연결 토큰, GitHub 연결과 가져온 저장소 정보, 프로필 사진, 올린 파일(포트폴리오 원본 파일 포함)이 모두 삭제되며 되돌릴 수 없습니다."
         />
         <CardBody>
           <DeleteAccountButton />

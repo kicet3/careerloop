@@ -17,7 +17,7 @@ import {
   type ResumeTemplateId,
 } from "@/lib/domain/resumes";
 import { SourceLink } from "@/components/postings/SourceLink";
-import { portfolioHasText, type PortfolioPickOption } from "@/lib/domain/portfolios";
+import { portfolioHasText, type PortfolioPickOption, type PortfolioUploadConfig } from "@/lib/domain/portfolios";
 import { POSTING_STATUS_LABELS } from "@/lib/domain/postings";
 import { SELF_HOSTED_UPLOAD_LIMITS, VERCEL_UPLOAD_LIMITS, type UploadLimits } from "@/lib/ingest/upload-limits";
 import { countAddMarkers, resumeToText } from "@/lib/resumes/layout";
@@ -59,7 +59,9 @@ export function ResumeEditor({
   currentVersionId,
   posting: initialPosting = null,
   uploadLimits = SELF_HOSTED_UPLOAD_LIMITS,
+  portfolioUpload,
   portfolios = [],
+  photoUrl = null,
 }: {
   resume: ResumeMeta;
   versions: ResumeVersionMeta[];
@@ -69,8 +71,12 @@ export function ResumeEditor({
   posting?: ResumePostingLink | null;
   /** 서버가 정한 업로드 상한(포트폴리오 파일은 이것과 4MB 중 작은 값). */
   uploadLimits?: UploadLimits;
+  /** 포트폴리오 업로드 설정(서버가 정한다). 없으면 uploadLimits와 4MB 중 작은 값으로 바로 보낸다. */
+  portfolioUpload?: PortfolioUploadConfig;
   /** 내 포트폴리오 보관함(첨부 칸에서 고른다). */
   portfolios?: PortfolioPickOption[];
+  /** 내 프로필 사진 주소(소유자만 읽는 /api/account/photo). 없으면 null — '사진 넣기'를 끄고 안내만 보인다. */
+  photoUrl?: string | null;
 }) {
   const router = useRouter();
   // meta.templateId는 화면에서 고른 양식(저장 전일 수 있음), savedTemplateId는 서버에 저장된 양식.
@@ -100,6 +106,10 @@ export function ResumeEditor({
   });
 
   const template = RESUME_TEMPLATES[meta.templateId];
+  // 머리글 사진: 사진이 있고 이 이력서에서 '사진 넣기'가 켜져 있을 때만.
+  const headerPhoto = photoUrl && meta.includePhoto ? photoUrl : null;
+  const directPortfolioBytes = Math.min(uploadLimits.perFileBytes, VERCEL_UPLOAD_LIMITS.perFileBytes);
+  const upload: PortfolioUploadConfig = portfolioUpload ?? { maxBytes: directPortfolioBytes, directMaxBytes: directPortfolioBytes, presigned: false };
   const isGeneral = meta.kind === "general";
   const current = versions.find((v) => v.id === baseVersionId) ?? null;
   const addCount = countAddMarkers(doc);
@@ -501,6 +511,28 @@ export function ResumeEditor({
           </p>
         </div>
         <TemplatePicker value={meta.templateId} onChange={changeTemplate} disabled={busy === "save" || busy === "restore"} />
+        <div className="mt-2 flex flex-wrap items-center gap-x-3 gap-y-1 text-sm">
+          {photoUrl ? (
+            <label className="inline-flex items-center gap-2 text-slate-700">
+              <input
+                type="checkbox"
+                checked={meta.includePhoto}
+                disabled={busy !== null}
+                onChange={(e) => void patchMeta({ includePhoto: e.target.checked })}
+                className="size-4 rounded border-slate-300 text-indigo-600 focus:ring-indigo-500"
+              />
+              사진 넣기
+              <span className="text-xs text-slate-500">머리글에 프로필 사진을 넣습니다(미리보기·PDF). 바로 저장됩니다.</span>
+            </label>
+          ) : (
+            <p className="text-xs text-slate-500">
+              <Link href="/app/account" className="font-medium text-indigo-700 hover:underline">
+                계정 설정
+              </Link>
+              에서 프로필 사진을 올리면 이력서 머리글에 사진을 넣을 수 있습니다.
+            </p>
+          )}
+        </div>
       </section>
 
       {metaOpen && (
@@ -583,7 +615,7 @@ export function ResumeEditor({
         resumeId={meta.id}
         portfolio={meta.portfolio}
         library={portfolios}
-        maxBytes={Math.min(uploadLimits.perFileBytes, VERCEL_UPLOAD_LIMITS.perFileBytes)}
+        upload={upload}
         onChange={(resume) => setMeta((m) => ({ ...resume, templateId: m.templateId }))}
       />
 
@@ -609,7 +641,7 @@ export function ResumeEditor({
             </p>
           </div>
           {perfPane === "sheet" ? (
-            <PerformanceSheet document={doc} onChange={edit} />
+            <PerformanceSheet document={doc} onChange={edit} photoUrl={headerPhoto} />
           ) : (
             <div className="max-w-3xl">
               <ResumeDocumentForm value={doc} onChange={edit} sectionOrder={template.sectionOrder} />
@@ -673,6 +705,7 @@ export function ResumeEditor({
                 <ResumePreview
                   document={doc}
                   templateId={meta.templateId}
+                  photoUrl={headerPhoto}
                   className="max-h-none lg:max-h-[calc(100vh-6rem)] lg:overflow-y-auto"
                 />
               </div>
@@ -734,7 +767,7 @@ export function ResumeEditor({
               </Button>
             </div>
           </div>
-          <ResumePreview document={viewing.document} templateId={meta.templateId} />
+          <ResumePreview document={viewing.document} templateId={meta.templateId} photoUrl={headerPhoto} />
         </Card>
       )}
 

@@ -7,7 +7,7 @@
  *   섹션 제목은 언제나 첫 항목과 같은 줄에 있어 제목만 앞 쪽에 남지 않는다(원본 break-inside/after: avoid).
  */
 import type { ReactNode } from "react";
-import { Document, Page, StyleSheet, Text, View, type Styles } from "@react-pdf/renderer";
+import { Document, Image, Page, StyleSheet, Text, View, type Styles } from "@react-pdf/renderer";
 import type { ResumeDocument } from "@/lib/domain/resumes";
 import { SERVICE_CREDIT } from "@/lib/brand";
 import { isExperienceEmpty, isProjectEmpty, performanceHeading, splitAddMarkers } from "./layout";
@@ -52,6 +52,8 @@ const st = StyleSheet.create({
   role: { fontSize: 13, lineHeight: 1.45, fontWeight: 700, color: C.accent },
   experience: { fontSize: 9, fontWeight: 400, color: C.muted },
   contact: { maxWidth: px(250), paddingTop: px(3) },
+  // 머리글 사진(3:4, performance-sheet.css .pf-photo와 같은 값).
+  photo: { width: px(84), height: px(112), marginLeft: px(25), objectFit: "cover", borderRadius: 1.5 },
   contactLine: {
     fontSize: 8.5,
     lineHeight: 1.85,
@@ -219,7 +221,8 @@ function EntryHead({ title, when, titleStyle }: { title: string; when: string; t
   );
 }
 
-export function PerformancePdfDocument({ doc }: { doc: ResumeDocument }) {
+/** photo: 머리글 사진 data URI(서버가 저장소에서 읽은 것만). 없으면 사진 없이. */
+export function PerformancePdfDocument({ doc, photo = null }: { doc: ResumeDocument; photo?: string | null }) {
   const b = doc.basics;
   const contact = [b.email, b.phone, b.portfolioUrl].filter(has);
 
@@ -385,6 +388,8 @@ export function PerformancePdfDocument({ doc }: { doc: ResumeDocument }) {
                 ))}
               </View>
             ) : null}
+            {/* eslint-disable-next-line jsx-a11y/alt-text -- react-pdf Image에는 alt가 없다 */}
+            {photo ? <Image style={st.photo} src={photo} /> : null}
           </View>
           {has(b.tagline) ? <R style={st.tagline} text={b.tagline} /> : null}
           {has(doc.summary) ? <R style={has(b.tagline) ? [st.intro, st.introAfterTagline] : st.intro} text={doc.summary} /> : null}

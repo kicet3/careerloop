@@ -12,6 +12,7 @@ import { Alert } from "@/components/ui/Alert";
 import { Button } from "@/components/ui/Button";
 import { Card } from "@/components/ui/Card";
 import { countPortfolioAddMarkers } from "@/lib/domain/graph-portfolio";
+import { getPortfolioTemplate } from "@/lib/domain/portfolio-templates";
 import { MAX_PORTFOLIO_TEXT_CHARS, type PortfolioListItem } from "@/lib/domain/portfolios";
 import type { ProviderId, ProviderOption } from "@/lib/domain/providers";
 import { NETWORK_ERROR, readError } from "./api";
@@ -49,6 +50,8 @@ export function GraphPortfolioView({
   // 수는 저장한 본문에 남은 [ADD] 자리로 센다(직접 채우고 저장하면 줄어든다). AI가 남긴 목록은 자리가 남아 있을 때의 안내로만 보인다.
   const openMarkers = countPortfolioAddMarkers(text);
   const hints = p.graphSource?.missingInfo ?? [];
+  // 양식이 생기기 전에 만든 포트폴리오는 양식 정보가 없다(null).
+  const templateId = p.graphSource?.templateId ?? null;
 
   async function save() {
     if (regenerating) {
@@ -106,6 +109,14 @@ export function GraphPortfolioView({
           </Button>
         </div>
       </div>
+      <p className="text-xs text-slate-500 print:hidden">
+        양식:{" "}
+        {templateId ? (
+          <span className="font-medium text-slate-700">{getPortfolioTemplate(templateId).name}</span>
+        ) : (
+          <span>지정 안 함(양식 기능 이전에 만듦 — 다시 만들기에서 양식을 고를 수 있습니다)</span>
+        )}
+      </p>
       {dirty && tab === "preview" && (
         <p className="text-xs text-amber-700 print:hidden">고친 본문을 아직 저장하지 않았습니다. 미리보기는 저장하지 않은 내용입니다 — 인쇄하려면 먼저 저장해 주세요.</p>
       )}
@@ -138,6 +149,7 @@ export function GraphPortfolioView({
               projectIds: p.graphSource?.projectIds ?? [],
               postingId: p.graphSource?.postingId ?? null,
               notes: p.graphSource?.notes ?? "",
+              templateId: p.graphSource?.templateId ?? null,
             }}
             onCancel={() => setRegenOpen(false)}
           />

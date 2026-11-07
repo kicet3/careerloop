@@ -29,7 +29,7 @@ export default async function PortfoliosPage({ searchParams }: { searchParams: P
     listPostings(user.id),
     listProviderOptions(),
   ]);
-  const { perFile } = portfolioUploadLimits();
+  const { config: upload } = portfolioUploadLimits();
 
   return (
     <div className="space-y-6">
@@ -37,12 +37,12 @@ export default async function PortfoliosPage({ searchParams }: { searchParams: P
         <h1 className="text-2xl font-bold tracking-tight text-slate-900">포트폴리오</h1>
         <p className="mt-1 max-w-3xl text-sm text-slate-500">
           포트폴리오를 파일이나 링크로 모아 두거나 경험 그래프로 만들고, 이력서마다 하나씩 골라 붙입니다. 붙인 포트폴리오는 면접 연습 질문과 진단에 함께
-          쓰입니다. 파일은 글만 뽑아 저장하고 원본은 보관하지 않습니다. {items.length}개
+          쓰입니다. 올린 파일은 원본 그대로 보관해 화면에 보여 주고, 질문·진단에는 파일에서 뽑은 글을 씁니다. {items.length}개
         </p>
       </div>
 
       <NewPortfolioPanel
-        maxBytes={perFile}
+        upload={upload}
         count={items.length}
         startOpen={items.length === 0 || wantGraph}
         initialMode={wantGraph ? "graph" : "file"}
@@ -76,7 +76,7 @@ export default async function PortfoliosPage({ searchParams }: { searchParams: P
         <ul className="grid gap-4 xl:grid-cols-2">
           {items.map((p) => (
             <li key={p.id}>
-              <PortfolioItem portfolio={p} maxBytes={perFile} variant="card" />
+              <PortfolioItem portfolio={p} upload={upload} variant="card" />
             </li>
           ))}
         </ul>

@@ -199,7 +199,7 @@ describe("경험 그래프로 포트폴리오 만들기", () => {
     expect(view.portfolioId).toBeTruthy();
     const got = (await svc.getPortfolioText(A.id, view.portfolioId!))!;
     expect(got.portfolio).toMatchObject({ kind: "graph", title: "백엔드 포트폴리오", fileName: null, url: null });
-    expect(got.portfolio.graphSource).toMatchObject({ projectIds: ["p1"], postingId: "post_a", notes: "성능 개선 강조" });
+    expect(got.portfolio.graphSource).toMatchObject({ projectIds: ["p1"], postingId: "post_a", notes: "성능 개선 강조", templateId: "project-pdf" });
     const text = got.text!;
     expect(got.portfolio.chars).toBe(text.length);
     expect(text).toContain(`## 1. ${A_MARK}결제개선`);
@@ -227,6 +227,33 @@ describe("경험 그래프로 포트폴리오 만들기", () => {
     expect((await tdb.prisma.portfolioDraftJob.findUniqueOrThrow({ where: { id: job.id } })).input).toBeNull();
     // 보관함 목록에도 나온다.
     expect((await svc.listPortfolios(A.id)).map((p) => p.kind)).toEqual(["graph"]);
+  });
+
+  it("양식: 고른 양식(case-study)의 구역 제목·순서로 쓰고 graphSource에 남기며, 다시 만들 때 양식을 바꿀 수 있다", async () => {
+    const job = await startOk({ projectIds: ["p1"], templateId: "case-study" });
+    await runAfter();
+    const view = await viewOf(job.id);
+    expect(view.status).toBe("completed");
+    const got = (await svc.getPortfolioText(A.id, view.portfolioId!))!;
+    expect(got.portfolio.graphSource?.templateId).toBe("case-study");
+    const text = got.text!;
+    expect(state.calls[0]!.text).toContain("포트폴리오 양식: 케이스 스터디 [case-study]");
+    expect(text).toContain(`## Case 1. ${A_MARK}결제개선`);
+    const idx = ["### Problem · 문제", "### Role · 역할", "### Approach · 접근", "### Result · 결과"].map((h) => text.indexOf(h));
+    expect(idx.every((i) => i >= 0)).toBe(true);
+    expect(idx).toEqual([...idx].sort((a, b) => a - b));
+    expect(text).toContain("[ADD: 수치 확인 — 전환율 999% 향상]");
+    expect(text).not.toContain("양식에 없는 구역");
+    expect(text).not.toContain("### 개요");
+
+    const again = await startOk({ projectIds: ["p1"], templateId: "ml-data", portfolioId: view.portfolioId });
+    await runAfter();
+    expect((await viewOf(again.id)).status).toBe("completed");
+    const regen = (await svc.getPortfolioText(A.id, view.portfolioId!))!;
+    expect(regen.portfolio.graphSource?.templateId).toBe("ml-data");
+    expect(regen.text).toContain("### 문제 정의");
+    expect(regen.text).not.toContain("### Problem · 문제");
+    expect((await start({ projectIds: ["p1"], templateId: "fancy" })).status).toBe(400);
   });
 
   it("이력서에 붙이면 면접 질문·진단 경로가 저장한 본문을 읽는다", async () => {

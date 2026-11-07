@@ -1,7 +1,7 @@
 "use client";
 /**
- * 경험 그래프로 포트폴리오 만들기(또는 다시 만들기) 폼. 내 경험 그래프의 프로젝트 목록을 불러와(GET /api/portfolios/graph) 넣을 프로젝트를 고르고,
- * 강조할 공고(공고 보관함)·이름·메모·AI 엔진을 정해 POST /api/portfolios/graph로 작업을 시작한다. 시작하면 진행 화면으로 옮긴다.
+ * 경험 그래프로 포트폴리오 만들기(또는 다시 만들기) 폼. 내 경험 그래프의 프로젝트 목록과 추천 양식을 불러와(GET /api/portfolios/graph)
+ * 양식(portfolio-templates.ts — 다시 만들 때도 바꿀 수 있다)·넣을 프로젝트를 고르고, 강조할 공고(공고 보관함)·이름·메모·AI 엔진을 정해 POST /api/portfolios/graph로 작업을 시작한다. 시작하면 진행 화면으로 옮긴다.
  * 그래프 저장소가 없거나 프로젝트가 없으면 경험 그래프 화면으로 안내한다.
  */
 import Link from "next/link";
@@ -19,9 +19,16 @@ import {
   type GraphPortfolioJobView,
   type GraphProjectOption,
 } from "@/lib/domain/graph-portfolio";
+import {
+  DEFAULT_PORTFOLIO_TEMPLATE_ID,
+  isPortfolioTemplateId,
+  type PortfolioTemplateId,
+  type PortfolioTemplateRecommendation,
+} from "@/lib/domain/portfolio-templates";
 import { MAX_PORTFOLIO_TITLE_CHARS } from "@/lib/domain/portfolios";
 import { NO_ENGINE_MESSAGE, PROVIDER_DATA_DESTINATION, type ProviderId, type ProviderOption } from "@/lib/domain/providers";
 import { NETWORK_ERROR, readError } from "./api";
+import { PortfolioTemplatePicker } from "./PortfolioTemplatePicker";
 
 export interface GraphPostingOption {
   id: string;
@@ -36,9 +43,16 @@ export interface GraphPortfolioRegenerate {
   projectIds: string[];
   postingId: string | null;
   notes: string;
+  /** 지난번 양식(양식이 생기기 전에 만든 포트폴리오는 null — 추천 양식을 고른다). */
+  templateId: PortfolioTemplateId | null;
 }
 
-type Load = { state: "loading" } | { state: "error"; message: string } | { state: "ready"; enabled: boolean; projects: GraphProjectOption[] };
+type Load = { state: "loading" } | { state: "error"; message: string } | {
+      state: "ready";
+      enabled: boolean;
+      projects: GraphProjectOption[];
+      recommended: PortfolioTemplateRecommendation | null;
+    };
 
 export function GraphPortfolioForm({
   postings,
@@ -60,6 +74,8 @@ export function GraphPortfolioForm({
   const [title, setTitle] = useState("");
   const [notes, setNotes] = useState(regenerate?.notes ?? "");
   const [provider, setProvider] = useState<ProviderId | null>(defaultProvider);
+  // 고르기 전에는 지난번 양식 → 추천 양식 → 기본 양식.
+  const [templateId, setTemplateId] = useState<PortfolioTemplateId | null>(regenerate?.templateId ?? null);
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [reloadKey, setReloadKey] = useState(0);
@@ -74,9 +90,10 @@ export function GraphPortfolioForm({
           if (!stopped) setLoad({ state: "error", message: await readError(res, "경험 그래프를 불러오지 못했습니다.") });
           return;
         }
-        const data = (await res.json()) as { enabled: boolean; projects: GraphProjectOption[] };
+        const data = (await res.json()) as { enabled: boolean; projects: GraphProjectOption[]; recommendedTemplate?: PortfolioTemplateRecommendation };
         if (stopped) return;
-        setLoad({ state: "ready", enabled: data.enabled, projects: data.projects });
+        const rec = data.recommendedTemplate && isPortfolioTemplateId(data.recommendedTemplate.id) ? data.recommendedTemplate : null;
+        setLoad({ state: "ready", enabled: data.enabled, projects: data.projects, recommended: rec });
         const ids = new Set(data.projects.map((p) => p.id));
         const previous = previousKey ? previousKey.split(",").filter((id) => ids.has(id)) : [];
         setSelected(previous.length > 0 ? previous : defaultProjectSelection(data.projects));
@@ -90,6 +107,8 @@ export function GraphPortfolioForm({
   }, [previousKey, reloadKey]);
 
   const projects = useMemo(() => (load.state === "ready" ? load.projects : []), [load]);
+  const recommended = load.state === "ready" ? load.recommended : null;
+  const template: PortfolioTemplateId = templateId ?? recommended?.id ?? DEFAULT_PORTFOLIO_TEMPLATE_ID;
   const order = useMemo(() => new Map(projects.map((p, i) => [p.id, i])), [projects]);
   const selectedProvider = providers.find((p) => p.id === provider);
   const destination = provider ? PROVIDER_DATA_DESTINATION[provider] : null;
@@ -124,6 +143,7 @@ export function GraphPortfolioForm({
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({
           projectIds: selected,
+          templateId: template,
           postingId: postingId && !(missingPosting && postingId === regenerate?.postingId) ? postingId : null,
           ...(!regenerate && title.trim() ? { title: title.trim() } : {}),
           ...(notes.trim() ? { notes: notes.trim() } : {}),
@@ -181,6 +201,16 @@ export function GraphPortfolioForm({
 
   return (
     <div className="space-y-4">
+      <PortfolioTemplatePicker
+        value={template}
+        recommended={recommended}
+        disabled={busy}
+        onChange={(id) => {
+          setTemplateId(id);
+          setError(null);
+        }}
+      />
+
       <fieldset>
         <legend className="text-sm font-medium text-slate-800">
           넣을 프로젝트{" "}

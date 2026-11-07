@@ -4,7 +4,7 @@
  * 섹션 배치(빈 섹션 제외·사이드바)는 웹 미리보기와 같은 resumeLayout을 쓴다. 성과 중심 양식은 pdf-performance.tsx.
  */
 import type { ReactNode } from "react";
-import { Document, Page, StyleSheet, Text, View, renderToBuffer, type Styles } from "@react-pdf/renderer";
+import { Document, Image, Page, StyleSheet, Text, View, renderToBuffer, type Styles } from "@react-pdf/renderer";
 import { SERVICE_CREDIT } from "@/lib/brand";
 import {
   RESUME_TEMPLATES,
@@ -13,7 +13,7 @@ import {
   type ResumeTemplate,
   type ResumeTemplateId,
 } from "@/lib/domain/resumes";
-import { isExperienceEmpty, isProjectEmpty, period, projectStoryLines, resumeLayout, sectionTitle, splitAddMarkers } from "./layout";
+import { isExperienceEmpty, isProjectEmpty, period, projectStoryLines, RESUME_PHOTO_PT, resumeLayout, sectionTitle, splitAddMarkers } from "./layout";
 import { A4, mayExceedPage } from "./pagination";
 import { NO_HYPHEN, PDF_FONT, registerResumeFonts } from "./pdf-fonts";
 import { PerformancePdfDocument } from "./pdf-performance";
@@ -42,6 +42,10 @@ function makeStyles(t: ResumeTemplate) {
     contact: { fontSize: base - 1, color: C.muted, marginTop: 5 },
     // 한 줄 소개: 머리글 선 아래 독립 줄(웹 미리보기 ResumePreview의 tagline 블록과 같은 값).
     tagline: { fontSize: base + 0.5, color: C.body, lineHeight: 1.5 },
+    // 머리글 사진(3:4). 웹 미리보기 ResumePreview의 사진 칸과 같은 크기(pt).
+    headerRow: { flexDirection: "row", alignItems: "flex-start" },
+    headerText: { flex: 1 },
+    photo: { width: RESUME_PHOTO_PT.width, height: RESUME_PHOTO_PT.height, marginLeft: 14, objectFit: "cover", borderRadius: 2 },
     headerBand: {
       borderBottomWidth: st.headingStyle === "plain" ? 0.75 : 2,
       borderBottomColor: st.headingStyle === "plain" ? C.line : st.accent,
@@ -332,7 +336,7 @@ function sectionItems({ s, doc, k, t, narrow }: { s: S; doc: ResumeDocument; k: 
   }
 }
 
-function ResumePdfDocument({ doc, templateId }: { doc: ResumeDocument; templateId: ResumeTemplateId }) {
+function ResumePdfDocument({ doc, templateId, photo }: { doc: ResumeDocument; templateId: ResumeTemplateId; photo: string | null }) {
   const t = RESUME_TEMPLATES[templateId];
   const s = makeStyles(t);
   const layout = resumeLayout(doc, templateId);
@@ -345,8 +349,8 @@ function ResumePdfDocument({ doc, templateId }: { doc: ResumeDocument; templateI
   const tagline = (top: number) =>
     b.tagline.trim() ? <Rich s={s} style={[s.tagline, { marginTop: top }]} text={b.tagline} /> : null;
 
-  const header = (
-    <View style={s.headerBand}>
+  const headerText = (
+    <>
       <Rich s={s} style={s.name} text={b.name.trim() || "이름"} />
       {headline ? <Rich s={s} style={s.headline} text={headline} /> : null}
       {contact ? <T s={s} style={s.contact}>{contact}</T> : null}
@@ -355,7 +359,19 @@ function ResumePdfDocument({ doc, templateId }: { doc: ResumeDocument; templateI
           {links.map((l) => joinParts([l.label, l.url], ": ")).join("  |  ")}
         </T>
       ) : null}
+    </>
+  );
+  // 사진은 서버가 읽은 data URI만 받는다(공개 주소를 열지 않는다).
+  const header = photo ? (
+    <View style={s.headerBand} wrap={false}>
+      <View style={s.headerRow}>
+        <View style={s.headerText}>{headerText}</View>
+        {/* eslint-disable-next-line jsx-a11y/alt-text -- react-pdf Image에는 alt가 없다 */}
+        <Image style={s.photo} src={photo} />
+      </View>
     </View>
+  ) : (
+    <View style={s.headerBand}>{headerText}</View>
   );
 
   const mainSections = layout.main.map((k) => (
@@ -403,9 +419,22 @@ function ResumePdfDocument({ doc, templateId }: { doc: ResumeDocument; templateI
   );
 }
 
-export async function renderResumePdf(doc: ResumeDocument, templateId: ResumeTemplateId): Promise<Uint8Array> {
+/**
+ * opts.photo: 머리글에 넣을 프로필 사진(data:image/jpeg;base64,… — 서버가 저장소에서 읽은 것만). 없으면 사진 없이.
+ */
+export async function renderResumePdf(
+  doc: ResumeDocument,
+  templateId: ResumeTemplateId,
+  opts: { photo?: string | null } = {},
+): Promise<Uint8Array> {
   registerResumeFonts();
-  const el = templateId === "performance" ? <PerformancePdfDocument doc={doc} /> : <ResumePdfDocument doc={doc} templateId={templateId} />;
+  const photo = opts.photo && /^data:image\/(jpeg|png);base64,/.test(opts.photo) ? opts.photo : null;
+  const el =
+    templateId === "performance" ? (
+      <PerformancePdfDocument doc={doc} photo={photo} />
+    ) : (
+      <ResumePdfDocument doc={doc} templateId={templateId} photo={photo} />
+    );
   const buf = await renderToBuffer(el);
   return new Uint8Array(buf.buffer, buf.byteOffset, buf.byteLength);
 }

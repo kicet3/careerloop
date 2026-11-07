@@ -1,8 +1,10 @@
 import "server-only";
 /**
  * 오브젝트 저장소. R2_ACCOUNT_ID·R2_ACCESS_KEY_ID·R2_SECRET_ACCESS_KEY·R2_BUCKET이 모두 있으면 Cloudflare R2(S3 호환),
- * 없으면 로컬 파일(STORAGE_DIR, 기본 ./data/storage). 키는 users/<userId>/...(userKey) 또는 공용 공고 자료
- * shared-postings/<sharedPostingId>/...(sharedPostingKey — 원문 캡처처럼 사용자 사이에 공유하는 객체) 형식만 받는다.
+ * 없으면 로컬 파일(STORAGE_DIR, 기본 ./data/storage). 키는 users/<userId>/...(userKey), 공용 공고 자료
+ * shared-postings/<sharedPostingId>/...(sharedPostingKey — 원문 캡처처럼 사용자 사이에 공유하는 객체) 또는
+ * 브라우저가 R2에 바로 올리는 대용량 업로드의 임시 자리 uploads/<userId>/...(uploadStagingKey) 형식만 받는다.
+ * 임시 자리는 R2 수명 주기 규칙(uploads/ 1일 뒤 삭제, docs/STORAGE.md)으로 남은 것을 치운다.
  * APP_ENV=PRODUCTION이면 R2만 쓴다 — R2 설정이 없으면 로컬로 내려가지 않고 StorageConfigError를 던진다.
  *
  * - 키 검사: 영문·숫자·._- 와 / 만, 빈 조각·'.'·'..' 금지 → 로컬 경로 탈출과 다른 사용자 접두사 침범을 막는다.
@@ -11,6 +13,7 @@ import "server-only";
 import { mkdir, readdir, readFile, rm, rmdir, stat, writeFile } from "node:fs/promises";
 import path from "node:path";
 import {
+  CopyObjectCommand,
   DeleteObjectCommand,
   GetObjectCommand,
   ListObjectsV2Command,
@@ -41,8 +44,8 @@ export class StorageConfigError extends Error {
 const SEGMENT_RE = /^[A-Za-z0-9_-][A-Za-z0-9._-]{0,127}$/;
 const MAX_KEY_LENGTH = 512;
 
-/** 키의 첫 조각(최상위 '폴더'). users: 사용자별 자료, shared-postings: 공용 공고별 공유 자료(원문 캡처). */
-export const STORAGE_ROOTS = ["users", "shared-postings"] as const;
+/** 키의 첫 조각(최상위 '폴더'). users: 사용자별 자료, shared-postings: 공용 공고별 공유 자료(원문 캡처), uploads: 사용자별 업로드 임시 자리. */
+export const STORAGE_ROOTS = ["users", "shared-postings", "uploads"] as const;
 export type StorageRoot = (typeof STORAGE_ROOTS)[number];
 
 /** 키 형식 검사. <root>/<id>/<...>(root는 STORAGE_ROOTS) 이고 각 조각이 안전한 문자만 쓴다. */
@@ -52,7 +55,7 @@ export function assertValidKey(key: string, opts: { prefix?: boolean } = {}): vo
   // 접두사(listByPrefix)는 끝이 '/'일 수 있다.
   if (opts.prefix && parts[parts.length - 1] === "") parts.pop();
   if (!(STORAGE_ROOTS as readonly string[]).includes(parts[0]!) || parts.length < (opts.prefix ? 2 : 3)) {
-    throw new StorageKeyError("키는 users/<userId>/... 또는 shared-postings/<id>/... 형식이어야 합니다.");
+    throw new StorageKeyError("키는 users/<userId>/..., shared-postings/<id>/... 또는 uploads/<userId>/... 형식이어야 합니다.");
   }
   for (const p of parts) {
     if (!SEGMENT_RE.test(p) || p === "." || p === ".." || p.includes("..")) throw new StorageKeyError();
@@ -69,6 +72,20 @@ export function userKey(userId: string, ...parts: string[]): string {
 /** 사용자 접두사(users/<userId>/). listByPrefix에 쓴다. */
 export function userPrefix(userId: string, ...parts: string[]): string {
   const key = ["users", userId, ...parts].join("/") + "/";
+  assertValidKey(key, { prefix: true });
+  return key;
+}
+
+/** uploads/<userId>/<name> 키(브라우저가 서명된 주소로 바로 올리는 임시 자리). 마무리 단계에서 users/<userId>/... 로 옮긴다. */
+export function uploadStagingKey(userId: string, name: string): string {
+  const key = ["uploads", userId, name].join("/");
+  assertValidKey(key);
+  return key;
+}
+
+/** 업로드 임시 자리 접두사(uploads/<userId>/). 탈퇴 때 지운다. */
+export function uploadStagingPrefix(userId: string): string {
+  const key = `uploads/${userId}/`;
   assertValidKey(key, { prefix: true });
   return key;
 }
@@ -97,6 +114,7 @@ interface StorageBackend {
   get(key: string): Promise<Buffer | null>;
   delete(key: string): Promise<void>;
   list(prefix: string): Promise<string[]>;
+  copy(from: string, to: string, opts: PutOptions): Promise<boolean>;
 }
 
 // ---------------------------------------------------------------------------
@@ -139,6 +157,63 @@ class R2Backend implements StorageBackend {
   async delete(key: string) {
     await this.client.send(new DeleteObjectCommand({ Bucket: this.cfg.bucket, Key: key }));
   }
+  async copy(from: string, to: string, opts: PutOptions) {
+    try {
+      // 키는 assertValidKey를 통과한 안전한 문자뿐이라 그대로 붙인다. 내용 유형은 서버가 정한 값으로 바꾼다.
+      await this.client.send(
+        new CopyObjectCommand({
+          Bucket: this.cfg.bucket,
+          Key: to,
+          CopySource: `${this.cfg.bucket}/${from}`,
+          MetadataDirective: "REPLACE",
+          ContentType: opts.contentType,
+        }),
+      );
+      return true;
+    } catch (e) {
+      if (e instanceof NoSuchKey || (e as { name?: string }).name === "NoSuchKey") return false;
+      throw e;
+    }
+  }
+  private presignClient?: S3Client;
+  private signer(): S3Client {
+    this.presignClient ??= new S3Client({
+      region: "auto",
+      endpoint: this.cfg.endpoint,
+      credentials: { accessKeyId: this.cfg.accessKeyId, secretAccessKey: this.cfg.secretAccessKey },
+      requestChecksumCalculation: "WHEN_REQUIRED",
+      responseChecksumValidation: "WHEN_REQUIRED",
+    });
+    return this.presignClient;
+  }
+  /**
+   * 브라우저가 이 키에 바로 PUT할 서명된 주소. 내용 길이·유형을 서명에 넣어 다른 크기·유형으로는 올리지 못한다.
+   * 서명용 클라이언트는 체크섬을 '필요할 때만' 계산한다 — 기본값이면 SDK가 빈 본문의 CRC32(x-amz-checksum-crc32=AAAAAA==)를
+   * 주소에 넣어 브라우저가 올린 실제 파일이 체크섬 불일치로 거절된다.
+   */
+  async presignPut(key: string, opts: { contentType: string; contentLength: number; expiresIn: number }) {
+    const { getSignedUrl } = await import("@aws-sdk/s3-request-presigner");
+    const cmd = new PutObjectCommand({ Bucket: this.cfg.bucket, Key: key, ContentType: opts.contentType, ContentLength: opts.contentLength });
+    return getSignedUrl(this.signer(), cmd, { expiresIn: opts.expiresIn, signableHeaders: new Set(["content-type", "content-length"]) });
+  }
+  /**
+   * 이 키를 내려받을 서명된 GET 주소. 응답의 내용 유형·Content-Disposition·Cache-Control을 서명에 넣어 R2가 그 값으로 내려준다
+   * (저장할 때의 내용 유형이나 브라우저가 고른 값을 쓰지 않는다).
+   */
+  async presignGet(
+    key: string,
+    opts: { contentType: string; contentDisposition: string; cacheControl: string; expiresIn: number },
+  ) {
+    const { getSignedUrl } = await import("@aws-sdk/s3-request-presigner");
+    const cmd = new GetObjectCommand({
+      Bucket: this.cfg.bucket,
+      Key: key,
+      ResponseContentType: opts.contentType,
+      ResponseContentDisposition: opts.contentDisposition,
+      ResponseCacheControl: opts.cacheControl,
+    });
+    return getSignedUrl(this.signer(), cmd, { expiresIn: opts.expiresIn });
+  }
   async list(prefix: string) {
     const keys: string[] = [];
     let token: string | undefined;
@@ -169,6 +244,12 @@ class LocalBackend implements StorageBackend {
     await mkdir(path.dirname(f), { recursive: true });
     // 로컬 폴백은 개발용이라 원자적 교체 없이 바로 쓴다. 권한은 소유자만.
     await writeFile(f, body, { mode: 0o600 });
+  }
+  async copy(from: string, to: string) {
+    const buf = await this.get(from);
+    if (!buf) return false;
+    await this.put(to, buf);
+    return true;
   }
   async get(key: string) {
     try {
@@ -266,7 +347,42 @@ export async function deleteObject(key: string): Promise<void> {
   await backend().delete(key);
 }
 
-/** 접두사(users/<userId>/... 또는 shared-postings/<id>/...) 아래 키 목록(정렬). */
+/** from을 to로 복사한다(R2는 서버 쪽 복사라 함수로 내용을 내려받지 않는다). from이 없으면 false. */
+export async function copyObject(from: string, to: string, opts: PutOptions = {}): Promise<boolean> {
+  assertValidKey(from);
+  assertValidKey(to);
+  return backend().copy(from, to, opts);
+}
+
+/**
+ * 브라우저가 key에 바로 올릴 서명된 PUT 주소(R2일 때만). 로컬 저장소면 null — 화면은 서버로 바로 올리는 multipart 경로를 쓴다.
+ * 호출자가 키를 사용자 자신의 임시 자리(uploadStagingKey)로만 만든다.
+ */
+export async function presignPutObject(
+  key: string,
+  opts: { contentType: string; contentLength: number; expiresIn?: number },
+): Promise<string | null> {
+  assertValidKey(key);
+  const b = backend();
+  if (!(b instanceof R2Backend)) return null;
+  return b.presignPut(key, { ...opts, expiresIn: opts.expiresIn ?? 600 });
+}
+
+/**
+ * key를 내려받을 서명된 GET 주소(R2일 때만, 로컬이면 null). 응답 헤더(내용 유형·첨부 여부·캐시)는 호출자가 정한 값으로 서명한다.
+ * 호출자가 소유자 확인을 마친 키에만 쓴다 — 주소를 가진 누구나 expiresIn 동안 읽을 수 있으므로 짧게 둔다.
+ */
+export async function presignGetObject(
+  key: string,
+  opts: { contentType: string; contentDisposition: string; cacheControl: string; expiresIn?: number },
+): Promise<string | null> {
+  assertValidKey(key);
+  const b = backend();
+  if (!(b instanceof R2Backend)) return null;
+  return b.presignGet(key, { ...opts, expiresIn: opts.expiresIn ?? 60 });
+}
+
+/** 접두사(users/<userId>/..., shared-postings/<id>/..., uploads/<userId>/...) 아래 키 목록(정렬). */
 export async function listByPrefix(prefix: string): Promise<string[]> {
   assertValidKey(prefix, { prefix: true });
   return backend().list(prefix);

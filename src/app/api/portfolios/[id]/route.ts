@@ -1,14 +1,23 @@
 import { featureErrorResponse } from "@/lib/api/errors";
 import { assertSameOrigin, requireApiUser } from "@/lib/auth/session";
+import { jsonError } from "@/lib/diagnoses/http";
 import { MAX_PORTFOLIO_CHARS as DIAGNOSIS_PORTFOLIO_CHARS } from "@/lib/diagnoses/form";
-import { ReplacePortfolioUrlSchema, UpdatePortfolioSchema } from "@/lib/domain/portfolios";
-import { isMultipart, PORTFOLIO_PREVIEW_CHARS, portfolioNotFound, readPortfolioUpload, truncatedWarning } from "@/lib/portfolios/http";
+import { PortfolioUploadFinalizeSchema, ReplacePortfolioUrlSchema, UpdatePortfolioSchema } from "@/lib/domain/portfolios";
+import {
+  isMultipart,
+  PORTFOLIO_PREVIEW_CHARS,
+  portfolioNotFound,
+  readPortfolioUpload,
+  readStagedPortfolioUpload,
+  truncatedWarning,
+  type PortfolioUpload,
+} from "@/lib/portfolios/http";
 import { deletePortfolio, getPortfolio, getPortfolioText, replacePortfolioFile, replacePortfolioUrl, updatePortfolio } from "@/lib/portfolios/service";
-import { readJsonInput } from "@/lib/resumes/http";
+import { parseJsonInput, readJsonBody, readJsonInput } from "@/lib/resumes/http";
 
 export const runtime = "nodejs";
-// PDF·HWP 추출이 길어질 수 있다(extract.ts PDF_TIME_BUDGET_MS 15초).
-export const maxDuration = 60;
+// PDF·HWP 추출이 길어질 수 있다(extract.ts PDF_TIME_BUDGET_MS 15초). R2에 바로 올린 큰 파일(최대 30MB)을 읽고 옮기는 시간까지.
+export const maxDuration = 120;
 
 type Ctx = { params: Promise<{ id: string }> };
 
@@ -58,8 +67,9 @@ export async function PATCH(req: Request, { params }: Ctx) {
 
 /**
  * 내용 바꾸기(이름·설명·첨부한 이력서는 그대로).
- * - multipart/form-data: file. 업로드 레이트 리밋을 센다. → { portfolio, truncated, warnings }
- * - application/json: { url }. → { portfolio, truncated: false, warnings: [] }
+ * - multipart/form-data: file. 업로드 레이트 리밋을 센다. 원본도 새 파일로 바꾸고 옛 원본·글은 지운다. → { portfolio, truncated, warnings }
+ * - application/json { uploadId, fileName }: R2에 바로 올린 큰 파일로 바꾸기. → 같은 꼴
+ * - application/json: { url }. 옛 원본·글은 지운다. → { portfolio, truncated: false, warnings: [] }
  */
 export async function PUT(req: Request, { params }: Ctx) {
   const forbidden = assertSameOrigin(req);
@@ -70,16 +80,23 @@ export async function PUT(req: Request, { params }: Ctx) {
   try {
     // 본문을 읽기 전에 내 포트폴리오인지 먼저 본다.
     if (!(await getPortfolio(user.id, id))) return portfolioNotFound();
+    let upload: PortfolioUpload | Response;
     if (!isMultipart(req)) {
-      const { url } = await readJsonInput(req, ReplacePortfolioUrlSchema, 8 * 1024);
-      const portfolio = await replacePortfolioUrl(user.id, id, url);
-      if (!portfolio) return portfolioNotFound();
-      return Response.json({ portfolio, truncated: false, warnings: [] });
+      const raw = await readJsonBody(req, 8 * 1024);
+      if (!(raw && typeof raw === "object" && "uploadId" in raw)) {
+        const { url } = parseJsonInput(ReplacePortfolioUrlSchema, raw);
+        const portfolio = await replacePortfolioUrl(user.id, id, url);
+        if (!portfolio) return portfolioNotFound();
+        return Response.json({ portfolio, truncated: false, warnings: [] });
+      }
+      upload = await readStagedPortfolioUpload(user.id, parseJsonInput(PortfolioUploadFinalizeSchema, raw));
+    } else {
+      upload = await readPortfolioUpload(req, user.id);
     }
-    const upload = await readPortfolioUpload(req, user.id);
     if (upload instanceof Response) return upload;
     const saved = await replacePortfolioFile(user.id, id, upload);
     if (!saved) return portfolioNotFound();
+    if (saved === "conflict") return jsonError("다른 창에서 이 포트폴리오 내용을 먼저 바꿨습니다. 새로 고친 뒤 다시 올려 주세요.", 409);
     const warnings = saved.truncated ? [...upload.warnings, truncatedWarning()] : upload.warnings;
     return Response.json({ portfolio: saved.portfolio, truncated: saved.truncated, warnings });
   } catch (err) {
@@ -87,7 +104,7 @@ export async function PUT(req: Request, { params }: Ctx) {
   }
 }
 
-/** 지우기(저장한 글도 지운다). 첨부한 이력서에서는 떨어진다. → { ok: true, detached } */
+/** 지우기(저장한 글과 원본 파일도 지운다). 첨부한 이력서에서는 떨어진다. → { ok: true, detached } */
 export async function DELETE(req: Request, { params }: Ctx) {
   const forbidden = assertSameOrigin(req);
   if (forbidden) return forbidden;

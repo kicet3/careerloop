@@ -73,6 +73,7 @@ export function toResumeMeta(row: ResumeRow): ResumeMeta {
     applyStatusChangedAt: row.applyStatusChangedAt?.getTime() ?? null,
     submittedApplicationId: row.submittedApplicationId ?? null,
     portfolio: resumePortfolioInfo(row),
+    includePhoto: row.includePhoto ?? true,
     createdAt: row.createdAt.getTime(),
     updatedAt: row.updatedAt.getTime(),
   };
@@ -365,6 +366,8 @@ export interface CreateResumeParams {
   postingId?: string | null;
   /** 복제·'공용 이력서 내용으로 시작'의 원본(호출자가 소유권을 확인한 id). */
   sourceResumeId?: string | null;
+  /** 이력서에 프로필 사진을 넣을지(생략하면 켬). 복제는 원본 값을 이어받는다. */
+  includePhoto?: boolean;
 }
 
 /** 메타 + 첫 버전(v1). 본문 저장이 실패하면 메타도 지운다. */
@@ -391,6 +394,7 @@ export async function createResume(userId: string, p: CreateResumeParams): Promi
       postingId: general ? null : (p.postingId ?? null),
       sourceResumeId: p.sourceResumeId ?? null,
       applyStatus: general ? null : DEFAULT_RESUME_APPLY_STATUS,
+      includePhoto: p.includePhoto ?? true,
     },
   });
   try {
@@ -439,6 +443,8 @@ export async function copyResume(
     source: "manual",
     note: `${found.resume.title} v${found.version.versionNo}에서 복제`.slice(0, 200),
     sourceResumeId,
+    // '사진 넣기'를 끈 이력서를 복제해도 사진이 다시 켜지지 않게 원본 설정을 이어받는다.
+    includePhoto: found.resume.includePhoto,
   });
 }
 
@@ -450,6 +456,7 @@ export async function updateResumeMeta(userId: string, resumeId: string, patch: 
   if (patch.jdText !== undefined) set.jdText = stripNul(patch.jdText?.trim() || null);
   if (patch.templateId !== undefined) set.templateId = patch.templateId;
   if (patch.title !== undefined) set.title = stripNul(patch.title);
+  if (patch.includePhoto !== undefined) set.includePhoto = patch.includePhoto;
   const [row] = await prisma.companyResume.updateManyAndReturn({ where: { id: resumeId, userId }, data: set, include: RESUME_INCLUDE });
   return row ? toResumeMeta(row as ResumeRow) : null;
 }

@@ -1,13 +1,22 @@
 /**
  * 경험 그래프로 만드는 포트폴리오(portfolios.kind = 'graph')의 계약(클라이언트·서버 공용, 순수).
  *
- * - 시작 입력(StartGraphPortfolioSchema): 넣을 프로젝트(그래프 Project 노드 id), 강조할 공고(선택), 이름·메모(선택), 다시 만들 포트폴리오 id(선택).
- * - AI 출력(GraphPortfolioOutputSchema, task 'portfolio-draft'): 프로젝트마다 개요·역할·기술·문제·해결(STAR)·성과. 링크는 AI가 쓰지 않는다 —
+ * - 시작 입력(StartGraphPortfolioSchema): 넣을 프로젝트(그래프 Project 노드 id), 양식(templateId, 기본 'project-pdf'), 강조할 공고(선택),
+ *   이름·메모(선택), 다시 만들 포트폴리오 id(선택).
+ * - AI 출력(GraphPortfolioOutputSchema, task 'portfolio-draft'): 양식(portfolio-templates.ts)의 구역 key로 채운 sections 배열
+ *   (최상위 + 프로젝트마다). 한 스키마로 모든 양식을 받고, 구역 제목·순서는 서버가 양식으로 붙인다. 링크는 AI가 쓰지 않는다 —
  *   서버가 그래프(Project.url)와 연결한 공개 GitHub 저장소 주소로 붙인다(지어낸 주소가 들어가지 않게).
- * - graphPortfolioToMarkdown: 출력 → 저장할 Markdown 본문. 면접 질문·진단은 이 본문을 파일 텍스트처럼 읽는다.
+ * - graphPortfolioToMarkdown: 출력 → 저장할 Markdown 본문(양식의 구역 순서). 면접 질문·진단은 이 본문을 파일 텍스트처럼 읽는다.
  * - 진행 작업 화면 타입(GraphPortfolioJobView)과 단계 표시.
  */
 import { z } from "zod";
+import {
+  DEFAULT_PORTFOLIO_TEMPLATE_ID,
+  getPortfolioTemplate,
+  type PortfolioTemplateId,
+  PortfolioTemplateIdSchema,
+  type PortfolioTemplateSection,
+} from "./portfolio-templates";
 import { PortfolioTitleSchema } from "./portfolios";
 
 /** 한 번에 넣을 수 있는 프로젝트 수. */
@@ -31,6 +40,8 @@ export const StartGraphPortfolioSchema = z.object({
     .trim()
     .max(MAX_GRAPH_PORTFOLIO_NOTES_CHARS, `메모는 ${MAX_GRAPH_PORTFOLIO_NOTES_CHARS.toLocaleString("ko-KR")}자 이내로 입력해 주세요.`)
     .optional(),
+  /** 포트폴리오 양식(portfolio-templates.ts). 없으면 기본 양식. 모르는 id는 400. */
+  templateId: PortfolioTemplateIdSchema.default(DEFAULT_PORTFOLIO_TEMPLATE_ID),
   provider: z.string().trim().max(40).nullable().optional(),
   /** 다시 만들기: 이 포트폴리오(kind 'graph')의 본문을 바꾼다. */
   portfolioId: id().nullable().optional(),
@@ -46,10 +57,12 @@ export const GraphPortfolioSourceSchema = z.object({
   generatedAt: z.number().catch(0),
   /** 저장한 본문에 남은 [ADD: …] 자리 수(본문을 저장할 때마다 서버가 다시 센다). 없으면(옛 행) null. */
   addMarkers: z.number().int().min(0).nullable().catch(null),
+  /** 만든 양식. 양식이 생기기 전 행·모르는 값은 null(화면은 기본 양식으로 다시 만들기를 제안한다). */
+  templateId: PortfolioTemplateIdSchema.nullable().catch(null),
 });
 export type GraphPortfolioSource = z.infer<typeof GraphPortfolioSourceSchema>;
 /** 생성 정보 입력(addMarkers는 저장할 때 본문에서 센다). */
-export type GraphPortfolioSourceInput = Omit<GraphPortfolioSource, "addMarkers">;
+export type GraphPortfolioSourceInput = Omit<GraphPortfolioSource, "addMarkers" | "templateId"> & { templateId?: PortfolioTemplateId | null };
 
 /** 본문에 남은 [ADD: …] 자리 수. */
 export function countPortfolioAddMarkers(text: string): number {
@@ -74,30 +87,37 @@ export function parseGraphPortfolioSource(raw: unknown): GraphPortfolioSource | 
 
 const text = (d: string) => z.string().describe(d);
 
+/** 구역 수 상한(최상위·프로젝트마다). 양식의 구역 수보다 넉넉하게. */
+export const MAX_PORTFOLIO_TOP_SECTIONS = 10;
+export const MAX_PORTFOLIO_PROJECT_SECTIONS = 14;
+export const MAX_PORTFOLIO_SECTION_BULLETS = 10;
+
+/**
+ * 양식의 구역 하나(kind 'text'). 한 스키마로 모든 양식을 받는다 — 어떤 key를 어떤 순서로 쓸지는 프롬프트의 양식 지침이 정하고,
+ * 제목·순서는 서버가 양식(portfolio-templates.ts)으로 붙인다(모르는 key는 버린다).
+ */
+export const GraphPortfolioSectionSchema = z.object({
+  key: text("양식의 구역 key(지침에 적힌 영문 key 그대로)"),
+  body: text("문단(없으면 빈 문자열)"),
+  bullets: z.array(z.string()).max(MAX_PORTFOLIO_SECTION_BULLETS).describe("목록 항목 한 줄씩(없으면 빈 배열)"),
+});
+export type GraphPortfolioSection = z.infer<typeof GraphPortfolioSectionSchema>;
+
 export const GraphPortfolioProjectSchema = z.object({
   projectId: text("자료의 프로젝트 id([p1] 같은 대괄호 안 값) 그대로"),
   name: text("프로젝트 이름(자료 그대로)"),
   oneLiner: text("한 줄 소개(무엇을 왜 만들었는지)"),
-  overview: text("개요 2~4문장: 배경·목표·대상"),
   period: text("기간 'YYYY.MM ~ YYYY.MM'(자료에 없으면 빈 문자열)"),
   affiliation: text("소속(회사·팀·동아리 등, 자료에 없으면 빈 문자열)"),
-  role: text("내 역할·책임 범위(팀 규모가 자료에 있으면 함께)"),
   techStack: z.array(z.string()).max(20).describe("사용 기술 이름(자료에 있는 것만)"),
-  star: z.object({
-    situation: text("상황·문제"),
-    task: text("목표·과제"),
-    action: z.array(z.string()).max(8).describe("내가 한 일(한 항목 한 문장, 방법과 선택 이유)"),
-    result: text("결과 요약"),
-  }),
-  outcomes: z.array(z.string()).max(8).describe("성과 한 줄씩. 수치는 자료에 있는 값만 그대로"),
-  learned: text("배운 점(자료에 없으면 빈 문자열)"),
+  sections: z.array(GraphPortfolioSectionSchema).max(MAX_PORTFOLIO_PROJECT_SECTIONS).describe("양식의 프로젝트 구역(지침 순서대로)"),
 });
 export type GraphPortfolioProject = z.infer<typeof GraphPortfolioProjectSchema>;
 
 export const GraphPortfolioOutputSchema = z.object({
   headline: text("포트폴리오 첫머리 한 줄(어떤 문제를 어떻게 푸는 사람인지)"),
-  intro: text("소개 2~3문장(자료에 있는 사실로만)"),
   coreSkills: z.array(z.string()).max(15).describe("대표 기술(자료에 있는 것만)"),
+  sections: z.array(GraphPortfolioSectionSchema).max(MAX_PORTFOLIO_TOP_SECTIONS).describe("양식의 최상위 구역(프로젝트 앞·뒤, 지침 순서대로)"),
   projects: z.array(GraphPortfolioProjectSchema).max(MAX_GRAPH_PORTFOLIO_PROJECTS),
   notes: z.array(z.string()).max(10).describe("작성하며 내린 판단(무엇을 강조·생략했는지)"),
   missingInfo: z.array(z.string()).max(20).describe("사용자가 채우면 좋은 정보(질문 형태). 본문에는 [ADD: ...]로 남긴다"),
@@ -112,45 +132,110 @@ export interface GraphPortfolioLink {
 
 const clean = (s: string | undefined | null) => (s ?? "").replace(/\s+/g, " ").trim();
 const listItem = (s: string) => `- ${clean(s)}`;
+const linkItem = (l: GraphPortfolioLink) => listItem(`[${l.label.replace(/[[\]]/g, "")}](${l.url})`);
+
+const normKey = (k: string) => k.replace(/[^a-z0-9_-]/gi, "").toLowerCase();
+
+/** sections → key별 첫 구역(모르는 key도 담는다 — 그릴 때 양식 key만 꺼낸다). */
+export function sectionsByKey(sections: readonly GraphPortfolioSection[]): Map<string, GraphPortfolioSection> {
+  const map = new Map<string, GraphPortfolioSection>();
+  for (const s of sections) {
+    const k = normKey(s.key);
+    if (k && !map.has(k)) map.set(k, s);
+  }
+  return map;
+}
+
+interface SectionContext {
+  content: GraphPortfolioSection | undefined;
+  skills: readonly string[];
+  links: readonly GraphPortfolioLink[];
+  /** 연락처 구역(kind 'contact')에 붙이는 사용자 본인의 주소(연결한 GitHub 프로필). 프로젝트 링크는 넣지 않는다. */
+  contact: readonly GraphPortfolioLink[];
+  toc: readonly string[];
+  /** 기술을 `코드` 칩으로(프로젝트) 또는 ' · '로(최상위). */
+  chips: boolean;
+}
+
+/** 구역 하나의 Markdown 줄(제목 포함). 비어서 쓰지 않으면 빈 배열. 필수 구역이 비면 [ADD: … 보완 필요]. */
+function sectionLines(sec: PortfolioTemplateSection, level: 2 | 3, ctx: SectionContext): string[] {
+  const head = `${"#".repeat(level)} ${sec.heading}`;
+  const missing = sec.optional ? [] : ["", head, "", `[ADD: ${sec.heading} 보완 필요]`];
+  switch (sec.kind) {
+    case "skills": {
+      const names = ctx.skills.map(clean).filter(Boolean);
+      if (!names.length) return [];
+      return ["", head, "", ctx.chips ? names.map((n) => `\`${n.replace(/`/g, "")}\``).join(" ") : names.join(" · ")];
+    }
+    case "links":
+      return ctx.links.length ? ["", head, "", ...ctx.links.map(linkItem)] : missing;
+    case "contact": {
+      const hasGithub = ctx.contact.some((l) => /^https:\/\/github\.com\//.test(l.url));
+      return ["", head, "", ...ctx.contact.map(linkItem), hasGithub ? "- [ADD: 이메일·블로그 주소]" : "- [ADD: 이메일·GitHub·블로그 주소]"];
+    }
+    case "toc": {
+      const names = ctx.toc.map(clean).filter(Boolean);
+      return names.length ? ["", head, "", ...names.map((n, i) => `${i + 1}. ${n}`)] : [];
+    }
+    case "text": {
+      const body = clean(ctx.content?.body);
+      const bullets = (ctx.content?.bullets ?? []).map(clean).filter(Boolean);
+      if (!body && !bullets.length) return missing;
+      return ["", head, ...(body ? ["", body] : []), ...(bullets.length ? ["", ...bullets.map(listItem)] : [])];
+    }
+  }
+}
 
 /**
- * AI 출력 → 저장할 Markdown. 링크는 links(프로젝트 id → 그래프의 주소)로만 붙인다. 빈 칸은 쓰지 않는다
- * (필요한데 빈 칸은 AI가 [ADD: ...]로 남긴다).
+ * AI 출력 → 저장할 Markdown. 고른 양식(templateId, 없으면 기본 양식)의 구역 순서·제목대로 그린다:
+ * 제목 → 이름 → 한 줄 소개 → 앞 구역 → 프로젝트(양식의 프로젝트 구역) → 뒤 구역.
+ * 링크는 links(프로젝트 id → 그래프의 주소)로만 붙인다. 연락처 구역은 contactLinks(본인 GitHub 프로필)만 붙이고 나머지는 [ADD]. 선택 구역이 비면 쓰지 않고, 필수 구역이 비면 [ADD: … 보완 필요]를 남긴다.
  */
 export function graphPortfolioToMarkdown(
   out: GraphPortfolioOutput,
-  opts: { title: string; personName?: string | null; links?: ReadonlyMap<string, readonly GraphPortfolioLink[]> },
+  opts: {
+    title: string;
+    personName?: string | null;
+    links?: ReadonlyMap<string, readonly GraphPortfolioLink[]>;
+    /** 연락처 구역용 사용자 본인 주소(연결한 GitHub 프로필). */
+    contactLinks?: readonly GraphPortfolioLink[];
+    templateId?: string | null;
+  },
 ): string {
+  const tpl = getPortfolioTemplate(opts.templateId);
   const lines: string[] = [`# ${clean(opts.title) || "포트폴리오"}`];
   if (opts.personName?.trim()) lines.push("", `**${clean(opts.personName)}**`);
   if (clean(out.headline)) lines.push("", `> ${clean(out.headline)}`);
-  if (clean(out.intro)) lines.push("", clean(out.intro));
-  const skills = out.coreSkills.map(clean).filter(Boolean);
-  if (skills.length) lines.push("", `**핵심 기술** · ${skills.join(" · ")}`);
+
+  const names = out.projects.map((p) => clean(p.name) || "프로젝트");
+  const allLinks = out.projects.flatMap((p, i) => (opts.links?.get(p.projectId) ?? []).map((l) => ({ label: `${names[i]} · ${l.label}`, url: l.url })));
+  const top = sectionsByKey(out.sections);
+  const contact = opts.contactLinks ?? [];
+  const topCtx = (sec: PortfolioTemplateSection): SectionContext => ({
+    content: top.get(sec.key),
+    skills: out.coreSkills,
+    links: allLinks,
+    contact,
+    toc: names,
+    chips: false,
+  });
+
+  for (const sec of tpl.before) lines.push(...sectionLines(sec, 2, topCtx(sec)));
 
   out.projects.forEach((p, i) => {
-    lines.push("", "---", "", `## ${i + 1}. ${clean(p.name) || "프로젝트"}`);
+    const label = tpl.projectLabel ? `${tpl.projectLabel} ` : "";
+    lines.push("", "---", "", `## ${label}${i + 1}. ${names[i]}`);
     if (clean(p.oneLiner)) lines.push("", `**${clean(p.oneLiner)}**`);
     const meta = [clean(p.period), clean(p.affiliation)].filter(Boolean);
     if (meta.length) lines.push("", meta.join(" · "));
-    if (clean(p.overview)) lines.push("", "### 개요", "", clean(p.overview));
-    if (clean(p.role)) lines.push("", "### 역할", "", clean(p.role));
-    const tech = p.techStack.map(clean).filter(Boolean);
-    if (tech.length) lines.push("", "### 기술 스택", "", tech.map((t) => `\`${t.replace(/`/g, "")}\``).join(" "));
-    const star: string[] = [];
-    if (clean(p.star.situation)) star.push(listItem(`**상황(S)** ${p.star.situation}`));
-    if (clean(p.star.task)) star.push(listItem(`**과제(T)** ${p.star.task}`));
-    const actions = p.star.action.map(clean).filter(Boolean);
-    if (actions.length === 1) star.push(listItem(`**행동(A)** ${actions[0]}`));
-    else if (actions.length > 1) star.push(listItem("**행동(A)**"), ...actions.map((a) => `  - ${a}`));
-    if (clean(p.star.result)) star.push(listItem(`**결과(R)** ${p.star.result}`));
-    if (star.length) lines.push("", "### 문제·해결", "", ...star);
-    const outcomes = p.outcomes.map(clean).filter(Boolean);
-    if (outcomes.length) lines.push("", "### 성과", "", ...outcomes.map(listItem));
-    if (clean(p.learned)) lines.push("", "### 배운 점", "", clean(p.learned));
-    const links = opts.links?.get(p.projectId) ?? [];
-    if (links.length) lines.push("", "### 링크", "", ...links.map((l) => listItem(`[${l.label.replace(/[[\]]/g, "")}](${l.url})`)));
+    const own = sectionsByKey(p.sections);
+    for (const sec of tpl.project) {
+      lines.push(...sectionLines(sec, 3, { content: own.get(sec.key), skills: p.techStack, links: opts.links?.get(p.projectId) ?? [], contact, toc: [], chips: true }));
+    }
   });
+
+  const after = tpl.after.flatMap((sec) => sectionLines(sec, 2, topCtx(sec)));
+  if (after.length) lines.push("", "---", ...after);
   return lines.join("\n").trim() + "\n";
 }
 

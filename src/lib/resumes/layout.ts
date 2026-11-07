@@ -200,3 +200,6 @@ export function resumeToText(doc: ResumeDocument, templateId: ResumeTemplateId):
   }
   return out.join("\n").trim();
 }
+
+/** 이력서 머리글 사진 크기(pt, 3:4). 웹 미리보기(ResumePreview)와 PDF(pdf.tsx)가 같은 값을 쓴다. */
+export const RESUME_PHOTO_PT = { width: 66, height: 88 } as const;

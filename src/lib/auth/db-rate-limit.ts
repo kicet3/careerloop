@@ -35,6 +35,8 @@ export const INTERVIEW_FEEDBACK_DAILY_LIMIT: DbRateLimit = { bucket: "interview-
  * 링크 첨부·이름 고치기·삭제는 세지 않는다. 버킷 이름은 예전 이력서 첨부 업로드와 같다(이어서 센다).
  */
 export const PORTFOLIO_UPLOAD_LIMIT: DbRateLimit = { bucket: "resume-portfolio", limit: 30, windowMs: 24 * 60 * 60_000 };
+/** 프로필 사진 올리기·바꾸기(사용자당 24시간). 사진마다 서버에서 다시 인코딩하므로 넉넉하지만 끝은 둔다. */
+export const PROFILE_PHOTO_LIMIT: DbRateLimit = { bucket: "profile-photo", limit: 20, windowMs: 24 * 60 * 60_000 };
 /** 공고 원문 캡처 '다시 시도': 사용자당 24시간 10회(헤드리스 브라우저 1회가 무겁다). */
 export const POSTING_CAPTURE_RETRY_LIMIT: DbRateLimit = { bucket: "posting-capture-retry", limit: 10, windowMs: 24 * 60 * 60_000 };
 /** 공고 원문 캡처: 공용 공고(key=sharedPostingId)당 1시간 3회(여러 사용자가 같은 공고를 연달아 다시 찍지 않게). 자동 캡처도 센다. */
@@ -80,4 +82,21 @@ export async function hitDbLimit(
   });
   if (!oldest) return { ok: true, retryAfterSec: 0 };
   return { ok: false, retryAfterSec: Math.max(1, Math.ceil((oldest.getTime() + rule.windowMs - now) / 1000)) };
+}
+
+/**
+ * 한 번만 쓰는 표(같은 bucket·key는 windowMs 안에 한 번만 true). 레이트 리밋과 같은 rate_events 표·advisory lock을 쓴다.
+ * 키마다 새 행이 생기므로 같은 bucket의 창이 지난 행을 함께 지운다(bucket 접두 인덱스).
+ * 예: R2 직접 업로드의 uploadId 하나를 두 번 마무리하지 못하게(서명 주소는 유효 시간 동안 다시 쓸 수 있다).
+ */
+export async function consumeOnceDb(bucket: string, key: string, windowMs: number, now: number = Date.now()): Promise<boolean> {
+  const since = new Date(now - windowMs);
+  return prisma.$transaction(async (tx) => {
+    await tx.$executeRaw`SELECT pg_advisory_xact_lock(hashtextextended(${`once:${bucket}:${key}`}, 0))`;
+    await tx.rateEvent.deleteMany({ where: { bucket, createdAt: { lte: since } } });
+    const used = await tx.rateEvent.count({ where: { bucket, key, createdAt: { gt: since } } });
+    if (used > 0) return false;
+    await tx.rateEvent.create({ data: { bucket, key, createdAt: new Date(now) } });
+    return true;
+  });
 }

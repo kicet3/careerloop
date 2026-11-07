@@ -1,17 +1,25 @@
 import { featureErrorResponse } from "@/lib/api/errors";
 import { assertSameOrigin, requireApiUser } from "@/lib/auth/session";
 import { MAX_PORTFOLIO_CHARS as DIAGNOSIS_PORTFOLIO_CHARS } from "@/lib/diagnoses/form";
-import type { PortfolioInfo } from "@/lib/domain/portfolios";
-import { isMultipart, PORTFOLIO_PREVIEW_CHARS, portfolioNotFound, readPortfolioUpload, truncatedWarning } from "@/lib/portfolios/http";
+import { CreatePortfolioFromUploadSchema, type PortfolioInfo } from "@/lib/domain/portfolios";
+import {
+  isMultipart,
+  PORTFOLIO_PREVIEW_CHARS,
+  portfolioNotFound,
+  readPortfolioUpload,
+  readStagedPortfolioUpload,
+  truncatedWarning,
+  type PortfolioUpload,
+} from "@/lib/portfolios/http";
 import { createPortfolioFromFile, createPortfolioFromUrl } from "@/lib/portfolios/service";
-import { readJsonInput, resumeNotFound } from "@/lib/resumes/http";
+import { parseJsonInput, readJsonBody, resumeNotFound } from "@/lib/resumes/http";
 import { attachPortfolio, detachPortfolio, getResumePortfolioText } from "@/lib/resumes/portfolio";
 import { getResumeMeta } from "@/lib/resumes/service";
 import { ResumePortfolioAttachSchema } from "@/lib/resumes/types";
 
 export const runtime = "nodejs";
-// PDF·HWP 추출이 길어질 수 있다(extract.ts PDF_TIME_BUDGET_MS 15초).
-export const maxDuration = 60;
+// PDF·HWP 추출이 길어질 수 있다(extract.ts PDF_TIME_BUDGET_MS 15초). R2에 바로 올린 큰 파일(최대 30MB)을 읽고 옮기는 시간까지.
+export const maxDuration = 120;
 
 type Ctx = { params: Promise<{ id: string }> };
 
@@ -46,8 +54,9 @@ export async function GET(req: Request, { params }: Ctx) {
  * 포트폴리오 붙이기·바꾸기(이력서당 하나 — 있던 첨부는 대체되고, 보관함의 이전 포트폴리오는 그대로 남는다).
  * - application/json { portfolioId }: 내 보관함의 포트폴리오를 붙인다(남의 것·없는 것은 404). → { resume }
  * - application/json { url, title?, description? }: 링크로 보관함에 새 포트폴리오를 만들어 붙인다. → { resume, portfolio }
- * - multipart/form-data: file(+ 선택 title·description). 보관함에 새로 올리고 붙인다. 업로드 레이트 리밋(PORTFOLIO_UPLOAD_LIMIT)을 센다.
+ * - multipart/form-data: file(+ 선택 title·description). 보관함에 새로 올리고(원본 보관) 붙인다. 업로드 레이트 리밋(PORTFOLIO_UPLOAD_LIMIT)을 센다.
  *   → { resume, portfolio, truncated, warnings }
+ * - application/json { uploadId, fileName, title?, description? }: R2에 바로 올린 큰 파일을 보관함에 넣고 붙인다. → 같은 꼴
  */
 export async function PUT(req: Request, { params }: Ctx) {
   const forbidden = assertSameOrigin(req);
@@ -61,8 +70,10 @@ export async function PUT(req: Request, { params }: Ctx) {
 
     let created: PortfolioInfo;
     let extra: { truncated?: boolean; warnings?: string[] } = {};
-    if (!isMultipart(req)) {
-      const input = await readJsonInput(req, ResumePortfolioAttachSchema, 16 * 1024);
+    const multipart = isMultipart(req);
+    const raw = multipart ? null : await readJsonBody(req, 16 * 1024);
+    if (!multipart && !(raw && typeof raw === "object" && "uploadId" in raw)) {
+      const input = parseJsonInput(ResumePortfolioAttachSchema, raw);
       if ("portfolioId" in input) {
         const r = await attachPortfolio(user.id, id, input.portfolioId);
         if (!r.ok) return r.reason === "resume_not_found" ? resumeNotFound() : portfolioNotFound();
@@ -70,7 +81,10 @@ export async function PUT(req: Request, { params }: Ctx) {
       }
       created = await createPortfolioFromUrl(user.id, input);
     } else {
-      const upload = await readPortfolioUpload(req, user.id);
+      const upload: PortfolioUpload | Response =
+        multipart
+          ? await readPortfolioUpload(req, user.id)
+          : await readStagedPortfolioUpload(user.id, parseJsonInput(CreatePortfolioFromUploadSchema, raw));
       if (upload instanceof Response) return upload;
       const saved = await createPortfolioFromFile(user.id, upload);
       created = saved.portfolio;
