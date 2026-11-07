@@ -188,6 +188,11 @@ function VersionMeta({ item }: { item: ResumeListItem }) {
           <span className="font-normal text-slate-500"> / {item.versionCount}개</span>
         </dd>
       </div>
+      {item.hasEditDraft && (
+        <div className="flex" title="새 버전으로 저장하지 않은 작업본이 있습니다. 열면 이어서 고칠 수 있습니다.">
+          <Badge tone="warning">임시 저장본 있음</Badge>
+        </div>
+      )}
       <div className="flex gap-1.5">
         <dt className="text-slate-500">최근 수정</dt>
         <dd className="text-slate-700">

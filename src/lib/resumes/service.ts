@@ -14,6 +14,7 @@ import { prisma, type Prisma, type Tx } from "@/lib/db/client";
 import { isUniqueViolation, stripNul } from "@/lib/db/errors";
 import type { CompanyResume, PortfolioRow, ResumeVersion } from "@/lib/db/types";
 import { portfolioKeysInUse, toPortfolioInfo } from "@/lib/portfolios/service";
+import { resumeIdsWithEditDraft } from "./edit-draft";
 import {
   DEFAULT_RESUME_APPLY_STATUS,
   GENERAL_RESUME_DEFAULT_TITLE,
@@ -146,10 +147,12 @@ export async function listResumes(
     : [];
   const countBy = new Map(stats.map((s) => [s.resumeId, s._count._all]));
   const noBy = new Map(currentNos.map((v) => [v.id, v.versionNo]));
+  const withDraft = await resumeIdsWithEditDraft(userId, rows.map((r) => r.id));
   return rows.map((r) => ({
     ...toResumeMeta(r),
     versionCount: countBy.get(r.id) ?? 0,
     currentVersionNo: r.currentVersionId ? (noBy.get(r.currentVersionId) ?? null) : null,
+    hasEditDraft: withDraft.has(r.id),
   }));
 }
 
@@ -258,6 +261,11 @@ export interface SaveVersionOptions {
   baseVersionId?: string | null;
   /** 이 저장으로 함께 바꿀 양식. 현재 버전 포인터를 옮기는 트랜잭션에서 같이 바꾼다(저장이 취소되면 양식도 그대로). */
   templateId?: ResumeTemplateId;
+  /**
+   * 저장이 현재 버전이 되면 임시 저장본(resume_edit_drafts)도 같은 트랜잭션에서 지운다. 편집 화면의 '저장(새 버전)'·복원만 켠다 —
+   * AI 다듬기 적용·AI 초안처럼 작업본과 상관없는 저장은 작업본을 남겨 두고, 화면이 기준 버전이 바뀐 것을 충돌로 알린다.
+   */
+  clearEditDraft?: boolean;
 }
 
 /**
@@ -341,6 +349,7 @@ export async function saveVersion(
       where: { id: resumeId, userId },
       data: { currentVersionId: reserved.id, updatedAt: new Date(), ...(opts.templateId ? { templateId: opts.templateId } : {}) },
     });
+    if (count > 0 && opts.clearEditDraft) await tx.resumeEditDraft.deleteMany({ where: { resumeId, userId } });
     return count > 0;
   });
   if (!moved && opts.baseVersionId !== undefined) {
@@ -480,11 +489,14 @@ export async function updateResumeMeta(userId: string, resumeId: string, patch: 
   return row ? toResumeMeta(row as ResumeRow) : null;
 }
 
-/** 고른 버전 본문을 새 버전으로 복사한다. 이력서·버전이 없으면 null. */
+/**
+ * 고른 버전 본문을 새 버전으로 복사한다. 이력서·버전이 없으면 null.
+ * 편집 화면은 작업본(임시 저장본)을 버린다고 확인받은 뒤 복원하므로 작업본도 함께 지운다.
+ */
 export async function restoreVersion(userId: string, resumeId: string, versionId: string): Promise<ResumeVersionMeta | null> {
   const found = await getVersionDocument(userId, resumeId, versionId);
   if (!found) return null;
-  return saveVersion(userId, resumeId, found.document, { source: "manual", note: `v${found.version.versionNo}에서 복원` });
+  return saveVersion(userId, resumeId, found.document, { source: "manual", note: `v${found.version.versionNo}에서 복원`, clearEditDraft: true });
 }
 
 /**

@@ -4,6 +4,7 @@ import "server-only";
  */
 import type { z } from "zod";
 import { FeatureError } from "@/lib/api/errors";
+import { createRateLimiter } from "@/lib/auth/rate-limit";
 import { BodyTooLargeError, readBodyLimited } from "@/lib/diagnoses/body";
 import { contentDisposition, jsonError } from "@/lib/diagnoses/http";
 import { RESUME_NOT_FOUND } from "./service";
@@ -12,6 +13,14 @@ import { RESUME_NOT_FOUND } from "./service";
 export const MAX_RESUME_BODY_BYTES = 512 * 1024;
 
 export const resumeNotFound = () => jsonError(RESUME_NOT_FOUND, 404);
+
+const globalForResumes = globalThis as unknown as { __resumeDraftWriteLimiter?: ReturnType<typeof createRateLimiter> };
+
+/**
+ * 임시 저장 쓰기(PUT·DELETE /api/resumes/[id]/draft): 사용자당 분당 120회. 편집 화면은 입력이 멈추고 약 3초 뒤에 한 번 저장하므로
+ * 보통 분당 20회 안쪽이다(여러 탭·화면 이탈 저장 여유분 포함). 인스턴스마다 따로 세는 느슨한 방어.
+ */
+export const resumeDraftWriteLimiter = (globalForResumes.__resumeDraftWriteLimiter ??= createRateLimiter({ limit: 120, windowMs: 60_000 }));
 
 /** 크기 제한을 지키며 JSON을 읽고 스키마로 검증한다. 실패하면 FeatureError(400·413). */
 export async function readJsonInput<T>(req: Request, schema: z.ZodType<T>, maxBytes = MAX_RESUME_BODY_BYTES): Promise<T> {

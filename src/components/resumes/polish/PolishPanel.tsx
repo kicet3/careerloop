@@ -236,13 +236,17 @@ export function PolishPanel({
               size="sm"
               loading={applying}
               disabled={dirty || applying}
-              title={dirty ? "저장하지 않은 변경이 있어요. 먼저 저장해 주세요." : undefined}
+              title={dirty ? "새 버전으로 저장하지 않은 변경이 있어요. 먼저 저장(새 버전)해 주세요." : undefined}
               onClick={() => void apply(preview!.messageId, preview!.index)}
             >
               적용(새 버전 저장)
             </Button>
           </div>
-          {dirty && <p className="text-xs text-amber-700">저장하지 않은 변경이 있어 적용할 수 없어요. 먼저 ‘새 버전으로 저장’을 눌러 주세요.</p>}
+          {dirty && (
+            <p className="text-xs text-amber-700">
+              새 버전으로 저장하지 않은 변경(임시 저장본 포함)이 있어 적용할 수 없어요. 먼저 ‘저장(새 버전)’을 누르거나 임시 저장본을 버려 주세요.
+            </p>
+          )}
         </div>
       )}
 

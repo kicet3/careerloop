@@ -12,6 +12,7 @@ import { uploadLimitsFor } from "@/lib/ingest/upload-limits";
 import { getProfilePhotoUrl } from "@/lib/account/photo";
 import { portfolioUploadLimits } from "@/lib/portfolios/http";
 import { listPortfolios } from "@/lib/portfolios/service";
+import { getEditDraft } from "@/lib/resumes/edit-draft";
 import { getResumeDetail, getResumeMeta, getResumePostingLink, listVersions } from "@/lib/resumes/service";
 import { resumeToText } from "@/lib/resumes/layout";
 import { getAgentReportForResume } from "@/lib/resume-agent/jobs";
@@ -46,7 +47,13 @@ export default async function ResumePage({ params, searchParams }: Props) {
     loadError = err.message;
   }
   if (!detail) notFound();
-  const [portfolios, photoUrl, agent] = await Promise.all([listPortfolios(user.id), getProfilePhotoUrl(user.id), getAgentReportForResume(user.id, detail.resume.id)]);
+  const [portfolios, photoUrl, agent, editDraft] = await Promise.all([
+    listPortfolios(user.id),
+    getProfilePhotoUrl(user.id),
+    getAgentReportForResume(user.id, detail.resume.id),
+    // 임시 저장본(새 버전으로 저장하지 않은 작업본)이 있으면 편집 화면이 그 내용으로 연다.
+    getEditDraft(user.id, detail.resume.id),
+  ]);
   const r = detail.resume;
 
   return (
@@ -73,6 +80,7 @@ export default async function ResumePage({ params, searchParams }: Props) {
         portfolioUpload={portfolioUploadLimits().config}
         portfolios={portfolios.map(toPortfolioPickOption)}
         photoUrl={photoUrl}
+        initialDraft={editDraft?.draft ?? null}
       />
     </div>
   );

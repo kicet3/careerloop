@@ -21,7 +21,7 @@ export async function GET(_req: Request, { params }: Ctx) {
   }
 }
 
-/** 저장 = 새 버전. baseVersionId가 현재 버전과 다르면 409. templateId를 주면 이력서 양식도 함께 바꾼다. */
+/** 저장 = 새 버전. baseVersionId가 현재 버전과 다르면 409. templateId를 주면 이력서 양식도 함께 바꾼다. 저장되면 임시 저장본을 지운다. */
 export async function POST(req: Request, { params }: Ctx) {
   const forbidden = assertSameOrigin(req);
   if (forbidden) return forbidden;
@@ -35,6 +35,8 @@ export async function POST(req: Request, { params }: Ctx) {
       note: input.note,
       baseVersionId: input.baseVersionId,
       templateId: input.templateId,
+      // 편집 화면의 '저장(새 버전)': 임시 저장본은 이 버전에 담겼으므로 지운다.
+      clearEditDraft: true,
     });
     if (!version) return resumeNotFound();
     return Response.json({ version }, { status: 201 });

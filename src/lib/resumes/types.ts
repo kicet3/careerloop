@@ -121,6 +121,46 @@ export const SaveResumeVersionSchema = z.object({
 export type SaveResumeVersion = z.infer<typeof SaveResumeVersionSchema>;
 
 /**
+ * PUT /api/resumes/[id]/draft — 임시 저장(새 버전을 만들지 않는 작업본, 이력서당 하나). 본문 검증·크기 한도는 버전 저장과 같다.
+ * baseVersionId는 작업을 시작한 버전(현재 버전과 달라도 받는다 — 응답의 currentVersionId로 화면이 충돌을 알린다).
+ */
+export const SaveResumeEditDraftSchema = z.object({
+  document: StoredResumeDocumentSchema,
+  baseVersionId: z.string().min(1).max(64).nullable(),
+  /** 편집 화면에서 고른 양식(저장 전). 생략·null이면 이력서 양식 그대로. */
+  templateId: ResumeTemplateIdSchema.nullable().optional(),
+  /**
+   * 이 화면이 마지막으로 본·쓴 작업본의 updatedAt(ms, 작업본이 없었으면 null). 서버의 작업본이 그 뒤에 다른 탭·기기에서 바뀌었으면
+   * 409(code 'draft_changed')로 거절해 말없이 덮어쓰지 않는다. 작업본이 없어졌으면(다른 곳에서 새 버전 저장·버리기) 새로 만든다.
+   * 생략하면 확인하지 않는다(예전 화면 호환).
+   */
+  expectedUpdatedAt: z.number().int().nonnegative().nullable().optional(),
+});
+export type SaveResumeEditDraft = z.infer<typeof SaveResumeEditDraftSchema>;
+
+/** 임시 저장본(소유자에게만 보인다). 미리보기 공유·PDF는 저장된 버전만 쓴다. */
+export interface ResumeEditDraftView {
+  baseVersionId: string | null;
+  templateId: ResumeTemplateId | null;
+  document: ResumeDocument;
+  updatedAt: number;
+}
+
+/** PUT /api/resumes/[id]/draft 409: 다른 탭·기기가 그 사이 작업본을 바꿨다(draftUpdatedAt = 서버 작업본의 저장 시각). */
+export const RESUME_EDIT_DRAFT_CHANGED = "draft_changed";
+export interface ResumeEditDraftClash {
+  error: string;
+  code: typeof RESUME_EDIT_DRAFT_CHANGED;
+  draftUpdatedAt: number;
+}
+
+/** GET·PUT /api/resumes/[id]/draft 응답. currentVersionId가 draft.baseVersionId와 다르면 그 사이 새 버전이 저장된 것(충돌). */
+export interface ResumeEditDraftResponse {
+  draft: ResumeEditDraftView | null;
+  currentVersionId: string | null;
+}
+
+/**
  * PATCH /api/resumes/[id]/status — 지원 상태 바꾸기(지원처별 이력서만, 공용은 400).
  * - 'submitted'로: 연결 공고가 있으면 공고를 '지원함'으로, 지원 기록을 만들거나(그 공고·이 이력서의 기존 기록이 있으면 잇는다)
  *   현재 버전 본문을 제출 사본으로 고정한다. 연결 공고가 없으면 상태만 바꾼다(지원 기록은 만들지 않는다).
@@ -202,6 +242,8 @@ export interface ChangeResumeStatusResult {
 export interface ResumeListItem extends ResumeMeta {
   versionCount: number;
   currentVersionNo: number | null;
+  /** 임시 저장본(새 버전으로 저장하지 않은 작업본)이 있는가. 목록의 '임시 저장본 있음' 배지. */
+  hasEditDraft: boolean;
 }
 
 export interface ResumeVersionMeta {

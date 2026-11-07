@@ -2,7 +2,7 @@
 
 import Link from "next/link";
 import { useRouter } from "next/navigation";
-import { useCallback, useEffect, useState } from "react";
+import { useCallback, useEffect, useRef, useState } from "react";
 import { formatDateTime } from "@/components/app/stages";
 import { SegmentedTabs } from "@/components/app/Tabs";
 import { Alert } from "@/components/ui/Alert";
@@ -20,12 +20,26 @@ import { SourceLink } from "@/components/postings/SourceLink";
 import { portfolioHasText, type PortfolioPickOption, type PortfolioUploadConfig } from "@/lib/domain/portfolios";
 import { POSTING_STATUS_LABELS } from "@/lib/domain/postings";
 import { SELF_HOSTED_UPLOAD_LIMITS, VERCEL_UPLOAD_LIMITS, type UploadLimits } from "@/lib/ingest/upload-limits";
+import {
+  createDraftAutosaver,
+  draftStatusText,
+  EDIT_DRAFT_KEEPALIVE_MAX_BYTES,
+  formatDraftClock,
+  shouldWarnBeforeLeave,
+  utf8ByteLength,
+  type AutosaveStatus,
+} from "@/lib/resumes/edit-draft-autosave";
 import { countAddMarkers, resumeToText } from "@/lib/resumes/layout";
 import { saveDiagnosisPrefill, takeDraftNotes, type DiagnosisPrefill, type DraftNotes } from "@/lib/resumes/prefill";
 import {
   MAX_RESUME_JD_CHARS,
   MAX_RESUME_META_CHARS,
   type ChangeResumeStatusResult,
+  type ResumeDetail,
+  RESUME_EDIT_DRAFT_CHANGED,
+  type ResumeEditDraftClash,
+  type ResumeEditDraftResponse,
+  type ResumeEditDraftView,
   type ResumeMeta,
   type ResumePostingLink,
   type ResumeVersionMeta,
@@ -45,9 +59,13 @@ import { type PolishApplied, PolishPanel } from "./polish/PolishPanel";
 type Pane = "edit" | "preview";
 /** 성과 중심 양식의 편집 방식: 시트 위에서 바로 / 구조화 입력 폼. */
 type PerfPane = "sheet" | "form";
-type Busy = "save" | "meta" | "delete" | "restore" | "view" | null;
+type Busy = "save" | "meta" | "delete" | "restore" | "view" | "discard" | null;
 
-const LEAVE_CONFIRM = "저장하지 않은 변경이 있습니다. 저장하지 않고 이 화면을 떠날까요? (변경 내용은 사라집니다)";
+const LEAVE_CONFIRM = "임시 저장에 실패한 변경이 있습니다. 이대로 이 화면을 떠날까요? (마지막 임시 저장 뒤의 변경은 사라질 수 있습니다)";
+const DISCARD_CONFIRM = "임시 저장본과 새 버전으로 저장하지 않은 변경을 모두 버리고, 마지막으로 저장한 버전을 불러올까요? 되돌릴 수 없습니다.";
+
+/** 임시 저장에 보낼 지금 화면 상태. baseVersionId는 작업본이 바탕으로 한 버전(충돌을 정하기 전에는 작업본의 원래 기준). */
+type DraftSnapshot = { document: ResumeDocument; templateId: ResumeTemplateId; baseVersionId: string | null };
 
 async function readError(res: Response, fallback: string): Promise<string> {
   const data = (await res.json().catch(() => null)) as { error?: string } | null;
@@ -65,6 +83,7 @@ export function ResumeEditor({
   portfolioUpload,
   portfolios = [],
   photoUrl = null,
+  initialDraft = null,
 }: {
   resume: ResumeMeta;
   versions: ResumeVersionMeta[];
@@ -80,17 +99,38 @@ export function ResumeEditor({
   portfolios?: PortfolioPickOption[];
   /** 내 프로필 사진 주소(소유자만 읽는 /api/account/photo). 없으면 null — '사진 넣기'를 끄고 안내만 보인다. */
   photoUrl?: string | null;
+  /** 이 이력서의 임시 저장본(새 버전으로 저장하지 않은 작업본). 있으면 그 내용으로 연다. */
+  initialDraft?: ResumeEditDraftView | null;
 }) {
   const router = useRouter();
   // meta.templateId는 화면에서 고른 양식(저장 전일 수 있음), savedTemplateId는 서버에 저장된 양식.
-  const [meta, setMeta] = useState(initialResume);
+  // 임시 저장본이 있으면 그 내용(양식 선택 포함)으로 연다. 저장된 버전과 다르다고 보고 '새 버전 저장 전'으로 표시한다.
+  const [meta, setMeta] = useState(() => (initialDraft?.templateId ? { ...initialResume, templateId: initialDraft.templateId } : initialResume));
   const [savedTemplateId, setSavedTemplateId] = useState<ResumeTemplateId>(initialResume.templateId);
   const [versions, setVersions] = useState(initialVersions);
   const [posting, setPosting] = useState(initialPosting);
-  const [doc, setDoc] = useState(initialDocument);
+  const [doc, setDoc] = useState(initialDraft?.document ?? initialDocument);
   const [baseVersionId, setBaseVersionId] = useState(currentVersionId);
-  // 문서 변경 여부. 양식 변경은 저장된 양식과 비교해 따로 셈한다(원래 양식으로 되돌리면 깨끗해진다).
-  const [docDirty, setDirty] = useState(false);
+  // 문서 변경 여부(마지막으로 저장한 버전 대비). 양식 변경은 저장된 양식과 비교해 따로 셈한다(원래 양식으로 되돌리면 깨끗해진다).
+  const [docDirty, setDirty] = useState(initialDraft !== null);
+  // 임시 저장: 서버에 있는 작업본의 저장 시각, 연 직후 '불러왔습니다' 알림, 작업본의 기준 버전이 현재 버전이 아닐 때의 충돌.
+  const [draftSavedAt, setDraftSavedAt] = useState<number | null>(initialDraft?.updatedAt ?? null);
+  const initialConflict = initialDraft !== null && initialDraft.baseVersionId !== currentVersionId;
+  const [loadedDraftAt, setLoadedDraftAt] = useState<number | null>(initialDraft && !initialConflict ? initialDraft.updatedAt : null);
+  const [conflict, setConflict] = useState<{ draftBaseVersionId: string | null; latestVersionId: string | null } | null>(
+    initialConflict ? { draftBaseVersionId: initialDraft.baseVersionId, latestVersionId: currentVersionId } : null,
+  );
+  const [autosave, setAutosave] = useState<AutosaveStatus>({ pending: false, saving: false, failed: false });
+  // 다른 탭·기기가 그 사이 작업본을 바꿔 임시 저장이 거절됐다(409 draft_changed): 그쪽 저장 시각. 고르기 전에는 새 버전 저장도 막는다.
+  const [draftClashAt, setDraftClashAt] = useState<number | null>(null);
+  // 이 화면이 마지막으로 본·쓴 서버 작업본의 저장 시각(PUT expectedUpdatedAt). 저장 콜백이 읽으므로 ref로도 둔다.
+  const draftAtRef = useRef<number | null>(initialDraft?.updatedAt ?? null);
+  const markDraft = (at: number | null) => {
+    draftAtRef.current = at;
+    setDraftSavedAt(at);
+  };
+  // 다른 곳의 작업본을 불러오려고 새로고침할 때는 떠나기 확인을 건너뛴다.
+  const skipLeaveWarnRef = useRef(false);
   const dirty = docDirty || meta.templateId !== savedTemplateId;
   const [note, setNote] = useState("");
   const [pane, setPane] = useState<Pane>("edit");
@@ -121,6 +161,45 @@ export function ResumeEditor({
   const current = versions.find((v) => v.id === baseVersionId) ?? null;
   const addCount = countAddMarkers(doc);
 
+  // 자동 임시 저장(src/lib/resumes/edit-draft-autosave.ts): 입력이 멈추고 약 3초 뒤, '임시 저장' 버튼, 화면을 떠날 때(keepalive).
+  // 보낼 내용은 저장하는 순간의 화면 상태다 — 렌더 뒤에 갱신하는 ref로 읽는다.
+  const snapshotRef = useRef<DraftSnapshot>({ document: doc, templateId: meta.templateId, baseVersionId: conflict ? conflict.draftBaseVersionId : baseVersionId });
+  useEffect(() => {
+    snapshotRef.current = { document: doc, templateId: meta.templateId, baseVersionId: conflict ? conflict.draftBaseVersionId : baseVersionId };
+  });
+  const [autosaver] = useState(() =>
+    createDraftAutosaver<void>({
+      onStatus: setAutosave,
+      save: async (_unused, { keepalive }) => {
+        const snap = snapshotRef.current;
+        const body = JSON.stringify({ ...snap, expectedUpdatedAt: draftAtRef.current });
+        // keepalive 한도(64KiB, UTF-8 바이트)를 넘으면 브라우저가 요청을 거부한다: 그때는 보통 요청으로 보낸다(문서가 내려가면 끊길 수
+        // 있어 탭 닫기·새로고침은 beforeunload에서 경고한다).
+        const res = await fetch(`/api/resumes/${initialResume.id}/draft`, {
+          method: "PUT",
+          headers: { "Content-Type": "application/json" },
+          body,
+          keepalive: keepalive && utf8ByteLength(body) <= EDIT_DRAFT_KEEPALIVE_MAX_BYTES,
+        });
+        if (res.status === 409) {
+          const clash = (await res.json().catch(() => null)) as ResumeEditDraftClash | null;
+          if (clash?.code === RESUME_EDIT_DRAFT_CHANGED) setDraftClashAt(clash.draftUpdatedAt);
+          return false;
+        }
+        if (!res.ok) return false;
+        const data = (await res.json().catch(() => null)) as ResumeEditDraftResponse | null;
+        if (!data?.draft) return false;
+        markDraft(data.draft.updatedAt);
+        // 그사이 다른 곳(AI 다듬기 적용·다른 탭)에서 새 버전이 저장됐다: 덮어쓰지 않고 사용자에게 고르게 한다.
+        if (data.currentVersionId !== snap.baseVersionId) {
+          setConflict((c) => c ?? { draftBaseVersionId: snap.baseVersionId, latestVersionId: data.currentVersionId });
+          setLoadedDraftAt(null);
+        }
+        return true;
+      },
+    }),
+  );
+
   // 새로 만든 이력서의 AI 초안 메모(sessionStorage로 한 번만 넘어온다). 저장소는 마운트 뒤에만 읽을 수 있다.
   useEffect(() => {
     const n = takeDraftNotes(meta.id);
@@ -128,13 +207,28 @@ export function ResumeEditor({
     if (n) setDraftNotes(n);
   }, [meta.id]);
 
-  // 저장하지 않은 변경이 있으면 페이지를 떠날 때 확인한다.
+  // 화면을 떠날 때: 임시 저장하지 않은 변경은 keepalive 요청으로 저장한다. 마지막 임시 저장이 실패했을 때만 떠나기 전에 확인한다.
   useEffect(() => {
-    if (!dirty) return;
+    // unloading: 문서가 내려간다(탭 닫기·새로고침·다른 사이트) — 진행 중인 보통 요청도 끊기므로 keepalive로 다시 보낸다.
+    const flushOnLeave = (unloading = false) => {
+      if (skipLeaveWarnRef.current) return;
+      const s = autosaver.status();
+      if (s.pending || (unloading && s.saving)) void autosaver.flush({ keepalive: true, unloading });
+    };
+    const fitsKeepalive = () => utf8ByteLength(JSON.stringify(snapshotRef.current)) <= EDIT_DRAFT_KEEPALIVE_MAX_BYTES;
     const onBeforeUnload = (e: BeforeUnloadEvent) => {
-      e.preventDefault();
+      const s = autosaver.status();
+      if (skipLeaveWarnRef.current) return;
+      if (shouldWarnBeforeLeave(s, { fitsKeepalive: s.pending || s.saving ? fitsKeepalive() : true })) e.preventDefault();
+      else flushOnLeave(true);
+    };
+    const onPageHide = () => flushOnLeave(true);
+    const onVisibility = () => {
+      if (document.visibilityState === "hidden") flushOnLeave();
     };
     window.addEventListener("beforeunload", onBeforeUnload);
+    window.addEventListener("pagehide", onPageHide);
+    document.addEventListener("visibilitychange", onVisibility);
     // 앱 안 링크(next/link 사이드바 등)는 클라이언트 라우팅이라 beforeunload가 뜨지 않는다: 캡처 단계에서 먼저 가로채 확인한다.
     const onClick = (e: MouseEvent) => {
       if (e.defaultPrevented || e.button !== 0 || e.metaKey || e.ctrlKey || e.shiftKey || e.altKey) return;
@@ -143,28 +237,137 @@ export function ResumeEditor({
       const url = new URL(a.href, window.location.href);
       if (url.origin !== window.location.origin) return; // 다른 사이트는 문서를 내리므로 beforeunload가 맡는다
       if (url.pathname === window.location.pathname && url.search === window.location.search) return; // 같은 화면(해시 이동)
-      if (!window.confirm(LEAVE_CONFIRM)) {
+      if (shouldWarnBeforeLeave(autosaver.status()) && !window.confirm(LEAVE_CONFIRM)) {
         e.preventDefault();
         e.stopPropagation();
+        return;
       }
+      flushOnLeave();
     };
     document.addEventListener("click", onClick, true);
     return () => {
       window.removeEventListener("beforeunload", onBeforeUnload);
+      window.removeEventListener("pagehide", onPageHide);
+      document.removeEventListener("visibilitychange", onVisibility);
       document.removeEventListener("click", onClick, true);
+      // 화면을 닫을 때(다른 화면으로 이동) 남은 변경을 보낸다.
+      flushOnLeave();
+      autosaver.dispose();
     };
-  }, [dirty]);
+  }, [autosaver]);
 
   function edit(next: ResumeDocument) {
     setDoc(next);
     setDirty(true);
     setNotice(null);
+    autosaver.change();
+  }
+
+  /** 저장된 버전을 서버에서 다시 읽는다(충돌 정리·작업본 버리기). 실패하면 null. */
+  async function fetchCommitted(): Promise<ResumeDetail | null> {
+    try {
+      const res = await fetch(`/api/resumes/${meta.id}`, { cache: "no-store" });
+      return res.ok ? ((await res.json().catch(() => null)) as ResumeDetail | null) : null;
+    } catch {
+      return null;
+    }
+  }
+
+  /** '임시 저장 버리기': 작업본을 지우고 마지막으로 저장한 버전(서버의 현재 버전)을 불러온다. */
+  async function discardDraft() {
+    if (busy !== null || !window.confirm(DISCARD_CONFIRM)) return;
+    setError(null);
+    setNotice(null);
+    autosaver.cancel();
+    setBusy("discard");
+    try {
+      await autosaver.idle();
+      const res = await fetch(`/api/resumes/${meta.id}/draft`, { method: "DELETE" });
+      if (!res.ok && res.status !== 404) {
+        setError(await readError(res, "임시 저장본을 버리지 못했습니다."));
+        autosaver.change(); // 화면의 변경은 그대로 — 다시 임시 저장 대상으로
+        return;
+      }
+      markDraft(null);
+      setDraftClashAt(null);
+      setLoadedDraftAt(null);
+      setConflict(null);
+      const detail = await fetchCommitted();
+      if (!detail) {
+        setError("임시 저장본은 버렸지만 저장된 버전을 불러오지 못했습니다. 페이지를 새로고침해 주세요.");
+        return;
+      }
+      setVersions(detail.versions);
+      setBaseVersionId(detail.current?.versionId ?? detail.resume.currentVersionId);
+      setDoc(detail.current?.document ?? initialDocument);
+      setMeta((m) => ({ ...m, ...detail.resume }));
+      setSavedTemplateId(detail.resume.templateId);
+      setDirty(false);
+      setNotice(detail.current ? `임시 저장본을 버리고 v${detail.current.versionNo}을(를) 불러왔습니다.` : "임시 저장본을 버렸습니다.");
+    } catch {
+      setError("서버에 연결하지 못했습니다.");
+      autosaver.change();
+    } finally {
+      setBusy(null);
+    }
+  }
+
+  /** 충돌 '임시 저장본 유지': 최신 버전을 기준으로 삼는다 — 다음 '저장(새 버전)'은 최신 버전 위에 새 버전으로 저장된다. */
+  async function keepDraft() {
+    if (busy !== null) return;
+    setError(null);
+    setBusy("view");
+    try {
+      const detail = await fetchCommitted();
+      if (!detail) {
+        setError("최신 버전을 불러오지 못했습니다. 잠시 후 다시 시도해 주세요.");
+        return;
+      }
+      setVersions(detail.versions);
+      setBaseVersionId(detail.current?.versionId ?? detail.resume.currentVersionId);
+      setSavedTemplateId(detail.resume.templateId);
+      setMeta((m) => ({ ...m, ...detail.resume, templateId: m.templateId })); // 화면에서 고른 양식은 그대로
+      setConflict(null);
+      setLoadedDraftAt(null);
+      setDirty(true);
+      autosaver.change(); // 새 기준 버전으로 작업본을 다시 임시 저장
+      setNotice(
+        `임시 저장본을 유지합니다. ‘저장(새 버전)’을 누르면 ${detail.current ? `최신 버전(v${detail.current.versionNo})` : "최신 버전"} 위에 새 버전으로 저장됩니다.`,
+      );
+    } finally {
+      setBusy(null);
+    }
+  }
+
+  /** 작업본 충돌(다른 탭·기기) '이 화면 내용으로 덮어쓰기': 서버의 작업본 시각을 기준으로 삼아 지금 내용을 다시 임시 저장한다. */
+  function overwriteClashedDraft() {
+    if (draftClashAt === null) return;
+    draftAtRef.current = draftClashAt;
+    setDraftClashAt(null);
+    autosaver.change();
+    void autosaver.flush();
+  }
+
+  /** 작업본 충돌 '다른 곳의 임시 저장본 불러오기': 이 화면의 변경을 버리고 새로고침해 서버의 작업본으로 연다. */
+  function loadClashedDraft() {
+    if (!window.confirm("이 화면에서 고친 내용(임시 저장되지 않은 변경)을 버리고, 다른 탭·기기에서 임시 저장한 내용을 불러올까요?")) return;
+    skipLeaveWarnRef.current = true;
+    autosaver.cancel();
+    window.location.reload();
   }
 
   /** 새 버전으로 저장. 성공하면 그 버전, 실패하면 null. */
   async function save(): Promise<ResumeVersionMeta | null> {
     setError(null);
     setNotice(null);
+    if (conflict) {
+      setError("임시 저장본 이후에 새 버전이 저장됐습니다. 위 알림에서 임시 저장본을 유지할지 버릴지 먼저 골라 주세요.");
+      return null;
+    }
+    if (draftClashAt !== null) {
+      setError("다른 탭이나 기기에서 임시 저장본이 바뀌었습니다. 위 알림에서 어느 내용을 남길지 먼저 골라 주세요.");
+      return null;
+    }
     const parsed = ResumeDocumentSchema.safeParse(doc);
     if (!parsed.success) {
       setError("입력한 내용 중 너무 긴 항목이 있습니다. 길이를 줄여 주세요.");
@@ -172,7 +375,11 @@ export function ResumeEditor({
     }
     const templateId = meta.templateId;
     setBusy("save");
+    // 기다리던 임시 저장은 보내지 않고, 이미 보낸 것은 끝날 때까지 기다린다(새 버전 저장 뒤에 작업본이 되살아나지 않게).
+    autosaver.cancel();
+    let committed = false;
     try {
+      await autosaver.idle();
       // 양식은 버전 저장과 함께 이력서에 반영한다(저장이 충돌로 취소되면 양식도 그대로).
       const res = await fetch(`/api/resumes/${meta.id}/versions`, {
         method: "POST",
@@ -189,6 +396,10 @@ export function ResumeEditor({
         return null;
       }
       const { version } = (await res.json()) as { version: ResumeVersionMeta };
+      committed = true;
+      // 서버가 이 저장과 함께 임시 저장본을 지웠다.
+      markDraft(null);
+      setLoadedDraftAt(null);
       setVersions((vs) => [version, ...vs]);
       setBaseVersionId(version.id);
       setSavedTemplateId(templateId);
@@ -202,6 +413,8 @@ export function ResumeEditor({
       return null;
     } finally {
       setBusy(null);
+      // 저장하지 못했으면 화면의 변경을 다시 임시 저장 대상으로 둔다.
+      if (!committed) autosaver.change();
     }
   }
 
@@ -274,10 +487,14 @@ export function ResumeEditor({
 
   /** 양식 바꾸기: 미리보기·편집 화면은 바로 바뀌고, 저장하지 않은 변경으로 표시해 다음 버전 저장 때 함께 저장한다. */
   // 안정된 참조라 memo된 TemplatePicker가 글자 입력마다 다시 그려지지 않는다.
-  const changeTemplate = useCallback((id: ResumeTemplateId) => {
-    setMeta((m) => (m.templateId === id ? m : { ...m, templateId: id }));
-    setNotice(null);
-  }, []);
+  const changeTemplate = useCallback(
+    (id: ResumeTemplateId) => {
+      setMeta((m) => (m.templateId === id ? m : { ...m, templateId: id }));
+      setNotice(null);
+      autosaver.change(); // 양식 선택도 임시 저장한다
+    },
+    [autosaver],
+  );
 
   async function saveMeta(e: React.FormEvent) {
     e.preventDefault();
@@ -318,16 +535,26 @@ export function ResumeEditor({
   }
 
   async function restore(v: ResumeVersionMeta) {
-    if (dirty && !window.confirm("저장하지 않은 변경이 있습니다. 버리고 이 버전을 복원할까요?")) return;
+    if (dirty && !window.confirm("새 버전으로 저장하지 않은 변경(임시 저장본 포함)이 있습니다. 버리고 이 버전을 복원할까요?")) return;
     setError(null);
     setBusy("restore");
+    // 복원은 작업본을 지운다(서버가 복원과 함께). 기다리던 임시 저장은 보내지 않는다.
+    const hadChanges = dirty;
+    autosaver.cancel();
+    let restored = false;
     try {
+      await autosaver.idle();
       const res = await fetch(`/api/resumes/${meta.id}/versions/${v.id}/restore`, { method: "POST" });
       if (!res.ok) {
         setError(await readError(res, "복원하지 못했습니다."));
         return;
       }
       const { version } = (await res.json()) as { version: ResumeVersionMeta };
+      restored = true;
+      markDraft(null);
+      setDraftClashAt(null);
+      setLoadedDraftAt(null);
+      setConflict(null);
       const docRes = await fetch(`/api/resumes/${meta.id}/versions/${version.id}`);
       const data = docRes.ok ? ((await docRes.json().catch(() => null)) as { document: ResumeDocument } | null) : null;
       setVersions((vs) => [version, ...vs]);
@@ -347,6 +574,7 @@ export function ResumeEditor({
       setError("서버에 연결하지 못했습니다.");
     } finally {
       setBusy(null);
+      if (!restored && hadChanges) autosaver.change();
     }
   }
 
@@ -354,7 +582,9 @@ export function ResumeEditor({
     if (!window.confirm("이 이력서를 삭제할까요? 모든 버전이 함께 사라지며 되돌릴 수 없습니다.")) return;
     setError(null);
     setBusy("delete");
+    autosaver.cancel(); // 작업본은 이력서와 함께 지워진다
     try {
+      await autosaver.idle();
       const res = await fetch(`/api/resumes/${meta.id}`, { method: "DELETE" });
       if (!res.ok && res.status !== 404) {
         setError(await readError(res, "삭제하지 못했습니다."));
@@ -371,8 +601,11 @@ export function ResumeEditor({
   }
 
   async function startDiagnosis() {
-    // 진단에는 지금 내용이 넘어가지만, 이 이력서에는 저장되지 않은 채 화면을 떠난다.
-    if (dirty && !window.confirm("저장하지 않은 변경이 있습니다. 저장하지 않고 진단 화면으로 이동할까요? (진단에는 지금 내용이 들어가지만 이 이력서에는 남지 않습니다)")) {
+    // 진단에는 지금 내용이 넘어간다. 이 이력서의 변경은 임시 저장본으로 남는다(화면을 떠날 때 보낸다) — 임시 저장이 실패했을 때만 묻는다.
+    if (
+      shouldWarnBeforeLeave(autosaver.status()) &&
+      !window.confirm("임시 저장에 실패한 변경이 있습니다. 이대로 진단 화면으로 이동할까요? (진단에는 지금 내용이 들어가지만 이 이력서에는 남지 않을 수 있습니다)")
+    ) {
       return;
     }
     const prefill: DiagnosisPrefill = {
@@ -416,6 +649,12 @@ export function ResumeEditor({
   }
 
   const isPerformance = meta.templateId === "performance";
+  const draftStatus = draftStatusText(autosave, dirty ? draftSavedAt : null);
+  const hasDraftWork = dirty || draftSavedAt !== null;
+  const versionLabel = (id: string | null) => {
+    const v = id ? versions.find((x) => x.id === id) : undefined;
+    return v ? `v${v.versionNo}` : null;
+  };
 
   /** 다듬기 제안을 적용해 서버가 저장한 새 버전으로 화면을 맞춘다(되돌리기는 버전 목록의 복원). */
   function polishApplied(result: PolishApplied) {
@@ -476,7 +715,13 @@ export function ResumeEditor({
               />
             )}
             {current && <Badge tone="neutral">v{current.versionNo}</Badge>}
-            {dirty && <Badge tone="warning">저장 안 됨</Badge>}
+            {draftStatus ? (
+              <span role="status" aria-live="polite">
+                <Badge tone={draftStatus.tone}>{draftStatus.text}</Badge>
+              </span>
+            ) : (
+              dirty && <Badge tone="warning">저장 안 된 변경</Badge>
+            )}
             {addCount > 0 && <Badge tone="warning">채울 칸 {addCount}개</Badge>}
             <button type="button" onClick={() => setMetaOpen((o) => !o)} className="font-medium text-indigo-700 hover:underline">
               {isGeneral ? "제목" : "지원 정보"} {metaOpen ? "닫기" : "수정"}
@@ -522,8 +767,27 @@ export function ResumeEditor({
           <Button variant="secondary" onClick={startDiagnosis} disabled={busy !== null}>
             이 이력서로 진단
           </Button>
-          <Button onClick={save} loading={busy === "save"} disabled={!dirty || busy !== null}>
-            저장
+          {hasDraftWork && (
+            <Button variant="ghost" onClick={discardDraft} loading={busy === "discard"} disabled={busy !== null}>
+              임시 저장 버리기
+            </Button>
+          )}
+          <Button
+            variant="secondary"
+            onClick={() => void autosaver.flush()}
+            loading={autosave.saving}
+            disabled={!autosave.pending && !autosave.failed}
+            title="새 버전을 만들지 않고 지금 내용을 작업본으로 저장합니다(입력을 멈추면 자동으로도 저장됩니다)"
+          >
+            임시 저장
+          </Button>
+          <Button
+            onClick={save}
+            loading={busy === "save"}
+            disabled={!dirty || busy !== null || conflict !== null || draftClashAt !== null}
+            title={conflict || draftClashAt !== null ? "임시 저장본을 어떻게 할지 먼저 골라 주세요" : "지금 내용을 새 버전으로 저장합니다(임시 저장본은 지워집니다)"}
+          >
+            저장(새 버전)
           </Button>
         </div>
       </div>
@@ -636,6 +900,54 @@ export function ResumeEditor({
           </button>
         </Alert>
       )}
+      {conflict && (
+        <Alert tone="warning" title="임시 저장본 이후에 새 버전이 저장됐습니다">
+          <p>
+            지금 편집 중인 임시 저장본은 {versionLabel(conflict.draftBaseVersionId) ?? "이전 버전"}을(를) 바탕으로 했는데, 그 뒤에{" "}
+            {versionLabel(conflict.latestVersionId) ?? "새 버전"}이(가) 저장됐습니다(AI 다듬기 적용·다른 탭에서 저장 등). 어느 쪽도 말없이 덮어쓰지 않습니다.
+          </p>
+          <p className="mt-1">
+            임시 저장본을 유지하면 ‘저장(새 버전)’ 때 최신 버전 위에 이 내용으로 새 버전이 저장됩니다(그 사이 버전은 버전 목록에 남습니다).
+          </p>
+          <div className="mt-2 flex flex-wrap gap-2">
+            <Button size="sm" onClick={() => void keepDraft()} loading={busy === "view"} disabled={busy !== null}>
+              임시 저장본 유지
+            </Button>
+            <Button size="sm" variant="secondary" onClick={() => void discardDraft()} loading={busy === "discard"} disabled={busy !== null}>
+              임시 저장본 버리고 최신 버전 보기
+            </Button>
+          </div>
+        </Alert>
+      )}
+      {draftClashAt !== null && (
+        <Alert tone="warning" title="다른 탭이나 기기에서 임시 저장본이 바뀌었습니다">
+          <p>
+            이 이력서의 임시 저장본이 {formatDraftClock(draftClashAt)}에 다른 곳에서 저장돼, 이 화면의 변경은 임시 저장하지 않았습니다. 어느 쪽도 말없이
+            덮어쓰지 않습니다.
+          </p>
+          <div className="mt-2 flex flex-wrap gap-2">
+            <Button size="sm" onClick={overwriteClashedDraft} disabled={busy !== null}>
+              이 화면 내용으로 덮어쓰기
+            </Button>
+            <Button size="sm" variant="secondary" onClick={loadClashedDraft} disabled={busy !== null}>
+              다른 곳의 임시 저장본 불러오기
+            </Button>
+          </div>
+        </Alert>
+      )}
+      {loadedDraftAt !== null && !conflict && (
+        <Alert tone="info" title={`임시 저장본을 불러왔습니다 (${formatDraftClock(loadedDraftAt)})`}>
+          <p>아직 새 버전으로 저장하지 않은 작업본입니다. PDF·공유 링크·지원 제출본은 마지막으로 저장한 버전을 씁니다.</p>
+          <div className="mt-2 flex flex-wrap gap-2">
+            <Button size="sm" variant="secondary" onClick={() => void discardDraft()} loading={busy === "discard"} disabled={busy !== null}>
+              버리고 저장된 버전 보기
+            </Button>
+            <Button size="sm" variant="ghost" onClick={() => setLoadedDraftAt(null)}>
+              닫기
+            </Button>
+          </div>
+        </Alert>
+      )}
       {error && <Alert tone="error">{error}</Alert>}
       {notice && !error && (
         <Alert tone="info">
@@ -707,10 +1019,11 @@ export function ResumeEditor({
                 className="mt-1 block w-full rounded-md border border-slate-300 bg-white px-2.5 py-1.5 text-sm text-slate-900 placeholder:text-slate-400 focus:border-indigo-500 focus:ring-2 focus:ring-indigo-500/20 focus:outline-none"
               />
             </label>
-            <Button onClick={save} loading={busy === "save"} disabled={!dirty || busy !== null}>
+            <Button onClick={save} loading={busy === "save"} disabled={!dirty || busy !== null || conflict !== null || draftClashAt !== null}>
               새 버전으로 저장
             </Button>
           </Card>
+          <AutosaveHint />
         </div>
       ) : (
         <>
@@ -740,10 +1053,11 @@ export function ResumeEditor({
                     className="mt-1 block w-full rounded-md border border-slate-300 bg-white px-2.5 py-1.5 text-sm text-slate-900 placeholder:text-slate-400 focus:border-indigo-500 focus:ring-2 focus:ring-indigo-500/20 focus:outline-none"
                   />
                 </label>
-                <Button onClick={save} loading={busy === "save"} disabled={!dirty || busy !== null}>
+                <Button onClick={save} loading={busy === "save"} disabled={!dirty || busy !== null || conflict !== null || draftClashAt !== null}>
                   새 버전으로 저장
                 </Button>
               </Card>
+              <AutosaveHint />
             </div>
             <div className={cn("min-w-0", pane !== "preview" && "hidden lg:block")}>
               <div className="lg:sticky lg:top-4">
@@ -839,6 +1153,16 @@ export function ResumeEditor({
         />
       )}
     </div>
+  );
+}
+
+/** 임시 저장 안내(버전 메모 칸 아래). */
+function AutosaveHint() {
+  return (
+    <p className="text-xs text-slate-500">
+      입력을 멈추면 몇 초 뒤 자동으로 임시 저장됩니다(새 버전을 만들지 않음). 임시 저장본은 나만 보는 작업본이며, PDF·공유·지원 제출에는 저장된 버전만
+      쓰입니다.
+    </p>
   );
 }
 

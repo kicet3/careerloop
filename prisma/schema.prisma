@@ -53,6 +53,7 @@ model User {
   githubAccount     GithubAccount?
   resumeDraftJobs   ResumeDraftJob[]
   resumeAgentJobs   ResumeAgentJob[]
+  resumeEditDrafts  ResumeEditDraft[]
   portfolioJobs     PortfolioDraftJob[]
   notifications     Notification[]
 
@@ -434,6 +435,7 @@ model CompanyResume {
   draftJobs            ResumeDraftJob[]
   agentJobs            ResumeAgentJob[]
   polishThreads        ChatThread[]
+  editDraft            ResumeEditDraft?
 
   @@index([userId, applyStatus, updatedAt], map: "company_resumes_user_status_idx")
   @@index([userId, kind, updatedAt], map: "company_resumes_user_kind_idx")
@@ -1010,4 +1012,25 @@ model ResumeAgentStep {
 
   @@unique([jobId, key], map: "resume_agent_steps_job_key_unique")
   @@map("resume_agent_steps")
+}
+
+/// 이력서 임시 저장본(이력서당 하나, src/lib/resumes/edit-draft.ts). 새 버전을 만들지 않는 작업본 — 소유자만 읽고 쓴다.
+/// '저장(새 버전)'하면 지운다. 미리보기 공유·PDF는 저장된 버전만 쓴다.
+model ResumeEditDraft {
+  resumeId      String   @id @map("resume_id")
+  userId        String   @map("user_id")
+  /// 작업을 시작한 버전(resume_versions.id). 현재 버전과 다르면 화면이 충돌을 알린다. FK 없음.
+  baseVersionId String?  @map("base_version_id")
+  /// 편집 화면에서 고른 양식(ResumeTemplateId). null이면 이력서 양식 그대로.
+  templateId    String?  @map("template_id")
+  /// ResumeDocument(StoredResumeDocumentSchema로 검증해 쓴다).
+  document      Json
+  createdAt     DateTime @default(now()) @map("created_at") @db.Timestamptz(3)
+  updatedAt     DateTime @default(now()) @map("updated_at") @db.Timestamptz(3)
+
+  resume CompanyResume @relation(fields: [resumeId], references: [id], onDelete: Cascade, map: "resume_edit_drafts_resume_id_fkey")
+  user   User          @relation(fields: [userId], references: [id], onDelete: Cascade, map: "resume_edit_drafts_user_id_fkey")
+
+  @@index([userId], map: "resume_edit_drafts_user_idx")
+  @@map("resume_edit_drafts")
 }
