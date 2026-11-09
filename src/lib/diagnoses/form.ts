@@ -9,6 +9,7 @@
  */
 import { DiagnosisInputSchema, SITUATIONS, type DiagnosisInput, type Situation } from "@/lib/domain/schemas";
 import { extractText, IngestError, normalizeText } from "@/lib/ingest/extract";
+import { hasPdfSignature, PDF_SIGNATURE_SCAN_BYTES, PORTFOLIO_NOT_PDF_CONTENT_MESSAGE, PORTFOLIO_PDF_ONLY_MESSAGE } from "@/lib/domain/portfolios";
 import { MAX_JD_CHARS, MAX_RESUME_CHARS } from "./summary";
 
 /** 포트폴리오(파일 추출 텍스트 + 붙여넣은 링크·설명) 합계 상한. 넘친 파일 텍스트는 잘라 쓴다. */
@@ -76,11 +77,22 @@ async function parsePortfolio(form: FormData, warnings: string[]): Promise<Diagn
     );
   }
   const f = file(form, "portfolioFile");
+  // 보관함·이력서 첨부에서 가져온 포트폴리오는 이미 뽑아 둔 글이라 파일이 아니라 글로 받는다(새로 올리는 파일만 PDF로 제한).
+  const stored = normalizeText(str(form, "portfolioStoredText"));
   let fileText = "";
   let portfolioFileName: string | null = null;
   if (f) {
+    // 새로 올리는 포트폴리오 파일은 PDF만(확장자 + 파일 앞부분의 %PDF- 표식). 보관함 업로드와 같은 규칙.
+    if (!f.name.toLowerCase().endsWith(".pdf")) throw new IngestError(PORTFOLIO_PDF_ONLY_MESSAGE, 415);
+    const head = new Uint8Array(await f.slice(0, PDF_SIGNATURE_SCAN_BYTES).arrayBuffer());
+    if (!hasPdfSignature(head)) throw new IngestError(PORTFOLIO_NOT_PDF_CONTENT_MESSAGE, 415);
     fileText = await readFile(f, "포트폴리오", warnings, MAX_PORTFOLIO_CHARS);
     portfolioFileName = f.name.slice(0, 255) || null;
+  } else if (stored) {
+    fileText = stored.length > MAX_PORTFOLIO_CHARS + 1000 ? stored.slice(0, MAX_PORTFOLIO_CHARS + 1000) : stored;
+    portfolioFileName = str(form, "portfolioStoredName").trim().slice(0, 255) || null;
+  }
+  if (fileText) {
     const room = MAX_PORTFOLIO_CHARS - (note ? note.length + PORTFOLIO_NOTE_SEPARATOR.length : 0);
     if (fileText.length > room) {
       fileText = fileText.slice(0, room).trimEnd();

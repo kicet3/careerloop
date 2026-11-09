@@ -9,7 +9,7 @@ import { Card } from "@/components/ui/Card";
 import { NO_ENGINE_MESSAGE, PROVIDER_DATA_DESTINATION, type ProviderId, type ProviderOption } from "@/lib/domain/providers";
 import type { Situation } from "@/lib/domain/schemas";
 import { formatMb, SELF_HOSTED_UPLOAD_LIMITS, totalUploadError, uploadLimitMessage, type UploadLimits } from "@/lib/ingest/upload-limits";
-import { PORTFOLIO_KIND_LABELS, portfolioHasText, portfolioSourceLabel, type PortfolioInfo, type PortfolioPickOption } from "@/lib/domain/portfolios";
+import { PORTFOLIO_KIND_LABELS, PORTFOLIO_PDF_ONLY_MESSAGE, PORTFOLIO_UPLOAD_ACCEPT, PORTFOLIO_UPLOAD_ACCEPT_ATTR, portfolioHasText, portfolioSourceLabel, type PortfolioInfo, type PortfolioPickOption } from "@/lib/domain/portfolios";
 import { portfolioNoteText, prefillPortfolioFileName, takeDiagnosisPrefill } from "@/lib/resumes/prefill";
 import { saveCreationWarnings } from "./creation-warnings";
 import { FileDrop, UPLOAD_ACCEPT, UPLOAD_FORMATS_LABEL } from "./FileDrop";
@@ -33,7 +33,7 @@ export interface DiagnosisResumeOption {
 
 const RESUME_ACCEPT = UPLOAD_ACCEPT;
 const JD_ACCEPT = UPLOAD_ACCEPT;
-const PORTFOLIO_ACCEPT = UPLOAD_ACCEPT;
+const PORTFOLIO_ACCEPT = PORTFOLIO_UPLOAD_ACCEPT;
 /** 서버 상한(src/lib/diagnoses/form.ts MAX_PORTFOLIO_NOTE_CHARS)과 같게 둔다. */
 const PORTFOLIO_NOTE_MAX = 5000;
 
@@ -52,6 +52,8 @@ export const DIAGNOSIS_FORM_FIELDS = {
   notes: "notes",
   portfolioFile: "portfolioFile",
   portfolioText: "portfolioText",
+  portfolioStoredText: "portfolioStoredText",
+  portfolioStoredName: "portfolioStoredName",
   provider: "provider",
   postingId: "postingId",
 } as const;
@@ -434,7 +436,13 @@ export function NewDiagnosisForm({
     else if (jdText.trim()) fd.set(F.jdText, jdText);
     fd.set(F.situation, situation);
     if (notes.trim()) fd.set(F.notes, notes.trim());
-    if (portfolioFile) fd.set(F.portfolioFile, portfolioFile);
+    if (portfolioFile) {
+      // 보관함·이력서 첨부에서 가져온 글(.txt로 들고 있던 것)은 글로 보내고, 사용자가 직접 고른 파일(PDF)만 파일로 보낸다.
+      if (portfolioFillRef.current?.file === portfolioFile) {
+        fd.set(F.portfolioStoredText, await portfolioFile.text());
+        fd.set(F.portfolioStoredName, portfolioFile.name.replace(/\.txt$/i, ""));
+      } else fd.set(F.portfolioFile, portfolioFile);
+    }
     if (portfolioText.trim()) fd.set(F.portfolioText, portfolioText.trim());
     fd.set(F.provider, provider);
     if (fromPosting && posting) fd.set(F.postingId, posting.id);
@@ -573,8 +581,10 @@ export function NewDiagnosisForm({
                     maxBytes={uploadLimits.perFileBytes}
                     file={portfolioFile}
                     accept={PORTFOLIO_ACCEPT}
-                    label="포트폴리오 파일을 끌어다 놓거나 눌러서 선택"
-                    hint={`${UPLOAD_FORMATS_LABEL}, ${perFile} 이하. 글자를 읽을 수 있는 파일만 반영되며, 긴 파일은 앞부분만 씁니다.`}
+                    acceptAttr={PORTFOLIO_UPLOAD_ACCEPT_ATTR}
+                    typeError={PORTFOLIO_PDF_ONLY_MESSAGE}
+                    label="포트폴리오 PDF를 끌어다 놓거나 눌러서 선택"
+                    hint={`PDF만, ${perFile} 이하. 글자를 읽을 수 있는 PDF만 반영되며, 긴 파일은 앞부분만 씁니다. 다른 형식은 PDF로 저장(내보내기)해 올려 주세요.`}
                     onChange={(f, err) => {
                       onOwnPortfolioFile(f);
                       setFileError((p) => ({ ...p, portfolio: err ?? undefined }));

@@ -1,3 +1,4 @@
+import { makeTestPdf } from "@/test/pdf";
 import { describe, expect, it } from "vitest";
 import { MAX_PORTFOLIO_CHARS, parseDiagnosisForm, PORTFOLIO_NOTE_SEPARATOR } from "./form";
 import { contentDisposition } from "./http";
@@ -75,30 +76,53 @@ describe("parseDiagnosisForm — 포트폴리오", () => {
     expect(warnings.join(" ")).toContain("링크는 심사위원이 직접 열어 보지 못합니다");
   });
 
-  it("파일 + 설명은 합치고 파일 이름을 남긴다", async () => {
-    const f = new File([PORTFOLIO], "portfolio.md", { type: "text/markdown" });
+  it("PDF 파일 + 설명은 합치고 파일 이름을 남긴다", async () => {
+    const f = new File([makeTestPdf("결제 정산 배치 재작성 프로젝트 백엔드 리드 Kotlin Spring Batch 정산 처리 시간 개선 ".repeat(6))], "portfolio.pdf", { type: "application/pdf" });
     const { input } = await parseDiagnosisForm(
       form({ resumeText: RESUME, targetRole: "BE", portfolioFile: f, portfolioText: "https://github.com/me/payments" }),
     );
-    expect(input.portfolioFileName).toBe("portfolio.md");
-    expect(input.portfolioText).toBe(`${PORTFOLIO}${PORTFOLIO_NOTE_SEPARATOR}https://github.com/me/payments`);
+    expect(input.portfolioFileName).toBe("portfolio.pdf");
+    expect(input.portfolioText).toContain("결제 정산 배치 재작성 프로젝트");
+    expect(input.portfolioText!.endsWith(`${PORTFOLIO_NOTE_SEPARATOR}https://github.com/me/payments`)).toBe(true);
     // 이력서는 그대로
     expect(input.resumeText).toBe(RESUME);
   });
 
-  it("긴 파일은 상한까지 자르고 경고, 긴 설명·지원하지 않는 파일은 거절", async () => {
-    const long = new File(["프로젝트 설명 ".repeat(4000)], "long.txt", { type: "text/plain" });
-    const { input, warnings } = await parseDiagnosisForm(form({ resumeText: RESUME, targetRole: "BE", portfolioFile: long }));
-    expect(input.portfolioText!.length).toBeLessThanOrEqual(MAX_PORTFOLIO_CHARS);
+  it("새로 올리는 포트폴리오 파일은 PDF만: 다른 확장자·확장자만 바꾼 파일은 415로 거절", async () => {
+    for (const f of [
+      new File([PORTFOLIO], "portfolio.md", { type: "text/markdown" }),
+      new File([PORTFOLIO], "pf.docx"),
+      new File([PORTFOLIO], "pf.hwp"),
+      new File([PORTFOLIO], "notes.txt", { type: "text/plain" }),
+    ]) {
+      await expect(parseDiagnosisForm(form({ resumeText: RESUME, targetRole: "BE", portfolioFile: f }))).rejects.toMatchObject({
+        status: 415,
+        message: expect.stringContaining("PDF만"),
+      });
+    }
+    const fake = new File([new Uint8Array([0x89, 0x50, 0x4e, 0x47, 0x0d, 0x0a])], "image.pdf", { type: "application/pdf" });
+    await expect(parseDiagnosisForm(form({ resumeText: RESUME, targetRole: "BE", portfolioFile: fake }))).rejects.toMatchObject({
+      status: 415,
+      message: expect.stringContaining("PDF 형식이 아닙니다"),
+    });
+  });
+
+  it("보관함·이력서 첨부에서 가져온 글은 portfolioStoredText로 받고, 길면 상한까지 자르고 경고", async () => {
+    const { input } = await parseDiagnosisForm(
+      form({ resumeText: RESUME, targetRole: "BE", portfolioStoredText: PORTFOLIO, portfolioStoredName: "포트폴리오.docx" }),
+    );
+    expect(input.portfolioText).toBe(PORTFOLIO);
+    expect(input.portfolioFileName).toBe("포트폴리오.docx");
+
+    const { input: long, warnings } = await parseDiagnosisForm(
+      form({ resumeText: RESUME, targetRole: "BE", portfolioStoredText: "프로젝트 설명 ".repeat(4000) }),
+    );
+    expect(long.portfolioText!.length).toBeLessThanOrEqual(MAX_PORTFOLIO_CHARS);
     expect(warnings.join(" ")).toContain("앞부분");
 
     await expect(
       parseDiagnosisForm(form({ resumeText: RESUME, targetRole: "BE", portfolioText: "가".repeat(5001) })),
     ).rejects.toThrow("포트폴리오 링크·설명은");
-    const hwp = new File([PORTFOLIO], "pf.doc");
-    await expect(parseDiagnosisForm(form({ resumeText: RESUME, targetRole: "BE", portfolioFile: hwp }))).rejects.toThrow(
-      /^포트폴리오 파일: 지원하지 않는/,
-    );
   });
 });
 
