@@ -17,6 +17,7 @@ import {
 } from "@/lib/domain/resume-polish";
 import { smallInputClass } from "../styles";
 import { DiffView } from "./DiffView";
+import { PolishToolTrace } from "./PolishToolTrace";
 import type { PolishApplied } from "./PolishPanel";
 
 interface DocView {
@@ -333,6 +334,7 @@ function DocMessage({
       )}
       {data?.followUpQuestion && <p className="text-xs text-slate-600">질문: {data.followUpQuestion}</p>}
       {data && data.graphSources > 0 && <p className="text-[11px] text-slate-400">경험 그래프 근거 {data.graphSources}개를 참고했어요.</p>}
+      <PolishToolTrace tools={data?.tools} />
     </div>
   );
 }

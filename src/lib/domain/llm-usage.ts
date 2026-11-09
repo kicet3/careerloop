@@ -30,6 +30,7 @@ export const LLM_USAGE_TASK_LABELS: Record<string, string> = {
   "resume-agent-critique": "이력서 에이전트 · 총괄 피드백",
   "resume-agent-motivation": "이력서 에이전트 · 지원 동기",
   "resume-polish": "이력서 AI로 다듬기",
+  "resume-polish-step": "이력서 AI로 다듬기 · 자료 조회 스텝",
   "resume-motivation-suggest": "지원 동기 쓸 거리 추천",
   "resume-jd-tips": "JD 맞춤 작성 팁",
   "portfolio-share-chat": "공개 포트폴리오 챗봇",

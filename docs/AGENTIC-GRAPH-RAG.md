@@ -1034,6 +1034,7 @@ export interface GraphAgentAnswerData {
 2. **이력서 에이전트, AI로 다듬기, 지원 동기**는 나중에 바꿉니다.
    - 근거 수집 단계(`resume-agent/evidence.ts`의 `loadAgentGraph`, `resumes/polish.ts`, `resumes/motivation.ts`)에서 `OwnedSnapshot`과 `EvidenceRegistry`를 재사용합니다.
    - E-ref를 evidence_id로 대체하고, `final-validate`의 수치·날짜 대조를 사실 검사에 공유합니다.
+   - AI로 다듬기는 도구 루프로 `OwnedSnapshot`(소유 확인·허용 속성)과 요청 지역 handle(N1…)을 재사용합니다. 인용 검증이 없어 `EvidenceRegistry`·`AuthContext`는 쓰지 않습니다(`docs/RESUME-POLISH-TOOLS.md`).
 3. **MCP**: 선택 사항(§9).
 
 ---

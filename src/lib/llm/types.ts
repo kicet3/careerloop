@@ -34,7 +34,8 @@ export interface LlmUsage {
  * - resume-agent-jd / -review: 에이전트가 패널 단계(jd·심사)를 재사용한 호출의 사용량 구분(GenerateRequest.usageTask로만 쓴다)
  * - resume-agent-brief / -section / -compose / -critique / -motivation: 구역별 에이전트(파이프라인 v2)의 총괄 작전·구역 작성·조립·총괄 피드백·
  *   지원 동기 초안·추천(src/lib/resume-agent/schemas.ts, docs/RESUME-SECTION-AGENTS.md)
- * - resume-polish: 이력서 AI로 다듬기 — 한 칸의 대안 문구 2~3개(ResumePolishOutputSchema, src/lib/resumes/polish.ts)
+ * - resume-polish: 이력서 AI로 다듬기 — 한 칸의 대안 문구 2~3개(ResumePolishOutputSchema, src/lib/resumes/polish.ts)·전체 이력서 답변. 도구 루프의 마지막(최종 답 강제) 호출
+ * - resume-polish-step: 다듬기 도구 루프의 스텝 — 도구 호출(JD 분석·경험 그래프 조회) 또는 최종 답(src/lib/resumes/polish-tools.ts)
  * - resume-motivation-suggest: 지원 동기 쓸 거리 추천 — 문단은 쓰지 않는다(MotivationSuggestionSchema, src/lib/resumes/motivation.ts)
  * - resume-jd-tips: JD 맞춤 작성 팁 — 공고 요약·구역별 팁·키워드·쓸 만한 경험(JdTipsOutputSchema, src/lib/resumes/jd-tips.ts)
  * - portfolio-share-chat: 공개 포트폴리오 방문자 챗봇 — 공개본만 근거로 답한다(ShareChatOutputSchema, src/lib/portfolios/share-chat.ts). 사용량은 소유자에게 매긴다
@@ -66,6 +67,7 @@ export const LLM_TASKS = [
   "resume-agent-critique",
   "resume-agent-motivation",
   "resume-polish",
+  "resume-polish-step",
   "resume-motivation-suggest",
   "resume-jd-tips",
   "portfolio-share-chat",

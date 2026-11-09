@@ -1277,6 +1277,30 @@ function fakeResumePolish(user: string): ResumePolishOutput {
 }
 
 /**
+ * 가짜 다듬기 도구 스텝(task 'resume-polish-step'). 요청에 표식이 있을 때만 도구를 부른다(없으면 바로 최종 답 — 호출 1회):
+ *   - "[가짜:JD]" → get_jd_analysis {}
+ *   - "[가짜:그래프:검색어]" → search_graph {query: 검색어}, 결과에 N1이 있으면 다음 스텝에 get_node {id: "N1"}
+ *   - "[가짜:노드:값]" → get_node {id: 값}(격리·인자 검증 시험 — 실제 노드 id·남의 handle)
+ *   - "[가짜:도구반복]" → 매 스텝 list_nodes를 부른다(스텝 상한·최종 답 강제 시험)
+ * 이미 부른 도구는 다시 부르지 않는다(<tool_results>의 "#n 도구 →" 줄로 판단).
+ */
+function fakeResumePolishStep(user: string): unknown {
+  const message = extractTag(user, CHAT_TAGS.latestMessage) ?? "";
+  const results = extractTag(user, CHAT_TAGS.toolResults) ?? "";
+  const called = (tool: string) => new RegExp(`#\\d+ ${tool} →`).test(results);
+  const calls: { tool: string; args: Record<string, unknown> }[] = [];
+  if (message.includes("[가짜:도구반복]")) calls.push({ tool: "list_nodes", args: { label: "Project", limit: 3 } });
+  if (message.includes("[가짜:JD]") && !called("get_jd_analysis")) calls.push({ tool: "get_jd_analysis", args: {} });
+  const q = /\[가짜:그래프:([^\]]+)\]/.exec(message)?.[1];
+  if (q && !called("search_graph")) calls.push({ tool: "search_graph", args: { query: q } });
+  else if (q && /^N1 · /m.test(results) && !called("get_node")) calls.push({ tool: "get_node", args: { id: "N1" } });
+  const raw = /\[가짜:노드:([^\]]+)\]/.exec(message)?.[1];
+  if (raw && !called("get_node")) calls.push({ tool: "get_node", args: { id: raw } });
+  if (calls.length > 0) return { action: "call_tools", thought: "", calls: calls.slice(0, 3) };
+  return { action: "final", answer: extractTag(user, POLISH_DOCUMENT_TAG) !== null ? fakeResumePolishDoc(user) : fakeResumePolish(user) };
+}
+
+/**
  * 가짜 전체 이력서 다듬기: <polish_document> 표의 글이 있는 칸 앞쪽 2개에 제안을 내고, 서버 거르기를 시험하려고
  * 다듬을 수 없는 칸(basics.email·motivation)과 없는 칸(experience[9].bullets[0]) 제안을 섞는다.
  * 질문에 "[가짜:수치]"가 있으면 답변·첫 제안에 근거 없는 숫자(73%)를 넣는다.
@@ -1578,6 +1602,8 @@ function fakeTaskOutput(task: LlmTask, user: string): unknown {
     case "resume-polish":
       // 전체 이력서 모드(칸 표 <polish_document>가 있다)와 칸 모드를 같은 task로 부른다.
       return extractTag(user, POLISH_DOCUMENT_TAG) !== null ? fakeResumePolishDoc(user) : fakeResumePolish(user);
+    case "resume-polish-step":
+      return fakeResumePolishStep(user);
     case "resume-motivation-suggest":
       return fakeMotivationSuggest(user);
     case "resume-jd-tips":

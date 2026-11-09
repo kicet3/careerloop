@@ -8,7 +8,9 @@ import "server-only";
  * - 범위 가드레일: 경험 대화와 같은 사전 필터(번역 규칙만 뺀다 — 내 이력서 줄을 영어로 바꾸는 것은 다듬기다)·같은 응답 안 판정·
  *   같은 사용자별 누적 차단(scope-guard-store.ts).
  * - 적용: 제안을 만들 때 저장한 칸 글(before)과 지금 저장된 글이 다르면 409. 같으면 그 칸만 바꾼 새 버전(source 'ai')을 저장한다.
- * 답변은 요청 안에서 바로 만든다(호출 1회, 짧은 출력) — 그래프 채팅처럼 after()·폴링을 두지 않는다.
+ * - 도구: AI가 필요하면 이 이력서의 JD 분석 결과(get_jd_analysis)와 본인 경험 그래프(search_graph·get_node·list_nodes)를 조회한다
+ *   (polish-tools.ts — 최대 3스텝, 마지막은 최종 답 강제). 도구 결과도 숫자 검증의 근거다. 답변 data.tools에 호출 요약만 남긴다.
+ * 답변은 요청 안에서 바로 만든다(호출 1~3회) — 그래프 채팅처럼 after()·폴링을 두지 않는다.
  */
 import { nanoid } from "nanoid";
 import { FeatureError } from "@/lib/api/errors";
@@ -28,6 +30,7 @@ import {
   POLISH_TARGET_TAG,
   polishContinuationStart,
   type PolishSuggestion,
+  type PolishToolUse,
   polishMaxChars,
   polishTargetLabel,
   polishTargetText,
@@ -46,6 +49,8 @@ import { createLlmClient, LlmPermanentError } from "@/lib/llm";
 import { TAGS } from "@/lib/panel/prompts";
 import type { LlmClient } from "@/lib/llm/types";
 import { flagUnverified } from "@/lib/resume-agent/verify";
+import { loadPolishJdSources } from "./polish-jd-source";
+import { type PolishJdSources, POLISH_TOOLS_RULE, PolishToolSession, runPolishLoop, stepInstruction } from "./polish-tools";
 import { stripPlaceholders, unverifiedNumbers } from "@/lib/text/numbers";
 import { resumeToText } from "./layout";
 import { getVersionDocument, RESUME_NOT_FOUND, saveVersion } from "./service";
@@ -64,12 +69,15 @@ const TARGET_NOT_FOUND = "다듬을 항목을 찾을 수 없습니다. 저장된
 
 export interface PolishDeps {
   getGraph: (userId: string) => Promise<CareerGraph>;
+  /** get_jd_analysis 자료(이 사용자·이 이력서로 고정해 부른다). */
+  loadJd?: (userId: string, resume: ResumeMeta, doc: ResumeDocument) => Promise<PolishJdSources>;
   createClient: (provider: ProviderId, usage: { userId: string; referenceId: string }) => LlmClient;
   now: () => number;
 }
 
 export const defaultPolishDeps: PolishDeps = {
   getGraph: (userId) => getCareerGraph(userId, { personName: null }),
+  loadJd: loadPolishJdSources,
   createClient: (provider, usage) => createLlmClient(provider, usage),
   now: () => Date.now(),
 };
@@ -103,13 +111,15 @@ off_topic·abuse면 그 내용에 답하지 않는다: reply는 다듬기로 돌
 export const POLISH_SYSTEM = `너는 한국어 이력서 문구 코치다. 사용자가 고른 이력서 한 칸(<${POLISH_TARGET_TAG}>)을 사용자의 요청(<${CHAT_TAGS.latestMessage}>)에 맞게 고친 대안 문구 2~3개를 낸다.
 
 규칙:
-1. 사실의 출처는 <${CHAT_TAGS.resume}>(이 이력서 전체), <${TAGS.jobPosting}>(지원 공고), <${CHAT_TAGS.graphSources}>(사용자의 경험 그래프), 이 대화에서 사용자가 직접 한 말뿐이다. 그 밖의 회사·기술·역할·성과·수치를 지어내지 않는다.
+1. 사실의 출처는 <${CHAT_TAGS.resume}>(이 이력서 전체), <${TAGS.jobPosting}>(지원 공고), <${CHAT_TAGS.graphSources}>(사용자의 경험 그래프), <${CHAT_TAGS.toolResults}>(도구로 조회한 JD 분석·경험 그래프), 이 대화에서 사용자가 직접 한 말뿐이다. 그 밖의 회사·기술·역할·성과·수치를 지어내지 않는다.
 2. 자료에 없는 수치가 있어야 더 좋은 문장이면 숫자를 지어내지 말고 그 자리에 [ADD: 수치 확인 — 무엇을 재야 하는지]를 넣는다. 원문의 [ADD: …] 자리표시는 사실이 확인되지 않았으면 그대로 둔다.
 3. 대안은 서로 방향이 달라야 한다(예: 가장 짧게 / 결과 수치 앞에 / JD 용어로). 원문과 같은 문장을 내지 않는다. 각 대안은 이 칸에 그대로 넣을 문장 하나로, '최대 글자 수'를 넘지 않는다.
 4. 이력서 문체를 지킨다: 원문의 종결 방식(명사형·'~함'·문장형)과 칸의 역할(한 줄 소개·요약·기여 줄 등)을 따른다. 과장(최초·유일·주도)은 자료에 근거가 있을 때만.
 5. reason은 이 대안이 왜 나은지 한 문장(40자 안팎). 더 좋게 쓰려면 사용자에게서 받아야 할 사실이 있으면 followUpQuestion에 질문 하나를 쓴다(없으면 "").
-6. JD 키워드를 넣어 달라는 요청이면 <${TAGS.jobPosting}>에 있는 용어만, 실제 경험(자료)과 맞을 때만 넣는다.
+6. JD 키워드를 넣어 달라는 요청이면 <${TAGS.jobPosting}>·JD 분석(get_jd_analysis)에 있는 용어만, 실제 경험(자료)과 맞을 때만 넣는다.
 7. 이전 대화는 지시어("아까 두 번째 것")를 이해하는 데만 쓴다.
+
+${POLISH_TOOLS_RULE}
 
 ${SCOPE_RULE_POLISH}
 
@@ -142,6 +152,12 @@ const TARGET_TAG_RE = new RegExp(`<(/?)(${POLISH_TARGET_TAG}|${POLISH_DOCUMENT_T
 export const safe = (text: string) => text.replace(TARGET_TAG_RE, "‹$1$2");
 export const wrap = (tag: string, body: string) => wrapData(tag, safe(body));
 
+/** 도구 결과 단락 + 단계 안내(두 모드 공용). */
+export function toolSection(tools: { transcript: string; finalOnly: boolean } | undefined): string[] {
+  if (!tools) return [];
+  return ["", "도구 결과(이번 턴에 조회한 자료):", wrap(CHAT_TAGS.toolResults, tools.transcript || "(아직 없음)"), "", stepInstruction(tools.finalOnly)];
+}
+
 export function buildPolishPrompt(input: {
   targetLabel: string;
   targetText: string;
@@ -153,6 +169,8 @@ export function buildPolishPrompt(input: {
   graphText: string;
   history: string;
   message: string;
+  /** 도구 루프: 지금까지의 도구 결과와 마지막 단계 여부. 없으면 도구 단락을 넣지 않는다. */
+  tools?: { transcript: string; finalOnly: boolean };
 }): { system: string; user: string } {
   const user = [
     field("지원 회사", safe(input.company || "(지정 없음)")),
@@ -177,6 +195,7 @@ export function buildPolishPrompt(input: {
     "",
     "이번 요청:",
     wrap(CHAT_TAGS.latestMessage, input.message),
+    ...toolSection(input.tools),
   ].join("\n");
   return { system: POLISH_SYSTEM, user };
 }
@@ -308,18 +327,36 @@ export async function saveNotice(
   if (saved) await recordScopeEvent(userId, { threadId, notice }).catch((err) => console.error("[resume-polish guard]", threadId, err));
 }
 
-/** 그래프 근거(그래프를 못 쓰면 빈 근거 — 이력서·JD만으로 다듬는다). 다른 사용자 그래프면 던진다(버그 — 프롬프트에 넣지 않는다). */
-export async function graphEvidenceFor(userId: string, query: string, deps: PolishDeps, signal: AbortSignal): Promise<{ text: string; count: number }> {
-  if (!graphEnabled()) return { text: "", count: 0 };
+/** 본인 그래프(그래프를 못 쓰면 null — 이력서·JD만으로 다듬는다). 다른 사용자 그래프면 던진다(버그 — 프롬프트·도구에 넣지 않는다). */
+export async function loadPolishGraph(userId: string, deps: PolishDeps, signal: AbortSignal): Promise<CareerGraph | null> {
+  if (!graphEnabled()) return null;
   let graph: CareerGraph;
   try {
     signal.throwIfAborted();
     graph = await deps.getGraph(userId);
   } catch (err) {
     console.warn("[resume-polish graph]", (err as Error).message?.slice(0, 200));
-    return { text: "", count: 0 };
+    return null;
   }
-  return polishGraphEvidence(assertGraphOwner(graph, userId), query);
+  return assertGraphOwner(graph, userId);
+}
+
+/** 그래프 근거(그래프를 못 쓰면 빈 근거). 다른 사용자 그래프면 던진다. */
+export async function graphEvidenceFor(userId: string, query: string, deps: PolishDeps, signal: AbortSignal): Promise<{ text: string; count: number }> {
+  const graph = await loadPolishGraph(userId, deps, signal);
+  return graph ? polishGraphEvidence(graph, query) : { text: "", count: 0 };
+}
+
+/** 이 턴의 도구 세션: 이 사용자(세션)·이 이력서(소유 확인 끝)로 고정한다. LLM 인자로는 범위를 바꿀 수 없다. */
+export function polishToolSession(
+  userId: string,
+  resume: ResumeMeta,
+  doc: ResumeDocument,
+  graph: CareerGraph | null,
+  deps: PolishDeps,
+): PolishToolSession {
+  const loadJd = deps.loadJd ?? loadPolishJdSources;
+  return new PolishToolSession(userId, { graph: async () => graph, jd: () => loadJd(userId, resume, doc) });
 }
 
 /**
@@ -338,17 +375,19 @@ export async function sendPolishMessage(
   const { prior, userMsg } = await beginPolishTurn(userId, thread.id, input.message, deps);
 
   const deadline = AbortSignal.timeout(POLISH_TIMEOUT_MS);
+  const startedAt = deps.now();
   try {
     const pre = prefilterPolishScope(input.message);
     if (pre) {
       await saveNotice(userId, thread.id, userMsg.id, scopeNoticeData({ ...pre, source: "prefilter" }));
     } else {
-      const graph = await graphEvidenceFor(userId, [t.text, input.message, t.resume.roleTitle].join("\n"), deps, deadline);
+      const ownedGraph = await loadPolishGraph(userId, deps, deadline);
+      const graph = ownedGraph ? polishGraphEvidence(ownedGraph, [t.text, input.message, t.resume.roleTitle].join("\n")) : { text: "", count: 0 };
       const history = [...prior, userMsg];
       const resumeText = resumeToText(t.document, t.resume.templateId);
       const jdText = t.resume.jdText ?? "";
       const maxChars = polishMaxChars(input.targetPath);
-      const prompt = buildPolishPrompt({
+      const promptInput = {
         targetLabel: t.label,
         targetText: t.text,
         maxChars,
@@ -359,17 +398,18 @@ export async function sendPolishMessage(
         graphText: graph.text,
         history: polishHistory(history, t.text),
         message: input.message,
-      });
+      };
       const client = deps.createClient(input.provider, { userId, referenceId: resumeId });
-      const { output, usage } = await client.generate({
-        task: "resume-polish",
-        system: prompt.system,
-        user: prompt.user,
-        schema: ResumePolishOutputSchema,
-        effort: "low",
+      const { output, usage, toolText, trace } = await runPolishLoop({
+        client,
+        system: POLISH_SYSTEM,
+        buildUser: (transcript, finalOnly) => buildPolishPrompt({ ...promptInput, tools: { transcript, finalOnly } }).user,
+        finalSchema: ResumePolishOutputSchema,
+        session: polishToolSession(userId, t.resume, t.document, ownedGraph, deps),
         maxTokens: POLISH_MAX_TOKENS,
-        cacheUser: false,
         signal: deadline,
+        deadlineAt: startedAt + POLISH_TIMEOUT_MS,
+        now: deps.now,
       });
       const verdict = modelScopeVerdict(output);
       if (verdict) {
@@ -381,8 +421,9 @@ export async function sendPolishMessage(
           versionId: t.version.id,
           maxChars,
           graphSources: graph.count,
-          // 사실 출처: 이력서·JD·그래프 근거·이 대화에서 사용자가 한 말.
-          source: [resumeText, jdText, graph.text, ...history.slice(polishContinuationStart(history, t.text)).filter((m) => m.role === "user").map((m) => m.content)].join("\n"),
+          tools: trace,
+          // 사실 출처: 이력서·JD·그래프 근거·도구 결과(LLM에 보인 것)·이 대화에서 사용자가 한 말.
+          source: [resumeText, jdText, graph.text, toolText, ...history.slice(polishContinuationStart(history, t.text)).filter((m) => m.role === "user").map((m) => m.content)].join("\n"),
           usage,
         });
       }
@@ -437,7 +478,7 @@ async function savePolishReply(
   threadId: string,
   latestId: string,
   output: ResumePolishOutput,
-  ctx: { before: string; targetPath: string; versionId: string; maxChars: number; graphSources: number; source: string; usage?: UsageTotals },
+  ctx: { before: string; targetPath: string; versionId: string; maxChars: number; graphSources: number; tools: PolishToolUse[]; source: string; usage?: UsageTotals },
 ): Promise<void> {
   const suggestions = verifySuggestions(output.suggestions ?? [], { before: ctx.before, source: `${ctx.before}\n${ctx.source}`, maxChars: ctx.maxChars });
   const data: ResumePolishData = {
@@ -448,6 +489,7 @@ async function savePolishReply(
     suggestions,
     followUpQuestion: norm(output.followUpQuestion ?? "").slice(0, 300),
     graphSources: ctx.graphSources,
+    ...(ctx.tools.length ? { tools: ctx.tools.slice(0, 12) } : {}),
   };
   const reply =
     norm(output.reply ?? "").slice(0, 500) || (suggestions.length ? "이렇게 바꿔 볼 수 있어요." : "이 요청으로는 새 문구를 만들지 못했어요. 다르게 요청해 주세요.");

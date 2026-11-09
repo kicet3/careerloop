@@ -9,6 +9,7 @@ import "server-only";
  *   있을 때만 남기고(지원 동기·연락처 등은 버린다), before는 서버가 지금 저장된 글로 채운다(LLM 값을 믿지 않는다).
  * - 사실 검증: 제안·답변의 숫자가 근거(이력서·JD·그래프·사용자 말)에 없으면 [ADD: 수치 확인 — …]로 바꾼다(칸 모드와 같은 규칙).
  * - 범위 가드레일: 칸 모드와 같은 사전 필터·응답 안 판정·사용자별 누적 차단. on_topic은 이 이력서에 대한 질문·개선.
+ * - 도구: 칸 모드와 같은 도구 루프(polish-tools.ts — JD 분석 결과·본인 경험 그래프 조회, 최대 3스텝). 도구 결과도 숫자 검증 근거다.
  * - 적용: 고른 제안들을 새 버전 하나로 저장한다. 고른 칸 중 하나라도 제안 뒤 바뀌었으면 409(바뀐 칸 목록)이고 아무것도 적용하지 않는다.
  */
 import { FeatureError } from "@/lib/api/errors";
@@ -28,6 +29,7 @@ import {
   POLISH_DOCUMENT_TAG,
   type PolishConflictField,
   type PolishDocSuggestion,
+  type PolishToolUse,
   isPolishPath,
   polishMaxChars,
   polishTargetLabel,
@@ -50,8 +52,10 @@ import {
   defaultPolishDeps,
   ensurePolishThread,
   findPolishThread,
-  graphEvidenceFor,
+  loadPolishGraph,
   norm,
+  polishGraphEvidence,
+  polishToolSession,
   POLISH_MAX_TOKENS,
   POLISH_TIMEOUT_MS,
   type PolishDeps,
@@ -59,8 +63,10 @@ import {
   prefilterPolishScope,
   safe,
   saveNotice,
+  toolSection,
   wrap,
 } from "./polish";
+import { POLISH_TOOLS_RULE, runPolishLoop } from "./polish-tools";
 import { getVersionDocument, RESUME_NOT_FOUND, saveVersion } from "./service";
 
 /** 프롬프트 크기 상한(글자). 넘으면 잘라 '(이하 생략)'을 붙인다. */
@@ -91,13 +97,15 @@ off_topic·abuse면 그 내용에 답하지 않는다: answer는 이력서 이�
 export const POLISH_DOC_SYSTEM = `너는 한국어 이력서 코치다. 사용자의 이력서 전체를 보고 질문(<${CHAT_TAGS.latestMessage}>)에 답하고, 필요하면 고칠 칸을 구체적으로 제안한다.
 
 규칙:
-1. 사실의 출처는 <${CHAT_TAGS.resume}>(이 이력서 본문), <${POLISH_DOCUMENT_TAG}>(다듬을 수 있는 칸 표), <${TAGS.jobPosting}>(지원 공고), <${CHAT_TAGS.graphSources}>(사용자의 경험 그래프), 이 대화에서 사용자가 직접 한 말뿐이다. 그 밖의 회사·기술·역할·성과·수치를 지어내지 않는다.
+1. 사실의 출처는 <${CHAT_TAGS.resume}>(이 이력서 본문), <${POLISH_DOCUMENT_TAG}>(다듬을 수 있는 칸 표), <${TAGS.jobPosting}>(지원 공고), <${CHAT_TAGS.graphSources}>(사용자의 경험 그래프), <${CHAT_TAGS.toolResults}>(도구로 조회한 JD 분석·경험 그래프), 이 대화에서 사용자가 직접 한 말뿐이다. 그 밖의 회사·기술·역할·성과·수치를 지어내지 않는다.
 2. answer는 질문에 대한 답이다(3~8문장, 한국어). 약한 부분·빠진 키워드를 물으면 어느 칸인지 칸 이름으로 짚는다. 자료에 없는 수치·성과를 사용자의 경험처럼 쓰지 않는다 — 필요하면 "이 수치를 알려 주세요"처럼 묻는다.
 3. suggestions는 고칠 칸 0~${MAX_DOC_SUGGESTIONS}개다. path는 <${POLISH_DOCUMENT_TAG}>의 [경로]를 그대로 쓴다(표에 없는 칸 — 이름·연락처·날짜·지원 동기 — 은 제안하지 않는다). 한 칸에 하나만. 질문에 답만 하면 되면 [].
 4. after는 그 칸에 그대로 넣을 글이고 '최대 N자'를 넘지 않는다. 지금 글과 같은 글을 내지 않는다. 자료에 없는 수치가 있어야 더 좋은 문장이면 숫자를 지어내지 말고 [ADD: 수치 확인 — 무엇을 재야 하는지]를 넣는다. 원문의 [ADD: …] 자리표시는 사실이 확인되지 않았으면 그대로 둔다.
-5. 이력서 문체를 지킨다: 칸의 종결 방식(명사형·'~함'·문장형)과 역할(한 줄 소개·요약·기여 줄 등)을 따른다. 과장(최초·유일·주도)은 자료에 근거가 있을 때만. JD 키워드는 <${TAGS.jobPosting}>에 있는 용어만, 실제 경험(자료)과 맞을 때만 넣는다.
+5. 이력서 문체를 지킨다: 칸의 종결 방식(명사형·'~함'·문장형)과 역할(한 줄 소개·요약·기여 줄 등)을 따른다. 과장(최초·유일·주도)은 자료에 근거가 있을 때만. JD 키워드는 <${TAGS.jobPosting}>·JD 분석(get_jd_analysis)에 있는 용어만, 실제 경험(자료)과 맞을 때만 넣는다.
 6. reason은 왜 바꾸는지 한 문장(40자 안팎). 더 좋게 쓰려면 받아야 할 사실이 있으면 followUpQuestion에 질문 하나(없으면 "").
 7. 이전 대화는 지시어("아까 두 번째 것")를 이해하는 데만 쓴다.
+
+${POLISH_TOOLS_RULE}
 
 ${SCOPE_RULE_POLISH_DOC}
 
@@ -152,6 +160,8 @@ export function buildPolishDocPrompt(input: {
   graphText: string;
   history: string;
   message: string;
+  /** 도구 루프: 지금까지의 도구 결과와 마지막 단계 여부. 없으면 도구 단락을 넣지 않는다. */
+  tools?: { transcript: string; finalOnly: boolean };
 }): { system: string; user: string } {
   const user = [
     field("지원 회사", safe(input.company || "(지정 없음)")),
@@ -174,6 +184,7 @@ export function buildPolishDocPrompt(input: {
     "",
     "이번 질문·요청:",
     wrap(CHAT_TAGS.latestMessage, input.message),
+    ...toolSection(input.tools),
   ].join("\n");
   return { system: POLISH_DOC_SYSTEM, user };
 }
@@ -276,6 +287,7 @@ export async function sendPolishDocMessage(
   const doc = found.document;
 
   const deadline = AbortSignal.timeout(POLISH_TIMEOUT_MS);
+  const startedAt = deps.now();
   try {
     const pre = prefilterPolishScope(input.message);
     if (pre) {
@@ -283,10 +295,11 @@ export async function sendPolishDocMessage(
     } else {
       const jdText = found.resume.jdText ?? "";
       const query = [input.message, found.resume.roleTitle, doc.basics.tagline, doc.summary, jdText.slice(0, 500)].join("\n");
-      const graph = await graphEvidenceFor(userId, query, deps, deadline);
+      const ownedGraph = await loadPolishGraph(userId, deps, deadline);
+      const graph = ownedGraph ? polishGraphEvidence(ownedGraph, query) : { text: "", count: 0 };
       const history = [...prior, userMsg];
       const resumeText = resumeToText(doc, found.resume.templateId);
-      const prompt = buildPolishDocPrompt({
+      const promptInput = {
         document: doc,
         resumeText,
         jdText,
@@ -295,27 +308,28 @@ export async function sendPolishDocMessage(
         graphText: graph.text,
         history: polishDocHistory(history),
         message: input.message,
-      });
+      };
       const client = deps.createClient(input.provider, { userId, referenceId: resumeId });
-      const { output, usage } = await client.generate({
-        task: "resume-polish",
-        system: prompt.system,
-        user: prompt.user,
-        schema: ResumePolishDocOutputSchema,
-        effort: "low",
+      const { output, usage, toolText, trace } = await runPolishLoop({
+        client,
+        system: POLISH_DOC_SYSTEM,
+        buildUser: (transcript, finalOnly) => buildPolishDocPrompt({ ...promptInput, tools: { transcript, finalOnly } }).user,
+        finalSchema: ResumePolishDocOutputSchema,
+        session: polishToolSession(userId, found.resume, doc, ownedGraph, deps),
         maxTokens: POLISH_MAX_TOKENS,
-        cacheUser: false,
         signal: deadline,
+        deadlineAt: startedAt + POLISH_TIMEOUT_MS,
+        now: deps.now,
       });
       const verdict = modelScopeVerdict(output);
       if (verdict) {
         await saveNotice(userId, thread.id, userMsg.id, scopeNoticeData({ ...verdict, source: "model" }), usage, polishDocScopeNoticeText);
       } else {
-        // 사실 출처: 이력서 본문·칸 표·JD·그래프 근거·이 대화에서 사용자가 한 말.
+        // 사실 출처: 이력서 본문·칸 표·JD·그래프 근거·도구 결과(LLM에 보인 것)·이 대화에서 사용자가 한 말.
         // 칸 표(polishDocumentTable)는 넣지 않는다: '최대 N자'·경로 번호가 근거 숫자로 잡히면 지어낸 수치("300% 개선")가 통과한다.
         const fieldTexts = polishTargets(doc).map((t) => t.text);
-        const source = [resumeText, ...fieldTexts, jdText, graph.text, ...history.filter((m) => m.role === "user").map((m) => m.content)].join("\n");
-        await saveDocReply(userId, thread.id, userMsg.id, output, { doc, versionId: found.version.id, graphSources: graph.count, source, usage });
+        const source = [resumeText, ...fieldTexts, jdText, graph.text, toolText, ...history.filter((m) => m.role === "user").map((m) => m.content)].join("\n");
+        await saveDocReply(userId, thread.id, userMsg.id, output, { doc, versionId: found.version.id, graphSources: graph.count, tools: trace, source, usage });
       }
     }
   } catch (err) {
@@ -337,7 +351,7 @@ async function saveDocReply(
   threadId: string,
   latestId: string,
   output: ResumePolishDocOutput,
-  ctx: { doc: ResumeDocument; versionId: string; graphSources: number; source: string; usage?: UsageTotals },
+  ctx: { doc: ResumeDocument; versionId: string; graphSources: number; tools: PolishToolUse[]; source: string; usage?: UsageTotals },
 ): Promise<void> {
   const { suggestions, dropped } = verifyDocSuggestions(output.suggestions ?? [], ctx.doc, ctx.source);
   const answer = verifyAnswer(output.answer ?? "", ctx.source);
@@ -350,6 +364,7 @@ async function saveDocReply(
     dropped,
     followUpQuestion: norm(output.followUpQuestion ?? "").slice(0, 300),
     graphSources: ctx.graphSources,
+    ...(ctx.tools.length ? { tools: ctx.tools.slice(0, 12) } : {}),
   };
   const content = answer.text || (suggestions.length ? "이렇게 고쳐 볼 수 있어요." : "이 질문에는 답을 만들지 못했어요. 다르게 물어봐 주세요.");
   await addMessage(

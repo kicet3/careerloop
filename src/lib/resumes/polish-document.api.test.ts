@@ -59,7 +59,14 @@ vi.mock("@/lib/llm", async (importOriginal) => {
         generate: async (req: LlmRequest<unknown>) => {
           state.calls.push({ task: String(req.task ?? req.stage), user: req.user, usage });
           const res = (await fake.generate(req)) as GenerateResult<Record<string, unknown>>;
-          return state.patch ? { ...res, output: { ...res.output, ...state.patch } } : res;
+          if (!state.patch) return res;
+          // 도구 루프의 스텝 출력({action:'final', answer})이면 최종 답에 덧씌운다.
+          const out = res.output;
+          return out.action === "final"
+            ? { ...res, output: { ...out, answer: { ...(out.answer as Record<string, unknown>), ...state.patch } } }
+            : out.action === "call_tools"
+              ? res
+              : { ...res, output: { ...out, ...state.patch } };
         },
       };
     },
@@ -150,7 +157,8 @@ describe("대화·격리", () => {
     expect(data.kind).toBe("resume-polish-doc");
     expect(m.content).toContain("가장 약한 부분은");
     expect(m.status).toBe("proposed");
-    expect(state.calls).toEqual([expect.objectContaining({ task: "resume-polish", usage: { userId: "ua", referenceId: resumeA } })]);
+    // 도구가 필요 없는 요청은 스텝 호출 1회로 끝난다(task 'resume-polish-step').
+    expect(state.calls).toEqual([expect.objectContaining({ task: "resume-polish-step", usage: { userId: "ua", referenceId: resumeA } })]);
     // 프롬프트에 이력서 칸 표(경로)와 JD가 들어간다.
     expect(state.calls[0]!.user).toContain("[summary] 요약");
     expect(state.calls[0]!.user).toContain("Kafka 기반 정산");
@@ -291,6 +299,34 @@ describe("근거 없는 수치", () => {
     const bad = polishDoc.verifyAnswer("요약이 좋아요. 매출을 40% 올린 점이 강점입니다.", "");
     expect(bad.flagged).toEqual(["40"]);
     expect(bad.text).toMatch(/^요약이 좋아요\. \[ADD: 수치 확인 — /);
+  });
+});
+
+describe("도구(JD 분석·경험 그래프)", () => {
+  it("JD·그래프 도구를 한 스텝에 부르고, 결과를 다음 스텝에 넣고, 호출 요약을 저장한다", async () => {
+    await tdb.prisma.jobPosting.create({ data: { id: "post_ua", userId: "ua", company: "토스", roleTitle: "백엔드", jdText: "자격 요건\n- 정산 처리량 4200 TPS 경험\n우대 사항\n- Go 경험" } });
+    await tdb.prisma.companyResume.update({ where: { id: resumeA }, data: { jdText: null, postingId: "post_ua" } });
+    const { data } = lastDoc(await askView(resumeA, "JD 대비 부족한 점? [가짜:JD] [가짜:그래프:결제 개선]"));
+    expect(state.calls.map((c) => c.task)).toEqual(["resume-polish-step", "resume-polish-step", "resume-polish"]);
+    expect(data.tools?.map((t) => [t.tool, t.status])).toEqual([
+      ["get_jd_analysis", "ok"],
+      ["search_graph", "ok"],
+      ["get_node", "ok"],
+    ]);
+    const second = state.calls[1]!.user;
+    expect(second).toContain("정산 처리량 4200 TPS 경험");
+    expect(second).toContain("결제 개선");
+    for (const c of state.calls) {
+      expect(c.user).not.toContain("UB비밀정산프로젝트");
+      expect(c.user).not.toMatch(/\bp_payment\b/);
+    }
+  });
+
+  it("다른 사용자 표시가 붙은 그래프면 도구도 쓰지 않고(LLM 호출 없음) 실패로 남긴다", async () => {
+    state.ownerOverride = "ub";
+    const { m } = lastDoc(await askView(resumeA, "강점이 뭐야? [가짜:그래프:결제]"));
+    expect(state.calls).toHaveLength(0);
+    expect(m.status).toBe("failed");
   });
 });
 

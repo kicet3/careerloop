@@ -60,7 +60,14 @@ vi.mock("@/lib/llm", async (importOriginal) => {
         generate: async (req: LlmRequest<unknown>) => {
           state.calls.push({ task: String(req.task ?? req.stage), user: req.user, usage });
           const res = (await fake.generate(req)) as GenerateResult<Record<string, unknown>>;
-          return state.patch ? { ...res, output: { ...res.output, ...state.patch } } : res;
+          if (!state.patch) return res;
+          // 도구 루프의 스텝 출력({action:'final', answer})이면 최종 답에 덧씌운다.
+          const out = res.output;
+          return out.action === "final"
+            ? { ...res, output: { ...out, answer: { ...(out.answer as Record<string, unknown>), ...state.patch } } }
+            : out.action === "call_tools"
+              ? res
+              : { ...res, output: { ...out, ...state.patch } };
         },
       };
     },
@@ -198,8 +205,8 @@ describe("대화", () => {
     expect(data.suggestions.length).toBeLessThanOrEqual(3);
     for (const s of data.suggestions) expect(s.reason).not.toBe("");
     expect(data.followUpQuestion).not.toBe("");
-    // 사용량은 task 'resume-polish', 이 사용자·이 이력서로 기록된다.
-    expect(state.calls).toEqual([expect.objectContaining({ task: "resume-polish", usage: { userId: "ua", referenceId: resumeA } })]);
+    // 사용량은 이 사용자·이 이력서로 기록된다. 도구가 필요 없는 요청은 스텝 호출 1회로 끝난다(task 'resume-polish-step').
+    expect(state.calls).toEqual([expect.objectContaining({ task: "resume-polish-step", usage: { userId: "ua", referenceId: resumeA } })]);
 
     await post(resumeA, { targetPath: TARGET, message: "수치 강조" });
     const again = (await (await get(resumeA)).json()) as View;
@@ -237,6 +244,77 @@ describe("대화", () => {
     // 사용자가 직접 말한 수치는 근거로 본다.
     const v2 = (await (await post(resumeA, { targetPath: TARGET, message: "처리 시간이 73% 줄었어요. 수치 강조 [가짜:수치]" })).json()) as View;
     expect(lastPolish(v2).data.suggestions[0]!.flagged).toEqual([]);
+  });
+});
+
+describe("도구(JD 분석·경험 그래프)", () => {
+  /** resumeA의 JD를 비우고 공고에 연결한다(JD는 도구로만 보인다). */
+  async function linkPosting(userId: string, jdText: string): Promise<string> {
+    const id = `post_${userId}`;
+    await tdb.prisma.jobPosting.create({ data: { id, userId, company: "토스", roleTitle: "백엔드", jdText } });
+    await tdb.prisma.companyResume.update({ where: { id: resumeA }, data: { jdText: null, postingId: id } });
+    return id;
+  }
+  const tasks = () => state.calls.map((c) => c.task);
+
+  it("그래프 도구: search_graph → get_node → 최종 답(마지막 스텝 강제), 호출 요약만 저장하고 실제 노드 id는 LLM에 보이지 않는다", async () => {
+    const view = (await (await post(resumeA, { targetPath: TARGET, message: "결과 강조 [가짜:그래프:결제 개선]" })).json()) as View;
+    expect(tasks()).toEqual(["resume-polish-step", "resume-polish-step", "resume-polish"]);
+    const { data } = lastPolish(view);
+    expect(data.tools).toEqual([
+      { tool: "search_graph", status: "ok", items: expect.any(Number), fresh: expect.any(Number) },
+      // search_graph가 이미 보여 준 노드(N1)라 서로 다른 노드 수에는 더하지 않는다.
+      { tool: "get_node", status: "ok", items: 1, fresh: 0 },
+    ]);
+    const last = state.calls.at(-1)!.user;
+    expect(last).toContain("<tool_results>");
+    expect(last).toContain("#2 get_node → ok");
+    expect(last).toContain("마지막 단계");
+    for (const c of state.calls) {
+      expect(c.user).not.toMatch(/\bp_payment\b/);
+      expect(c.user).not.toContain("UB비밀정산프로젝트");
+      expect(c.usage).toEqual({ userId: "ua", referenceId: resumeA });
+    }
+  });
+
+  it("격리: 실제 노드 id(남의 것 포함)·발급 안 한 handle은 도구 오류이고 남의 데이터는 프롬프트에 없다", async () => {
+    await post(resumeA, { targetPath: TARGET, message: "더 짧게 [가짜:노드:p_secret]" });
+    expect(state.calls[1]!.user).toContain("get_node → error: invalid_args");
+    state.calls = [];
+    const view = (await (await post(resumeA, { targetPath: TARGET, message: "더 짧게 [가짜:노드:N7]" })).json()) as View;
+    expect(state.calls[1]!.user).toContain("get_node → error: not_found");
+    expect(lastPolish(view).data.tools).toEqual([{ tool: "get_node", status: "error", items: 0 }]);
+    for (const c of state.calls) expect(c.user).not.toContain("UB비밀");
+  });
+
+  it("JD 도구: 연결된 내 공고의 요건을 돌려주고, 도구 결과의 수치는 근거로 본다", async () => {
+    await linkPosting("ua", "자격 요건\n- 처리 시간 73% 단축 경험\n우대 사항\n- Kafka 운영 경험");
+    // 도구 없이: JD가 프롬프트에 없어 73은 근거 없는 수치다.
+    const v1 = (await (await post(resumeA, { targetPath: TARGET, message: "수치 강조 [가짜:수치]" })).json()) as View;
+    expect(lastPolish(v1).data.suggestions[0]!.flagged).toEqual(["73"]);
+    // get_jd_analysis로 본 JD 요건의 수치는 근거다.
+    state.calls = [];
+    const v2 = (await (await post(resumeA, { targetPath: TARGET, message: "JD 맞춰 수치 강조 [가짜:JD] [가짜:수치]" })).json()) as View;
+    expect(state.calls[1]!.user).toContain("처리 시간 73% 단축 경험");
+    const d2 = lastPolish(v2).data;
+    expect(d2.tools).toEqual([{ tool: "get_jd_analysis", status: "ok", items: expect.any(Number) }]);
+    expect(d2.suggestions[0]!.flagged).toEqual([]);
+  });
+
+  it("JD 도구는 이 사용자의 공고만: 이력서가 남의 공고를 가리켜도 읽지 않고 'JD 없음'을 돌려준다", async () => {
+    await tdb.prisma.jobPosting.create({ data: { id: "post_ub", userId: "ub", company: "당근", roleTitle: "백엔드", jdText: "자격 요건\n- UB비밀요건 777" } });
+    await tdb.prisma.companyResume.update({ where: { id: resumeA }, data: { jdText: null, postingId: "post_ub" } });
+    const view = (await (await post(resumeA, { targetPath: TARGET, message: "JD 반영 [가짜:JD]" })).json()) as View;
+    const toolPrompt = state.calls[1]!.user;
+    expect(toolPrompt).toContain("get_jd_analysis → empty");
+    expect(toolPrompt).toContain("연결된 JD");
+    for (const c of state.calls) expect(c.user).not.toContain("UB비밀요건");
+    expect(lastPolish(view).data.tools).toEqual([{ tool: "get_jd_analysis", status: "empty", items: 0 }]);
+  });
+
+  it("도구 단계가 다하면 최종 답만 받는다(스텝 상한 3)", async () => {
+    await post(resumeA, { targetPath: TARGET, message: "더 짧게 [가짜:도구반복]" });
+    expect(tasks()).toEqual(["resume-polish-step", "resume-polish-step", "resume-polish"]);
   });
 });
 

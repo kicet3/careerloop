@@ -194,6 +194,42 @@ export const ResumePolishOutputSchema = z.object({
 });
 export type ResumePolishOutput = z.input<typeof ResumePolishOutputSchema>;
 
+// ---------------------------------------------------------------------------
+// 도구(칸·전체 모드 공용 — src/lib/resumes/polish-tools.ts, docs/RESUME-POLISH-TOOLS.md)
+// ---------------------------------------------------------------------------
+
+/** 다듬기 AI가 부를 수 있는 도구. 모두 이 사용자·이 이력서의 자료만 읽는다(범위는 서버가 정한다 — 인자에 id가 없다). */
+export const POLISH_TOOL_NAMES = ["get_jd_analysis", "search_graph", "get_node", "list_nodes"] as const;
+export type PolishToolName = (typeof POLISH_TOOL_NAMES)[number];
+
+/** 답변 하나에서 쓴 도구 호출 요약(원문 데이터 없이 이름·결과 상태·항목 수만 저장한다). */
+export interface PolishToolUse {
+  tool: PolishToolName;
+  status: "ok" | "empty" | "error";
+  /** 결과 항목 수(그래프 노드 수, JD 분석은 구역 수). */
+  items: number;
+  /** 그래프 도구: 이 턴에서 처음 본 노드 수(앞 호출에서 이미 본 노드는 세지 않는다). 예전 메시지에는 없다. */
+  fresh?: number;
+}
+
+/** 도구 호출 요약 → 화면 한 줄("JD 분석 · 경험 그래프 3건" — 서로 다른 노드 수). 성공한 호출이 없으면 null. */
+export function polishToolSummary(tools: readonly PolishToolUse[] | undefined): string | null {
+  const ok = (tools ?? []).filter((t) => t.status === "ok");
+  if (ok.length === 0) return null;
+  const parts: string[] = [];
+  if (ok.some((t) => t.tool === "get_jd_analysis")) parts.push("JD 분석");
+  const graph = ok.filter((t) => t.tool !== "get_jd_analysis");
+  if (graph.length > 0) parts.push(`경험 그래프 ${graph.reduce((n, t) => n + (t.fresh ?? t.items), 0)}건`);
+  return parts.join(" · ");
+}
+
+export const POLISH_TOOL_LABELS: Record<PolishToolName, string> = {
+  get_jd_analysis: "JD 분석 조회",
+  search_graph: "경험 그래프 검색",
+  get_node: "경험 노드 자세히 보기",
+  list_nodes: "경험 노드 목록",
+};
+
 export interface PolishSuggestion {
   text: string;
   reason: string;
@@ -212,6 +248,8 @@ export interface ResumePolishData {
   followUpQuestion: string;
   /** 근거로 쓴 그래프 노드 수(0이면 이력서·JD만). */
   graphSources: number;
+  /** 이 답변을 만들며 부른 도구(없으면 생략). */
+  tools?: PolishToolUse[];
   /** 적용한 제안 번호(0부터)와 그로 만든 버전. */
   appliedIndex?: number;
   appliedVersionId?: string;
@@ -326,6 +364,8 @@ export interface ResumePolishDocData {
   dropped: number;
   followUpQuestion: string;
   graphSources: number;
+  /** 이 답변을 만들며 부른 도구(없으면 생략). */
+  tools?: PolishToolUse[];
   /** 적용한 제안 번호(0부터)와 그로 만든 버전(여러 번 나눠 적용할 수 있다). */
   applied?: { index: number; versionId: string }[];
 }
