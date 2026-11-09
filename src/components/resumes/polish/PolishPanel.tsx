@@ -42,7 +42,7 @@ interface View {
 
 const QUICK = ["더 짧게", "JD 키워드 넣어서", "수치 강조", "더 구체적으로"] as const;
 /** 대상 칸이 프로젝트 안이면 더 보이는 빠른 요청. */
-const QUICK_PROJECT = "이름·문제·행동·결과 한번에 채워 줘";
+const QUICK_PROJECT = "이름·문제·개선·결과 한번에 채워 줘";
 
 async function readError(res: Response, fallback: string): Promise<string> {
   const data = (await res.json().catch(() => null)) as { error?: string } | null;

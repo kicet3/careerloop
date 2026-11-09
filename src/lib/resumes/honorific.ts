@@ -16,7 +16,7 @@ export function honorificRuleFor(scope: string): string {
 }
 
 /** 이력서 생성 프롬프트 규칙(단일 초안·에이전트 v1/v2·심사위원 채팅 — writing-guide.ts 작성 기준에 들어간다). */
-export const HONORIFIC_RULE = honorificRuleFor("요약·한 줄 소개·경력 담당 범위와 불릿·프로젝트 요약·문제·행동·결과·직무 역량 설명·수상·기타 설명·지원 동기");
+export const HONORIFIC_RULE = honorificRuleFor("요약·한 줄 소개·경력 담당 범위와 불릿·프로젝트 요약·문제·개선·결과·직무 역량 설명·수상·기타 설명·지원 동기");
 
 /** 짧은 규칙(지원 동기 초안처럼 이미 '~습니다'를 정한 프롬프트에 덧붙인다). */
 export const HONORIFIC_ENDING_HINT = "문장 끝은 경어체('~했습니다/~합니다/~입니다')로 쓰고 평어체('~했다/~한다/~이다')로 끝내지 않는다.";

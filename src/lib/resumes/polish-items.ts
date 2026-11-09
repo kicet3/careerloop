@@ -11,9 +11,9 @@
  * - 이름·회사·직무·부서(IDENTITY_FIELDS)는 고치기·추가 모두 근거에 없으면 [ADD: 이름 확인 — …]/[ADD: 사실 확인 — …]로 둔다.
  *   역할·팀 구성(FLAG_FIELDS)은 풀어 쓰는 칸이라 값은 두고 '근거 확인 필요'로 표시한다.
  * - 추가는 이름(프로젝트 이름 또는 회사, 경력은 회사)이 근거에 있을 때만 받는다 — 근거 없는 새 항목을 통째로 지어내지 않는다.
- *   추가하는 프로젝트의 문제·행동·결과(경력은 직무·담당 범위)가 비어 있으면 [ADD: …] 자리표시로 채운다.
+ *   추가하는 프로젝트의 문제·개선·결과(경력은 직무·담당 범위)가 비어 있으면 [ADD: …] 자리표시로 채운다.
  * - 고치기 제안에는 대상 항목의 정체 스냅샷(anchor)을 남긴다 — 순서가 바뀌어 같은 자리에 다른 항목이 오면 적용하지 않는다.
- * - 문체: 서술 칸(HONORIFIC_ITEM_FIELDS — 요약·문제·행동·결과·기여 줄·담당 범위)만 숫자 자리표시를 넣은 뒤 경어체로 맞춘다(normalizeHonorific).
+ * - 문체: 서술 칸(HONORIFIC_ITEM_FIELDS — 요약·문제·개선·결과·기여 줄·담당 범위)만 숫자 자리표시를 넣은 뒤 경어체로 맞춘다(normalizeHonorific).
  *   이름·회사·팀·역할·직무·기간·기술 칸은 건드리지 않는다. 바꾸지 못한 평어체 문장이 남으면 제안은 두고 reason에 '문체 확인 필요'를 붙인다.
  */
 import {
@@ -103,7 +103,7 @@ const ADD_PLACEHOLDERS: Record<PolishItemSection, Record<string, string>> = {
   projects: {
     name: "[ADD: 프로젝트 이름]",
     problem: "[ADD: 문제 — 어떤 자료로 어떤 상황·원인을 확인했는지]",
-    action: "[ADD: 행동 — 본인이 판단·실행한 일]",
+    action: "[ADD: 개선 — 본인이 바꾼 방법·실행한 일]",
     result: "[ADD: 결과 — 기간·대상과 지표 전후 변화]",
   },
   experience: {
@@ -327,7 +327,7 @@ export function verifyItemSuggestion(
     if (v.flagged.length) flaggedByField.set(c.field, v.flagged);
   }
   // 근거(facts)에 있는 이름(프로젝트 이름·회사, 경력은 회사)이 하나도 없으면 추가하지 않는다 —
-  // 이름까지 자리표시인 새 항목은 요약·문제·행동을 통째로 지어낸 것일 수 있다.
+  // 이름까지 자리표시인 새 항목은 요약·문제·개선을 통째로 지어낸 것일 수 있다.
   const grounded = ANCHOR_NAME_FIELDS[section].some((f) => {
     const v = item[f];
     return typeof v === "string" && !!v.trim() && !/\[ADD:/.test(v);

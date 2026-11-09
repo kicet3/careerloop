@@ -122,7 +122,7 @@ const FIELD_LABEL: Record<string, string> = {
   scope: "담당 범위",
   summary: "요약",
   problem: "문제",
-  action: "행동",
+  action: "개선",
   result: "결과",
   detail: "설명",
 };
@@ -208,7 +208,7 @@ export const ResumePolishOutputSchema = z.object({
   itemChanges: z
     .array(PolishItemChangeOutputSchema)
     .default([])
-    .describe("이 칸이 든 항목(<polish_items>) 하나의 여러 칸을 한 번에 채우거나 고칠 때만(예: 이름·문제·행동·결과를 한꺼번에). 바꿀 칸만. 아니면 []"),
+    .describe("이 칸이 든 항목(<polish_items>) 하나의 여러 칸을 한 번에 채우거나 고칠 때만(예: 이름·문제·개선·결과를 한꺼번에). 바꿀 칸만. 아니면 []"),
   itemReason: z.string().default("").describe('itemChanges가 있을 때 이유 한 문장. 없으면 ""'),
 });
 export type ResumePolishOutput = z.input<typeof ResumePolishOutputSchema>;

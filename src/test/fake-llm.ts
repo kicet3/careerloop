@@ -1261,7 +1261,7 @@ function fakeAgentRevise(user: string): unknown {
 /**
  * 가짜 이력서 다듬기: <polish_target>의 글로 대안 2개(짧게 / 수치 자리표시)를 낸다. 그래프 근거 [1]이 있으면 그 이름을 셋째 대안에 쓴다.
  * 요청에 "[가짜:수치]"가 있으면 근거에 없는 숫자(73%)를 넣는다(서버 사실 검증 시험용).
- * 요청에 "[가짜:묶음]" 또는 "한번에 채워"가 있고 <polish_items>(대상 칸이 든 항목)가 있으면 그 항목의 이름·문제·행동·결과·기술을 한 번에 채운다(itemChanges).
+ * 요청에 "[가짜:묶음]" 또는 "한번에 채워"가 있고 <polish_items>(대상 칸이 든 항목)가 있으면 그 항목의 이름·문제·개선·결과·기술을 한 번에 채운다(itemChanges).
  * 요청에 "[가짜:평어]"가 있으면 평어체('~했다')로 끝나는 대안·안내를 낸다(둘째 대안 '개발자다.'는 자동으로 바꿀 수 없는 꼴 — 서버 문체 정리 시험용).
  */
 function fakeResumePolish(user: string): ResumePolishOutput {
@@ -1290,7 +1290,7 @@ function fakeResumePolish(user: string): ResumePolishOutput {
     suggestions: suggestions.slice(0, 3),
     followUpQuestion: "이 일로 바뀐 지표와 기간을 알려 주실 수 있나요?",
     itemChanges: grouped ? fakeProjectChanges(user, message) : [],
-    itemReason: grouped ? "프로젝트 이름·문제·행동·결과를 한 번에 채웠다." : "",
+    itemReason: grouped ? "프로젝트 이름·문제·개선·결과를 한 번에 채웠다." : "",
   };
 }
 
@@ -1307,7 +1307,7 @@ function fakeGraphProject(user: string): { name: string; summary: string } | nul
   return src ? { name: src[1]!.trim(), summary: "" } : null;
 }
 
-/** 가짜 프로젝트 칸 묶음: 이름(그래프 프로젝트가 있으면 그 이름)·문제·행동·결과·기술. "[가짜:수치]"면 결과에 근거 없는 73%. */
+/** 가짜 프로젝트 칸 묶음: 이름(그래프 프로젝트가 있으면 그 이름)·문제·개선·결과·기술. "[가짜:수치]"면 결과에 근거 없는 73%. */
 function fakeProjectChanges(user: string, message: string): PolishItemChangeOutput[] {
   const project = fakeGraphProject(user);
   return [

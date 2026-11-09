@@ -205,7 +205,7 @@ RESUME_TEMPLATES: dict[str, ResumeTemplate] = {
     "performance": ResumeTemplate(
         "performance",
         "성과 중심",
-        "핵심 성과를 맨 위에 두고 경력·프로젝트를 문제→행동→결과로 보여주는 A4 1장 양식. 미리보기에서 바로 고친다.",
+        "핵심 성과를 맨 위에 두고 경력·프로젝트를 문제→개선→결과로 보여주는 A4 1장 양식. 미리보기에서 바로 고친다.",
         ("summary", "highlights", "experience", "projects", "skills", "education", "certifications", "extras", "motivation"),
     ),
     "classic": ResumeTemplate(
@@ -303,7 +303,7 @@ SYSTEM = "\n".join(
     ]
 )
 
-_PERFORMANCE_MEMO = "A4 1장 분량. summary는 '[문제]를 [방법]으로 개선하는 [직무]입니다.'와 '[경험·도메인]에서 [담당 범위]를 맡아 [결과]를 만들었습니다.' 두 문장을 줄바꿈으로 나눠 쓴다. highlights 2~3개, 경력 불릿은 항목당 1~3개, 프로젝트는 대표 2~3개를 문제·행동·결과로."
+_PERFORMANCE_MEMO = "A4 1장 분량. summary는 '[문제]를 [방법]으로 개선하는 [직무]입니다.'와 '[경험·도메인]에서 [담당 범위]를 맡아 [결과]를 만들었습니다.' 두 문장을 줄바꿈으로 나눠 쓴다. highlights 2~3개, 경력 불릿은 항목당 1~3개, 프로젝트는 대표 2~3개를 문제·개선·결과로."
 
 
 def build_resume_draft_prompt(ctx: DraftContext) -> tuple[str, str]:

@@ -42,7 +42,7 @@ interface DocView {
 
 type Exclude = { index: number; fields: string[] }[];
 
-const QUICK = ["가장 약한 부분이 어디야?", "JD 대비 빠진 키워드는?", "수치가 부족한 줄은?", "요약을 JD에 맞게", "첫 프로젝트 이름·문제·행동·결과 한번에 채워 줘", "경험 그래프에서 프로젝트 추가해 줘"] as const;
+const QUICK = ["가장 약한 부분이 어디야?", "JD 대비 빠진 키워드는?", "수치가 부족한 줄은?", "요약을 JD에 맞게", "첫 프로젝트 이름·문제·개선·결과 한번에 채워 줘", "경험 그래프에서 프로젝트 추가해 줘"] as const;
 
 async function readError(res: Response, fallback: string): Promise<{ error: string; conflicts: PolishConflictField[] }> {
   const data = (await res.json().catch(() => null)) as { error?: string; conflicts?: PolishConflictField[] } | null;

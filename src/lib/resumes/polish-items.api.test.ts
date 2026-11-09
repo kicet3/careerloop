@@ -153,8 +153,8 @@ const itemsOf = (data: ResumePolishDocData) =>
 const versions = async () => (await service.listVersions("ua", resumeA))!.length;
 
 describe("칸 모드: 프로젝트 칸에서 여러 칸 한 번에", () => {
-  it("이름·문제·행동·결과를 한 카드로 받고(대상 항목은 서버가 고정), 한 번에 적용하면 새 버전 하나", async () => {
-    const { view, m, data } = await askField("[가짜:묶음] 이름·문제·행동·결과 한번에 채워 줘");
+  it("이름·문제·개선·결과를 한 카드로 받고(대상 항목은 서버가 고정), 한 번에 적용하면 새 버전 하나", async () => {
+    const { view, m, data } = await askField("[가짜:묶음] 이름·문제·개선·결과 한번에 채워 줘");
     expect(view.item).toMatchObject({ section: "projects", index: 0, value: { name: "정산 개편" } });
     // 프롬프트에 대상 항목 줄이 들어간다.
     expect(state.calls[0]!.user).toContain("<polish_items>");
@@ -251,7 +251,7 @@ describe("전체 이력서 모드: 항목 고치기·추가", () => {
         { path: "summary", after: "요약을 고쳤다", reason: "" },
       ],
     };
-    const { m, data } = await askDoc("[가짜:묶음] 첫 프로젝트 이름·문제·행동·결과 한번에 채워 줘");
+    const { m, data } = await askDoc("[가짜:묶음] 첫 프로젝트 이름·문제·개선·결과 한번에 채워 줘");
     expect(state.calls[0]!.user).toContain("- [projects[0]] name=정산 개편");
     expect(state.calls[0]!.user).toMatch(/프로젝트\(projects\) 1\/20개/);
     const items = itemsOf(data);

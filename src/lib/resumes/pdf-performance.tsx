@@ -263,7 +263,7 @@ export function PerformancePdfDocument({ doc, photo = null }: { doc: ResumeDocum
       const details = (
         [
           ["문제", p.problem, false],
-          ["행동", p.action, false],
+          ["개선", p.action, false],
           ["결과", p.result, true],
         ] as const
       ).filter(([, v]) => has(v));

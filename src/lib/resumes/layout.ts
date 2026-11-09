@@ -82,12 +82,12 @@ export function resumeLayout(doc: ResumeDocument, templateId: ResumeTemplateId):
   return { main: keys.filter((k) => !SIDEBAR_SECTIONS.includes(k)), side: keys.filter((k) => SIDEBAR_SECTIONS.includes(k)) };
 }
 
-/** 프로젝트의 문제·행동·결과를 다른 양식(웹·PDF)에서는 "문제: …" 불릿으로 보인다. */
+/** 프로젝트의 문제·개선·결과를 다른 양식(웹·PDF)에서는 "문제: …" 불릿으로 보인다. */
 export function projectStoryLines(p: ResumeProject): string[] {
   return (
     [
       ["문제", p.problem],
-      ["행동", p.action],
+      ["개선", p.action],
       ["결과", p.result],
     ] as const
   )
@@ -176,7 +176,7 @@ export function resumeToText(doc: ResumeDocument, templateId: ResumeTemplateId):
           if (p.summary.trim()) out.push(p.summary.trim());
           for (const [label, v] of [
             ["문제", p.problem],
-            ["행동", p.action],
+            ["개선", p.action],
             ["결과", p.result],
           ] as const) {
             if (v.trim()) out.push(`- ${label}: ${v.trim()}`);

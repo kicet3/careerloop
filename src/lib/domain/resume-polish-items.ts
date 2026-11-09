@@ -2,7 +2,7 @@
  * 이력서 AI로 다듬기 — 항목 단위 제안(클라이언트·서버 공용, 순수): 프로젝트·경력 항목 하나의 여러 칸을 한 번에 고치기(item-edit)와
  * 새 항목 추가(item-add).
  *
- * - 칸 제안({path, after})은 한 칸만 바꾼다. 항목 제안은 한 항목의 이름·역할·기간·문제·행동·결과·기여·기술 등 여러 칸을 한 카드로 내고,
+ * - 칸 제안({path, after})은 한 칸만 바꾼다. 항목 제안은 한 항목의 이름·역할·기간·문제·개선·결과·기여·기술 등 여러 칸을 한 카드로 내고,
  *   적용은 한 번에(원자적으로) 한다 — 고칠 칸 중 하나라도 제안 뒤 바뀌었으면 409이고 아무것도 바꾸지 않는다.
  * - 대상 항목·자리(index)·before는 서버가 지금 문서로 정한다(LLM 값을 믿지 않는다). 칸 글자·줄 수·항목 수 상한은 ResumeDocumentSchema에서 읽는다.
  * - 숫자 검증·근거 없는 기술·이름 처리는 서버(src/lib/resumes/polish-items.ts)가 한다. 이 파일은 계약과 문서 읽기·쓰기만 둔다.
@@ -45,7 +45,7 @@ const FIELD_LABELS: Record<PolishItemSection, Record<string, string>> = {
     endDate: "끝",
     summary: "요약",
     problem: "문제",
-    action: "행동",
+    action: "개선",
     result: "결과",
     bullets: "기여",
     techs: "기술",

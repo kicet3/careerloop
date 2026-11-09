@@ -54,7 +54,7 @@ describe("패널 프롬프트(진단 경로) 불변", () => {
 });
 
 describe("단일 초안 프롬프트 불변", () => {
-  it("사실 규칙 추출 뒤에도 같다(새 자료 태그 이름 두 개만 INJECTION_RULE에 더해짐 · 대표 프로젝트 2~3개 규칙 11과 양식 메모 · 작성 기준의 경어체 규칙 · 프로젝트 근거 칸을 비우는 문구만 바뀜)", () => {
+  it("사실 규칙 추출 뒤에도 같다(새 자료 태그 이름 두 개만 INJECTION_RULE에 더해짐 · 대표 프로젝트 2~3개 규칙 11과 양식 메모 · 작성 기준의 경어체 규칙 · 프로젝트 근거 칸을 비우는 문구 · 문제·행동→문제·개선 라벨만 바뀜)", () => {
     const d = buildResumeDraftPrompt({ company: "c", roleTitle: "r", jdText: "j", templateId: "performance", material: { kind: "graph", text: "g" } });
     const before = d.system
       .replace(", <resume_plan>, <requirement_candidates>", "")
@@ -62,13 +62,15 @@ describe("단일 초안 프롬프트 불변", () => {
       .replace(`\n11. ${PROJECT_COUNT_RULE}`, "")
       .replace(`\n- ${HONORIFIC_RULE}`, "")
       .replace("result(기간·대상과 지표 변화). evidence는 쓰지 않는 칸이라 빈 문자열로 둔다. 팀", "result(기간·대상과 지표 변화), evidence(측정 자료명·공개 링크). 팀")
-      .replace("→ 문제와 판단 → 실행 → 결과.", "→ 문제와 판단 → 실행 → 결과와 근거.");
+      .replace("→ 문제와 판단 → 실행 → 결과.", "→ 문제와 판단 → 실행 → 결과와 근거.")
+      .replaceAll("문제·개선", "문제·행동")
+      .replaceAll("문제→개선", "문제→행동");
     expect(d.system).toContain(`\n- ${HONORIFIC_RULE}\n`);
     expect(d.system).toContain("evidence는 쓰지 않는 칸이라 빈 문자열로 둔다");
     expect(d.system).not.toContain("결과와 근거");
     expect(d.system).toContain(`\n11. ${PROJECT_COUNT_RULE}\n`);
     expect(d.user).toContain("프로젝트는 대표 2~3개를");
-    expect(sha(before + d.user.replace("프로젝트는 대표 2~3개를", "프로젝트는 대표 2개를"))).toBe("75466e4b9716867f3497a6f61c34e1585bc3d142ea4579d2761ad3355ebe8f93");
+    expect(sha(before + d.user.replace("프로젝트는 대표 2~3개를", "프로젝트는 대표 2개를").replaceAll("문제·개선", "문제·행동").replaceAll("문제→개선", "문제→행동"))).toBe("75466e4b9716867f3497a6f61c34e1585bc3d142ea4579d2761ad3355ebe8f93");
     const rules = d.system.slice(d.system.indexOf("규칙:"), d.system.indexOf("10. 아래 작성 기준"));
     expect(rules).toBe(["규칙:", ...RESUME_FACT_RULES, ""].join("\n"));
   });

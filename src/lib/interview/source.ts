@@ -47,7 +47,7 @@ export function resumeSourceLines(doc: ResumeDocument): InterviewSourceLine[] {
     push(`프로젝트 · ${name} · 역할`, `projects.${i}.role`, p.role);
     push(`프로젝트 · ${name} · 요약`, `projects.${i}.summary`, p.summary);
     push(`프로젝트 · ${name} · 문제`, `projects.${i}.problem`, p.problem);
-    push(`프로젝트 · ${name} · 행동`, `projects.${i}.action`, p.action);
+    push(`프로젝트 · ${name} · 개선`, `projects.${i}.action`, p.action);
     push(`프로젝트 · ${name} · 결과`, `projects.${i}.result`, p.result);
     p.bullets.forEach((b, j) => push(`프로젝트 · ${name} · ${j + 1}`, `projects.${i}.bullets.${j}`, b));
   });

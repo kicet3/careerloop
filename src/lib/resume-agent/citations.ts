@@ -186,7 +186,7 @@ export function parseCitations(
  */
 export function locateQuote(doc: ResumeDocument, quote: string | null | undefined): DocPath[] {
   if (!quote?.trim()) return [];
-  const q = normalizeForQuote(quote.replace(/^[-•]\s*/, "").replace(/^(문제|행동|결과|근거):\s*/, ""));
+  const q = normalizeForQuote(quote.replace(/^[-•]\s*/, "").replace(/^(문제|개선|행동|결과|근거):\s*/, ""));
   const out: DocPath[] = [];
   for (const { path, value } of linePaths(doc)) {
     if (!value.trim()) continue;

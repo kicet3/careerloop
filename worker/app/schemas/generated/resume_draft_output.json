@@ -249,7 +249,7 @@
               "action": {
                 "type": "string",
                 "maxLength": 500,
-                "description": "행동: 본인의 판단·실행·협업"
+                "description": "개선: 문제를 풀려고 본인이 바꾼 방법·판단·실행"
               },
               "result": {
                 "type": "string",

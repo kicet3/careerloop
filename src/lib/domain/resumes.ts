@@ -3,7 +3,7 @@
  * 메타데이터는 PostgreSQL(company_resumes·resume_versions), 버전별 본문(ResumeDocument JSON)은 저장소(src/lib/storage).
  *
  * ResumeDocument는 LLM 구조화 출력에도 그대로 쓰므로 선택 필드·유니온 없이 모든 필드를 필수로 둔다(값이 없으면 "" 또는 []).
- * 나중에 더한 필드(성과 중심 양식용: 총 경력·포트폴리오·핵심 성과·부서·담당 범위·문제/행동/결과 등)가 없는
+ * 나중에 더한 필드(성과 중심 양식용: 총 경력·포트폴리오·핵심 성과·부서·담당 범위·문제/개선/결과 등)가 없는
  * 예전 저장본은 upgradeResumeDocument가 빈 값으로 채운 뒤 검증한다(parseResumeDocument).
  */
 import { z } from "zod";
@@ -102,7 +102,7 @@ export const ResumeDocumentSchema = z.object({
         endDate: s(20),
         summary: s(600),
         problem: s(500).describe("문제: 어떤 자료로 어떤 원인·상황을 확인했는지"),
-        action: s(500).describe("행동: 본인의 판단·실행·협업"),
+        action: s(500).describe("개선: 문제를 풀려고 본인이 바꾼 방법·판단·실행"),
         result: s(500).describe("결과: 기간·대상과 지표 전후 변화 또는 검증 결과"),
         // 예전 문서 호환용 칸: 화면·PDF·텍스트에 내보내지 않고, 생성 결과에서는 비운다(clearProjectEvidence).
         evidence: s(300).describe("쓰지 않는 칸(예전 문서 호환용). 항상 빈 문자열"),
@@ -351,7 +351,7 @@ export const RESUME_TEMPLATES: Record<ResumeTemplateId, ResumeTemplate> = {
   performance: {
     id: "performance",
     name: "성과 중심",
-    description: "핵심 성과를 맨 위에 두고 경력·프로젝트를 문제→행동→결과로 보여주는 A4 1장 양식. 미리보기에서 바로 고친다.",
+    description: "핵심 성과를 맨 위에 두고 경력·프로젝트를 문제→개선→결과로 보여주는 A4 1장 양식. 미리보기에서 바로 고친다.",
     sectionOrder: ["summary", "highlights", "experience", "projects", "skills", "education", "certifications", "extras", "motivation"],
     style: { accent: "#264e77", baseFontSize: 10, headingStyle: "plain", layout: "labeled", density: "normal", skillChips: false },
   },

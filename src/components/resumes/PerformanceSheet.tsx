@@ -119,7 +119,7 @@ const PH = {
   team: "[팀 구성]",
   role: "[결정·실행 범위]",
   problem: ["[어떤 자료]로 [개선이 필요한 원인·상황]을 확인.", "[고객·동료·업무]의 [문제]와 [목표 또는 제약]을 파악."],
-  action: ["[선택 기준]에 따라 [본인의 판단·실행·협업]을 수행.", "[비교한 대안·합의 기준]을 바탕으로 [본인 행동]을 실행."],
+  action: ["[원인·대안 비교]를 바탕으로 [본인이 바꾼 방법·구조]를 적용.", "[합의한 기준]에 따라 [본인이 개선한 프로세스·기능]을 실행."],
   result: ["[기간·대상]에서 [지표 전후 변화 또는 검증 결과] 확인.", "[확인한 결과]를 얻고 [프로세스·기준·산출물]을 정착."],
   skillName: ["[업무·방법론]", "[도구·기술]"],
   skillDetail: ["[실제로 수행할 수 있는 일과 적용 경험]", "[도구명]을 활용한 [분석·설계·개발·운영 범위]"],
@@ -922,7 +922,7 @@ export function PerformanceSheet({
               />
             </div>
             {detail("problem", "문제")}
-            {detail("action", "행동")}
+            {detail("action", "개선")}
             {detail("result", "결과")}
             {edit && <RemoveButton label={`${n} 프로젝트 삭제`} onClick={() => set({ projects: removeAt(doc.projects, i) })} />}
             {edit && doc.projects.length > 1 && <ReorderControls r={projOrder} i={i} label={`${n} 프로젝트`} />}

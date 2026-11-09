@@ -251,7 +251,7 @@ describe("항목 추가(item-add) 검증", () => {
       startDate: "2023.01",
       techs: ["Go", "Kafka"],
       problem: expect.stringMatching(/^\[ADD: 문제/),
-      action: expect.stringMatching(/^\[ADD: 행동/),
+      action: expect.stringMatching(/^\[ADD: 개선/),
       result: expect.stringMatching(/^\[ADD: 결과/),
       company: "",
       bullets: [],
@@ -282,7 +282,7 @@ describe("항목 추가(item-add) 검증", () => {
     expect(s.item!.company).toBe("[ADD: 이름 확인 — 블록체인 랩]");
     expect(s.item!.result).toBe("[ADD: 수치 확인 — 매출을 300% 올렸다]");
     expect(s.flagged).toEqual(expect.arrayContaining(["블록체인 랩", "300"]));
-    // 이름이 근거에 없으면 요약·문제·행동이 숫자 없이 그럴듯해도 추가하지 않는다.
+    // 이름이 근거에 없으면 요약·문제·개선이 숫자 없이 그럴듯해도 추가하지 않는다.
     expect(
       verifyItemSuggestion(
         {

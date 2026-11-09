@@ -64,7 +64,7 @@ export const projectsAgent: SectionAgentDef = {
   effort: "medium",
   maxTokens: 14_000,
   rules: [
-    "- projects만 쓴다: 작전 지시서 include.projects 순서대로, why를 반영해 문제·행동·결과(problem·action·result)로. 기간은 근거 값 그대로(서버가 보정한다).",
+    "- projects만 쓴다: 작전 지시서 include.projects 순서대로, why를 반영해 문제·개선·결과(problem·action·result)로. 기간은 근거 값 그대로(서버가 보정한다).",
     "- 프로젝트마다 대응 JD 요건을 1개 이상 citations.requirementIds에 적는다. result는 근거에 있는 결과만. techs는 근거의 '기술:'에 있는 것만.",
     "- 대표 프로젝트는 기본 2~3개: include.projects가 2개 미만이면 '참고' 근거의 프로젝트(Project) 중 JD 요건과 가장 가까운 것으로 2개를 채우고, 3개를 넘기지 않는다(넘치면 JD 관련도 높은 3개). 근거에 프로젝트가 더 없으면 지어내지 말고 있는 만큼만 쓰고 missingInfo에 다른 프로젝트가 있는지 묻는다.",
     COMMON_FACT,
