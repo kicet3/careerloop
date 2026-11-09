@@ -2,12 +2,14 @@
 
 import { useId, useState, type ReactNode } from "react";
 import { Button } from "@/components/ui/Button";
+import { cn } from "@/components/ui/cn";
 import { MonthInput } from "@/components/ui/MonthInput";
 import { EMPTY_RESUME_ITEM, RESUME_SECTION_LABELS, type ResumeDocument, type ResumeSectionKey } from "@/lib/domain/resumes";
+import { patchItem, useAnnouncer, useReorder } from "./reorder";
 import { labelClass, smallInputClass, smallTextareaClass } from "./styles";
 
 /**
- * ResumeDocument 구조화 편집 폼. 섹션별 항목을 추가·삭제·순서 변경하고, 불릿·기술 목록은 줄 단위로 입력한다.
+ * ResumeDocument 구조화 편집 폼. 섹션별 항목을 추가·삭제·순서 변경(끌기·버튼·방향키)하고, 불릿·기술 목록은 줄 단위로 입력한다.
  * 길이 한도는 ResumeDocumentSchema와 같게 maxLength로 막는다(저장 전 최종 검증은 스키마).
  */
 
@@ -179,13 +181,17 @@ function ListText({
   );
 }
 
-/** 항목 목록 편집 틀: 각 항목 카드 + 위/아래/삭제 + 추가. */
-function ItemList<T>({
+/**
+ * 항목 목록 편집 틀: 각 항목 카드 + 순서 바꾸기(끌기 손잡이·위/아래) + 삭제 + 추가.
+ * 카드 key는 항목을 따라가는 화면용 key(reorder.ts) — 자리 번호로 두면 순서를 바꿨을 때 칸의 지역 상태가 옛 자리에 남는다.
+ */
+function ItemList<T extends object>({
   items,
   onChange,
   make,
   max,
   addLabel,
+  noun,
   title,
   render,
 }: {
@@ -194,37 +200,82 @@ function ItemList<T>({
   make: () => T;
   max: number;
   addLabel: string;
-  title: (item: T, i: number) => string;
+  /** 버튼 이름·알림에 쓰는 항목 이름(예: "경력" → "경력 2 위로 이동"). */
+  noun: string;
+  /** 항목의 실제 이름(회사·학교 등). 비었으면 화면에는 "경력 2"처럼 noun과 번호로 보인다. */
+  title: (item: T) => string;
   render: (item: T, update: (patch: Partial<T>) => void) => ReactNode;
 }) {
-  const move = (i: number, d: -1 | 1) => {
-    const j = i + d;
-    if (j < 0 || j >= items.length) return;
-    const next = [...items];
-    [next[i], next[j]] = [next[j]!, next[i]!];
-    onChange(next);
-  };
+  const [message, announce] = useAnnouncer();
+  const r = useReorder({
+    items,
+    onChange,
+    announce,
+    // 이름이 없는 항목은 "경력 2(경력 2)"처럼 겹쳐 읽히지 않게 괄호를 붙이지 않는다.
+    name: (x, i) => {
+      const t = title(x).trim();
+      return `${noun} ${i + 1}${t ? `(${t})` : ""}`;
+    },
+  });
+  const many = items.length > 1;
   return (
     <div className="space-y-3">
-      {items.map((item, i) => (
-        <div key={i} className="rounded-lg border border-slate-200 bg-slate-50/50 p-3">
-          <div className="mb-2 flex items-center justify-between gap-2">
-            <p className="min-w-0 truncate text-sm font-medium text-slate-700">{title(item, i)}</p>
-            <div className="flex shrink-0 gap-1">
-              <Button size="sm" variant="ghost" aria-label="위로" disabled={i === 0} onClick={() => move(i, -1)}>
-                ↑
-              </Button>
-              <Button size="sm" variant="ghost" aria-label="아래로" disabled={i === items.length - 1} onClick={() => move(i, 1)}>
-                ↓
-              </Button>
-              <Button size="sm" variant="ghost" className="text-red-700" onClick={() => onChange(items.filter((_, k) => k !== i))}>
-                삭제
-              </Button>
+      {items.map((item, i) => {
+        const n = `${noun} ${i + 1}`;
+        return (
+          <div
+            key={r.keys[i]}
+            {...r.item(i)}
+            data-dragging={r.dragging === i || undefined}
+            data-drop-target={r.dragging !== null && r.over === i && r.dragging !== i ? (r.dragging > i ? "before" : "after") : undefined}
+            className={cn(
+              "rounded-lg border border-slate-200 bg-slate-50/50 p-3 transition-shadow",
+              r.dragging === i && "opacity-50",
+              "data-[drop-target=before]:shadow-[0_-3px_0_0_var(--color-indigo-500)] data-[drop-target=after]:shadow-[0_3px_0_0_var(--color-indigo-500)]",
+            )}
+          >
+            <div className="mb-2 flex items-center justify-between gap-2">
+              <div className="flex min-w-0 items-center gap-1.5">
+                {many && (
+                  // 손잡이는 span(role=button): Firefox는 <button>을 끌지 못한다.
+                  <span
+                    role="button"
+                    tabIndex={0}
+                    {...r.handle(i)}
+                    aria-label={`${n} 순서 바꾸기`}
+                    aria-roledescription="끌기 손잡이"
+                    aria-keyshortcuts="ArrowUp ArrowDown Home End"
+                    title="끌어서 순서 바꾸기 · 방향키 ↑↓, Home/End로도 옮깁니다"
+                    className="flex size-7 shrink-0 cursor-grab touch-none items-center justify-center rounded-md text-slate-400 select-none hover:bg-slate-100 hover:text-slate-700 focus-visible:ring-2 focus-visible:ring-indigo-500/40 focus-visible:outline-none active:cursor-grabbing"
+                  >
+                    <span aria-hidden>⠿</span>
+                  </span>
+                )}
+                <p className="min-w-0 truncate text-sm font-medium text-slate-700">{title(item).trim() || n}</p>
+              </div>
+              <div className="flex shrink-0 gap-1">
+                {many && (
+                  <>
+                    <Button size="sm" variant="ghost" aria-label={`${n} 위로 이동`} title="위로" {...r.up(i)}>
+                      ↑
+                    </Button>
+                    <Button size="sm" variant="ghost" aria-label={`${n} 아래로 이동`} title="아래로" {...r.down(i)}>
+                      ↓
+                    </Button>
+                  </>
+                )}
+                <Button size="sm" variant="ghost" aria-label={`${n} 삭제`} className="text-red-700" onClick={() => onChange(items.filter((_, k) => k !== i))}>
+                  삭제
+                </Button>
+              </div>
             </div>
+            {render(item, (patch) => onChange(items.map((x, k) => (k === i ? patchItem(x, patch) : x))))}
           </div>
-          {render(item, (patch) => onChange(items.map((x, k) => (k === i ? { ...x, ...patch } : x))))}
-        </div>
-      ))}
+        );
+      })}
+      <p aria-live="polite" className="sr-only">
+        {message}
+      </p>
       <Button size="sm" variant="secondary" disabled={items.length >= max} onClick={() => onChange([...items, make()])}>
         + {addLabel}
       </Button>
@@ -279,7 +330,8 @@ export function ResumeDocumentForm({
         make={EMPTY.highlight}
         max={LIMITS.highlights}
         addLabel="성과 추가"
-        title={(x, i) => x.title || `성과 ${i + 1}`}
+        noun="핵심 성과"
+        title={(x) => x.title}
         render={(x, up) => (
           <div className="space-y-3">
             <Text
@@ -307,7 +359,8 @@ export function ResumeDocumentForm({
         make={EMPTY.experience}
         max={LIMITS.experience}
         addLabel="경력 추가"
-        title={(x, i) => x.company || `경력 ${i + 1}`}
+        noun="경력"
+        title={(x) => x.company}
         render={(x, up) => (
           <div className="space-y-3">
             <div className={grid2}>
@@ -347,7 +400,8 @@ export function ResumeDocumentForm({
         make={EMPTY.project}
         max={LIMITS.projects}
         addLabel="프로젝트 추가"
-        title={(x, i) => x.name || `프로젝트 ${i + 1}`}
+        noun="프로젝트"
+        title={(x) => x.name}
         render={(x, up) => (
           <div className="space-y-3">
             <div className={grid2}>
@@ -376,7 +430,8 @@ export function ResumeDocumentForm({
         make={EMPTY.skill}
         max={LIMITS.skills}
         addLabel="기술 묶음 추가"
-        title={(x, i) => x.category || `기술 ${i + 1}`}
+        noun="기술 묶음"
+        title={(x) => x.category}
         render={(x, up) => (
           <div className="space-y-3">
             <Text label="분류·역량" value={x.category} max={60} placeholder="예: 백엔드, 데이터 분석" onChange={(v) => up({ category: v })} />
@@ -393,7 +448,8 @@ export function ResumeDocumentForm({
         make={EMPTY.education}
         max={LIMITS.education}
         addLabel="학력 추가"
-        title={(x, i) => x.school || `학력 ${i + 1}`}
+        noun="학력"
+        title={(x) => x.school}
         render={(x, up) => (
           <div className={grid2}>
             <Text label="학교" value={x.school} max={120} onChange={(v) => up({ school: v })} />
@@ -415,7 +471,8 @@ export function ResumeDocumentForm({
         make={EMPTY.certification}
         max={LIMITS.certifications}
         addLabel="자격·어학 추가"
-        title={(x, i) => x.name || `자격 ${i + 1}`}
+        noun="자격"
+        title={(x) => x.name}
         render={(x, up) => (
           <div className="grid gap-3 sm:grid-cols-3">
             <Text label="이름" value={x.name} max={120} onChange={(v) => up({ name: v })} />
@@ -432,7 +489,8 @@ export function ResumeDocumentForm({
         make={EMPTY.extras}
         max={LIMITS.extras}
         addLabel="기타 묶음 추가"
-        title={(x, i) => x.title || `기타 ${i + 1}`}
+        noun="기타 묶음"
+        title={(x) => x.title}
         render={(x, up) => (
           <div className="space-y-3">
             <Text label="제목" value={x.title} max={80} placeholder="예: 수상, 발표, 오픈소스, 어학, 병역" onChange={(v) => up({ title: v })} />
@@ -471,7 +529,8 @@ export function ResumeDocumentForm({
           make={() => ({ label: "", url: "" })}
           max={LIMITS.links}
           addLabel="링크 추가"
-          title={(x, i) => x.label || `링크 ${i + 1}`}
+          noun="링크"
+          title={(x) => x.label}
           render={(x, up) => (
             <div className="grid gap-3 sm:grid-cols-[10rem_1fr]">
               <Text label="이름" value={x.label} max={40} placeholder="GitHub" onChange={(v) => up({ label: v })} />

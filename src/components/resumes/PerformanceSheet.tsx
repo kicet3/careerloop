@@ -22,6 +22,7 @@ import {
 } from "@/lib/domain/resumes";
 import { motivationParagraphs, PERFORMANCE_HEADINGS, splitAddMarkers } from "@/lib/resumes/layout";
 import "./performance-sheet.css";
+import { itemKeys, patchItem, useAnnouncer, useReorder, type ReorderHandlers } from "./reorder";
 import { MOBILE_QUERY, SHEET_PAGE_GAP, useSheetPages } from "./sheet-pagination";
 
 type Doc = ResumeDocument;
@@ -63,6 +64,8 @@ const css = {
   period: "pf-period",
   project: "pf-project",
   remove: "pf-remove",
+  reorder: "pf-reorder",
+  srOnly: "pf-sr-only",
   result: "pf-result",
   role: "pf-role",
   root: "pf-root",
@@ -357,6 +360,43 @@ function RemoveButton({ label, onClick }: { label: string; onClick: () => void }
   );
 }
 
+/**
+ * 순서 바꾸기 컨트롤(끌기 손잡이·위·아래). 삭제 버튼 옆 여백에 띄워(absolute) 본문 높이·쪽 나눔에 영향이 없고,
+ * 편집 모드 화면에서만 그린다(미리보기·PDF에는 없다. PDF는 서버가 저장 문서로 따로 그린다).
+ */
+function ReorderControls({ r, i, label }: { r: ReorderHandlers; i: number; label: string }) {
+  return (
+    <div className={css.reorder}>
+      {/* 손잡이는 span(role=button): Firefox는 <button>을 끌지 못한다. */}
+      <span
+        role="button"
+        tabIndex={0}
+        {...r.handle(i)}
+        aria-label={`${label} 순서 바꾸기`}
+        aria-roledescription="끌기 손잡이"
+        aria-keyshortcuts="ArrowUp ArrowDown Home End"
+        title="끌어서 순서 바꾸기 · 방향키 ↑↓, Home/End로도 옮깁니다"
+      >
+        <span aria-hidden>⠿</span>
+      </span>
+      <button type="button" {...r.up(i)} aria-label={`${label} 위로 이동`} title="위로">
+        ↑
+      </button>
+      <button type="button" {...r.down(i)} aria-label={`${label} 아래로 이동`} title="아래로">
+        ↓
+      </button>
+    </div>
+  );
+}
+
+/** 끌기 중 표시(놓을 자리 위/아래 선). */
+function dragAttrs(r: { dragging: number | null; over: number | null }, i: number) {
+  return {
+    "data-dragging": r.dragging === i || undefined,
+    "data-drop-target": r.dragging !== null && r.over === i && r.dragging !== i ? (r.dragging > i ? "before" : "after") : undefined,
+  };
+}
+
 interface AddSpec {
   label: string;
   onClick: () => void;
@@ -472,9 +512,31 @@ export function PerformanceSheet({
   const on = <T,>(fn: (v: string) => T) => (edit ? fn : undefined);
   const set = (patch: Partial<Doc>) => edit?.({ ...doc, ...patch });
   const basics = (patch: Partial<Doc["basics"]>) => set({ basics: { ...doc.basics, ...patch } });
-  const upAt = <T,>(xs: T[], i: number, patch: Partial<T>) => xs.map((x, k) => (k === i ? { ...x, ...patch } : x));
+  // 고친 항목은 화면용 key를 이어받는다(reorder.ts) — 항목 key가 자리 번호가 아니라 항목을 따라가야 순서를 바꿔도 칸이 맞는다.
+  const upAt = <T extends object>(xs: T[], i: number, patch: Partial<T>) => xs.map((x, k) => (k === i ? patchItem(x, patch) : x));
   const removeAt = <T,>(xs: T[], i: number) => xs.filter((_, k) => k !== i);
   const insertAt = <T,>(xs: T[], i: number, x: T) => [...xs.slice(0, i), x, ...xs.slice(i)];
+
+  // 경력·프로젝트 순서 바꾸기(끌기·버튼·방향키). 훅은 읽기 전용에서도 부르지만 컨트롤은 편집 모드에서만 그린다.
+  const [moved, announce] = useAnnouncer();
+  const expOrder = useReorder({
+    items: doc.experience,
+    onChange: (experience) => set({ experience }),
+    announce,
+    name: (x, i) => `경력 ${i + 1}${x.company.trim() ? `(${x.company.trim()})` : ""}`,
+  });
+  const projOrder = useReorder({
+    items: doc.projects,
+    onChange: (projects) => set({ projects }),
+    announce,
+    name: (x, i) => `프로젝트 ${i + 1}${x.name.trim() ? `(${x.name.trim()})` : ""}`,
+  });
+  const keysOf = {
+    highlights: itemKeys(doc.highlights),
+    skills: itemKeys(doc.skills),
+    education: itemKeys(doc.education),
+    certifications: itemKeys(doc.certifications),
+  };
 
   const b = doc.basics;
 
@@ -594,7 +656,7 @@ export function PerformanceSheet({
     >
       <ul className={css.highlights}>
         {doc.highlights.map((h, i) => (
-          <li key={i} className={css.item}>
+          <li key={keysOf.highlights[i]} className={css.item}>
             <Field
               as="div"
               className={css.highlightTitle}
@@ -648,7 +710,12 @@ export function PerformanceSheet({
           setFocusPath(`experience.${i}.bullets.${at}`);
         };
         return (
-          <article key={i} className={cn(css.entry, css.item)} data-item={`experience.${i}`}>
+          <article
+            key={expOrder.keys[i]}
+            className={cn(css.entry, css.item)}
+            data-item={`experience.${i}`}
+            {...(edit ? { ...expOrder.item(i), ...dragAttrs(expOrder, i) } : {})}
+          >
             <div className={css.entryHead}>
               <Field
                 as="div"
@@ -748,6 +815,7 @@ export function PerformanceSheet({
                   +
                 </button>
                 <RemoveButton label={`${n} 경력 삭제`} onClick={() => set({ experience: removeAt(doc.experience, i) })} />
+                {doc.experience.length > 1 && <ReorderControls r={expOrder} i={i} label={`${n} 경력`} />}
               </>
             )}
           </article>
@@ -790,7 +858,12 @@ export function PerformanceSheet({
           </dl>
         );
         return (
-          <article key={i} className={cn(css.project, css.item)} data-item={`projects.${i}`}>
+          <article
+            key={projOrder.keys[i]}
+            className={cn(css.project, css.item)}
+            data-item={`projects.${i}`}
+            {...(edit ? { ...projOrder.item(i), ...dragAttrs(projOrder, i) } : {})}
+          >
             <div className={css.entryHead}>
               <Field
                 as="div"
@@ -865,6 +938,7 @@ export function PerformanceSheet({
               />
             </div>
             {edit && <RemoveButton label={`${n} 프로젝트 삭제`} onClick={() => set({ projects: removeAt(doc.projects, i) })} />}
+            {edit && doc.projects.length > 1 && <ReorderControls r={projOrder} i={i} label={`${n} 프로젝트`} />}
           </article>
         );
       })}
@@ -894,7 +968,7 @@ export function PerformanceSheet({
           .filter(Boolean)
           .join(", ");
         return (
-          <div key={i} style={{ display: "contents" }}>
+          <div key={keysOf.skills[i]} style={{ display: "contents" }}>
             <Field
               as="dt"
               path={`skills.${i}.category`}
@@ -950,7 +1024,7 @@ export function PerformanceSheet({
       ]}
     >
       {doc.education.map((e, i) => (
-        <div key={`e${i}`} className={cn(css.entryHead, css.item)} data-item={`education.${i}`}>
+        <div key={`e-${keysOf.education[i]}`} className={cn(css.entryHead, css.item)} data-item={`education.${i}`}>
           <div className={css.entryTitle}>
             <Field
               path={`education.${i}.school`}
@@ -1006,7 +1080,7 @@ export function PerformanceSheet({
         </div>
       ))}
       {doc.certifications.map((c, i) => (
-        <div key={`c${i}`} className={cn(css.entryHead, css.item)} data-item={`certifications.${i}`}>
+        <div key={`c-${keysOf.certifications[i]}`} className={cn(css.entryHead, css.item)} data-item={`certifications.${i}`}>
           <div className={css.entryTitle}>
             <Field
               path={`certifications.${i}.name`}
@@ -1126,6 +1200,12 @@ export function PerformanceSheet({
           </div>
         </div>
       </div>
+      {editable && (
+        // 순서 변경 알림. 본문(쪽 나눔 측정 대상) 밖에 둔다.
+        <p aria-live="polite" className={css.srOnly}>
+          {moved}
+        </p>
+      )}
       {editable && (
         <aside className={css.notes} aria-label="작성 안내">
           <strong>채울 때 확인하세요</strong>

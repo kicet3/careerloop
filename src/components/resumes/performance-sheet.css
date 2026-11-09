@@ -430,6 +430,77 @@
   display: none;
 }
 
+/* 순서 바꾸기(경력·프로젝트): 삭제 버튼 열 안쪽 여백에 세로로 띄운다(absolute — 쪽 나눔 측정에서 빠진다). 화면 전용. */
+.pf-reorder {
+  position: absolute;
+  top: 0;
+  right: -27px;
+  display: flex;
+  flex-direction: column;
+  gap: 3px;
+  opacity: 0;
+  transition: opacity 0.12s;
+}
+.pf-item:hover > .pf-reorder,
+.pf-item:focus-within > .pf-reorder,
+.pf-item[data-dragging] > .pf-reorder {
+  opacity: 1;
+}
+.pf-reorder > * {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  box-sizing: border-box;
+  width: 20px;
+  height: 20px;
+  border: 1px solid #bcc9d6;
+  border-radius: 999px;
+  padding: 0;
+  background: #fff;
+  color: var(--muted);
+  font: inherit;
+  font-size: 11px;
+  line-height: 1;
+  cursor: pointer;
+}
+.pf-reorder > :hover,
+.pf-reorder > :focus-visible {
+  color: var(--accent);
+  border-color: var(--accent);
+}
+.pf-reorder button:disabled {
+  visibility: hidden;
+}
+.pf-reorder [data-reorder-control="handle"] {
+  cursor: grab;
+  touch-action: none;
+  user-select: none;
+  -webkit-user-select: none;
+}
+.pf-reorder [data-reorder-control="handle"]:active {
+  cursor: grabbing;
+}
+.pf-item[data-dragging] {
+  opacity: 0.5;
+}
+.pf-item[data-drop-target="before"] {
+  box-shadow: 0 -2px 0 0 #6f8db0;
+}
+.pf-item[data-drop-target="after"] {
+  box-shadow: 0 2px 0 0 #6f8db0;
+}
+.pf-sr-only {
+  position: absolute;
+  width: 1px;
+  height: 1px;
+  margin: -1px;
+  padding: 0;
+  overflow: hidden;
+  clip: rect(0 0 0 0);
+  white-space: nowrap;
+  border: 0;
+}
+
 .pf-notes {
   max-width: 794px;
   margin: 0 auto 35px;
@@ -520,11 +591,23 @@
     right: -16px;
     opacity: 1;
   }
+  /* 좁은 화면: 여백이 좁아 삭제·대표 기여 추가 버튼 아래(같은 열)로 내린다. 터치 기기라 늘 보인다. */
+  .pf-reorder {
+    right: -15px;
+    top: 56px;
+    opacity: 1;
+  }
+  /* 컨트롤 열(56px + 손잡이·위·아래 66px)이 짧은 항목 밖으로 삐져나와 다음 항목의 삭제·+ 버튼과 겹치지 않게
+     항목을 그만큼은 띄운다. 모바일 배치는 쪽 나눔·1장 판정을 하지 않아(fitMode "mobile") 높이가 늘어도 된다. */
+  .pf-item:has(> .pf-reorder) {
+    min-height: 126px;
+  }
 }
 @media print {
   .pf-status,
   .pf-notes,
   .pf-remove,
+  .pf-reorder,
   .pf-date-pick,
   .pf-add-button {
     display: none !important;
