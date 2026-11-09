@@ -1,0 +1,681 @@
+{
+  "graph": {
+    "person": {
+      "id": "me",
+      "name": "홍길동"
+    },
+    "nodes": [
+      {
+        "id": "c1",
+        "label": "Company",
+        "props": {
+          "name": "카카오",
+          "industry": "IT",
+          "description": "플랫폼 서비스 회사 플랫폼 서비스 회사 플랫폼 서비스 회사 플랫폼 서비스 회사 플랫폼 서비스 회사 플랫폼 서비스 회사 플랫폼 서비스 회사 플랫폼 서비스 회사 플랫폼 서비스 회사 플랫폼 서비스 회사 플랫폼 서비스 회사 플랫폼 서비스 회사 플랫폼 서비스 회사 플랫폼 서비스 회사 플랫폼 서비스 회사 플랫폼 서비스 회사 플랫폼 서비스 회사 플랫폼 서비스 회사 플랫폼 서비스 회사 플랫폼 서비스 회사 "
+        },
+        "createdAt": 1,
+        "updatedAt": 1
+      },
+      {
+        "id": "c2",
+        "label": "Company",
+        "props": {
+          "name": "",
+          "location": "판교"
+        },
+        "createdAt": 2,
+        "updatedAt": 2
+      },
+      {
+        "id": "r1",
+        "label": "Role",
+        "props": {
+          "title": "백엔드 개발자",
+          "startDate": "2021-03",
+          "current": true,
+          "summary": "결제 🚀 시스템 담당 😀결제 🚀 시스템 담당 😀결제 🚀 시스템 담당 😀결제 🚀 시스템 담당 😀결제 🚀 시스템 담당 😀결제 🚀 시스템 담당 😀결제 🚀 시스템 담당 😀결제 🚀 시스템 담당 😀결제 🚀 시스템 담당 😀결제 🚀 시스템 담당 😀결제 🚀 시스템 담당 😀결제 🚀 시스템 담당 😀결제 🚀 시스템 담당 😀결제 🚀 시스템 담당 😀결제 🚀 시스템 담당 😀"
+        },
+        "createdAt": 3,
+        "updatedAt": 3
+      },
+      {
+        "id": "p1",
+        "label": "Project",
+        "props": {
+          "name": "결제 개편",
+          "teamSize": 5,
+          "startDate": "2022-01",
+          "endDate": "2022-12",
+          "categories": [
+            "problem-solving",
+            "collaboration"
+          ],
+          "result": "응답 시간\n  40% 단축"
+        },
+        "createdAt": 4,
+        "updatedAt": 4
+      },
+      {
+        "id": "s1",
+        "label": "Skill",
+        "props": {
+          "name": "Kotlin",
+          "category": "language"
+        },
+        "createdAt": 5,
+        "updatedAt": 5
+      },
+      {
+        "id": "s2",
+        "label": "Skill",
+        "props": {
+          "name": "Spring"
+        },
+        "createdAt": 6,
+        "updatedAt": 6
+      },
+      {
+        "id": "a1",
+        "label": "Achievement",
+        "props": {
+          "summary": "장애 0건",
+          "value": "99.99%"
+        },
+        "createdAt": 7,
+        "updatedAt": 7
+      },
+      {
+        "id": "e1",
+        "label": "Education",
+        "props": {
+          "school": "서울대",
+          "major": "컴퓨터공학",
+          "endDate": "2020-02"
+        },
+        "createdAt": 8,
+        "updatedAt": 8
+      },
+      {
+        "id": "x1",
+        "label": "Experience",
+        "props": {
+          "title": "오픈소스 기여",
+          "description": "메인테이너 활동 메인테이너 활동 메인테이너 활동 메인테이너 활동 메인테이너 활동 메인테이너 활동 메인테이너 활동 메인테이너 활동 메인테이너 활동 메인테이너 활동 메인테이너 활동 메인테이너 활동 메인테이너 활동 메인테이너 활동 메인테이너 활동 메인테이너 활동 메인테이너 활동 메인테이너 활동 메인테이너 활동 메인테이너 활동 메인테이너 활동 메인테이너 활동 메인테이너 활동 메인테이너 활동 메인테이너 활동 메인테이너 활동 메인테이너 활동 메인테이너 활동 메인테이너 활동 메인테이너 활동 "
+        },
+        "createdAt": 9,
+        "updatedAt": 9
+      },
+      {
+        "id": "z1",
+        "label": "Certification",
+        "props": {
+          "name": "정보처리기사",
+          "date": "2019-11"
+        },
+        "createdAt": 10,
+        "updatedAt": 10
+      }
+    ],
+    "edges": [
+      {
+        "id": "WORKED_AT:me:c1",
+        "type": "WORKED_AT",
+        "from": "me",
+        "to": "c1"
+      },
+      {
+        "id": "HAD_ROLE:me:r1",
+        "type": "HAD_ROLE",
+        "from": "me",
+        "to": "r1"
+      },
+      {
+        "id": "AT_COMPANY:r1:c1",
+        "type": "AT_COMPANY",
+        "from": "r1",
+        "to": "c1"
+      },
+      {
+        "id": "WORKED_ON:r1:p1",
+        "type": "WORKED_ON",
+        "from": "r1",
+        "to": "p1"
+      },
+      {
+        "id": "USED_SKILL:p1:s1",
+        "type": "USED_SKILL",
+        "from": "p1",
+        "to": "s1"
+      },
+      {
+        "id": "USED_SKILL:p1:s2",
+        "type": "USED_SKILL",
+        "from": "p1",
+        "to": "s2"
+      },
+      {
+        "id": "ACHIEVED:p1:a1",
+        "type": "ACHIEVED",
+        "from": "p1",
+        "to": "a1"
+      },
+      {
+        "id": "STUDIED_AT:me:e1",
+        "type": "STUDIED_AT",
+        "from": "me",
+        "to": "e1"
+      },
+      {
+        "id": "EARNED:me:z1",
+        "type": "EARNED",
+        "from": "me",
+        "to": "z1"
+      },
+      {
+        "id": "USED_SKILL:x1:gone",
+        "type": "USED_SKILL",
+        "from": "x1",
+        "to": "gone"
+      }
+    ]
+  },
+  "textCases": [
+    {
+      "opts": {},
+      "text": "## 회사 (Company)\n- [c1] 카카오 (industry=IT, description=플랫폼 서비스 회사 플랫폼 서비스 회사 플랫폼 서비스 회사 플랫폼 서비스 회사 플랫폼 서비스 회사 플랫폼 서비스 회사 플랫폼 서비스 회사 플랫폼 서비스 회사 플랫폼 서비스 회사 플랫폼 서비스 회사 플랫폼 서비스 회사 플랫폼 서비스 회사 플랫폼 서비스 회사 플랫폼 서비스 회사 플랫폼 서비스 회사 플랫폼 서비스 회사 플랫폼 서비스 회사 플랫폼 서비스 회사 플랫…(잘림))\n- [c2] 회사 (location=판교)\n## 직무·직함 (Role)\n- [r1] 백엔드 개발자 (startDate=2021-03, current=true, summary=결제 🚀 시스템 담당 😀결제 🚀 시스템 담당 😀결제 🚀 시스템 담당 😀결제 🚀 시스템 담당 😀결제 🚀 시스템 담당 😀결제 🚀 시스템 담당 😀결제 🚀 시스템 담당 😀결제 🚀 시스템 담당 😀결제 🚀 시스템 담당 😀결제 🚀 시스템 담당 😀결제 🚀 시스템 담당 😀결제 🚀 시스템 담당 😀결제 🚀 시스템 담당 😀결제 🚀…(잘림))\n## 프로젝트 (Project)\n- [p1] 결제 개편 (teamSize=5, startDate=2022-01, endDate=2022-12, categories=problem-solving|collaboration, result=응답 시간 40% 단축)\n## 경험 (Experience)\n- [x1] 오픈소스 기여 (description=메인테이너 활동 메인테이너 활동 메인테이너 활동 메인테이너 활동 메인테이너 활동 메인테이너 활동 메인테이너 활동 메인테이너 활동 메인테이너 활동 메인테이너 활동 메인테이너 활동 메인테이너 활동 메인테이너 활동 메인테이너 활동 메인테이너 활동 메인테이너 활동 메인테이너 활동 메인테이너 활동 메인테이너 활동 메인테이너 활동 메인테이너 활동 메인테이너 활동 메인…(잘림))\n## 기술·역량 (Skill)\n- [s1] Kotlin (category=language)\n- [s2] Spring\n## 성과 (Achievement)\n- [a1] 장애 0건 (value=99.99%)\n## 학력 (Education)\n- [e1] 서울대 (major=컴퓨터공학, endDate=2020-02)\n## 자격증 (Certification)\n- [z1] 정보처리기사 (date=2019-11)\n## 관계\n- 나(me) -WORKED_AT(재직)-> 카카오[c1]\n- 나(me) -HAD_ROLE(직무)-> 백엔드 개발자[r1]\n- 백엔드 개발자[r1] -AT_COMPANY(소속 회사)-> 카카오[c1]\n- 백엔드 개발자[r1] -WORKED_ON(프로젝트 수행)-> 결제 개편[p1]\n- 결제 개편[p1] -USED_SKILL(사용 기술)-> Kotlin[s1]\n- 결제 개편[p1] -USED_SKILL(사용 기술)-> Spring[s2]\n- 결제 개편[p1] -ACHIEVED(성과)-> 장애 0건[a1]\n- 나(me) -STUDIED_AT(학력)-> 서울대[e1]\n- 나(me) -EARNED(취득)-> 정보처리기사[z1]\n- 오픈소스 기여[x1] -USED_SKILL(사용 기술)-> ?[gone]"
+    },
+    {
+      "opts": {
+        "maxChars": 2000
+      },
+      "text": "## 회사 (Company)\n- [c1] 카카오 (industry=IT, description=플랫폼 서비스 회사 플랫폼 서비스 회사 플랫폼 서비스 회사 플랫폼 서비스 회사 플랫폼 서비스 회사 플랫폼 서비스 회사 플랫폼 서비스 회사 플랫폼 서비스 회사 플랫폼 서비스 회사 플랫폼 서비스 회사 플랫폼 서비스 회사 플랫폼 서비스 회사 플랫폼 서비스 회사 플랫폼 서비스 회사 플랫폼 서비스 회사 플랫폼 서비스 회사 플랫폼 서비스 회사 플랫폼 서비스 회사 플랫…(잘림))\n- [c2] 회사 (location=판교)\n## 직무·직함 (Role)\n- [r1] 백엔드 개발자 (startDate=2021-03, current=true, summary=결제 🚀 시스템 담당 😀결제 🚀 시스템 담당 😀결제 🚀 시스템 담당 😀결제 🚀 시스템 담당 😀결제 🚀 시스템 담당 😀결제 🚀 시스템 담당 😀결제 🚀 시스템 담당 😀결제 🚀 시스템 담당 😀결제 🚀 시스템 담당 😀결제 🚀 시스템 담당 😀결제 🚀 시스템 담당 😀결제 🚀 시스템 담당 😀결제 🚀 시스템 담당 😀결제 🚀…(잘림))\n## 프로젝트 (Project)\n- [p1] 결제 개편 (teamSize=5, startDate=2022-01, endDate=2022-12, categories=problem-solving|collaboration, result=응답 시간 40% 단축)\n## 경험 (Experience)\n- [x1] 오픈소스 기여 (description=메인테이너 활동 메인테이너 활동 메인테이너 활동 메인테이너 활동 메인테이너 활동 메인테이너 활동 메인테이너 활동 메인테이너 활동 메인테이너 활동 메인테이너 활동 메인테이너 활동 메인테이너 활동 메인테이너 활동 메인테이너 활동 메인테이너 활동 메인테이너 활동 메인테이너 활동 메인테이너 활동 메인테이너 활동 메인테이너 활동 메인테이너 활동 메인테이너 활동 메인…(잘림))\n## 기술·역량 (Skill)\n- [s1] Kotlin (category=language)\n- [s2] Spring\n## 성과 (Achievement)\n- [a1] 장애 0건 (value=99.99%)\n## 학력 (Education)\n- [e1] 서울대 (major=컴퓨터공학, endDate=2020-02)\n## 자격증 (Certification)\n- [z1] 정보처리기사 (date=2019-11)\n## 관계\n- 나(me) -WORKED_AT(재직)-> 카카오[c1]\n- 나(me) -HAD_ROLE(직무)-> 백엔드 개발자[r1]\n- 백엔드 개발자[r1] -AT_COMPANY(소속 회사)-> 카카오[c1]\n- 백엔드 개발자[r1] -WORKED_ON(프로젝트 수행)-> 결제 개편[p1]\n- 결제 개편[p1] -USED_SKILL(사용 기술)-> Kotlin[s1]\n- 결제 개편[p1] -USED_SKILL(사용 기술)-> Spring[s2]\n- 결제 개편[p1] -ACHIEVED(성과)-> 장애 0건[a1]\n- 나(me) -STUDIED_AT(학력)-> 서울대[e1]\n- 나(me) -EARNED(취득)-> 정보처리기사[z1]\n- 오픈소스 기여[x1] -USED_SKILL(사용 기술)-> ?[gone]"
+    },
+    {
+      "opts": {
+        "maxChars": 900
+      },
+      "text": "## 회사 (Company)\n- [c1] 카카오\n- [c2] 회사\n## 직무·직함 (Role)\n- [r1] 백엔드 개발자\n## 프로젝트 (Project)\n- [p1] 결제 개편\n## 경험 (Experience)\n- [x1] 오픈소스 기여\n## 기술·역량 (Skill)\n- [s1] Kotlin\n- [s2] Spring\n## 성과 (Achievement)\n- [a1] 장애 0건\n## 학력 (Education)\n- [e1] 서울대\n## 자격증 (Certification)\n- [z1] 정보처리기사\n## 관계\n- 나(me) -WORKED_AT(재직)-> 카카오[c1]\n- 나(me) -HAD_ROLE(직무)-> 백엔드 개발자[r1]\n- 백엔드 개발자[r1] -AT_COMPANY(소속 회사)-> 카카오[c1]\n- 백엔드 개발자[r1] -WORKED_ON(프로젝트 수행)-> 결제 개편[p1]\n- 결제 개편[p1] -USED_SKILL(사용 기술)-> Kotlin[s1]\n- 결제 개편[p1] -USED_SKILL(사용 기술)-> Spring[s2]\n- 결제 개편[p1] -ACHIEVED(성과)-> 장애 0건[a1]\n- 나(me) -STUDIED_AT(학력)-> 서울대[e1]\n- 나(me) -EARNED(취득)-> 정보처리기사[z1]\n- 오픈소스 기여[x1] -USED_SKILL(사용 기술)-> ?[gone]"
+    },
+    {
+      "opts": {
+        "maxChars": 400
+      },
+      "text": "## 회사 (Company)\n- [c1] 카카오\n- [c2] 회사\n## 직무·직함 (Role)\n- [r1] 백엔드 개발자\n## 프로젝트 (Project)\n- [p1] 결제 개편\n## 경험 (Experience)\n- [x1] 오픈소스 기여\n## 기술·역량 (Skill)\n- [s1] Kotlin\n- [s2] Spring\n## 성과 (Achievement)\n- [a1] 장애 0건\n## 학력 (Education)\n- [e1] 서울대\n## 자격증 (Certification)\n- [z1] 정보처리기사\n## 관계\n- 나(me) -WORKED_AT(재직)-> 카카오[c1]\n- 나(me) -HAD_ROLE(직무)-> 백엔드 개발자[r1]\n… (생략: 관계 8개 — 그래프가 길어 줄였다)"
+    },
+    {
+      "opts": {
+        "maxChars": 120
+      },
+      "text": "## 회사 (Company)\n… (생략: 회사 2개 — 그래프가 길어 줄였다)\n## 직무·직함 (Role)\n… (생략: 직무·직함 1개 — 그래프가 길어 줄였다)\n## 프로젝트 (Project)\n… (생략: 프로젝트 1개 — 그래프가 길어 줄였다)\n## 경험 (Experience)\n… (생략: 경험 1개 — 그래프가 길어 줄였다)\n## 기술·역량 (Skill)\n… (생략: 기술·역량 2개 — 그래프가 길어 줄였다)\n## 성과 (Achievement)\n… (생략: 성과 1개 — 그래프가 길어 줄였다)\n## 학력 (Education)\n… (생략: 학력 1개 — 그래프가 길어 줄였다)\n## 자격증 (Certification)\n… (생략: 자격증 1개 — 그래프가 길어 줄였다)\n## 관계\n… (생략: 관계 10개 — 그래프가 길어 줄였다)"
+    },
+    {
+      "opts": {
+        "maxChars": 3000,
+        "propCaps": [
+          400,
+          10,
+          0
+        ]
+      },
+      "text": "## 회사 (Company)\n- [c1] 카카오 (industry=IT, description=플랫폼 서비스 회사 플랫폼 서비스 회사 플랫폼 서비스 회사 플랫폼 서비스 회사 플랫폼 서비스 회사 플랫폼 서비스 회사 플랫폼 서비스 회사 플랫폼 서비스 회사 플랫폼 서비스 회사 플랫폼 서비스 회사 플랫폼 서비스 회사 플랫폼 서비스 회사 플랫폼 서비스 회사 플랫폼 서비스 회사 플랫폼 서비스 회사 플랫폼 서비스 회사 플랫폼 서비스 회사 플랫폼 서비스 회사 플랫폼 서비스 회사 플랫폼 서비스 회사 )\n- [c2] 회사 (location=판교)\n## 직무·직함 (Role)\n- [r1] 백엔드 개발자 (startDate=2021-03, current=true, summary=결제 🚀 시스템 담당 😀결제 🚀 시스템 담당 😀결제 🚀 시스템 담당 😀결제 🚀 시스템 담당 😀결제 🚀 시스템 담당 😀결제 🚀 시스템 담당 😀결제 🚀 시스템 담당 😀결제 🚀 시스템 담당 😀결제 🚀 시스템 담당 😀결제 🚀 시스템 담당 😀결제 🚀 시스템 담당 😀결제 🚀 시스템 담당 😀결제 🚀 시스템 담당 😀결제 🚀 시스템 담당 😀결제 🚀 시스템 담당 😀)\n## 프로젝트 (Project)\n- [p1] 결제 개편 (teamSize=5, startDate=2022-01, endDate=2022-12, categories=problem-solving|collaboration, result=응답 시간 40% 단축)\n## 경험 (Experience)\n- [x1] 오픈소스 기여 (description=메인테이너 활동 메인테이너 활동 메인테이너 활동 메인테이너 활동 메인테이너 활동 메인테이너 활동 메인테이너 활동 메인테이너 활동 메인테이너 활동 메인테이너 활동 메인테이너 활동 메인테이너 활동 메인테이너 활동 메인테이너 활동 메인테이너 활동 메인테이너 활동 메인테이너 활동 메인테이너 활동 메인테이너 활동 메인테이너 활동 메인테이너 활동 메인테이너 활동 메인테이너 활동 메인테이너 활동 메인테이너 활동 메인테이너 활동 메인테이너 활동 메인테이너 활동 메인테이너 활동 메인테이너 활동 )\n## 기술·역량 (Skill)\n- [s1] Kotlin (category=language)\n- [s2] Spring\n## 성과 (Achievement)\n- [a1] 장애 0건 (value=99.99%)\n## 학력 (Education)\n- [e1] 서울대 (major=컴퓨터공학, endDate=2020-02)\n## 자격증 (Certification)\n- [z1] 정보처리기사 (date=2019-11)\n## 관계\n- 나(me) -WORKED_AT(재직)-> 카카오[c1]\n- 나(me) -HAD_ROLE(직무)-> 백엔드 개발자[r1]\n- 백엔드 개발자[r1] -AT_COMPANY(소속 회사)-> 카카오[c1]\n- 백엔드 개발자[r1] -WORKED_ON(프로젝트 수행)-> 결제 개편[p1]\n- 결제 개편[p1] -USED_SKILL(사용 기술)-> Kotlin[s1]\n- 결제 개편[p1] -USED_SKILL(사용 기술)-> Spring[s2]\n- 결제 개편[p1] -ACHIEVED(성과)-> 장애 0건[a1]\n- 나(me) -STUDIED_AT(학력)-> 서울대[e1]\n- 나(me) -EARNED(취득)-> 정보처리기사[z1]\n- 오픈소스 기여[x1] -USED_SKILL(사용 기술)-> ?[gone]"
+    }
+  ],
+  "emptyText": "(아직 정리된 경력·경험이 없다)",
+  "parseGraphDate": [
+    {
+      "raw": "2024-03",
+      "result": {
+        "kind": "date",
+        "value": "2024-03"
+      }
+    },
+    {
+      "raw": "2024",
+      "result": {
+        "kind": "date",
+        "value": "2024"
+      }
+    },
+    {
+      "raw": "2024-03-15",
+      "result": {
+        "kind": "date",
+        "value": "2024-03"
+      }
+    },
+    {
+      "raw": "2024-02-30",
+      "result": {
+        "kind": "invalid"
+      }
+    },
+    {
+      "raw": "2024-03-15T09:00:00Z",
+      "result": {
+        "kind": "date",
+        "value": "2024-03"
+      }
+    },
+    {
+      "raw": "2024.03.15",
+      "result": {
+        "kind": "date",
+        "value": "2024-03"
+      }
+    },
+    {
+      "raw": "2024/3/15",
+      "result": {
+        "kind": "date",
+        "value": "2024-03"
+      }
+    },
+    {
+      "raw": "2024. 3. 15",
+      "result": {
+        "kind": "date",
+        "value": "2024-03"
+      }
+    },
+    {
+      "raw": "2024년 3월 15일",
+      "result": {
+        "kind": "date",
+        "value": "2024-03"
+      }
+    },
+    {
+      "raw": "24.03.15",
+      "result": {
+        "kind": "date",
+        "value": "2024-03"
+      }
+    },
+    {
+      "raw": "2024.3",
+      "result": {
+        "kind": "date",
+        "value": "2024-03"
+      }
+    },
+    {
+      "raw": "2024/03",
+      "result": {
+        "kind": "date",
+        "value": "2024-03"
+      }
+    },
+    {
+      "raw": "2024년 3월",
+      "result": {
+        "kind": "date",
+        "value": "2024-03"
+      }
+    },
+    {
+      "raw": "24.03",
+      "result": {
+        "kind": "date",
+        "value": "2024-03"
+      }
+    },
+    {
+      "raw": "'24.03",
+      "result": {
+        "kind": "date",
+        "value": "2024-03"
+      }
+    },
+    {
+      "raw": "24년 3월",
+      "result": {
+        "kind": "date",
+        "value": "2024-03"
+      }
+    },
+    {
+      "raw": "202403",
+      "result": {
+        "kind": "date",
+        "value": "2024-03"
+      }
+    },
+    {
+      "raw": "20240315",
+      "result": {
+        "kind": "date",
+        "value": "2024-03"
+      }
+    },
+    {
+      "raw": "20240230",
+      "result": {
+        "kind": "invalid"
+      }
+    },
+    {
+      "raw": "03/2024",
+      "result": {
+        "kind": "date",
+        "value": "2024-03"
+      }
+    },
+    {
+      "raw": "3.2024",
+      "result": {
+        "kind": "date",
+        "value": "2024-03"
+      }
+    },
+    {
+      "raw": "Mar 2024",
+      "result": {
+        "kind": "date",
+        "value": "2024-03"
+      }
+    },
+    {
+      "raw": "March 2024",
+      "result": {
+        "kind": "date",
+        "value": "2024-03"
+      }
+    },
+    {
+      "raw": "Mar. 2024",
+      "result": {
+        "kind": "date",
+        "value": "2024-03"
+      }
+    },
+    {
+      "raw": "2024 Mar",
+      "result": {
+        "kind": "date",
+        "value": "2024-03"
+      }
+    },
+    {
+      "raw": "2024년 상반기",
+      "result": {
+        "kind": "date",
+        "value": "2024"
+      }
+    },
+    {
+      "raw": "2024 Q3",
+      "result": {
+        "kind": "date",
+        "value": "2024"
+      }
+    },
+    {
+      "raw": "현재",
+      "result": {
+        "kind": "ongoing"
+      }
+    },
+    {
+      "raw": "재직 중",
+      "result": {
+        "kind": "ongoing"
+      }
+    },
+    {
+      "raw": "present",
+      "result": {
+        "kind": "ongoing"
+      }
+    },
+    {
+      "raw": "~ 현재",
+      "result": {
+        "kind": "ongoing"
+      }
+    },
+    {
+      "raw": "모름",
+      "result": {
+        "kind": "empty"
+      }
+    },
+    {
+      "raw": "-",
+      "result": {
+        "kind": "empty"
+      }
+    },
+    {
+      "raw": "",
+      "result": {
+        "kind": "empty"
+      }
+    },
+    {
+      "raw": "  ",
+      "result": {
+        "kind": "empty"
+      }
+    },
+    {
+      "raw": "1949",
+      "result": {
+        "kind": "invalid"
+      }
+    },
+    {
+      "raw": "2101",
+      "result": {
+        "kind": "invalid"
+      }
+    },
+    {
+      "raw": "2024-13",
+      "result": {
+        "kind": "invalid"
+      }
+    },
+    {
+      "raw": "2024.03 ~ 2024.06",
+      "result": {
+        "kind": "invalid"
+      }
+    },
+    {
+      "raw": "작년 3월",
+      "result": {
+        "kind": "invalid"
+      }
+    },
+    {
+      "raw": "２０２４－０３",
+      "result": {
+        "kind": "date",
+        "value": "2024-03"
+      }
+    },
+    {
+      "raw": "xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx",
+      "result": {
+        "kind": "invalid"
+      }
+    },
+    {
+      "raw": "99.12",
+      "result": {
+        "kind": "date",
+        "value": "1999-12"
+      }
+    },
+    {
+      "raw": "70.01",
+      "result": {
+        "kind": "date",
+        "value": "1970-01"
+      }
+    },
+    {
+      "raw": "69.01",
+      "result": {
+        "kind": "date",
+        "value": "2069-01"
+      }
+    },
+    {
+      "raw": 2024,
+      "result": {
+        "kind": "date",
+        "value": "2024"
+      }
+    },
+    {
+      "raw": null,
+      "result": {
+        "kind": "empty"
+      }
+    },
+    {
+      "raw": true,
+      "result": {
+        "kind": "invalid"
+      }
+    }
+  ],
+  "normalizeStoredDates": [
+    {
+      "label": "Role",
+      "props": {
+        "title": "a",
+        "startDate": "2021-03-02",
+        "endDate": "현재"
+      },
+      "result": {
+        "title": "a",
+        "startDate": "2021-03",
+        "current": true
+      }
+    },
+    {
+      "label": "Role",
+      "props": {
+        "title": "a",
+        "startDate": "2021.03",
+        "endDate": "2023-01",
+        "current": true
+      },
+      "result": {
+        "title": "a",
+        "startDate": "2021-03",
+        "current": true
+      }
+    },
+    {
+      "label": "Certification",
+      "props": {
+        "name": "a",
+        "date": "2019년 11월"
+      },
+      "result": {
+        "name": "a",
+        "date": "2019-11"
+      }
+    },
+    {
+      "label": "Certification",
+      "props": {
+        "name": "a",
+        "endDate": "현재"
+      },
+      "result": {
+        "name": "a",
+        "endDate": "현재"
+      }
+    },
+    {
+      "label": "Project",
+      "props": {
+        "name": "a",
+        "startDate": "알 수 없음",
+        "endDate": "2022-12"
+      },
+      "result": {
+        "name": "a",
+        "startDate": "알 수 없음",
+        "endDate": "2022-12"
+      }
+    },
+    {
+      "label": "Education",
+      "props": {
+        "school": "a",
+        "endDate": "재학 중"
+      },
+      "result": {
+        "school": "a",
+        "current": true
+      }
+    },
+    {
+      "label": "Skill",
+      "props": {
+        "name": "a"
+      },
+      "result": {
+        "name": "a"
+      }
+    }
+  ],
+  "toGraphNode": [
+    {
+      "id": "n1",
+      "label": "Role",
+      "raw": {
+        "id": "n1",
+        "userId": "u1",
+        "title": "개발",
+        "startDate": "2021-03-02",
+        "endDate": "현재",
+        "createdAt": 5,
+        "updatedAt": 9,
+        "secret": "x",
+        "current": null
+      },
+      "node": {
+        "id": "n1",
+        "label": "Role",
+        "props": {
+          "title": "개발",
+          "startDate": "2021-03",
+          "current": true
+        },
+        "createdAt": 5,
+        "updatedAt": 9
+      }
+    },
+    {
+      "id": "n2",
+      "label": "Project",
+      "raw": {
+        "name": "p",
+        "teamSize": 3,
+        "categories": [
+          "values"
+        ],
+        "createdAt": "bad"
+      },
+      "node": {
+        "id": "n2",
+        "label": "Project",
+        "props": {
+          "name": "p",
+          "teamSize": 3,
+          "categories": [
+            "values"
+          ]
+        },
+        "createdAt": 0,
+        "updatedAt": 0
+      }
+    }
+  ]
+}

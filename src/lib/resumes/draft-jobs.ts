@@ -63,9 +63,39 @@ export function draftTimeLimitMs(env: Record<string, string | undefined> = proce
   return env.VERCEL ? Math.max(30, DRAFT_ROUTE_MAX_DURATION_SEC - 30) * 1000 : SELF_HOSTED_DRAFT_TIME_LIMIT_MS;
 }
 
-/** 시작 후 이 시간이 지나도 'running'이면 멈춘 것으로 본다(시간 상한 + 저장 여유 60초). */
+/** 시작 후 이 시간이 지나도 'running'이면 멈춘 것으로 본다(이 서버의 시간 상한 + 저장 여유 60초). 워커가 선점한 작업은 workerDraftStaleMs. */
 export function draftStaleMs(env: Record<string, string | undefined> = process.env): number {
   return draftTimeLimitMs(env) + 60_000;
+}
+
+/**
+ * Python 워커(worker/app/jobs/resume_draft.py)가 선점한 작업(result.runner = 'worker')의 멈춤 판정 기준: 워커의 시간 상한
+ * (DRAFT_TIME_LIMIT_MS — SELF_HOSTED_DRAFT_TIME_LIMIT_MS와 같다) + 60초. 실제로 워커가 맡은 작업에만 쓴다 — Vercel에서 실행하다 끊긴 작업·
+ * 아직 아무도 선점하지 않은 작업은 draftStaleMs(Vercel 330초)로 닫힌다.
+ */
+export function workerDraftStaleMs(env: Record<string, string | undefined> = process.env): number {
+  return Math.max(draftStaleMs(env), SELF_HOSTED_DRAFT_TIME_LIMIT_MS + 60_000);
+}
+
+/** 선점한 실행이 result에 남긴 실행 위치. 워커가 선점했으면 'worker'. */
+function draftRunnerOf(result: Prisma.JsonValue | null | undefined): string | null {
+  const v = result && typeof result === "object" && !Array.isArray(result) ? (result as { runner?: unknown }).runner : null;
+  return typeof v === "string" ? v : null;
+}
+
+/** 이 작업 행의 멈춤 판정 기준(실제로 실행하는 쪽의 시간 상한). */
+export function draftStaleMsFor(row: { result?: Prisma.JsonValue | null }, env: Record<string, string | undefined> = process.env): number {
+  return draftRunnerOf(row.result) === "worker" ? workerDraftStaleMs(env) : draftStaleMs(env);
+}
+
+/** 진행 중(멈추지 않은) 작업 조건: 시작 후 draftStaleMs 안이거나, 워커가 선점했고 workerDraftStaleMs 안. */
+export function freshDraftJobWhere(now: number): Prisma.ResumeDraftJobWhereInput {
+  return {
+    OR: [
+      { startedAt: { gt: new Date(now - draftStaleMs()) } },
+      { startedAt: { gt: new Date(now - workerDraftStaleMs()) }, result: { path: ["runner"], equals: "worker" } },
+    ],
+  };
 }
 
 interface DraftJobRow {
@@ -90,7 +120,11 @@ interface DraftJobRow {
 
 const strings = (v: unknown): string[] => (Array.isArray(v) ? v.filter((x): x is string => typeof x === "string").slice(0, 50) : []);
 
-export function isDraftJobStale(row: Pick<DraftJobRow, "status" | "startedAt">, now: number = Date.now(), staleMs: number = draftStaleMs()): boolean {
+export function isDraftJobStale(
+  row: Pick<DraftJobRow, "status" | "startedAt"> & { result?: Prisma.JsonValue | null },
+  now: number = Date.now(),
+  staleMs: number = draftStaleMsFor(row),
+): boolean {
   return row.status === "running" && now - row.startedAt.getTime() > staleMs;
 }
 
@@ -142,7 +176,7 @@ async function precheckSource(user: { id: string; name: string | null }, source:
  */
 export async function assertResumeSlots(userId: string, now: number = Date.now(), db: Prisma.TransactionClient = prisma): Promise<number> {
   const resumes = await db.companyResume.count({ where: { userId } });
-  const running = { userId, status: "running", startedAt: { gt: new Date(now - draftStaleMs()) } } satisfies Prisma.ResumeDraftJobWhereInput;
+  const running = { userId, status: "running", ...freshDraftJobWhere(now) } satisfies Prisma.ResumeDraftJobWhereInput;
   const creating = await db.resumeDraftJob.count({ where: { ...running, targetResumeId: null } });
   // 진행 중인 그래프 에이전트 작업(running·waiting)도 곧 이력서가 된다.
   const agents = await db.resumeAgentJob.count({ where: { userId, status: { in: ["running", "waiting"] }, targetResumeId: null } });
@@ -154,7 +188,7 @@ export async function assertResumeSlots(userId: string, now: number = Date.now()
 
 /** 진행 중인(멈추지 않은) 초안 작업 수 — 새로 만들기와 다시 생성을 함께 센다(동시 작업 상한). */
 async function activeDraftJobCount(userId: string, now: number, db: Prisma.TransactionClient = prisma): Promise<number> {
-  return db.resumeDraftJob.count({ where: { userId, status: "running", startedAt: { gt: new Date(now - draftStaleMs()) } } });
+  return db.resumeDraftJob.count({ where: { userId, status: "running", ...freshDraftJobWhere(now) } });
 }
 
 /** 동시 작업 상한(+ 새로 만들기면 이력서 수 상한). 다시 생성은 이력서 수를 늘리지 않는다. */
@@ -258,12 +292,14 @@ export async function getDraftJob(userId: string, jobId: string, now: number = D
  * 플랫폼 시간 초과·서버 재시작으로 끊긴 초안의 결과를 알림으로 받게). 닫은 개수.
  */
 export async function sweepStaleDraftJobs(userId: string, now: number = Date.now()): Promise<number> {
+  // 후보(짧은 기준을 넘긴 것) 중 실제 기준(워커가 선점했으면 워커 시간 상한)을 넘긴 것만 닫는다.
   const rows = (await prisma.resumeDraftJob.findMany({
     where: { userId, status: "running", startedAt: { lt: new Date(now - draftStaleMs()) } },
-    take: 20,
+    orderBy: { startedAt: "asc" },
+    take: 50,
   })) as DraftJobRow[];
   let closed = 0;
-  for (const row of rows) if (await closeStale(row, now)) closed++;
+  for (const row of rows) if (isDraftJobStale(row, now) && (await closeStale(row, now))) closed++;
   return closed;
 }
 
@@ -380,14 +416,25 @@ async function discardResume(userId: string, resumeId: string): Promise<void> {
 /**
  * 백그라운드 실행(after()). 던지지 않는다. 이미 끝났거나 runId가 바뀌었으면(다시 시도·멈춤 판정) 아무것도 쓰지 않는다.
  * 저장 직전에 한 번 더 소유를 확인해, 버려진 실행이 이력서를 만들지 않게 한다.
+ * 선점: 'material' → 'writing' 전환을 stage='material' 조건으로 건다. Python 워커(worker/app/jobs/resume_draft.py)와 이 실행이 같은 runId로
+ * 함께 시작해도(디스패치 응답이 늦어 둘 다 실행) 한쪽만 LLM을 부르고 저장한다. 선점 전의 실패 기록도 stage='material'일 때만 쓴다
+ * (진 쪽이 먼저 선점한 실행을 실패로 덮지 않게).
  */
 export async function runResumeDraftJob(userId: string, jobId: string, runId: string, provider: ProviderId, deps: RunDraftJobDeps = {}): Promise<void> {
   const now = deps.now ?? Date.now;
   const mine = { id: jobId, userId, runId, status: "running" } satisfies Prisma.ResumeDraftJobWhereInput;
-  const setStage = async (stage: ResumeDraftJobStage) => {
-    const { count } = await prisma.resumeDraftJob.updateMany({ where: mine, data: { stage, updatedAt: new Date(now()) } });
+  const setStage = async (stage: ResumeDraftJobStage, opts: { claim?: boolean } = {}) => {
+    // 선점은 Python 워커(resume_draft.py _CLAIM)와 같은 SQL이다: stage='material' 조건 + result에 실행 위치(runner)를 남긴다(멈춤 판정 기준).
+    const count = opts.claim
+      ? await prisma.$executeRaw`
+          UPDATE resume_draft_jobs
+             SET stage = ${stage}, updated_at = ${new Date(now())},
+                 result = (CASE WHEN jsonb_typeof(result) = 'object' THEN result ELSE '{}'::jsonb END) || jsonb_build_object('runner', 'vercel')
+           WHERE id = ${jobId} AND user_id = ${userId} AND run_id = ${runId} AND status = 'running' AND stage = 'material'`
+      : (await prisma.resumeDraftJob.updateMany({ where: mine, data: { stage, updatedAt: new Date(now()) } })).count;
     if (count === 0) throw new DraftSupersededError();
   };
+  let claimed = false;
   let label = "새 이력서";
   let regenerate = false;
   // 저장은 됐는데 완료 기록 전에 실패하면 이 이력서를 지운다(작업은 실패로 보이는데 이력서만 남지 않게).
@@ -397,6 +444,8 @@ export async function runResumeDraftJob(userId: string, jobId: string, runId: st
   try {
     const row = (await prisma.resumeDraftJob.findFirst({ where: mine })) as DraftJobRow | null;
     if (!row) return;
+    // 다른 실행(워커)이 이미 선점했다 — 자료를 다시 읽지 않고 끝낸다.
+    if (row.stage !== "material") return;
     label = row.label;
     const target = row.targetResumeId;
     regenerate = target !== null;
@@ -412,7 +461,8 @@ export async function runResumeDraftJob(userId: string, jobId: string, runId: st
 
     const material = await loadDraftMaterial(user, input.source);
     if (!material) throw new FeatureError("AI 초안 출처를 찾지 못했습니다.", 400);
-    await setStage("writing");
+    await setStage("writing", { claim: true });
+    claimed = true;
 
     const client = (deps.createClient ?? createLlmClient)(provider, { userId, referenceId: jobId });
     // 시간 상한은 작업 시작 시각부터 잰다(요청 처리·자료 모으기에 쓴 시간을 빼야 플랫폼이 끊기 전에 스스로 실패를 기록한다).
@@ -474,7 +524,7 @@ export async function runResumeDraftJob(userId: string, jobId: string, runId: st
     if (!(err instanceof LlmPermanentError) && !(err instanceof FeatureError)) console.error("[resume draft]", jobId, err);
     const message = draftErrorMessage(err);
     const { count } = await prisma.resumeDraftJob
-      .updateMany({ where: mine, data: { status: "failed", error: stripNul(message), updatedAt: new Date(now()) } })
+      .updateMany({ where: claimed ? mine : { ...mine, stage: "material" }, data: { status: "failed", error: stripNul(message), updatedAt: new Date(now()) } })
       .catch(() => ({ count: 0 }));
     if (count > 0) await notifyFailed(userId, jobId, label, message, regenerate);
   }
@@ -509,7 +559,8 @@ async function completeRegenerate(p: {
   const versionId = newVersionId();
   const marked = await prisma.resumeDraftJob.updateMany({
     where: mine,
-    data: { result: { pendingVersionId: versionId } as Prisma.InputJsonValue, updatedAt: new Date(now()) },
+    // runner는 선점 때 남긴 실행 위치(멈춤 판정 기준) — 덮어쓰지 않게 함께 쓴다.
+    data: { result: { pendingVersionId: versionId, runner: "vercel" } as Prisma.InputJsonValue, updatedAt: new Date(now()) },
   });
   if (marked.count === 0) throw new DraftSupersededError();
   const version = await saveRegeneratedVersion(userId, target, draft.document, { mode: "single", versionId, templateId: input.templateId });

@@ -359,6 +359,104 @@ describe("AI 초안 작업", () => {
     expect(retryRoute.maxDuration).toBe(jobs.DRAFT_ROUTE_MAX_DURATION_SEC);
   });
 
+  it("멈춤 판정: 워커가 선점한 작업(result.runner='worker')만 워커의 시간 상한(15분)을 기준으로 한다", () => {
+    const vercel = { VERCEL: "1" };
+    expect(jobs.draftStaleMs(vercel)).toBe(330_000);
+    expect(jobs.workerDraftStaleMs(vercel)).toBe(15 * 60_000 + 60_000);
+    expect(jobs.draftStaleMsFor({ result: { runner: "worker" } }, vercel)).toBe(15 * 60_000 + 60_000);
+    // 아직 아무도 선점하지 않았거나 Vercel이 맡은 작업(워커가 꺼져 fallback한 경우·CLI 엔진)은 Vercel 기준 그대로.
+    expect(jobs.draftStaleMsFor({ result: null }, vercel)).toBe(330_000);
+    expect(jobs.draftStaleMsFor({ result: { runner: "vercel", pendingVersionId: "v" } }, vercel)).toBe(330_000);
+    expect(jobs.draftStaleMsFor({ result: ["worker"] }, vercel)).toBe(330_000);
+  });
+
+  it("멈춤 판정: 워커가 선점한 작업은 Vercel 기준(330초)을 넘겨도 닫지 않고, Vercel이 맡은 작업은 닫는다", async () => {
+    const w = await startJob();
+    const v = await startJob();
+    state.afterTasks = [];
+    // Vercel 기준(330초)과 워커 기준(16분)이 다르게 — VERCEL=1에서 확인한다.
+    process.env.VERCEL = "1";
+    try {
+      const old = new Date(Date.now() - jobs.draftStaleMs() - 1000);
+      await tdb.prisma.resumeDraftJob.update({ where: { id: w }, data: { startedAt: old, stage: "writing", result: { runner: "worker" } } });
+      await tdb.prisma.resumeDraftJob.update({ where: { id: v }, data: { startedAt: old, stage: "writing", result: { runner: "vercel" } } });
+      expect(await jobs.sweepStaleDraftJobs("ua")).toBe(1);
+      expect((await tdb.prisma.resumeDraftJob.findUniqueOrThrow({ where: { id: w } })).status).toBe("running");
+      expect((await tdb.prisma.resumeDraftJob.findUniqueOrThrow({ where: { id: v } })).status).toBe("failed");
+      // 진행 중 작업 수에도 워커가 맡은 작업은 들어간다(330초가 지나도).
+      expect((await (await listRoute.GET()).json()).items.map((j: { id: string; status: string }) => [j.id, j.status])).toContainEqual([w, "running"]);
+      // 워커 기준도 넘기면 닫는다.
+      await tdb.prisma.resumeDraftJob.update({ where: { id: w }, data: { startedAt: new Date(Date.now() - jobs.workerDraftStaleMs() - 1000) } });
+      expect((await jobs.getDraftJob("ua", w))?.status).toBe("failed");
+    } finally {
+      delete process.env.VERCEL;
+    }
+  });
+
+  it("선점하면 result에 실행 위치(runner='vercel')를 남긴다", async () => {
+    const id = await startJob();
+    await runAfter();
+    // 완료 기록이 result를 메모로 다시 쓰므로, 선점 직후 값은 실패 경로로 확인한다.
+    const id2 = await startJob();
+    state.afterTasks = [];
+    const row = await tdb.prisma.resumeDraftJob.findUniqueOrThrow({ where: { id: id2 } });
+    await jobs.runResumeDraftJob("ua", id2, row.runId, "anthropic", {
+      createClient: () => {
+        throw new Error("boom");
+      },
+    });
+    const after = await tdb.prisma.resumeDraftJob.findUniqueOrThrow({ where: { id: id2 } });
+    expect(after.status).toBe("failed");
+    expect(after.result).toMatchObject({ runner: "vercel" });
+    expect((await tdb.prisma.resumeDraftJob.findUniqueOrThrow({ where: { id } })).status).toBe("completed");
+  });
+
+  it("선점: 다른 실행(워커)이 이미 'writing'으로 선점했으면 실행하지 않는다", async () => {
+    const id = await startJob();
+    state.afterTasks = [];
+    const row = await tdb.prisma.resumeDraftJob.findUniqueOrThrow({ where: { id } });
+    await tdb.prisma.resumeDraftJob.update({ where: { id }, data: { stage: "writing" } });
+    const fake = new FakeLlmClient();
+    const generate = vi.spyOn(fake, "generate");
+    await jobs.runResumeDraftJob("ua", id, row.runId, "anthropic", { createClient: () => fake });
+    expect(generate).not.toHaveBeenCalled();
+    expect(await tdb.prisma.resumeDraftJob.findUniqueOrThrow({ where: { id } })).toMatchObject({ status: "running", stage: "writing" });
+    expect(await tdb.prisma.companyResume.count()).toBe(0);
+  });
+
+  it("선점: 같은 runId로 동시에 두 번 시작해도 LLM·저장은 한 번만", async () => {
+    const id = await startJob();
+    state.afterTasks = [];
+    const row = await tdb.prisma.resumeDraftJob.findUniqueOrThrow({ where: { id } });
+    const fake = new FakeLlmClient({ delayMs: 50 });
+    const generate = vi.spyOn(fake, "generate");
+    await Promise.all([0, 1].map(() => jobs.runResumeDraftJob("ua", id, row.runId, "anthropic", { createClient: () => fake })));
+    expect(generate).toHaveBeenCalledTimes(1);
+    expect(await tdb.prisma.companyResume.count()).toBe(1);
+    expect((await tdb.prisma.resumeDraftJob.findUniqueOrThrow({ where: { id } })).status).toBe("completed");
+    expect(await tdb.prisma.notification.count({ where: { userId: "ua", kind: "resume-draft-completed" } })).toBe(1);
+  });
+
+  it("선점 전 실패는 그사이 다른 실행이 선점했으면 실패로 덮지 않는다", async () => {
+    const id = await startJob();
+    state.afterTasks = [];
+    const row = await tdb.prisma.resumeDraftJob.findUniqueOrThrow({ where: { id } });
+    // 자료를 읽는 동안 다른 실행이 선점하고, 이 실행의 자료 읽기는 실패한다(진단 재작성본이 사라짐).
+    await tdb.prisma.diagnosisStage.deleteMany({ where: { diagnosisId: "d1" } });
+    const findFirst = tdb.prisma.diagnosis.findFirst.bind(tdb.prisma.diagnosis);
+    const spy = vi.spyOn(tdb.prisma.diagnosis, "findFirst").mockImplementation((async (args: never) => {
+      await tdb.prisma.resumeDraftJob.update({ where: { id }, data: { stage: "writing" } });
+      return findFirst(args);
+    }) as never);
+    try {
+      await jobs.runResumeDraftJob("ua", id, row.runId, "anthropic", { createClient: () => new FakeLlmClient() });
+    } finally {
+      spy.mockRestore();
+    }
+    expect(await tdb.prisma.resumeDraftJob.findUniqueOrThrow({ where: { id } })).toMatchObject({ status: "running", stage: "writing", error: null });
+    expect(await tdb.prisma.notification.count({ where: { userId: "ua" } })).toBe(0);
+  });
+
   it("작업 이름: 제목 > 공용 이력서 > 회사 · 직무", () => {
     expect(jobs.draftJobLabel({ kind: "company", company: "토스", roleTitle: "백엔드", title: "" })).toBe("토스 · 백엔드");
     expect(jobs.draftJobLabel({ kind: "general", company: "", roleTitle: "", title: "" })).toBe("공용 이력서");

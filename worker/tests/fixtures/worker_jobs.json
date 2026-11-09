@@ -1,0 +1,117 @@
+[
+  {
+    "raw": "",
+    "jobs": [],
+    "enabled": {
+      "resume-draft": false,
+      "portfolio-graph": false,
+      "interview-questions": false,
+      "interview-feedback": false,
+      "diagnosis": false
+    }
+  },
+  {
+    "raw": "*",
+    "jobs": [
+      "*"
+    ],
+    "enabled": {
+      "resume-draft": true,
+      "portfolio-graph": true,
+      "interview-questions": true,
+      "interview-feedback": true,
+      "diagnosis": true
+    }
+  },
+  {
+    "raw": "resume-draft",
+    "jobs": [
+      "resume-draft"
+    ],
+    "enabled": {
+      "resume-draft": true,
+      "portfolio-graph": false,
+      "interview-questions": false,
+      "interview-feedback": false,
+      "diagnosis": false
+    }
+  },
+  {
+    "raw": " Resume-Draft , portfolio-graph ",
+    "jobs": [
+      "resume-draft",
+      "portfolio-graph"
+    ],
+    "enabled": {
+      "resume-draft": true,
+      "portfolio-graph": true,
+      "interview-questions": false,
+      "interview-feedback": false,
+      "diagnosis": false
+    }
+  },
+  {
+    "raw": "interview",
+    "jobs": [
+      "interview"
+    ],
+    "enabled": {
+      "resume-draft": false,
+      "portfolio-graph": false,
+      "interview-questions": true,
+      "interview-feedback": true,
+      "diagnosis": false
+    }
+  },
+  {
+    "raw": "interview-q",
+    "jobs": [
+      "interview-q"
+    ],
+    "enabled": {
+      "resume-draft": false,
+      "portfolio-graph": false,
+      "interview-questions": false,
+      "interview-feedback": false,
+      "diagnosis": false
+    }
+  },
+  {
+    "raw": "resume",
+    "jobs": [
+      "resume"
+    ],
+    "enabled": {
+      "resume-draft": true,
+      "portfolio-graph": false,
+      "interview-questions": false,
+      "interview-feedback": false,
+      "diagnosis": false
+    }
+  },
+  {
+    "raw": "diagnosis,*",
+    "jobs": [
+      "diagnosis",
+      "*"
+    ],
+    "enabled": {
+      "resume-draft": true,
+      "portfolio-graph": true,
+      "interview-questions": true,
+      "interview-feedback": true,
+      "diagnosis": true
+    }
+  },
+  {
+    "raw": ",,",
+    "jobs": [],
+    "enabled": {
+      "resume-draft": false,
+      "portfolio-graph": false,
+      "interview-questions": false,
+      "interview-feedback": false,
+      "diagnosis": false
+    }
+  }
+]

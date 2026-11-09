@@ -2,10 +2,10 @@ import "server-only";
 /**
  * AI 이력서 초안 작업 라우트 공용: 레이트 리밋(429 + Retry-After), 백그라운드 실행 예약, 오류 응답.
  */
-import { after } from "next/server";
 import { FeatureError, featureErrorResponse } from "@/lib/api/errors";
 import { hitDbLimit, RESUME_DRAFT_LIMIT } from "@/lib/auth/db-rate-limit";
 import type { ProviderId } from "@/lib/domain/providers";
+import { dispatchJob, type DispatchDeps } from "@/lib/worker/dispatch";
 import { runResumeDraftJob } from "./draft-jobs";
 
 export const noStore = { "Cache-Control": "no-store" } as const;
@@ -30,7 +30,12 @@ export function draftErrorResponse(err: unknown, context: string): Response {
   return featureErrorResponse(err, context);
 }
 
-/** 응답 뒤 초안을 쓴다(라우트 핸들러 안에서만). 실행 시간은 라우트 maxDuration(300초)을 따른다. */
-export function scheduleDraftJob(userId: string, jobId: string, runId: string, provider: ProviderId): void {
-  after(() => runResumeDraftJob(userId, jobId, runId, provider));
+/**
+ * 응답 뒤 초안을 쓴다(라우트 핸들러 안에서만). 워커 스위치(WORKER_JOBS에 'resume-draft')가 켜져 있고 엔진이 'anthropic'이면
+ * Python 워커로 넘기고(docs/PYTHON-WORKER.md §3.1), 꺼져 있거나 워커가 202로 받지 않으면 지금처럼 after()에서 실행한다
+ * (실행 시간은 라우트 maxDuration(300초)을 따른다). 워커에는 작업 id·runId만 보낸다 — 워커는 user_id를 작업 행에서 다시 읽는다.
+ * 둘이 함께 시작해도 'material' → 'writing' 선점(runResumeDraftJob)으로 한쪽만 실행한다.
+ */
+export function scheduleDraftJob(userId: string, jobId: string, runId: string, provider: ProviderId, deps?: DispatchDeps): void {
+  dispatchJob("resume-draft", { id: jobId, runId, provider }, () => runResumeDraftJob(userId, jobId, runId, provider), deps);
 }

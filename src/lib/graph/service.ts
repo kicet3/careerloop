@@ -9,7 +9,6 @@ import "server-only";
 import { nanoid } from "nanoid";
 import type { ManagedTransaction } from "neo4j-driver";
 import {
-  allowedPropKeys,
   type ApplyGraphOpsResult,
   type CareerGraph,
   edgeId,
@@ -22,9 +21,9 @@ import {
   REL_TYPES,
   type RelType,
 } from "@/lib/domain/graph";
-import { normalizeStoredDates } from "@/lib/domain/graph-dates";
 import { ensureGraphSchema, getDriver, graphDatabase } from "./client";
 import { GraphOpError } from "./errors";
+import { toGraphNode } from "./node";
 import { GraphOwnerMismatchError, markGraphOwner } from "./owner";
 import { planGraphOps, type PlanStep } from "./plan";
 
@@ -71,19 +70,7 @@ async function session() {
 // 읽기
 // ---------------------------------------------------------------------------
 
-/** 저장된 노드 → GraphNode. 옛 형식 날짜(YYYY-MM-DD, endDate '현재' 등)는 읽을 때 계약대로 보여 준다(저장값은 그대로 — 다음에 고칠 때 다시 쓴다). */
-export function toGraphNode(id: string, label: NodeLabel, raw: Record<string, unknown>): GraphNode {
-  const picked: Record<string, unknown> = {};
-  for (const k of allowedPropKeys(label)) if (raw[k] !== undefined && raw[k] !== null) picked[k] = raw[k];
-  const props = normalizeStoredDates(label, picked);
-  return {
-    id,
-    label,
-    props,
-    createdAt: typeof raw.createdAt === "number" ? raw.createdAt : 0,
-    updatedAt: typeof raw.updatedAt === "number" ? raw.updatedAt : 0,
-  } as GraphNode;
-}
+export { toGraphNode };
 
 export async function getCareerGraph(userId: string, opts: { personName?: string | null } = {}): Promise<CareerGraph> {
   assertUserId(userId);

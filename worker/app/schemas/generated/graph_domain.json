@@ -1,0 +1,159 @@
+{
+  "personId": "me",
+  "nodeLabels": [
+    "Company",
+    "Role",
+    "Project",
+    "Experience",
+    "Skill",
+    "Achievement",
+    "Education",
+    "Certification"
+  ],
+  "labelMeta": {
+    "Company": {
+      "name": "회사",
+      "description": "다닌 회사·기관"
+    },
+    "Role": {
+      "name": "직무·직함",
+      "description": "회사에서 맡은 직함과 기간"
+    },
+    "Project": {
+      "name": "프로젝트",
+      "description": "참여·주도한 프로젝트"
+    },
+    "Experience": {
+      "name": "경험",
+      "description": "대외활동·동아리·봉사·수상 준비 등 경력 밖의 경험"
+    },
+    "Skill": {
+      "name": "기술·역량",
+      "description": "도구·언어·프레임워크·도메인 지식·소프트 스킬"
+    },
+    "Achievement": {
+      "name": "성과",
+      "description": "측정 가능한 결과(숫자·수상·출시 등)"
+    },
+    "Education": {
+      "name": "학력",
+      "description": "학교·전공·학위"
+    },
+    "Certification": {
+      "name": "자격증",
+      "description": "자격증·어학 점수·수료"
+    }
+  },
+  "titleKey": {
+    "Company": "name",
+    "Role": "title",
+    "Project": "name",
+    "Experience": "title",
+    "Skill": "name",
+    "Achievement": "summary",
+    "Education": "school",
+    "Certification": "name"
+  },
+  "relTypes": [
+    "WORKED_AT",
+    "HAD_ROLE",
+    "AT_COMPANY",
+    "WORKED_ON",
+    "PART_OF",
+    "HAS_EXPERIENCE",
+    "RELATED_TO",
+    "USED_SKILL",
+    "HAS_SKILL",
+    "ACHIEVED",
+    "STUDIED_AT",
+    "EARNED"
+  ],
+  "relNames": {
+    "WORKED_AT": "재직",
+    "HAD_ROLE": "직무",
+    "AT_COMPANY": "소속 회사",
+    "WORKED_ON": "프로젝트 수행",
+    "PART_OF": "소속",
+    "HAS_EXPERIENCE": "경험",
+    "RELATED_TO": "관련",
+    "USED_SKILL": "사용 기술",
+    "HAS_SKILL": "보유 기술",
+    "ACHIEVED": "성과",
+    "STUDIED_AT": "학력",
+    "EARNED": "취득"
+  },
+  "propKeys": {
+    "Company": [
+      "name",
+      "industry",
+      "location",
+      "description",
+      "url"
+    ],
+    "Role": [
+      "title",
+      "department",
+      "employmentType",
+      "startDate",
+      "endDate",
+      "current",
+      "summary"
+    ],
+    "Project": [
+      "name",
+      "summary",
+      "myRole",
+      "teamSize",
+      "startDate",
+      "endDate",
+      "current",
+      "url",
+      "situation",
+      "action",
+      "result",
+      "learned",
+      "categories"
+    ],
+    "Experience": [
+      "title",
+      "kind",
+      "organization",
+      "description",
+      "myRole",
+      "startDate",
+      "endDate",
+      "current",
+      "situation",
+      "action",
+      "result",
+      "learned",
+      "categories"
+    ],
+    "Skill": [
+      "name",
+      "category",
+      "level"
+    ],
+    "Achievement": [
+      "summary",
+      "metric",
+      "value",
+      "date"
+    ],
+    "Education": [
+      "school",
+      "degree",
+      "major",
+      "startDate",
+      "endDate",
+      "current",
+      "status"
+    ],
+    "Certification": [
+      "name",
+      "issuer",
+      "date",
+      "score"
+    ]
+  }
+}

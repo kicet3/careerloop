@@ -280,6 +280,8 @@ export async function runInterviewGeneration(
   deps: InterviewDeps = {},
 ): Promise<void> {
   try {
+    // Python 워커와 한쪽만 실행한다(진 쪽은 아무것도 쓰지 않는다).
+    if (!(await store.claimGenerationRun(userId, sessionId, runId, "vercel"))) return;
     const snapshot = await store.loadSourceSnapshot(userId, sessionId);
     if (!snapshot) {
       await store.failGeneration(sessionId, runId, "근거 자료를 찾지 못했습니다. 새 연습을 만들어 주세요.");
@@ -378,6 +380,8 @@ export async function runInterviewFeedback(userId: string, answerId: string, pro
   try {
     const row = await prisma.interviewAnswer.findFirst({ where: { id: answerId, userId } });
     if (!row || row.status !== "pending") return;
+    // Python 워커와 한쪽만 LLM을 부른다(진 쪽은 아무것도 쓰지 않는다).
+    if (!(await store.claimAnswerRun(userId, answerId, "vercel"))) return;
     const question = await store.getQuestion(userId, row.sessionId, row.questionId);
     if (!question) {
       await store.failAnswer(answerId, "질문을 찾을 수 없습니다.");

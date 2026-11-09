@@ -169,6 +169,41 @@ describe("면접 연습 흐름", () => {
     await expect(svc.retryInterviewFeedback("ua", sub.answer.id)).rejects.toMatchObject({ status: 409 });
   });
 
+  it("시작 선점: Python 워커가 먼저 선점한 생성·피드백은 Vercel 경로가 LLM을 부르지 않는다(같은 runId·같은 시도는 한쪽만)", async () => {
+    let created = 0;
+    const counting = { createClient: () => (created++, new FakeLlmClient() as LlmClient) };
+    const { session, runId, provider } = await svc.startInterviewSession("ua", { resumeId: companyId, includePortfolio: false });
+    // 워커가 같은 SQL로 먼저 선점(worker/app/jobs/interview_store.py claim_generation_run).
+    expect(await store.claimGenerationRun("ua", session.id, runId, "worker")).toBe(true);
+    expect(await store.claimGenerationRun("ub", session.id, runId, "worker")).toBe(false); // 남의 세션은 선점하지 못한다
+    await svc.runInterviewGeneration("ua", session.id, runId, provider, counting);
+    expect(created).toBe(0);
+    expect((await store.getSessionSummary("ua", session.id))?.status).toBe("generating");
+
+    // 다시 만들기(새 runId)는 다시 선점해 실행한다. 완료 기록이 usage를 사용량 4칸으로 다시 써 표시가 남지 않는다.
+    await tdb.prisma.interviewSession.update({ where: { id: session.id }, data: { updatedAt: new Date(Date.now() - store.INTERVIEW_GENERATION_STALE_MS - 1000) } });
+    const again = (await svc.restartInterviewGeneration("ua", session.id))!;
+    await svc.runInterviewGeneration("ua", session.id, again.runId, again.provider, counting);
+    expect(created).toBe(1);
+    const row = await tdb.prisma.interviewSession.findUniqueOrThrow({ where: { id: session.id } });
+    expect(row.status).toBe("ready");
+    expect(Object.keys(row.usage as object).sort()).toEqual(["cacheReadTokens", "cacheWriteTokens", "inputTokens", "outputTokens"]);
+
+    const q = (await store.getSessionDetail("ua", session.id))!.questions[0]!;
+    const sub = (await svc.submitInterviewAnswer("ua", session.id, q.id, { answer: "제가 직접 쟀습니다. 평균 50분에서 35분으로 줄었습니다." }))!;
+    expect(await store.claimAnswerRun("ua", sub.answer.id, "worker")).toBe(true);
+    expect(await store.claimAnswerRun("ua", sub.answer.id, "vercel")).toBe(false); // 같은 시도는 한 번만
+    await svc.runInterviewFeedback("ua", sub.answer.id, sub.provider, counting);
+    expect(created).toBe(1);
+    expect((await store.getAnswer("ua", sub.answer.id))?.status).toBe("pending");
+    // 멈춘 답변의 다시 받기는 created_at을 옮겨 새 시도가 되므로 다시 선점할 수 있다.
+    await tdb.prisma.interviewAnswer.update({ where: { id: sub.answer.id }, data: { createdAt: new Date(Date.now() - store.INTERVIEW_FEEDBACK_STALE_MS - 1000) } });
+    expect(await svc.retryInterviewFeedback("ua", sub.answer.id)).not.toBeNull();
+    await svc.runInterviewFeedback("ua", sub.answer.id, sub.provider, counting);
+    expect(created).toBe(2);
+    expect((await store.getAnswer("ua", sub.answer.id))?.status).toBe("done");
+  });
+
   it("공고 없이(postingId: null) 공용 이력서로: 공고 줄 없음, 직무 일반으로 표시", async () => {
     const a = await svc.startInterviewSession("ua", { resumeId: companyId, postingId: null, includePortfolio: false });
     expect(a.session).toMatchObject({ hasPosting: false, hasPortfolio: false, postingId: null });

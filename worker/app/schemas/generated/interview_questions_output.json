@@ -1,0 +1,97 @@
+{
+  "type": "object",
+  "properties": {
+    "questions": {
+      "maxItems": 40,
+      "type": "array",
+      "items": {
+        "type": "object",
+        "properties": {
+          "category": {
+            "type": "string",
+            "enum": [
+              "line",
+              "project",
+              "pivot",
+              "tough",
+              "motivation",
+              "job"
+            ]
+          },
+          "facet": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "분류별 세부 키(line: why·goal…, project: background…, pivot: P·I·V·O·T 등). 없으면 null"
+          },
+          "question": {
+            "type": "string",
+            "description": "면접관이 실제로 물을 한국어 질문 한 문장"
+          },
+          "intent": {
+            "type": "string",
+            "description": "이 질문이 확인하려는 것(한 줄)"
+          },
+          "citations": {
+            "maxItems": 3,
+            "type": "array",
+            "items": {
+              "type": "object",
+              "properties": {
+                "ref": {
+                  "type": "string",
+                  "description": "근거 줄 id(r1·p3·j2 등)"
+                },
+                "quote": {
+                  "type": "string",
+                  "description": "그 줄에서 글자 그대로 옮긴 부분"
+                }
+              },
+              "required": [
+                "ref",
+                "quote"
+              ],
+              "additionalProperties": false
+            },
+            "description": "질문의 근거가 된 서류 줄. 직무 일반·지원 동기 질문은 비워도 된다"
+          },
+          "followUps": {
+            "maxItems": 3,
+            "type": "array",
+            "items": {
+              "type": "string"
+            },
+            "description": "이어질 꼬리 질문"
+          }
+        },
+        "required": [
+          "category",
+          "facet",
+          "question",
+          "intent",
+          "citations",
+          "followUps"
+        ],
+        "additionalProperties": false
+      }
+    },
+    "notes": {
+      "maxItems": 5,
+      "type": "array",
+      "items": {
+        "type": "string"
+      },
+      "description": "자료에서 비어 있어 질문으로 확인해야 할 점(한국어)"
+    }
+  },
+  "required": [
+    "questions",
+    "notes"
+  ],
+  "additionalProperties": false
+}

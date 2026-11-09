@@ -1,0 +1,207 @@
+{
+  "type": "object",
+  "properties": {
+    "overall": {
+      "type": "integer",
+      "minimum": 0,
+      "maximum": 100,
+      "description": "종합 점수(0~100)"
+    },
+    "criteria": {
+      "type": "object",
+      "properties": {
+        "evidence": {
+          "type": "object",
+          "properties": {
+            "score": {
+              "type": "integer",
+              "minimum": 1,
+              "maximum": 5,
+              "description": "1(부족)~5(충분)"
+            },
+            "comment": {
+              "type": "string",
+              "description": "이 기준에서 본 한두 문장 평가"
+            }
+          },
+          "required": [
+            "score",
+            "comment"
+          ],
+          "additionalProperties": false
+        },
+        "numbers": {
+          "type": "object",
+          "properties": {
+            "score": {
+              "type": "integer",
+              "minimum": 1,
+              "maximum": 5,
+              "description": "1(부족)~5(충분)"
+            },
+            "comment": {
+              "type": "string",
+              "description": "이 기준에서 본 한두 문장 평가"
+            }
+          },
+          "required": [
+            "score",
+            "comment"
+          ],
+          "additionalProperties": false
+        },
+        "ownership": {
+          "type": "object",
+          "properties": {
+            "score": {
+              "type": "integer",
+              "minimum": 1,
+              "maximum": 5,
+              "description": "1(부족)~5(충분)"
+            },
+            "comment": {
+              "type": "string",
+              "description": "이 기준에서 본 한두 문장 평가"
+            }
+          },
+          "required": [
+            "score",
+            "comment"
+          ],
+          "additionalProperties": false
+        },
+        "length": {
+          "type": "object",
+          "properties": {
+            "score": {
+              "type": "integer",
+              "minimum": 1,
+              "maximum": 5,
+              "description": "1(부족)~5(충분)"
+            },
+            "comment": {
+              "type": "string",
+              "description": "이 기준에서 본 한두 문장 평가"
+            }
+          },
+          "required": [
+            "score",
+            "comment"
+          ],
+          "additionalProperties": false
+        },
+        "structure": {
+          "type": "object",
+          "properties": {
+            "score": {
+              "type": "integer",
+              "minimum": 1,
+              "maximum": 5,
+              "description": "1(부족)~5(충분)"
+            },
+            "comment": {
+              "type": "string",
+              "description": "이 기준에서 본 한두 문장 평가"
+            }
+          },
+          "required": [
+            "score",
+            "comment"
+          ],
+          "additionalProperties": false
+        }
+      },
+      "required": [
+        "evidence",
+        "numbers",
+        "ownership",
+        "length",
+        "structure"
+      ],
+      "additionalProperties": false
+    },
+    "strengths": {
+      "maxItems": 3,
+      "type": "array",
+      "items": {
+        "type": "string"
+      }
+    },
+    "improvements": {
+      "maxItems": 4,
+      "type": "array",
+      "items": {
+        "type": "string"
+      }
+    },
+    "unsupportedClaims": {
+      "maxItems": 3,
+      "type": "array",
+      "items": {
+        "type": "string"
+      }
+    },
+    "modelAnswer": {
+      "type": "object",
+      "properties": {
+        "conclusion": {
+          "type": "string",
+          "description": "질문에 바로 답하는 첫 문장"
+        },
+        "points": {
+          "maxItems": 4,
+          "type": "array",
+          "items": {
+            "type": "object",
+            "properties": {
+              "text": {
+                "type": "string"
+              },
+              "ref": {
+                "anyOf": [
+                  {
+                    "type": "string"
+                  },
+                  {
+                    "type": "null"
+                  }
+                ],
+                "description": "근거 줄 id. 답변에서만 나온 사실이면 null"
+              }
+            },
+            "required": [
+              "text",
+              "ref"
+            ],
+            "additionalProperties": false
+          },
+          "description": "근거 순서. 모르는 사실은 [ADD: 확인할 내용]"
+        },
+        "limitation": {
+          "type": "string",
+          "description": "밝힐 한계나 다음 조치. 없으면 빈 문자열"
+        }
+      },
+      "required": [
+        "conclusion",
+        "points",
+        "limitation"
+      ],
+      "additionalProperties": false
+    },
+    "followUp": {
+      "type": "string",
+      "description": "이 답변에 이어 면접관이 물을 꼬리 질문 하나"
+    }
+  },
+  "required": [
+    "overall",
+    "criteria",
+    "strengths",
+    "improvements",
+    "unsupportedClaims",
+    "modelAnswer",
+    "followUp"
+  ],
+  "additionalProperties": false
+}

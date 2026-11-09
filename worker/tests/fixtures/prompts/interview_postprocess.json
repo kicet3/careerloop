@@ -1,0 +1,6162 @@
+{
+  "normalize": [
+    {
+      "name": "source_test",
+      "output": {
+        "questions": [
+          {
+            "category": "line",
+            "facet": "why",
+            "question": "왜 재작성했나요?",
+            "intent": "필요성",
+            "citations": [
+              {
+                "ref": "r5",
+                "quote": "정산 배치"
+              }
+            ],
+            "followUps": [
+              "  누가 정했나요? ",
+              ""
+            ]
+          },
+          {
+            "category": "line",
+            "facet": "why",
+            "question": "왜  재작성했나요?",
+            "intent": "중복",
+            "citations": [
+              {
+                "ref": "r5",
+                "quote": "정산"
+              }
+            ],
+            "followUps": []
+          },
+          {
+            "category": "pivot",
+            "facet": "Z",
+            "question": "지표는?",
+            "intent": "",
+            "citations": [
+              {
+                "ref": "r4",
+                "quote": "p95"
+              }
+            ],
+            "followUps": []
+          },
+          {
+            "category": "tough",
+            "facet": "number",
+            "question": "근거 없는 질문",
+            "intent": "",
+            "citations": [
+              {
+                "ref": "r99",
+                "quote": "x"
+              }
+            ],
+            "followUps": []
+          },
+          {
+            "category": "project",
+            "facet": "result",
+            "question": "지어낸 인용 질문",
+            "intent": "",
+            "citations": [
+              {
+                "ref": "r5",
+                "quote": "트래픽 10배 대응"
+              }
+            ],
+            "followUps": []
+          },
+          {
+            "category": "line",
+            "facet": "why",
+            "question": "빈 인용 질문",
+            "intent": "",
+            "citations": [
+              {
+                "ref": "r4",
+                "quote": "x없는말"
+              },
+              {
+                "ref": "r5",
+                "quote": ""
+              }
+            ],
+            "followUps": []
+          },
+          {
+            "category": "job",
+            "facet": "why",
+            "question": "이 직무에서 중요한 것은?",
+            "intent": "",
+            "citations": [],
+            "followUps": []
+          }
+        ],
+        "notes": []
+      },
+      "lines": [
+        {
+          "id": "r1",
+          "doc": "resume",
+          "label": "지원 직무",
+          "path": "basics.headline",
+          "text": "5년 차 백엔드 개발자"
+        },
+        {
+          "id": "r2",
+          "doc": "resume",
+          "label": "요약 1",
+          "path": "summary.0",
+          "text": "결제 시스템을 운영했습니다."
+        },
+        {
+          "id": "r3",
+          "doc": "resume",
+          "label": "요약 2",
+          "path": "summary.1",
+          "text": "장애 대응 경험이 있습니다."
+        },
+        {
+          "id": "r4",
+          "doc": "resume",
+          "label": "핵심 성과 1",
+          "path": "highlights.0.title",
+          "text": "결제 API p95 800ms → 320ms"
+        },
+        {
+          "id": "r5",
+          "doc": "resume",
+          "label": "경력 · 페이랩 백엔드 · 기여 1",
+          "path": "experience.0.bullets.0",
+          "text": "정산 배치를 Kotlin으로 재작성"
+        },
+        {
+          "id": "r6",
+          "doc": "resume",
+          "label": "프로젝트 · 정산 개편 · 문제",
+          "path": "projects.0.problem",
+          "text": "배치가 4시간 걸렸다"
+        },
+        {
+          "id": "r7",
+          "doc": "resume",
+          "label": "프로젝트 · 정산 개편 · 결과",
+          "path": "projects.0.result",
+          "text": "40분으로 단축"
+        },
+        {
+          "id": "j1",
+          "doc": "posting",
+          "label": "채용 공고 1",
+          "path": null,
+          "text": "주요 업무: 결제 정산 시스템 개발과 운영을 맡습니다 자격 요건: Kotlin 3년 이상 경험, 대용량 배치 운영 경험"
+        },
+        {
+          "id": "j2",
+          "doc": "posting",
+          "label": "채용 공고 2",
+          "path": null,
+          "text": "우대 사항: 결제 도메인 경험"
+        },
+        {
+          "id": "p1",
+          "doc": "portfolio",
+          "label": "포트폴리오 1",
+          "path": null,
+          "text": "포트폴리오 문단 하나입니다. 정산 개편의 배경과 지표를 설명합니다. 짧다"
+        },
+        {
+          "id": "p2",
+          "doc": "portfolio",
+          "label": "포트폴리오 2",
+          "path": null,
+          "text": "두 번째 문단은 결과와 회고를 다룹니다. 지연 건수는 3개월 동안 0건이었습니다."
+        }
+      ],
+      "expected": [
+        {
+          "category": "line",
+          "facet": "why",
+          "question": "왜 재작성했나요?",
+          "intent": "필요성",
+          "citations": [
+            {
+              "ref": "r5",
+              "doc": "resume",
+              "quote": "정산 배치",
+              "verified": true
+            }
+          ],
+          "followUps": [
+            "누가 정했나요?"
+          ]
+        },
+        {
+          "category": "pivot",
+          "facet": null,
+          "question": "지표는?",
+          "intent": "",
+          "citations": [
+            {
+              "ref": "r4",
+              "doc": "resume",
+              "quote": "p95",
+              "verified": true
+            }
+          ],
+          "followUps": []
+        },
+        {
+          "category": "line",
+          "facet": "why",
+          "question": "빈 인용 질문",
+          "intent": "",
+          "citations": [
+            {
+              "ref": "r5",
+              "doc": "resume",
+              "quote": "정산 배치를 Kotlin으로 재작성",
+              "verified": true
+            },
+            {
+              "ref": "r4",
+              "doc": "resume",
+              "quote": "x없는말",
+              "verified": false
+            }
+          ],
+          "followUps": []
+        },
+        {
+          "category": "job",
+          "facet": null,
+          "question": "이 직무에서 중요한 것은?",
+          "intent": "",
+          "citations": [],
+          "followUps": []
+        }
+      ]
+    },
+    {
+      "name": "posting_and_portfolio",
+      "output": {
+        "questions": [
+          {
+            "category": "line",
+            "facet": "why",
+            "question": "공고 인용만 있는 line 질문",
+            "intent": "",
+            "citations": [
+              {
+                "ref": "j1",
+                "quote": "결제 정산 시스템"
+              }
+            ],
+            "followUps": []
+          },
+          {
+            "category": "motivation",
+            "facet": "motivation",
+            "question": "왜 지원했나요?",
+            "intent": "",
+            "citations": [
+              {
+                "ref": "j1",
+                "quote": "결제 정산"
+              }
+            ],
+            "followUps": []
+          },
+          {
+            "category": "project",
+            "facet": "background",
+            "question": "포트폴리오 배경은?",
+            "intent": "",
+            "citations": [
+              {
+                "ref": "[p1]",
+                "quote": "“정산 개편의 배경과 지표”"
+              },
+              {
+                "ref": " p1 ",
+                "quote": "중복 ref"
+              }
+            ],
+            "followUps": []
+          },
+          {
+            "category": "tough",
+            "facet": "counter",
+            "question": "  인용   많은 질문😀  ",
+            "intent": "의도 의도 의도 의도 의도 의도 의도 의도 의도 의도 의도 의도 의도 의도 의도 의도 의도 의도 의도 의도 의도 의도 의도 의도 의도 의도 의도 의도 의도 의도 의도 의도 의도 의도 의도 의도 의도 의도 의도 의도 의도 의도 의도 의도 의도 의도 의도 의도 의도 의도 의도 의도 의도 의도 의도 의도 의도 의도 의도 의도 의도 의도 의도 의도 의도 의도 의도 의도 의도 의도 의도 의도 의도 의도 의도 의도 의도 의도 의도 의도 의도 의도 의도 의도 의도 의도 의도 의도 의도 의도 의도 의도 의도 의도 의도 의도 의도 의도 의도 의도 ",
+            "citations": [
+              {
+                "ref": "r1",
+                "quote": "5년 차"
+              },
+              {
+                "ref": "r2",
+                "quote": "결제 시스템"
+              },
+              {
+                "ref": "r3",
+                "quote": "장애"
+              },
+              {
+                "ref": "r6",
+                "quote": "4시간"
+              }
+            ],
+            "followUps": [
+              "a",
+              "b",
+              "c",
+              "d",
+              "😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀"
+            ]
+          },
+          {
+            "category": "motivation",
+            "facet": "intro",
+            "question": "자기소개 해 주세요.",
+            "intent": "",
+            "citations": [],
+            "followUps": []
+          },
+          {
+            "category": "line",
+            "facet": "measure",
+            "question": "PIVOT 대문자 RESUME 질문?",
+            "intent": "",
+            "citations": [
+              {
+                "ref": "r4",
+                "quote": "P95 800MS"
+              }
+            ],
+            "followUps": []
+          },
+          {
+            "category": "line",
+            "facet": "measure",
+            "question": "pivot 대문자 resume 질문",
+            "intent": "",
+            "citations": [
+              {
+                "ref": "r4",
+                "quote": "p95"
+              }
+            ],
+            "followUps": []
+          },
+          {
+            "category": "line",
+            "facet": "why",
+            "question": "",
+            "intent": "",
+            "citations": [
+              {
+                "ref": "r1",
+                "quote": "5년"
+              }
+            ],
+            "followUps": []
+          },
+          {
+            "category": "line",
+            "facet": "why",
+            "question": "xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx",
+            "intent": "",
+            "citations": [
+              {
+                "ref": "r1",
+                "quote": "yyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyy"
+              },
+              {
+                "ref": "r2",
+                "quote": "결제"
+              }
+            ],
+            "followUps": []
+          }
+        ],
+        "notes": []
+      },
+      "lines": [
+        {
+          "id": "r1",
+          "doc": "resume",
+          "label": "지원 직무",
+          "path": "basics.headline",
+          "text": "5년 차 백엔드 개발자"
+        },
+        {
+          "id": "r2",
+          "doc": "resume",
+          "label": "요약 1",
+          "path": "summary.0",
+          "text": "결제 시스템을 운영했습니다."
+        },
+        {
+          "id": "r3",
+          "doc": "resume",
+          "label": "요약 2",
+          "path": "summary.1",
+          "text": "장애 대응 경험이 있습니다."
+        },
+        {
+          "id": "r4",
+          "doc": "resume",
+          "label": "핵심 성과 1",
+          "path": "highlights.0.title",
+          "text": "결제 API p95 800ms → 320ms"
+        },
+        {
+          "id": "r5",
+          "doc": "resume",
+          "label": "경력 · 페이랩 백엔드 · 기여 1",
+          "path": "experience.0.bullets.0",
+          "text": "정산 배치를 Kotlin으로 재작성"
+        },
+        {
+          "id": "r6",
+          "doc": "resume",
+          "label": "프로젝트 · 정산 개편 · 문제",
+          "path": "projects.0.problem",
+          "text": "배치가 4시간 걸렸다"
+        },
+        {
+          "id": "r7",
+          "doc": "resume",
+          "label": "프로젝트 · 정산 개편 · 결과",
+          "path": "projects.0.result",
+          "text": "40분으로 단축"
+        },
+        {
+          "id": "j1",
+          "doc": "posting",
+          "label": "채용 공고 1",
+          "path": null,
+          "text": "주요 업무: 결제 정산 시스템 개발과 운영을 맡습니다 자격 요건: Kotlin 3년 이상 경험, 대용량 배치 운영 경험"
+        },
+        {
+          "id": "j2",
+          "doc": "posting",
+          "label": "채용 공고 2",
+          "path": null,
+          "text": "우대 사항: 결제 도메인 경험"
+        },
+        {
+          "id": "p1",
+          "doc": "portfolio",
+          "label": "포트폴리오 1",
+          "path": null,
+          "text": "포트폴리오 문단 하나입니다. 정산 개편의 배경과 지표를 설명합니다. 짧다"
+        },
+        {
+          "id": "p2",
+          "doc": "portfolio",
+          "label": "포트폴리오 2",
+          "path": null,
+          "text": "두 번째 문단은 결과와 회고를 다룹니다. 지연 건수는 3개월 동안 0건이었습니다."
+        }
+      ],
+      "expected": [
+        {
+          "category": "motivation",
+          "facet": "motivation",
+          "question": "왜 지원했나요?",
+          "intent": "",
+          "citations": [
+            {
+              "ref": "j1",
+              "doc": "posting",
+              "quote": "결제 정산",
+              "verified": true
+            }
+          ],
+          "followUps": []
+        },
+        {
+          "category": "project",
+          "facet": "background",
+          "question": "포트폴리오 배경은?",
+          "intent": "",
+          "citations": [
+            {
+              "ref": "p1",
+              "doc": "portfolio",
+              "quote": "“정산 개편의 배경과 지표”",
+              "verified": true
+            }
+          ],
+          "followUps": []
+        },
+        {
+          "category": "tough",
+          "facet": "counter",
+          "question": "인용 많은 질문😀",
+          "intent": "의도 의도 의도 의도 의도 의도 의도 의도 의도 의도 의도 의도 의도 의도 의도 의도 의도 의도 의도 의도 의도 의도 의도 의도 의도 의도 의도 의도 의도 의도 의도 의도 의도 의도 의도 의도 의도 의도 의도 의도 의도 의도 의도 의도 의도 의도 의도 의도 의도 의도 의도 의도 의도 의도 의도 의도 의도 의도 의도 의도 의도 의도 의도 의도 의도 의도 의도 의도 의도 의도 의도 의도 의도 의도 의도 의도 의도 의도 의도 의도 의도 의도 의도 의도 의도 의도 의도 의도 의도 의도 의도 의도 의도 의도 의도 의도 의도 의도 의도 의도",
+          "citations": [
+            {
+              "ref": "r1",
+              "doc": "resume",
+              "quote": "5년 차",
+              "verified": true
+            },
+            {
+              "ref": "r2",
+              "doc": "resume",
+              "quote": "결제 시스템",
+              "verified": true
+            },
+            {
+              "ref": "r3",
+              "doc": "resume",
+              "quote": "장애",
+              "verified": true
+            }
+          ],
+          "followUps": [
+            "a",
+            "b",
+            "c"
+          ]
+        },
+        {
+          "category": "motivation",
+          "facet": "intro",
+          "question": "자기소개 해 주세요.",
+          "intent": "",
+          "citations": [],
+          "followUps": []
+        },
+        {
+          "category": "line",
+          "facet": "measure",
+          "question": "PIVOT 대문자 RESUME 질문?",
+          "intent": "",
+          "citations": [
+            {
+              "ref": "r4",
+              "doc": "resume",
+              "quote": "P95 800MS",
+              "verified": true
+            }
+          ],
+          "followUps": []
+        },
+        {
+          "category": "line",
+          "facet": "measure",
+          "question": "pivot 대문자 resume 질문",
+          "intent": "",
+          "citations": [
+            {
+              "ref": "r4",
+              "doc": "resume",
+              "quote": "p95",
+              "verified": true
+            }
+          ],
+          "followUps": []
+        },
+        {
+          "category": "line",
+          "facet": "why",
+          "question": "xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx…",
+          "intent": "",
+          "citations": [
+            {
+              "ref": "r2",
+              "doc": "resume",
+              "quote": "결제",
+              "verified": true
+            },
+            {
+              "ref": "r1",
+              "doc": "resume",
+              "quote": "yyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyy…",
+              "verified": false
+            }
+          ],
+          "followUps": []
+        }
+      ]
+    },
+    {
+      "name": "over_40",
+      "output": {
+        "questions": [
+          {
+            "category": "job",
+            "facet": null,
+            "question": "직무 질문 1",
+            "intent": "",
+            "citations": [],
+            "followUps": []
+          },
+          {
+            "category": "job",
+            "facet": null,
+            "question": "직무 질문 2",
+            "intent": "",
+            "citations": [],
+            "followUps": []
+          },
+          {
+            "category": "job",
+            "facet": null,
+            "question": "직무 질문 3",
+            "intent": "",
+            "citations": [],
+            "followUps": []
+          },
+          {
+            "category": "job",
+            "facet": null,
+            "question": "직무 질문 4",
+            "intent": "",
+            "citations": [],
+            "followUps": []
+          },
+          {
+            "category": "job",
+            "facet": null,
+            "question": "직무 질문 5",
+            "intent": "",
+            "citations": [],
+            "followUps": []
+          },
+          {
+            "category": "job",
+            "facet": null,
+            "question": "직무 질문 6",
+            "intent": "",
+            "citations": [],
+            "followUps": []
+          },
+          {
+            "category": "job",
+            "facet": null,
+            "question": "직무 질문 7",
+            "intent": "",
+            "citations": [],
+            "followUps": []
+          },
+          {
+            "category": "job",
+            "facet": null,
+            "question": "직무 질문 8",
+            "intent": "",
+            "citations": [],
+            "followUps": []
+          },
+          {
+            "category": "job",
+            "facet": null,
+            "question": "직무 질문 9",
+            "intent": "",
+            "citations": [],
+            "followUps": []
+          },
+          {
+            "category": "job",
+            "facet": null,
+            "question": "직무 질문 10",
+            "intent": "",
+            "citations": [],
+            "followUps": []
+          },
+          {
+            "category": "job",
+            "facet": null,
+            "question": "직무 질문 11",
+            "intent": "",
+            "citations": [],
+            "followUps": []
+          },
+          {
+            "category": "job",
+            "facet": null,
+            "question": "직무 질문 12",
+            "intent": "",
+            "citations": [],
+            "followUps": []
+          },
+          {
+            "category": "job",
+            "facet": null,
+            "question": "직무 질문 13",
+            "intent": "",
+            "citations": [],
+            "followUps": []
+          },
+          {
+            "category": "job",
+            "facet": null,
+            "question": "직무 질문 14",
+            "intent": "",
+            "citations": [],
+            "followUps": []
+          },
+          {
+            "category": "job",
+            "facet": null,
+            "question": "직무 질문 15",
+            "intent": "",
+            "citations": [],
+            "followUps": []
+          },
+          {
+            "category": "job",
+            "facet": null,
+            "question": "직무 질문 16",
+            "intent": "",
+            "citations": [],
+            "followUps": []
+          },
+          {
+            "category": "job",
+            "facet": null,
+            "question": "직무 질문 17",
+            "intent": "",
+            "citations": [],
+            "followUps": []
+          },
+          {
+            "category": "job",
+            "facet": null,
+            "question": "직무 질문 18",
+            "intent": "",
+            "citations": [],
+            "followUps": []
+          },
+          {
+            "category": "job",
+            "facet": null,
+            "question": "직무 질문 19",
+            "intent": "",
+            "citations": [],
+            "followUps": []
+          },
+          {
+            "category": "job",
+            "facet": null,
+            "question": "직무 질문 20",
+            "intent": "",
+            "citations": [],
+            "followUps": []
+          },
+          {
+            "category": "job",
+            "facet": null,
+            "question": "직무 질문 21",
+            "intent": "",
+            "citations": [],
+            "followUps": []
+          },
+          {
+            "category": "job",
+            "facet": null,
+            "question": "직무 질문 22",
+            "intent": "",
+            "citations": [],
+            "followUps": []
+          },
+          {
+            "category": "job",
+            "facet": null,
+            "question": "직무 질문 23",
+            "intent": "",
+            "citations": [],
+            "followUps": []
+          },
+          {
+            "category": "job",
+            "facet": null,
+            "question": "직무 질문 24",
+            "intent": "",
+            "citations": [],
+            "followUps": []
+          },
+          {
+            "category": "job",
+            "facet": null,
+            "question": "직무 질문 25",
+            "intent": "",
+            "citations": [],
+            "followUps": []
+          },
+          {
+            "category": "job",
+            "facet": null,
+            "question": "직무 질문 26",
+            "intent": "",
+            "citations": [],
+            "followUps": []
+          },
+          {
+            "category": "job",
+            "facet": null,
+            "question": "직무 질문 27",
+            "intent": "",
+            "citations": [],
+            "followUps": []
+          },
+          {
+            "category": "job",
+            "facet": null,
+            "question": "직무 질문 28",
+            "intent": "",
+            "citations": [],
+            "followUps": []
+          },
+          {
+            "category": "job",
+            "facet": null,
+            "question": "직무 질문 29",
+            "intent": "",
+            "citations": [],
+            "followUps": []
+          },
+          {
+            "category": "job",
+            "facet": null,
+            "question": "직무 질문 30",
+            "intent": "",
+            "citations": [],
+            "followUps": []
+          },
+          {
+            "category": "job",
+            "facet": null,
+            "question": "직무 질문 31",
+            "intent": "",
+            "citations": [],
+            "followUps": []
+          },
+          {
+            "category": "job",
+            "facet": null,
+            "question": "직무 질문 32",
+            "intent": "",
+            "citations": [],
+            "followUps": []
+          },
+          {
+            "category": "job",
+            "facet": null,
+            "question": "직무 질문 33",
+            "intent": "",
+            "citations": [],
+            "followUps": []
+          },
+          {
+            "category": "job",
+            "facet": null,
+            "question": "직무 질문 34",
+            "intent": "",
+            "citations": [],
+            "followUps": []
+          },
+          {
+            "category": "job",
+            "facet": null,
+            "question": "직무 질문 35",
+            "intent": "",
+            "citations": [],
+            "followUps": []
+          },
+          {
+            "category": "job",
+            "facet": null,
+            "question": "직무 질문 36",
+            "intent": "",
+            "citations": [],
+            "followUps": []
+          },
+          {
+            "category": "job",
+            "facet": null,
+            "question": "직무 질문 37",
+            "intent": "",
+            "citations": [],
+            "followUps": []
+          },
+          {
+            "category": "job",
+            "facet": null,
+            "question": "직무 질문 38",
+            "intent": "",
+            "citations": [],
+            "followUps": []
+          },
+          {
+            "category": "job",
+            "facet": null,
+            "question": "직무 질문 39",
+            "intent": "",
+            "citations": [],
+            "followUps": []
+          },
+          {
+            "category": "job",
+            "facet": null,
+            "question": "직무 질문 40",
+            "intent": "",
+            "citations": [],
+            "followUps": []
+          },
+          {
+            "category": "job",
+            "facet": null,
+            "question": "직무 질문 41",
+            "intent": "",
+            "citations": [],
+            "followUps": []
+          },
+          {
+            "category": "job",
+            "facet": null,
+            "question": "직무 질문 42",
+            "intent": "",
+            "citations": [],
+            "followUps": []
+          },
+          {
+            "category": "job",
+            "facet": null,
+            "question": "직무 질문 43",
+            "intent": "",
+            "citations": [],
+            "followUps": []
+          },
+          {
+            "category": "job",
+            "facet": null,
+            "question": "직무 질문 44",
+            "intent": "",
+            "citations": [],
+            "followUps": []
+          },
+          {
+            "category": "job",
+            "facet": null,
+            "question": "직무 질문 45",
+            "intent": "",
+            "citations": [],
+            "followUps": []
+          }
+        ],
+        "notes": []
+      },
+      "lines": [
+        {
+          "id": "r1",
+          "doc": "resume",
+          "label": "지원 직무",
+          "path": "basics.headline",
+          "text": "5년 차 백엔드 개발자"
+        },
+        {
+          "id": "r2",
+          "doc": "resume",
+          "label": "요약 1",
+          "path": "summary.0",
+          "text": "결제 시스템을 운영했습니다."
+        },
+        {
+          "id": "r3",
+          "doc": "resume",
+          "label": "요약 2",
+          "path": "summary.1",
+          "text": "장애 대응 경험이 있습니다."
+        },
+        {
+          "id": "r4",
+          "doc": "resume",
+          "label": "핵심 성과 1",
+          "path": "highlights.0.title",
+          "text": "결제 API p95 800ms → 320ms"
+        },
+        {
+          "id": "r5",
+          "doc": "resume",
+          "label": "경력 · 페이랩 백엔드 · 기여 1",
+          "path": "experience.0.bullets.0",
+          "text": "정산 배치를 Kotlin으로 재작성"
+        },
+        {
+          "id": "r6",
+          "doc": "resume",
+          "label": "프로젝트 · 정산 개편 · 문제",
+          "path": "projects.0.problem",
+          "text": "배치가 4시간 걸렸다"
+        },
+        {
+          "id": "r7",
+          "doc": "resume",
+          "label": "프로젝트 · 정산 개편 · 결과",
+          "path": "projects.0.result",
+          "text": "40분으로 단축"
+        },
+        {
+          "id": "j1",
+          "doc": "posting",
+          "label": "채용 공고 1",
+          "path": null,
+          "text": "주요 업무: 결제 정산 시스템 개발과 운영을 맡습니다 자격 요건: Kotlin 3년 이상 경험, 대용량 배치 운영 경험"
+        },
+        {
+          "id": "j2",
+          "doc": "posting",
+          "label": "채용 공고 2",
+          "path": null,
+          "text": "우대 사항: 결제 도메인 경험"
+        },
+        {
+          "id": "p1",
+          "doc": "portfolio",
+          "label": "포트폴리오 1",
+          "path": null,
+          "text": "포트폴리오 문단 하나입니다. 정산 개편의 배경과 지표를 설명합니다. 짧다"
+        },
+        {
+          "id": "p2",
+          "doc": "portfolio",
+          "label": "포트폴리오 2",
+          "path": null,
+          "text": "두 번째 문단은 결과와 회고를 다룹니다. 지연 건수는 3개월 동안 0건이었습니다."
+        }
+      ],
+      "expected": [
+        {
+          "category": "job",
+          "facet": null,
+          "question": "직무 질문 1",
+          "intent": "",
+          "citations": [],
+          "followUps": []
+        },
+        {
+          "category": "job",
+          "facet": null,
+          "question": "직무 질문 2",
+          "intent": "",
+          "citations": [],
+          "followUps": []
+        },
+        {
+          "category": "job",
+          "facet": null,
+          "question": "직무 질문 3",
+          "intent": "",
+          "citations": [],
+          "followUps": []
+        },
+        {
+          "category": "job",
+          "facet": null,
+          "question": "직무 질문 4",
+          "intent": "",
+          "citations": [],
+          "followUps": []
+        },
+        {
+          "category": "job",
+          "facet": null,
+          "question": "직무 질문 5",
+          "intent": "",
+          "citations": [],
+          "followUps": []
+        },
+        {
+          "category": "job",
+          "facet": null,
+          "question": "직무 질문 6",
+          "intent": "",
+          "citations": [],
+          "followUps": []
+        },
+        {
+          "category": "job",
+          "facet": null,
+          "question": "직무 질문 7",
+          "intent": "",
+          "citations": [],
+          "followUps": []
+        },
+        {
+          "category": "job",
+          "facet": null,
+          "question": "직무 질문 8",
+          "intent": "",
+          "citations": [],
+          "followUps": []
+        },
+        {
+          "category": "job",
+          "facet": null,
+          "question": "직무 질문 9",
+          "intent": "",
+          "citations": [],
+          "followUps": []
+        },
+        {
+          "category": "job",
+          "facet": null,
+          "question": "직무 질문 10",
+          "intent": "",
+          "citations": [],
+          "followUps": []
+        },
+        {
+          "category": "job",
+          "facet": null,
+          "question": "직무 질문 11",
+          "intent": "",
+          "citations": [],
+          "followUps": []
+        },
+        {
+          "category": "job",
+          "facet": null,
+          "question": "직무 질문 12",
+          "intent": "",
+          "citations": [],
+          "followUps": []
+        },
+        {
+          "category": "job",
+          "facet": null,
+          "question": "직무 질문 13",
+          "intent": "",
+          "citations": [],
+          "followUps": []
+        },
+        {
+          "category": "job",
+          "facet": null,
+          "question": "직무 질문 14",
+          "intent": "",
+          "citations": [],
+          "followUps": []
+        },
+        {
+          "category": "job",
+          "facet": null,
+          "question": "직무 질문 15",
+          "intent": "",
+          "citations": [],
+          "followUps": []
+        },
+        {
+          "category": "job",
+          "facet": null,
+          "question": "직무 질문 16",
+          "intent": "",
+          "citations": [],
+          "followUps": []
+        },
+        {
+          "category": "job",
+          "facet": null,
+          "question": "직무 질문 17",
+          "intent": "",
+          "citations": [],
+          "followUps": []
+        },
+        {
+          "category": "job",
+          "facet": null,
+          "question": "직무 질문 18",
+          "intent": "",
+          "citations": [],
+          "followUps": []
+        },
+        {
+          "category": "job",
+          "facet": null,
+          "question": "직무 질문 19",
+          "intent": "",
+          "citations": [],
+          "followUps": []
+        },
+        {
+          "category": "job",
+          "facet": null,
+          "question": "직무 질문 20",
+          "intent": "",
+          "citations": [],
+          "followUps": []
+        },
+        {
+          "category": "job",
+          "facet": null,
+          "question": "직무 질문 21",
+          "intent": "",
+          "citations": [],
+          "followUps": []
+        },
+        {
+          "category": "job",
+          "facet": null,
+          "question": "직무 질문 22",
+          "intent": "",
+          "citations": [],
+          "followUps": []
+        },
+        {
+          "category": "job",
+          "facet": null,
+          "question": "직무 질문 23",
+          "intent": "",
+          "citations": [],
+          "followUps": []
+        },
+        {
+          "category": "job",
+          "facet": null,
+          "question": "직무 질문 24",
+          "intent": "",
+          "citations": [],
+          "followUps": []
+        },
+        {
+          "category": "job",
+          "facet": null,
+          "question": "직무 질문 25",
+          "intent": "",
+          "citations": [],
+          "followUps": []
+        },
+        {
+          "category": "job",
+          "facet": null,
+          "question": "직무 질문 26",
+          "intent": "",
+          "citations": [],
+          "followUps": []
+        },
+        {
+          "category": "job",
+          "facet": null,
+          "question": "직무 질문 27",
+          "intent": "",
+          "citations": [],
+          "followUps": []
+        },
+        {
+          "category": "job",
+          "facet": null,
+          "question": "직무 질문 28",
+          "intent": "",
+          "citations": [],
+          "followUps": []
+        },
+        {
+          "category": "job",
+          "facet": null,
+          "question": "직무 질문 29",
+          "intent": "",
+          "citations": [],
+          "followUps": []
+        },
+        {
+          "category": "job",
+          "facet": null,
+          "question": "직무 질문 30",
+          "intent": "",
+          "citations": [],
+          "followUps": []
+        },
+        {
+          "category": "job",
+          "facet": null,
+          "question": "직무 질문 31",
+          "intent": "",
+          "citations": [],
+          "followUps": []
+        },
+        {
+          "category": "job",
+          "facet": null,
+          "question": "직무 질문 32",
+          "intent": "",
+          "citations": [],
+          "followUps": []
+        },
+        {
+          "category": "job",
+          "facet": null,
+          "question": "직무 질문 33",
+          "intent": "",
+          "citations": [],
+          "followUps": []
+        },
+        {
+          "category": "job",
+          "facet": null,
+          "question": "직무 질문 34",
+          "intent": "",
+          "citations": [],
+          "followUps": []
+        },
+        {
+          "category": "job",
+          "facet": null,
+          "question": "직무 질문 35",
+          "intent": "",
+          "citations": [],
+          "followUps": []
+        },
+        {
+          "category": "job",
+          "facet": null,
+          "question": "직무 질문 36",
+          "intent": "",
+          "citations": [],
+          "followUps": []
+        },
+        {
+          "category": "job",
+          "facet": null,
+          "question": "직무 질문 37",
+          "intent": "",
+          "citations": [],
+          "followUps": []
+        },
+        {
+          "category": "job",
+          "facet": null,
+          "question": "직무 질문 38",
+          "intent": "",
+          "citations": [],
+          "followUps": []
+        },
+        {
+          "category": "job",
+          "facet": null,
+          "question": "직무 질문 39",
+          "intent": "",
+          "citations": [],
+          "followUps": []
+        },
+        {
+          "category": "job",
+          "facet": null,
+          "question": "직무 질문 40",
+          "intent": "",
+          "citations": [],
+          "followUps": []
+        }
+      ]
+    }
+  ],
+  "verifyCitations": [
+    {
+      "raw": [
+        {
+          "ref": "[r5]",
+          "quote": "정산 배치를  Kotlin으로"
+        },
+        {
+          "ref": "r5",
+          "quote": "중복"
+        },
+        {
+          "ref": "r4",
+          "quote": "p95 900ms"
+        },
+        {
+          "ref": "r99",
+          "quote": "없는 줄"
+        }
+      ],
+      "lines": [
+        {
+          "id": "r1",
+          "doc": "resume",
+          "label": "지원 직무",
+          "path": "basics.headline",
+          "text": "5년 차 백엔드 개발자"
+        },
+        {
+          "id": "r2",
+          "doc": "resume",
+          "label": "요약 1",
+          "path": "summary.0",
+          "text": "결제 시스템을 운영했습니다."
+        },
+        {
+          "id": "r3",
+          "doc": "resume",
+          "label": "요약 2",
+          "path": "summary.1",
+          "text": "장애 대응 경험이 있습니다."
+        },
+        {
+          "id": "r4",
+          "doc": "resume",
+          "label": "핵심 성과 1",
+          "path": "highlights.0.title",
+          "text": "결제 API p95 800ms → 320ms"
+        },
+        {
+          "id": "r5",
+          "doc": "resume",
+          "label": "경력 · 페이랩 백엔드 · 기여 1",
+          "path": "experience.0.bullets.0",
+          "text": "정산 배치를 Kotlin으로 재작성"
+        },
+        {
+          "id": "r6",
+          "doc": "resume",
+          "label": "프로젝트 · 정산 개편 · 문제",
+          "path": "projects.0.problem",
+          "text": "배치가 4시간 걸렸다"
+        },
+        {
+          "id": "r7",
+          "doc": "resume",
+          "label": "프로젝트 · 정산 개편 · 결과",
+          "path": "projects.0.result",
+          "text": "40분으로 단축"
+        },
+        {
+          "id": "j1",
+          "doc": "posting",
+          "label": "채용 공고 1",
+          "path": null,
+          "text": "주요 업무: 결제 정산 시스템 개발과 운영을 맡습니다 자격 요건: Kotlin 3년 이상 경험, 대용량 배치 운영 경험"
+        },
+        {
+          "id": "j2",
+          "doc": "posting",
+          "label": "채용 공고 2",
+          "path": null,
+          "text": "우대 사항: 결제 도메인 경험"
+        },
+        {
+          "id": "p1",
+          "doc": "portfolio",
+          "label": "포트폴리오 1",
+          "path": null,
+          "text": "포트폴리오 문단 하나입니다. 정산 개편의 배경과 지표를 설명합니다. 짧다"
+        },
+        {
+          "id": "p2",
+          "doc": "portfolio",
+          "label": "포트폴리오 2",
+          "path": null,
+          "text": "두 번째 문단은 결과와 회고를 다룹니다. 지연 건수는 3개월 동안 0건이었습니다."
+        }
+      ],
+      "expected": [
+        {
+          "ref": "r5",
+          "doc": "resume",
+          "quote": "정산 배치를 Kotlin으로",
+          "verified": true
+        },
+        {
+          "ref": "r4",
+          "doc": "resume",
+          "quote": "p95 900ms",
+          "verified": false
+        }
+      ]
+    }
+  ],
+  "toFeedback": [
+    {
+      "name": "service_test",
+      "output": {
+        "overall": 140,
+        "criteria": {
+          "evidence": {
+            "score": 9,
+            "comment": " 근거 "
+          },
+          "numbers": {
+            "score": 0,
+            "comment": ""
+          },
+          "ownership": {
+            "score": 3,
+            "comment": "본인\n역할"
+          },
+          "length": {
+            "score": 1,
+            "comment": "LLM 평"
+          },
+          "structure": {
+            "score": 3,
+            "comment": "xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx"
+          }
+        },
+        "strengths": [
+          "a",
+          " ",
+          "b",
+          "c",
+          "d"
+        ],
+        "improvements": [
+          "😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀"
+        ],
+        "unsupportedClaims": [],
+        "modelAnswer": {
+          "conclusion": "결론",
+          "points": [
+            {
+              "text": "근거",
+              "ref": "r1"
+            },
+            {
+              "text": "없는 줄",
+              "ref": "r99"
+            },
+            {
+              "text": "[ADD: 기간]",
+              "ref": null
+            },
+            {
+              "text": "괄호 ref",
+              "ref": " [p2] "
+            },
+            {
+              "text": "  ",
+              "ref": "r1"
+            },
+            {
+              "text": "다섯째",
+              "ref": "r1"
+            }
+          ],
+          "limitation": ""
+        },
+        "followUp": "“다음?”"
+      },
+      "answer": "가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가",
+      "category": "line",
+      "lines": [
+        {
+          "id": "r1",
+          "doc": "resume",
+          "label": "l",
+          "path": null,
+          "text": "t"
+        },
+        {
+          "id": "p2",
+          "doc": "portfolio",
+          "label": "l",
+          "path": null,
+          "text": "t"
+        }
+      ],
+      "expected": {
+        "overall": 100,
+        "criteria": {
+          "evidence": {
+            "score": 5,
+            "comment": "근거"
+          },
+          "numbers": {
+            "score": 1,
+            "comment": ""
+          },
+          "ownership": {
+            "score": 3,
+            "comment": "본인 역할"
+          },
+          "length": {
+            "score": 5,
+            "comment": "약 50초 분량(권장 30~90초). LLM 평"
+          },
+          "structure": {
+            "score": 3,
+            "comment": "xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx…"
+          }
+        },
+        "strengths": [
+          "a",
+          "b",
+          "c"
+        ],
+        "improvements": [
+          "😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀\ud83d…"
+        ],
+        "unsupportedClaims": [],
+        "modelAnswer": {
+          "conclusion": "결론",
+          "points": [
+            {
+              "text": "근거",
+              "ref": "r1"
+            },
+            {
+              "text": "없는 줄",
+              "ref": null
+            },
+            {
+              "text": "[ADD: 기간]",
+              "ref": null
+            },
+            {
+              "text": "괄호 ref",
+              "ref": "p2"
+            }
+          ],
+          "limitation": ""
+        },
+        "followUp": "다음?",
+        "answerChars": 250,
+        "estimatedSeconds": 50,
+        "recommendedSeconds": {
+          "min": 30,
+          "max": 90
+        }
+      }
+    },
+    {
+      "name": "no_lines_keeps_ref",
+      "output": {
+        "overall": 140,
+        "criteria": {
+          "evidence": {
+            "score": 9,
+            "comment": " 근거 "
+          },
+          "numbers": {
+            "score": 0,
+            "comment": ""
+          },
+          "ownership": {
+            "score": 3,
+            "comment": "본인\n역할"
+          },
+          "length": {
+            "score": 1,
+            "comment": "LLM 평"
+          },
+          "structure": {
+            "score": 3,
+            "comment": "xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx"
+          }
+        },
+        "strengths": [
+          "a",
+          " ",
+          "b",
+          "c",
+          "d"
+        ],
+        "improvements": [
+          "😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀"
+        ],
+        "unsupportedClaims": [],
+        "modelAnswer": {
+          "conclusion": "결론",
+          "points": [
+            {
+              "text": "근거",
+              "ref": "r1"
+            },
+            {
+              "text": "없는 줄",
+              "ref": "r99"
+            },
+            {
+              "text": "[ADD: 기간]",
+              "ref": null
+            },
+            {
+              "text": "괄호 ref",
+              "ref": " [p2] "
+            },
+            {
+              "text": "  ",
+              "ref": "r1"
+            },
+            {
+              "text": "다섯째",
+              "ref": "r1"
+            }
+          ],
+          "limitation": ""
+        },
+        "followUp": "“다음?”"
+      },
+      "answer": "가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가",
+      "category": "line",
+      "lines": null,
+      "expected": {
+        "overall": 100,
+        "criteria": {
+          "evidence": {
+            "score": 5,
+            "comment": "근거"
+          },
+          "numbers": {
+            "score": 1,
+            "comment": ""
+          },
+          "ownership": {
+            "score": 3,
+            "comment": "본인 역할"
+          },
+          "length": {
+            "score": 5,
+            "comment": "약 50초 분량(권장 30~90초). LLM 평"
+          },
+          "structure": {
+            "score": 3,
+            "comment": "xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx…"
+          }
+        },
+        "strengths": [
+          "a",
+          "b",
+          "c"
+        ],
+        "improvements": [
+          "😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀\ud83d…"
+        ],
+        "unsupportedClaims": [],
+        "modelAnswer": {
+          "conclusion": "결론",
+          "points": [
+            {
+              "text": "근거",
+              "ref": "r1"
+            },
+            {
+              "text": "없는 줄",
+              "ref": "r99"
+            },
+            {
+              "text": "[ADD: 기간]",
+              "ref": null
+            },
+            {
+              "text": "괄호 ref",
+              "ref": "p2"
+            }
+          ],
+          "limitation": ""
+        },
+        "followUp": "다음?",
+        "answerChars": 250,
+        "estimatedSeconds": 50,
+        "recommendedSeconds": {
+          "min": 30,
+          "max": 90
+        }
+      }
+    },
+    {
+      "name": "empty_lines_drops_ref",
+      "output": {
+        "overall": 140,
+        "criteria": {
+          "evidence": {
+            "score": 9,
+            "comment": " 근거 "
+          },
+          "numbers": {
+            "score": 0,
+            "comment": ""
+          },
+          "ownership": {
+            "score": 3,
+            "comment": "본인\n역할"
+          },
+          "length": {
+            "score": 1,
+            "comment": "LLM 평"
+          },
+          "structure": {
+            "score": 3,
+            "comment": "xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx"
+          }
+        },
+        "strengths": [
+          "a",
+          " ",
+          "b",
+          "c",
+          "d"
+        ],
+        "improvements": [
+          "😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀"
+        ],
+        "unsupportedClaims": [],
+        "modelAnswer": {
+          "conclusion": "결론",
+          "points": [
+            {
+              "text": "근거",
+              "ref": "r1"
+            },
+            {
+              "text": "없는 줄",
+              "ref": "r99"
+            },
+            {
+              "text": "[ADD: 기간]",
+              "ref": null
+            },
+            {
+              "text": "괄호 ref",
+              "ref": " [p2] "
+            },
+            {
+              "text": "  ",
+              "ref": "r1"
+            },
+            {
+              "text": "다섯째",
+              "ref": "r1"
+            }
+          ],
+          "limitation": ""
+        },
+        "followUp": "“다음?”"
+      },
+      "answer": "가 가 가 가 가 가 가 가 가 가 가 가 가 가 가 가 가 가 가 가 가 가 가 가 가 가 가 가 가 가 ",
+      "category": "project",
+      "lines": [],
+      "expected": {
+        "overall": 100,
+        "criteria": {
+          "evidence": {
+            "score": 5,
+            "comment": "근거"
+          },
+          "numbers": {
+            "score": 1,
+            "comment": ""
+          },
+          "ownership": {
+            "score": 3,
+            "comment": "본인 역할"
+          },
+          "length": {
+            "score": 1,
+            "comment": "약 6초 분량(권장 45~120초). LLM 평"
+          },
+          "structure": {
+            "score": 3,
+            "comment": "xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx…"
+          }
+        },
+        "strengths": [
+          "a",
+          "b",
+          "c"
+        ],
+        "improvements": [
+          "😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀\ud83d…"
+        ],
+        "unsupportedClaims": [],
+        "modelAnswer": {
+          "conclusion": "결론",
+          "points": [
+            {
+              "text": "근거",
+              "ref": null
+            },
+            {
+              "text": "없는 줄",
+              "ref": null
+            },
+            {
+              "text": "[ADD: 기간]",
+              "ref": null
+            },
+            {
+              "text": "괄호 ref",
+              "ref": null
+            }
+          ],
+          "limitation": ""
+        },
+        "followUp": "다음?",
+        "answerChars": 30,
+        "estimatedSeconds": 6,
+        "recommendedSeconds": {
+          "min": 45,
+          "max": 120
+        }
+      }
+    },
+    {
+      "name": "length_comment_mentions_seconds",
+      "output": {
+        "overall": 140,
+        "criteria": {
+          "evidence": {
+            "score": 9,
+            "comment": " 근거 "
+          },
+          "numbers": {
+            "score": 0,
+            "comment": ""
+          },
+          "ownership": {
+            "score": 3,
+            "comment": "본인\n역할"
+          },
+          "length": {
+            "score": 2,
+            "comment": "약 50 초로 적당합니다."
+          },
+          "structure": {
+            "score": 3,
+            "comment": "xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx"
+          }
+        },
+        "strengths": [
+          "a",
+          " ",
+          "b",
+          "c",
+          "d"
+        ],
+        "improvements": [
+          "😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀"
+        ],
+        "unsupportedClaims": [],
+        "modelAnswer": {
+          "conclusion": "결론",
+          "points": [
+            {
+              "text": "근거",
+              "ref": "r1"
+            },
+            {
+              "text": "없는 줄",
+              "ref": "r99"
+            },
+            {
+              "text": "[ADD: 기간]",
+              "ref": null
+            },
+            {
+              "text": "괄호 ref",
+              "ref": " [p2] "
+            },
+            {
+              "text": "  ",
+              "ref": "r1"
+            },
+            {
+              "text": "다섯째",
+              "ref": "r1"
+            }
+          ],
+          "limitation": ""
+        },
+        "followUp": "“다음?”"
+      },
+      "answer": "가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가",
+      "category": "project",
+      "lines": [
+        {
+          "id": "r1",
+          "doc": "resume",
+          "label": "l",
+          "path": null,
+          "text": "t"
+        },
+        {
+          "id": "p2",
+          "doc": "portfolio",
+          "label": "l",
+          "path": null,
+          "text": "t"
+        }
+      ],
+      "expected": {
+        "overall": 100,
+        "criteria": {
+          "evidence": {
+            "score": 5,
+            "comment": "근거"
+          },
+          "numbers": {
+            "score": 1,
+            "comment": ""
+          },
+          "ownership": {
+            "score": 3,
+            "comment": "본인 역할"
+          },
+          "length": {
+            "score": 4,
+            "comment": "약 50 초로 적당합니다."
+          },
+          "structure": {
+            "score": 3,
+            "comment": "xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx…"
+          }
+        },
+        "strengths": [
+          "a",
+          "b",
+          "c"
+        ],
+        "improvements": [
+          "😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀\ud83d…"
+        ],
+        "unsupportedClaims": [],
+        "modelAnswer": {
+          "conclusion": "결론",
+          "points": [
+            {
+              "text": "근거",
+              "ref": "r1"
+            },
+            {
+              "text": "없는 줄",
+              "ref": null
+            },
+            {
+              "text": "[ADD: 기간]",
+              "ref": null
+            },
+            {
+              "text": "괄호 ref",
+              "ref": "p2"
+            }
+          ],
+          "limitation": ""
+        },
+        "followUp": "다음?",
+        "answerChars": 700,
+        "estimatedSeconds": 140,
+        "recommendedSeconds": {
+          "min": 45,
+          "max": 120
+        }
+      }
+    },
+    {
+      "name": "length_comment_empty",
+      "output": {
+        "overall": 49.5,
+        "criteria": {
+          "evidence": {
+            "score": 9,
+            "comment": " 근거 "
+          },
+          "numbers": {
+            "score": 0,
+            "comment": ""
+          },
+          "ownership": {
+            "score": 3,
+            "comment": "본인\n역할"
+          },
+          "length": {
+            "score": 2,
+            "comment": "  "
+          },
+          "structure": {
+            "score": 3,
+            "comment": "xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx"
+          }
+        },
+        "strengths": [
+          "a",
+          " ",
+          "b",
+          "c",
+          "d"
+        ],
+        "improvements": [
+          "😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀"
+        ],
+        "unsupportedClaims": [],
+        "modelAnswer": {
+          "conclusion": "결론",
+          "points": [
+            {
+              "text": "근거",
+              "ref": "r1"
+            },
+            {
+              "text": "없는 줄",
+              "ref": "r99"
+            },
+            {
+              "text": "[ADD: 기간]",
+              "ref": null
+            },
+            {
+              "text": "괄호 ref",
+              "ref": " [p2] "
+            },
+            {
+              "text": "  ",
+              "ref": "r1"
+            },
+            {
+              "text": "다섯째",
+              "ref": "r1"
+            }
+          ],
+          "limitation": ""
+        },
+        "followUp": "'따옴표' 꼬리 질문?”"
+      },
+      "answer": "",
+      "category": "motivation",
+      "lines": [
+        {
+          "id": "r1",
+          "doc": "resume",
+          "label": "l",
+          "path": null,
+          "text": "t"
+        },
+        {
+          "id": "p2",
+          "doc": "portfolio",
+          "label": "l",
+          "path": null,
+          "text": "t"
+        }
+      ],
+      "expected": {
+        "overall": 50,
+        "criteria": {
+          "evidence": {
+            "score": 5,
+            "comment": "근거"
+          },
+          "numbers": {
+            "score": 1,
+            "comment": ""
+          },
+          "ownership": {
+            "score": 3,
+            "comment": "본인 역할"
+          },
+          "length": {
+            "score": 1,
+            "comment": "약 0초 분량(권장 30~90초)."
+          },
+          "structure": {
+            "score": 3,
+            "comment": "xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx…"
+          }
+        },
+        "strengths": [
+          "a",
+          "b",
+          "c"
+        ],
+        "improvements": [
+          "😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀\ud83d…"
+        ],
+        "unsupportedClaims": [],
+        "modelAnswer": {
+          "conclusion": "결론",
+          "points": [
+            {
+              "text": "근거",
+              "ref": "r1"
+            },
+            {
+              "text": "없는 줄",
+              "ref": null
+            },
+            {
+              "text": "[ADD: 기간]",
+              "ref": null
+            },
+            {
+              "text": "괄호 ref",
+              "ref": "p2"
+            }
+          ],
+          "limitation": ""
+        },
+        "followUp": "따옴표' 꼬리 질문?",
+        "answerChars": 0,
+        "estimatedSeconds": 0,
+        "recommendedSeconds": {
+          "min": 30,
+          "max": 90
+        }
+      }
+    },
+    {
+      "name": "rounding",
+      "output": {
+        "overall": -3,
+        "criteria": {
+          "evidence": {
+            "score": 2.5,
+            "comment": "a"
+          },
+          "numbers": {
+            "score": 3.49,
+            "comment": "b"
+          },
+          "ownership": {
+            "score": 3,
+            "comment": "본인\n역할"
+          },
+          "length": {
+            "score": 1,
+            "comment": "LLM 평"
+          },
+          "structure": {
+            "score": 3,
+            "comment": "xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx"
+          }
+        },
+        "strengths": [
+          "a",
+          " ",
+          "b",
+          "c",
+          "d"
+        ],
+        "improvements": [
+          "😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀"
+        ],
+        "unsupportedClaims": [],
+        "modelAnswer": {
+          "conclusion": "결론",
+          "points": [
+            {
+              "text": "근거",
+              "ref": "r1"
+            },
+            {
+              "text": "없는 줄",
+              "ref": "r99"
+            },
+            {
+              "text": "[ADD: 기간]",
+              "ref": null
+            },
+            {
+              "text": "괄호 ref",
+              "ref": " [p2] "
+            },
+            {
+              "text": "  ",
+              "ref": "r1"
+            },
+            {
+              "text": "다섯째",
+              "ref": "r1"
+            }
+          ],
+          "limitation": ""
+        },
+        "followUp": "“다음?”"
+      },
+      "answer": "가 나　다 😀",
+      "category": "tough",
+      "lines": [
+        {
+          "id": "r1",
+          "doc": "resume",
+          "label": "l",
+          "path": null,
+          "text": "t"
+        },
+        {
+          "id": "p2",
+          "doc": "portfolio",
+          "label": "l",
+          "path": null,
+          "text": "t"
+        }
+      ],
+      "expected": {
+        "overall": 0,
+        "criteria": {
+          "evidence": {
+            "score": 3,
+            "comment": "a"
+          },
+          "numbers": {
+            "score": 3,
+            "comment": "b"
+          },
+          "ownership": {
+            "score": 3,
+            "comment": "본인 역할"
+          },
+          "length": {
+            "score": 1,
+            "comment": "약 1초 분량(권장 30~90초). LLM 평"
+          },
+          "structure": {
+            "score": 3,
+            "comment": "xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx…"
+          }
+        },
+        "strengths": [
+          "a",
+          "b",
+          "c"
+        ],
+        "improvements": [
+          "😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀\ud83d…"
+        ],
+        "unsupportedClaims": [],
+        "modelAnswer": {
+          "conclusion": "결론",
+          "points": [
+            {
+              "text": "근거",
+              "ref": "r1"
+            },
+            {
+              "text": "없는 줄",
+              "ref": null
+            },
+            {
+              "text": "[ADD: 기간]",
+              "ref": null
+            },
+            {
+              "text": "괄호 ref",
+              "ref": "p2"
+            }
+          ],
+          "limitation": ""
+        },
+        "followUp": "다음?",
+        "answerChars": 5,
+        "estimatedSeconds": 1,
+        "recommendedSeconds": {
+          "min": 30,
+          "max": 90
+        }
+      }
+    }
+  ],
+  "lengthScore": [
+    {
+      "seconds": 0,
+      "range": {
+        "min": 30,
+        "max": 90
+      },
+      "expected": 1
+    },
+    {
+      "seconds": 0,
+      "range": {
+        "min": 45,
+        "max": 120
+      },
+      "expected": 1
+    },
+    {
+      "seconds": 7,
+      "range": {
+        "min": 30,
+        "max": 90
+      },
+      "expected": 1
+    },
+    {
+      "seconds": 7,
+      "range": {
+        "min": 45,
+        "max": 120
+      },
+      "expected": 1
+    },
+    {
+      "seconds": 10,
+      "range": {
+        "min": 30,
+        "max": 90
+      },
+      "expected": 2
+    },
+    {
+      "seconds": 10,
+      "range": {
+        "min": 45,
+        "max": 120
+      },
+      "expected": 1
+    },
+    {
+      "seconds": 15,
+      "range": {
+        "min": 30,
+        "max": 90
+      },
+      "expected": 3
+    },
+    {
+      "seconds": 15,
+      "range": {
+        "min": 45,
+        "max": 120
+      },
+      "expected": 2
+    },
+    {
+      "seconds": 22,
+      "range": {
+        "min": 30,
+        "max": 90
+      },
+      "expected": 3
+    },
+    {
+      "seconds": 22,
+      "range": {
+        "min": 45,
+        "max": 120
+      },
+      "expected": 2
+    },
+    {
+      "seconds": 23,
+      "range": {
+        "min": 30,
+        "max": 90
+      },
+      "expected": 4
+    },
+    {
+      "seconds": 23,
+      "range": {
+        "min": 45,
+        "max": 120
+      },
+      "expected": 3
+    },
+    {
+      "seconds": 25,
+      "range": {
+        "min": 30,
+        "max": 90
+      },
+      "expected": 4
+    },
+    {
+      "seconds": 25,
+      "range": {
+        "min": 45,
+        "max": 120
+      },
+      "expected": 3
+    },
+    {
+      "seconds": 29,
+      "range": {
+        "min": 30,
+        "max": 90
+      },
+      "expected": 4
+    },
+    {
+      "seconds": 29,
+      "range": {
+        "min": 45,
+        "max": 120
+      },
+      "expected": 3
+    },
+    {
+      "seconds": 30,
+      "range": {
+        "min": 30,
+        "max": 90
+      },
+      "expected": 5
+    },
+    {
+      "seconds": 30,
+      "range": {
+        "min": 45,
+        "max": 120
+      },
+      "expected": 3
+    },
+    {
+      "seconds": 60,
+      "range": {
+        "min": 30,
+        "max": 90
+      },
+      "expected": 5
+    },
+    {
+      "seconds": 60,
+      "range": {
+        "min": 45,
+        "max": 120
+      },
+      "expected": 5
+    },
+    {
+      "seconds": 90,
+      "range": {
+        "min": 30,
+        "max": 90
+      },
+      "expected": 5
+    },
+    {
+      "seconds": 90,
+      "range": {
+        "min": 45,
+        "max": 120
+      },
+      "expected": 5
+    },
+    {
+      "seconds": 91,
+      "range": {
+        "min": 30,
+        "max": 90
+      },
+      "expected": 4
+    },
+    {
+      "seconds": 91,
+      "range": {
+        "min": 45,
+        "max": 120
+      },
+      "expected": 5
+    },
+    {
+      "seconds": 120,
+      "range": {
+        "min": 30,
+        "max": 90
+      },
+      "expected": 4
+    },
+    {
+      "seconds": 120,
+      "range": {
+        "min": 45,
+        "max": 120
+      },
+      "expected": 5
+    },
+    {
+      "seconds": 121,
+      "range": {
+        "min": 30,
+        "max": 90
+      },
+      "expected": 3
+    },
+    {
+      "seconds": 121,
+      "range": {
+        "min": 45,
+        "max": 120
+      },
+      "expected": 4
+    },
+    {
+      "seconds": 180,
+      "range": {
+        "min": 30,
+        "max": 90
+      },
+      "expected": 3
+    },
+    {
+      "seconds": 180,
+      "range": {
+        "min": 45,
+        "max": 120
+      },
+      "expected": 3
+    },
+    {
+      "seconds": 200,
+      "range": {
+        "min": 30,
+        "max": 90
+      },
+      "expected": 2
+    },
+    {
+      "seconds": 200,
+      "range": {
+        "min": 45,
+        "max": 120
+      },
+      "expected": 3
+    },
+    {
+      "seconds": 360,
+      "range": {
+        "min": 30,
+        "max": 90
+      },
+      "expected": 2
+    },
+    {
+      "seconds": 360,
+      "range": {
+        "min": 45,
+        "max": 120
+      },
+      "expected": 2
+    },
+    {
+      "seconds": 400,
+      "range": {
+        "min": 30,
+        "max": 90
+      },
+      "expected": 1
+    },
+    {
+      "seconds": 400,
+      "range": {
+        "min": 45,
+        "max": 120
+      },
+      "expected": 2
+    }
+  ],
+  "spokenSeconds": [
+    {
+      "text": "",
+      "expected": 0
+    },
+    {
+      "text": "가가가가가가가가가가가가",
+      "expected": 2
+    },
+    {
+      "text": "가가가가가가가가가가가가가",
+      "expected": 3
+    },
+    {
+      "text": "가 가 가 가 가 가 가 가 가 가 가 가 가 가 가 가 가 가 가 가 가 가 가 가 가 가 가 가 가 가 가 가 가 가 가 가 가 가 가 가 가 가 가 가 가 가 가 가 가 가 가 가 가 가 가 가 가 가 가 가 가 가 가 가 가 가 가 가 가 가 가 가 가 가 가 가 가 가 가 가 가 가 가 가 가 가 가 가 가 가 가 가 가 가 가 가 가 가 가 가 가 가 가 가 가 가 가 가 가 가 가 가 가 가 가 가 가 가 가 가 가 가 가 가 가 가 가 가 가 가 가 가 가 가 가 가 가 가 가 가 가 가 가 가 가 가 가 가 가 가 ",
+      "expected": 30
+    },
+    {
+      "text": "😀😀😀",
+      "expected": 1
+    },
+    {
+      "text": "a b c﻿d",
+      "expected": 1
+    }
+  ],
+  "errorMessages": [
+    {
+      "what": "질문",
+      "error": {
+        "type": "permanent",
+        "reason": "refusal"
+      },
+      "expected": "질문을 만들지 못했습니다. AI 모델이 응답을 거절했습니다. 이력서·공고 내용을 확인한 뒤 다시 시도해 주세요."
+    },
+    {
+      "what": "질문",
+      "error": {
+        "type": "permanent",
+        "reason": "invalid_output"
+      },
+      "expected": "질문을 만들지 못했습니다. AI 응답이 정해진 형식과 맞지 않았습니다(재요청 후에도 실패). 다시 시도해 주세요."
+    },
+    {
+      "what": "질문",
+      "error": {
+        "type": "permanent",
+        "reason": "max_tokens"
+      },
+      "expected": "질문을 만들지 못했습니다. AI 응답이 서버의 출력 길이 한도에서 끊겼습니다(한도를 올려 다시 요청한 뒤에도). 다시 시도해 주세요."
+    },
+    {
+      "what": "질문",
+      "error": {
+        "type": "permanent",
+        "reason": "context_window"
+      },
+      "expected": "질문을 만들지 못했습니다. 이력서와 공고를 합친 입력이 AI 모델이 한 번에 읽을 수 있는 양을 넘었습니다. 줄여서 다시 진단해 주세요."
+    },
+    {
+      "what": "질문",
+      "error": {
+        "type": "permanent",
+        "reason": "bad_request"
+      },
+      "expected": "질문을 만들지 못했습니다. AI 서비스가 요청을 받아들이지 않았습니다(입력이 너무 길거나 형식 오류)."
+    },
+    {
+      "what": "질문",
+      "error": {
+        "type": "permanent",
+        "reason": "auth"
+      },
+      "expected": "질문을 만들지 못했습니다. AI 계정 로그인이 없거나 만료되었습니다. 'AI 연결' 화면에서 다시 로그인한 뒤 재시도해 주세요."
+    },
+    {
+      "what": "질문",
+      "error": {
+        "type": "permanent",
+        "reason": "usage_limit"
+      },
+      "expected": "질문을 만들지 못했습니다. 연결된 AI 계정의 사용량 한도에 걸렸습니다. 한도가 풀린 뒤 다시 시도해 주세요."
+    },
+    {
+      "what": "질문",
+      "error": {
+        "type": "permanent",
+        "reason": "unavailable"
+      },
+      "expected": "질문을 만들지 못했습니다. 선택한 AI 엔진을 지금 쓸 수 없습니다(CLI 미설치 또는 기능 꺼짐). 'AI 연결' 화면을 확인해 주세요."
+    },
+    {
+      "what": "질문",
+      "error": {
+        "type": "permanent",
+        "reason": "timeout"
+      },
+      "expected": "질문을 만들지 못했습니다. AI 응답이 제한 시간 안에 오지 않았습니다. 다시 시도해 주세요."
+    },
+    {
+      "what": "질문",
+      "error": {
+        "type": "feature",
+        "message": "AI 답변이 너무 오래 걸려 중단했습니다."
+      },
+      "expected": "AI 답변이 너무 오래 걸려 중단했습니다."
+    },
+    {
+      "what": "질문",
+      "error": {
+        "type": "timeout"
+      },
+      "expected": "질문을 만드는 데 시간이 너무 오래 걸려 중단했습니다. 다시 시도해 주세요."
+    },
+    {
+      "what": "질문",
+      "error": {
+        "type": "generic"
+      },
+      "expected": "질문을 만들지 못했습니다. 잠시 후 다시 시도해 주세요."
+    },
+    {
+      "what": "피드백",
+      "error": {
+        "type": "permanent",
+        "reason": "refusal"
+      },
+      "expected": "피드백을 만들지 못했습니다. AI 모델이 응답을 거절했습니다. 이력서·공고 내용을 확인한 뒤 다시 시도해 주세요."
+    },
+    {
+      "what": "피드백",
+      "error": {
+        "type": "permanent",
+        "reason": "invalid_output"
+      },
+      "expected": "피드백을 만들지 못했습니다. AI 응답이 정해진 형식과 맞지 않았습니다(재요청 후에도 실패). 다시 시도해 주세요."
+    },
+    {
+      "what": "피드백",
+      "error": {
+        "type": "permanent",
+        "reason": "max_tokens"
+      },
+      "expected": "피드백을 만들지 못했습니다. AI 응답이 서버의 출력 길이 한도에서 끊겼습니다(한도를 올려 다시 요청한 뒤에도). 다시 시도해 주세요."
+    },
+    {
+      "what": "피드백",
+      "error": {
+        "type": "permanent",
+        "reason": "context_window"
+      },
+      "expected": "피드백을 만들지 못했습니다. 이력서와 공고를 합친 입력이 AI 모델이 한 번에 읽을 수 있는 양을 넘었습니다. 줄여서 다시 진단해 주세요."
+    },
+    {
+      "what": "피드백",
+      "error": {
+        "type": "permanent",
+        "reason": "bad_request"
+      },
+      "expected": "피드백을 만들지 못했습니다. AI 서비스가 요청을 받아들이지 않았습니다(입력이 너무 길거나 형식 오류)."
+    },
+    {
+      "what": "피드백",
+      "error": {
+        "type": "permanent",
+        "reason": "auth"
+      },
+      "expected": "피드백을 만들지 못했습니다. AI 계정 로그인이 없거나 만료되었습니다. 'AI 연결' 화면에서 다시 로그인한 뒤 재시도해 주세요."
+    },
+    {
+      "what": "피드백",
+      "error": {
+        "type": "permanent",
+        "reason": "usage_limit"
+      },
+      "expected": "피드백을 만들지 못했습니다. 연결된 AI 계정의 사용량 한도에 걸렸습니다. 한도가 풀린 뒤 다시 시도해 주세요."
+    },
+    {
+      "what": "피드백",
+      "error": {
+        "type": "permanent",
+        "reason": "unavailable"
+      },
+      "expected": "피드백을 만들지 못했습니다. 선택한 AI 엔진을 지금 쓸 수 없습니다(CLI 미설치 또는 기능 꺼짐). 'AI 연결' 화면을 확인해 주세요."
+    },
+    {
+      "what": "피드백",
+      "error": {
+        "type": "permanent",
+        "reason": "timeout"
+      },
+      "expected": "피드백을 만들지 못했습니다. AI 응답이 제한 시간 안에 오지 않았습니다. 다시 시도해 주세요."
+    },
+    {
+      "what": "피드백",
+      "error": {
+        "type": "feature",
+        "message": "AI 답변이 너무 오래 걸려 중단했습니다."
+      },
+      "expected": "AI 답변이 너무 오래 걸려 중단했습니다."
+    },
+    {
+      "what": "피드백",
+      "error": {
+        "type": "timeout"
+      },
+      "expected": "피드백을 만드는 데 시간이 너무 오래 걸려 중단했습니다. 다시 시도해 주세요."
+    },
+    {
+      "what": "피드백",
+      "error": {
+        "type": "generic"
+      },
+      "expected": "피드백을 만들지 못했습니다. 잠시 후 다시 시도해 주세요."
+    }
+  ],
+  "snapshotParse": [
+    {
+      "name": "valid",
+      "raw": {
+        "version": 1,
+        "resume": {
+          "id": "r",
+          "title": "토스 백엔드",
+          "kind": "company",
+          "company": "토스",
+          "roleTitle": "백엔드",
+          "versionId": "v",
+          "versionNo": 2
+        },
+        "posting": {
+          "id": "p",
+          "company": "토스페이먼츠",
+          "roleTitle": "",
+          "url": "https://example.com"
+        },
+        "portfolio": {
+          "kind": "file",
+          "fileName": "p.pdf",
+          "url": null,
+          "truncated": false
+        },
+        "lines": [
+          {
+            "id": "r1",
+            "doc": "resume",
+            "label": "지원 직무",
+            "path": "basics.headline",
+            "text": "결제 백엔드 개발자"
+          },
+          {
+            "id": "r2",
+            "doc": "resume",
+            "label": "한 줄 소개",
+            "path": "basics.tagline",
+            "text": "정산 지연을 줄여 온 5년 차 (백엔드) 개발자"
+          },
+          {
+            "id": "r3",
+            "doc": "resume",
+            "label": "요약 1",
+            "path": "summary.0",
+            "text": "결제 시스템을 운영했습니다."
+          },
+          {
+            "id": "r4",
+            "doc": "resume",
+            "label": "요약 2",
+            "path": "summary.1",
+            "text": "장애 대응 경험이 있습니다."
+          },
+          {
+            "id": "r5",
+            "doc": "resume",
+            "label": "핵심 성과 1",
+            "path": "highlights.0.title",
+            "text": "결제 API p95 800ms → 320ms 🚀"
+          },
+          {
+            "id": "r6",
+            "doc": "resume",
+            "label": "경력 · 토스 백엔드 · 담당 범위",
+            "path": "experience.0.scope",
+            "text": "정산 시스템 담당"
+          },
+          {
+            "id": "r7",
+            "doc": "resume",
+            "label": "경력 · 토스 백엔드 · 기여 1",
+            "path": "experience.0.bullets.0",
+            "text": "정산 배치를 재작성해 처리 시간을 50분에서 35분으로 줄임"
+          },
+          {
+            "id": "r8",
+            "doc": "resume",
+            "label": "경력 · 토스 백엔드 · 기여 2",
+            "path": "experience.0.bullets.1",
+            "text": "장애 대응 문서화"
+          },
+          {
+            "id": "r9",
+            "doc": "resume",
+            "label": "경력 · 경력 2 · 기여 1",
+            "path": "experience.1.bullets.0",
+            "text": "사내 도구(어드민) 개발"
+          },
+          {
+            "id": "r10",
+            "doc": "resume",
+            "label": "프로젝트 · 정산 개편 · 역할",
+            "path": "projects.0.role",
+            "text": "리드"
+          },
+          {
+            "id": "r11",
+            "doc": "resume",
+            "label": "프로젝트 · 정산 개편 · 문제",
+            "path": "projects.0.problem",
+            "text": "월말 정산 지연"
+          },
+          {
+            "id": "r12",
+            "doc": "resume",
+            "label": "프로젝트 · 정산 개편 · 행동",
+            "path": "projects.0.action",
+            "text": "배치 분할"
+          },
+          {
+            "id": "r13",
+            "doc": "resume",
+            "label": "프로젝트 · 정산 개편 · 결과",
+            "path": "projects.0.result",
+            "text": "지연 0건(3개월)"
+          },
+          {
+            "id": "r14",
+            "doc": "resume",
+            "label": "기술 · 언어",
+            "path": "skills.0",
+            "text": "실무 5년 — Kotlin, SQL"
+          },
+          {
+            "id": "p1",
+            "doc": "portfolio",
+            "label": "포트폴리오 1",
+            "path": null,
+            "text": "포트폴리오 문단 하나입니다. 정산 개편의 배경과 지표를 설명합니다. 짧다"
+          },
+          {
+            "id": "p2",
+            "doc": "portfolio",
+            "label": "포트폴리오 2",
+            "path": null,
+            "text": "두 번째 문단은 결과와 회고를 다룹니다. 지연 건수는 3개월 동안 0건이었습니다."
+          },
+          {
+            "id": "j1",
+            "doc": "posting",
+            "label": "채용 공고 1",
+            "path": null,
+            "text": "주요 업무: 결제 정산 시스템 개발과 운영을 맡습니다 자격 요건: Kotlin 3년 이상 경험, 대용량 배치 운영 경험"
+          },
+          {
+            "id": "j2",
+            "doc": "posting",
+            "label": "채용 공고 2",
+            "path": null,
+            "text": "우대 사항: 결제 도메인 경험"
+          }
+        ],
+        "createdAt": 0
+      },
+      "ok": true,
+      "data": {
+        "version": 1,
+        "resume": {
+          "id": "r",
+          "title": "토스 백엔드",
+          "kind": "company",
+          "company": "토스",
+          "roleTitle": "백엔드",
+          "versionId": "v",
+          "versionNo": 2
+        },
+        "posting": {
+          "id": "p",
+          "company": "토스페이먼츠",
+          "roleTitle": "",
+          "url": "https://example.com"
+        },
+        "portfolio": {
+          "kind": "file",
+          "fileName": "p.pdf",
+          "url": null,
+          "truncated": false
+        },
+        "lines": [
+          {
+            "id": "r1",
+            "doc": "resume",
+            "label": "지원 직무",
+            "path": "basics.headline",
+            "text": "결제 백엔드 개발자"
+          },
+          {
+            "id": "r2",
+            "doc": "resume",
+            "label": "한 줄 소개",
+            "path": "basics.tagline",
+            "text": "정산 지연을 줄여 온 5년 차 (백엔드) 개발자"
+          },
+          {
+            "id": "r3",
+            "doc": "resume",
+            "label": "요약 1",
+            "path": "summary.0",
+            "text": "결제 시스템을 운영했습니다."
+          },
+          {
+            "id": "r4",
+            "doc": "resume",
+            "label": "요약 2",
+            "path": "summary.1",
+            "text": "장애 대응 경험이 있습니다."
+          },
+          {
+            "id": "r5",
+            "doc": "resume",
+            "label": "핵심 성과 1",
+            "path": "highlights.0.title",
+            "text": "결제 API p95 800ms → 320ms 🚀"
+          },
+          {
+            "id": "r6",
+            "doc": "resume",
+            "label": "경력 · 토스 백엔드 · 담당 범위",
+            "path": "experience.0.scope",
+            "text": "정산 시스템 담당"
+          },
+          {
+            "id": "r7",
+            "doc": "resume",
+            "label": "경력 · 토스 백엔드 · 기여 1",
+            "path": "experience.0.bullets.0",
+            "text": "정산 배치를 재작성해 처리 시간을 50분에서 35분으로 줄임"
+          },
+          {
+            "id": "r8",
+            "doc": "resume",
+            "label": "경력 · 토스 백엔드 · 기여 2",
+            "path": "experience.0.bullets.1",
+            "text": "장애 대응 문서화"
+          },
+          {
+            "id": "r9",
+            "doc": "resume",
+            "label": "경력 · 경력 2 · 기여 1",
+            "path": "experience.1.bullets.0",
+            "text": "사내 도구(어드민) 개발"
+          },
+          {
+            "id": "r10",
+            "doc": "resume",
+            "label": "프로젝트 · 정산 개편 · 역할",
+            "path": "projects.0.role",
+            "text": "리드"
+          },
+          {
+            "id": "r11",
+            "doc": "resume",
+            "label": "프로젝트 · 정산 개편 · 문제",
+            "path": "projects.0.problem",
+            "text": "월말 정산 지연"
+          },
+          {
+            "id": "r12",
+            "doc": "resume",
+            "label": "프로젝트 · 정산 개편 · 행동",
+            "path": "projects.0.action",
+            "text": "배치 분할"
+          },
+          {
+            "id": "r13",
+            "doc": "resume",
+            "label": "프로젝트 · 정산 개편 · 결과",
+            "path": "projects.0.result",
+            "text": "지연 0건(3개월)"
+          },
+          {
+            "id": "r14",
+            "doc": "resume",
+            "label": "기술 · 언어",
+            "path": "skills.0",
+            "text": "실무 5년 — Kotlin, SQL"
+          },
+          {
+            "id": "p1",
+            "doc": "portfolio",
+            "label": "포트폴리오 1",
+            "path": null,
+            "text": "포트폴리오 문단 하나입니다. 정산 개편의 배경과 지표를 설명합니다. 짧다"
+          },
+          {
+            "id": "p2",
+            "doc": "portfolio",
+            "label": "포트폴리오 2",
+            "path": null,
+            "text": "두 번째 문단은 결과와 회고를 다룹니다. 지연 건수는 3개월 동안 0건이었습니다."
+          },
+          {
+            "id": "j1",
+            "doc": "posting",
+            "label": "채용 공고 1",
+            "path": null,
+            "text": "주요 업무: 결제 정산 시스템 개발과 운영을 맡습니다 자격 요건: Kotlin 3년 이상 경험, 대용량 배치 운영 경험"
+          },
+          {
+            "id": "j2",
+            "doc": "posting",
+            "label": "채용 공고 2",
+            "path": null,
+            "text": "우대 사항: 결제 도메인 경험"
+          }
+        ],
+        "createdAt": 0
+      }
+    },
+    {
+      "name": "extra_keys_stripped",
+      "raw": {
+        "version": 1,
+        "resume": {
+          "id": "r",
+          "title": "토스 백엔드",
+          "kind": "company",
+          "company": "토스",
+          "roleTitle": "백엔드",
+          "versionId": "v",
+          "versionNo": 2,
+          "more": "x"
+        },
+        "posting": {
+          "id": "p",
+          "company": "토스페이먼츠",
+          "roleTitle": "",
+          "url": "https://example.com"
+        },
+        "portfolio": {
+          "kind": "file",
+          "fileName": "p.pdf",
+          "url": null,
+          "truncated": false
+        },
+        "lines": [
+          {
+            "id": "r1",
+            "doc": "resume",
+            "label": "지원 직무",
+            "path": "basics.headline",
+            "text": "결제 백엔드 개발자",
+            "extra": true
+          },
+          {
+            "id": "r2",
+            "doc": "resume",
+            "label": "한 줄 소개",
+            "path": "basics.tagline",
+            "text": "정산 지연을 줄여 온 5년 차 (백엔드) 개발자"
+          },
+          {
+            "id": "r3",
+            "doc": "resume",
+            "label": "요약 1",
+            "path": "summary.0",
+            "text": "결제 시스템을 운영했습니다."
+          },
+          {
+            "id": "r4",
+            "doc": "resume",
+            "label": "요약 2",
+            "path": "summary.1",
+            "text": "장애 대응 경험이 있습니다."
+          },
+          {
+            "id": "r5",
+            "doc": "resume",
+            "label": "핵심 성과 1",
+            "path": "highlights.0.title",
+            "text": "결제 API p95 800ms → 320ms 🚀"
+          },
+          {
+            "id": "r6",
+            "doc": "resume",
+            "label": "경력 · 토스 백엔드 · 담당 범위",
+            "path": "experience.0.scope",
+            "text": "정산 시스템 담당"
+          },
+          {
+            "id": "r7",
+            "doc": "resume",
+            "label": "경력 · 토스 백엔드 · 기여 1",
+            "path": "experience.0.bullets.0",
+            "text": "정산 배치를 재작성해 처리 시간을 50분에서 35분으로 줄임"
+          },
+          {
+            "id": "r8",
+            "doc": "resume",
+            "label": "경력 · 토스 백엔드 · 기여 2",
+            "path": "experience.0.bullets.1",
+            "text": "장애 대응 문서화"
+          },
+          {
+            "id": "r9",
+            "doc": "resume",
+            "label": "경력 · 경력 2 · 기여 1",
+            "path": "experience.1.bullets.0",
+            "text": "사내 도구(어드민) 개발"
+          },
+          {
+            "id": "r10",
+            "doc": "resume",
+            "label": "프로젝트 · 정산 개편 · 역할",
+            "path": "projects.0.role",
+            "text": "리드"
+          },
+          {
+            "id": "r11",
+            "doc": "resume",
+            "label": "프로젝트 · 정산 개편 · 문제",
+            "path": "projects.0.problem",
+            "text": "월말 정산 지연"
+          },
+          {
+            "id": "r12",
+            "doc": "resume",
+            "label": "프로젝트 · 정산 개편 · 행동",
+            "path": "projects.0.action",
+            "text": "배치 분할"
+          },
+          {
+            "id": "r13",
+            "doc": "resume",
+            "label": "프로젝트 · 정산 개편 · 결과",
+            "path": "projects.0.result",
+            "text": "지연 0건(3개월)"
+          },
+          {
+            "id": "r14",
+            "doc": "resume",
+            "label": "기술 · 언어",
+            "path": "skills.0",
+            "text": "실무 5년 — Kotlin, SQL"
+          },
+          {
+            "id": "p1",
+            "doc": "portfolio",
+            "label": "포트폴리오 1",
+            "path": null,
+            "text": "포트폴리오 문단 하나입니다. 정산 개편의 배경과 지표를 설명합니다. 짧다"
+          },
+          {
+            "id": "p2",
+            "doc": "portfolio",
+            "label": "포트폴리오 2",
+            "path": null,
+            "text": "두 번째 문단은 결과와 회고를 다룹니다. 지연 건수는 3개월 동안 0건이었습니다."
+          },
+          {
+            "id": "j1",
+            "doc": "posting",
+            "label": "채용 공고 1",
+            "path": null,
+            "text": "주요 업무: 결제 정산 시스템 개발과 운영을 맡습니다 자격 요건: Kotlin 3년 이상 경험, 대용량 배치 운영 경험"
+          },
+          {
+            "id": "j2",
+            "doc": "posting",
+            "label": "채용 공고 2",
+            "path": null,
+            "text": "우대 사항: 결제 도메인 경험"
+          }
+        ],
+        "createdAt": 0,
+        "extra": 1
+      },
+      "ok": true,
+      "data": {
+        "version": 1,
+        "resume": {
+          "id": "r",
+          "title": "토스 백엔드",
+          "kind": "company",
+          "company": "토스",
+          "roleTitle": "백엔드",
+          "versionId": "v",
+          "versionNo": 2
+        },
+        "posting": {
+          "id": "p",
+          "company": "토스페이먼츠",
+          "roleTitle": "",
+          "url": "https://example.com"
+        },
+        "portfolio": {
+          "kind": "file",
+          "fileName": "p.pdf",
+          "url": null,
+          "truncated": false
+        },
+        "lines": [
+          {
+            "id": "r1",
+            "doc": "resume",
+            "label": "지원 직무",
+            "path": "basics.headline",
+            "text": "결제 백엔드 개발자"
+          },
+          {
+            "id": "r2",
+            "doc": "resume",
+            "label": "한 줄 소개",
+            "path": "basics.tagline",
+            "text": "정산 지연을 줄여 온 5년 차 (백엔드) 개발자"
+          },
+          {
+            "id": "r3",
+            "doc": "resume",
+            "label": "요약 1",
+            "path": "summary.0",
+            "text": "결제 시스템을 운영했습니다."
+          },
+          {
+            "id": "r4",
+            "doc": "resume",
+            "label": "요약 2",
+            "path": "summary.1",
+            "text": "장애 대응 경험이 있습니다."
+          },
+          {
+            "id": "r5",
+            "doc": "resume",
+            "label": "핵심 성과 1",
+            "path": "highlights.0.title",
+            "text": "결제 API p95 800ms → 320ms 🚀"
+          },
+          {
+            "id": "r6",
+            "doc": "resume",
+            "label": "경력 · 토스 백엔드 · 담당 범위",
+            "path": "experience.0.scope",
+            "text": "정산 시스템 담당"
+          },
+          {
+            "id": "r7",
+            "doc": "resume",
+            "label": "경력 · 토스 백엔드 · 기여 1",
+            "path": "experience.0.bullets.0",
+            "text": "정산 배치를 재작성해 처리 시간을 50분에서 35분으로 줄임"
+          },
+          {
+            "id": "r8",
+            "doc": "resume",
+            "label": "경력 · 토스 백엔드 · 기여 2",
+            "path": "experience.0.bullets.1",
+            "text": "장애 대응 문서화"
+          },
+          {
+            "id": "r9",
+            "doc": "resume",
+            "label": "경력 · 경력 2 · 기여 1",
+            "path": "experience.1.bullets.0",
+            "text": "사내 도구(어드민) 개발"
+          },
+          {
+            "id": "r10",
+            "doc": "resume",
+            "label": "프로젝트 · 정산 개편 · 역할",
+            "path": "projects.0.role",
+            "text": "리드"
+          },
+          {
+            "id": "r11",
+            "doc": "resume",
+            "label": "프로젝트 · 정산 개편 · 문제",
+            "path": "projects.0.problem",
+            "text": "월말 정산 지연"
+          },
+          {
+            "id": "r12",
+            "doc": "resume",
+            "label": "프로젝트 · 정산 개편 · 행동",
+            "path": "projects.0.action",
+            "text": "배치 분할"
+          },
+          {
+            "id": "r13",
+            "doc": "resume",
+            "label": "프로젝트 · 정산 개편 · 결과",
+            "path": "projects.0.result",
+            "text": "지연 0건(3개월)"
+          },
+          {
+            "id": "r14",
+            "doc": "resume",
+            "label": "기술 · 언어",
+            "path": "skills.0",
+            "text": "실무 5년 — Kotlin, SQL"
+          },
+          {
+            "id": "p1",
+            "doc": "portfolio",
+            "label": "포트폴리오 1",
+            "path": null,
+            "text": "포트폴리오 문단 하나입니다. 정산 개편의 배경과 지표를 설명합니다. 짧다"
+          },
+          {
+            "id": "p2",
+            "doc": "portfolio",
+            "label": "포트폴리오 2",
+            "path": null,
+            "text": "두 번째 문단은 결과와 회고를 다룹니다. 지연 건수는 3개월 동안 0건이었습니다."
+          },
+          {
+            "id": "j1",
+            "doc": "posting",
+            "label": "채용 공고 1",
+            "path": null,
+            "text": "주요 업무: 결제 정산 시스템 개발과 운영을 맡습니다 자격 요건: Kotlin 3년 이상 경험, 대용량 배치 운영 경험"
+          },
+          {
+            "id": "j2",
+            "doc": "posting",
+            "label": "채용 공고 2",
+            "path": null,
+            "text": "우대 사항: 결제 도메인 경험"
+          }
+        ],
+        "createdAt": 0
+      }
+    },
+    {
+      "name": "version_2",
+      "raw": {
+        "version": 2,
+        "resume": {
+          "id": "r",
+          "title": "토스 백엔드",
+          "kind": "company",
+          "company": "토스",
+          "roleTitle": "백엔드",
+          "versionId": "v",
+          "versionNo": 2
+        },
+        "posting": {
+          "id": "p",
+          "company": "토스페이먼츠",
+          "roleTitle": "",
+          "url": "https://example.com"
+        },
+        "portfolio": {
+          "kind": "file",
+          "fileName": "p.pdf",
+          "url": null,
+          "truncated": false
+        },
+        "lines": [
+          {
+            "id": "r1",
+            "doc": "resume",
+            "label": "지원 직무",
+            "path": "basics.headline",
+            "text": "결제 백엔드 개발자"
+          },
+          {
+            "id": "r2",
+            "doc": "resume",
+            "label": "한 줄 소개",
+            "path": "basics.tagline",
+            "text": "정산 지연을 줄여 온 5년 차 (백엔드) 개발자"
+          },
+          {
+            "id": "r3",
+            "doc": "resume",
+            "label": "요약 1",
+            "path": "summary.0",
+            "text": "결제 시스템을 운영했습니다."
+          },
+          {
+            "id": "r4",
+            "doc": "resume",
+            "label": "요약 2",
+            "path": "summary.1",
+            "text": "장애 대응 경험이 있습니다."
+          },
+          {
+            "id": "r5",
+            "doc": "resume",
+            "label": "핵심 성과 1",
+            "path": "highlights.0.title",
+            "text": "결제 API p95 800ms → 320ms 🚀"
+          },
+          {
+            "id": "r6",
+            "doc": "resume",
+            "label": "경력 · 토스 백엔드 · 담당 범위",
+            "path": "experience.0.scope",
+            "text": "정산 시스템 담당"
+          },
+          {
+            "id": "r7",
+            "doc": "resume",
+            "label": "경력 · 토스 백엔드 · 기여 1",
+            "path": "experience.0.bullets.0",
+            "text": "정산 배치를 재작성해 처리 시간을 50분에서 35분으로 줄임"
+          },
+          {
+            "id": "r8",
+            "doc": "resume",
+            "label": "경력 · 토스 백엔드 · 기여 2",
+            "path": "experience.0.bullets.1",
+            "text": "장애 대응 문서화"
+          },
+          {
+            "id": "r9",
+            "doc": "resume",
+            "label": "경력 · 경력 2 · 기여 1",
+            "path": "experience.1.bullets.0",
+            "text": "사내 도구(어드민) 개발"
+          },
+          {
+            "id": "r10",
+            "doc": "resume",
+            "label": "프로젝트 · 정산 개편 · 역할",
+            "path": "projects.0.role",
+            "text": "리드"
+          },
+          {
+            "id": "r11",
+            "doc": "resume",
+            "label": "프로젝트 · 정산 개편 · 문제",
+            "path": "projects.0.problem",
+            "text": "월말 정산 지연"
+          },
+          {
+            "id": "r12",
+            "doc": "resume",
+            "label": "프로젝트 · 정산 개편 · 행동",
+            "path": "projects.0.action",
+            "text": "배치 분할"
+          },
+          {
+            "id": "r13",
+            "doc": "resume",
+            "label": "프로젝트 · 정산 개편 · 결과",
+            "path": "projects.0.result",
+            "text": "지연 0건(3개월)"
+          },
+          {
+            "id": "r14",
+            "doc": "resume",
+            "label": "기술 · 언어",
+            "path": "skills.0",
+            "text": "실무 5년 — Kotlin, SQL"
+          },
+          {
+            "id": "p1",
+            "doc": "portfolio",
+            "label": "포트폴리오 1",
+            "path": null,
+            "text": "포트폴리오 문단 하나입니다. 정산 개편의 배경과 지표를 설명합니다. 짧다"
+          },
+          {
+            "id": "p2",
+            "doc": "portfolio",
+            "label": "포트폴리오 2",
+            "path": null,
+            "text": "두 번째 문단은 결과와 회고를 다룹니다. 지연 건수는 3개월 동안 0건이었습니다."
+          },
+          {
+            "id": "j1",
+            "doc": "posting",
+            "label": "채용 공고 1",
+            "path": null,
+            "text": "주요 업무: 결제 정산 시스템 개발과 운영을 맡습니다 자격 요건: Kotlin 3년 이상 경험, 대용량 배치 운영 경험"
+          },
+          {
+            "id": "j2",
+            "doc": "posting",
+            "label": "채용 공고 2",
+            "path": null,
+            "text": "우대 사항: 결제 도메인 경험"
+          }
+        ],
+        "createdAt": 0
+      },
+      "ok": false,
+      "data": null
+    },
+    {
+      "name": "bad_line_id",
+      "raw": {
+        "version": 1,
+        "resume": {
+          "id": "r",
+          "title": "토스 백엔드",
+          "kind": "company",
+          "company": "토스",
+          "roleTitle": "백엔드",
+          "versionId": "v",
+          "versionNo": 2
+        },
+        "posting": {
+          "id": "p",
+          "company": "토스페이먼츠",
+          "roleTitle": "",
+          "url": "https://example.com"
+        },
+        "portfolio": {
+          "kind": "file",
+          "fileName": "p.pdf",
+          "url": null,
+          "truncated": false
+        },
+        "lines": [
+          {
+            "id": "x1",
+            "doc": "resume",
+            "label": "지원 직무",
+            "path": "basics.headline",
+            "text": "결제 백엔드 개발자"
+          },
+          {
+            "id": "r2",
+            "doc": "resume",
+            "label": "한 줄 소개",
+            "path": "basics.tagline",
+            "text": "정산 지연을 줄여 온 5년 차 (백엔드) 개발자"
+          },
+          {
+            "id": "r3",
+            "doc": "resume",
+            "label": "요약 1",
+            "path": "summary.0",
+            "text": "결제 시스템을 운영했습니다."
+          },
+          {
+            "id": "r4",
+            "doc": "resume",
+            "label": "요약 2",
+            "path": "summary.1",
+            "text": "장애 대응 경험이 있습니다."
+          },
+          {
+            "id": "r5",
+            "doc": "resume",
+            "label": "핵심 성과 1",
+            "path": "highlights.0.title",
+            "text": "결제 API p95 800ms → 320ms 🚀"
+          },
+          {
+            "id": "r6",
+            "doc": "resume",
+            "label": "경력 · 토스 백엔드 · 담당 범위",
+            "path": "experience.0.scope",
+            "text": "정산 시스템 담당"
+          },
+          {
+            "id": "r7",
+            "doc": "resume",
+            "label": "경력 · 토스 백엔드 · 기여 1",
+            "path": "experience.0.bullets.0",
+            "text": "정산 배치를 재작성해 처리 시간을 50분에서 35분으로 줄임"
+          },
+          {
+            "id": "r8",
+            "doc": "resume",
+            "label": "경력 · 토스 백엔드 · 기여 2",
+            "path": "experience.0.bullets.1",
+            "text": "장애 대응 문서화"
+          },
+          {
+            "id": "r9",
+            "doc": "resume",
+            "label": "경력 · 경력 2 · 기여 1",
+            "path": "experience.1.bullets.0",
+            "text": "사내 도구(어드민) 개발"
+          },
+          {
+            "id": "r10",
+            "doc": "resume",
+            "label": "프로젝트 · 정산 개편 · 역할",
+            "path": "projects.0.role",
+            "text": "리드"
+          },
+          {
+            "id": "r11",
+            "doc": "resume",
+            "label": "프로젝트 · 정산 개편 · 문제",
+            "path": "projects.0.problem",
+            "text": "월말 정산 지연"
+          },
+          {
+            "id": "r12",
+            "doc": "resume",
+            "label": "프로젝트 · 정산 개편 · 행동",
+            "path": "projects.0.action",
+            "text": "배치 분할"
+          },
+          {
+            "id": "r13",
+            "doc": "resume",
+            "label": "프로젝트 · 정산 개편 · 결과",
+            "path": "projects.0.result",
+            "text": "지연 0건(3개월)"
+          },
+          {
+            "id": "r14",
+            "doc": "resume",
+            "label": "기술 · 언어",
+            "path": "skills.0",
+            "text": "실무 5년 — Kotlin, SQL"
+          },
+          {
+            "id": "p1",
+            "doc": "portfolio",
+            "label": "포트폴리오 1",
+            "path": null,
+            "text": "포트폴리오 문단 하나입니다. 정산 개편의 배경과 지표를 설명합니다. 짧다"
+          },
+          {
+            "id": "p2",
+            "doc": "portfolio",
+            "label": "포트폴리오 2",
+            "path": null,
+            "text": "두 번째 문단은 결과와 회고를 다룹니다. 지연 건수는 3개월 동안 0건이었습니다."
+          },
+          {
+            "id": "j1",
+            "doc": "posting",
+            "label": "채용 공고 1",
+            "path": null,
+            "text": "주요 업무: 결제 정산 시스템 개발과 운영을 맡습니다 자격 요건: Kotlin 3년 이상 경험, 대용량 배치 운영 경험"
+          },
+          {
+            "id": "j2",
+            "doc": "posting",
+            "label": "채용 공고 2",
+            "path": null,
+            "text": "우대 사항: 결제 도메인 경험"
+          }
+        ],
+        "createdAt": 0
+      },
+      "ok": false,
+      "data": null
+    },
+    {
+      "name": "line_id_5_digits",
+      "raw": {
+        "version": 1,
+        "resume": {
+          "id": "r",
+          "title": "토스 백엔드",
+          "kind": "company",
+          "company": "토스",
+          "roleTitle": "백엔드",
+          "versionId": "v",
+          "versionNo": 2
+        },
+        "posting": {
+          "id": "p",
+          "company": "토스페이먼츠",
+          "roleTitle": "",
+          "url": "https://example.com"
+        },
+        "portfolio": {
+          "kind": "file",
+          "fileName": "p.pdf",
+          "url": null,
+          "truncated": false
+        },
+        "lines": [
+          {
+            "id": "r12345",
+            "doc": "resume",
+            "label": "지원 직무",
+            "path": "basics.headline",
+            "text": "결제 백엔드 개발자"
+          },
+          {
+            "id": "r2",
+            "doc": "resume",
+            "label": "한 줄 소개",
+            "path": "basics.tagline",
+            "text": "정산 지연을 줄여 온 5년 차 (백엔드) 개발자"
+          },
+          {
+            "id": "r3",
+            "doc": "resume",
+            "label": "요약 1",
+            "path": "summary.0",
+            "text": "결제 시스템을 운영했습니다."
+          },
+          {
+            "id": "r4",
+            "doc": "resume",
+            "label": "요약 2",
+            "path": "summary.1",
+            "text": "장애 대응 경험이 있습니다."
+          },
+          {
+            "id": "r5",
+            "doc": "resume",
+            "label": "핵심 성과 1",
+            "path": "highlights.0.title",
+            "text": "결제 API p95 800ms → 320ms 🚀"
+          },
+          {
+            "id": "r6",
+            "doc": "resume",
+            "label": "경력 · 토스 백엔드 · 담당 범위",
+            "path": "experience.0.scope",
+            "text": "정산 시스템 담당"
+          },
+          {
+            "id": "r7",
+            "doc": "resume",
+            "label": "경력 · 토스 백엔드 · 기여 1",
+            "path": "experience.0.bullets.0",
+            "text": "정산 배치를 재작성해 처리 시간을 50분에서 35분으로 줄임"
+          },
+          {
+            "id": "r8",
+            "doc": "resume",
+            "label": "경력 · 토스 백엔드 · 기여 2",
+            "path": "experience.0.bullets.1",
+            "text": "장애 대응 문서화"
+          },
+          {
+            "id": "r9",
+            "doc": "resume",
+            "label": "경력 · 경력 2 · 기여 1",
+            "path": "experience.1.bullets.0",
+            "text": "사내 도구(어드민) 개발"
+          },
+          {
+            "id": "r10",
+            "doc": "resume",
+            "label": "프로젝트 · 정산 개편 · 역할",
+            "path": "projects.0.role",
+            "text": "리드"
+          },
+          {
+            "id": "r11",
+            "doc": "resume",
+            "label": "프로젝트 · 정산 개편 · 문제",
+            "path": "projects.0.problem",
+            "text": "월말 정산 지연"
+          },
+          {
+            "id": "r12",
+            "doc": "resume",
+            "label": "프로젝트 · 정산 개편 · 행동",
+            "path": "projects.0.action",
+            "text": "배치 분할"
+          },
+          {
+            "id": "r13",
+            "doc": "resume",
+            "label": "프로젝트 · 정산 개편 · 결과",
+            "path": "projects.0.result",
+            "text": "지연 0건(3개월)"
+          },
+          {
+            "id": "r14",
+            "doc": "resume",
+            "label": "기술 · 언어",
+            "path": "skills.0",
+            "text": "실무 5년 — Kotlin, SQL"
+          },
+          {
+            "id": "p1",
+            "doc": "portfolio",
+            "label": "포트폴리오 1",
+            "path": null,
+            "text": "포트폴리오 문단 하나입니다. 정산 개편의 배경과 지표를 설명합니다. 짧다"
+          },
+          {
+            "id": "p2",
+            "doc": "portfolio",
+            "label": "포트폴리오 2",
+            "path": null,
+            "text": "두 번째 문단은 결과와 회고를 다룹니다. 지연 건수는 3개월 동안 0건이었습니다."
+          },
+          {
+            "id": "j1",
+            "doc": "posting",
+            "label": "채용 공고 1",
+            "path": null,
+            "text": "주요 업무: 결제 정산 시스템 개발과 운영을 맡습니다 자격 요건: Kotlin 3년 이상 경험, 대용량 배치 운영 경험"
+          },
+          {
+            "id": "j2",
+            "doc": "posting",
+            "label": "채용 공고 2",
+            "path": null,
+            "text": "우대 사항: 결제 도메인 경험"
+          }
+        ],
+        "createdAt": 0
+      },
+      "ok": false,
+      "data": null
+    },
+    {
+      "name": "label_too_long",
+      "raw": {
+        "version": 1,
+        "resume": {
+          "id": "r",
+          "title": "토스 백엔드",
+          "kind": "company",
+          "company": "토스",
+          "roleTitle": "백엔드",
+          "versionId": "v",
+          "versionNo": 2
+        },
+        "posting": {
+          "id": "p",
+          "company": "토스페이먼츠",
+          "roleTitle": "",
+          "url": "https://example.com"
+        },
+        "portfolio": {
+          "kind": "file",
+          "fileName": "p.pdf",
+          "url": null,
+          "truncated": false
+        },
+        "lines": [
+          {
+            "id": "r1",
+            "doc": "resume",
+            "label": "가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가",
+            "path": "basics.headline",
+            "text": "결제 백엔드 개발자"
+          },
+          {
+            "id": "r2",
+            "doc": "resume",
+            "label": "한 줄 소개",
+            "path": "basics.tagline",
+            "text": "정산 지연을 줄여 온 5년 차 (백엔드) 개발자"
+          },
+          {
+            "id": "r3",
+            "doc": "resume",
+            "label": "요약 1",
+            "path": "summary.0",
+            "text": "결제 시스템을 운영했습니다."
+          },
+          {
+            "id": "r4",
+            "doc": "resume",
+            "label": "요약 2",
+            "path": "summary.1",
+            "text": "장애 대응 경험이 있습니다."
+          },
+          {
+            "id": "r5",
+            "doc": "resume",
+            "label": "핵심 성과 1",
+            "path": "highlights.0.title",
+            "text": "결제 API p95 800ms → 320ms 🚀"
+          },
+          {
+            "id": "r6",
+            "doc": "resume",
+            "label": "경력 · 토스 백엔드 · 담당 범위",
+            "path": "experience.0.scope",
+            "text": "정산 시스템 담당"
+          },
+          {
+            "id": "r7",
+            "doc": "resume",
+            "label": "경력 · 토스 백엔드 · 기여 1",
+            "path": "experience.0.bullets.0",
+            "text": "정산 배치를 재작성해 처리 시간을 50분에서 35분으로 줄임"
+          },
+          {
+            "id": "r8",
+            "doc": "resume",
+            "label": "경력 · 토스 백엔드 · 기여 2",
+            "path": "experience.0.bullets.1",
+            "text": "장애 대응 문서화"
+          },
+          {
+            "id": "r9",
+            "doc": "resume",
+            "label": "경력 · 경력 2 · 기여 1",
+            "path": "experience.1.bullets.0",
+            "text": "사내 도구(어드민) 개발"
+          },
+          {
+            "id": "r10",
+            "doc": "resume",
+            "label": "프로젝트 · 정산 개편 · 역할",
+            "path": "projects.0.role",
+            "text": "리드"
+          },
+          {
+            "id": "r11",
+            "doc": "resume",
+            "label": "프로젝트 · 정산 개편 · 문제",
+            "path": "projects.0.problem",
+            "text": "월말 정산 지연"
+          },
+          {
+            "id": "r12",
+            "doc": "resume",
+            "label": "프로젝트 · 정산 개편 · 행동",
+            "path": "projects.0.action",
+            "text": "배치 분할"
+          },
+          {
+            "id": "r13",
+            "doc": "resume",
+            "label": "프로젝트 · 정산 개편 · 결과",
+            "path": "projects.0.result",
+            "text": "지연 0건(3개월)"
+          },
+          {
+            "id": "r14",
+            "doc": "resume",
+            "label": "기술 · 언어",
+            "path": "skills.0",
+            "text": "실무 5년 — Kotlin, SQL"
+          },
+          {
+            "id": "p1",
+            "doc": "portfolio",
+            "label": "포트폴리오 1",
+            "path": null,
+            "text": "포트폴리오 문단 하나입니다. 정산 개편의 배경과 지표를 설명합니다. 짧다"
+          },
+          {
+            "id": "p2",
+            "doc": "portfolio",
+            "label": "포트폴리오 2",
+            "path": null,
+            "text": "두 번째 문단은 결과와 회고를 다룹니다. 지연 건수는 3개월 동안 0건이었습니다."
+          },
+          {
+            "id": "j1",
+            "doc": "posting",
+            "label": "채용 공고 1",
+            "path": null,
+            "text": "주요 업무: 결제 정산 시스템 개발과 운영을 맡습니다 자격 요건: Kotlin 3년 이상 경험, 대용량 배치 운영 경험"
+          },
+          {
+            "id": "j2",
+            "doc": "posting",
+            "label": "채용 공고 2",
+            "path": null,
+            "text": "우대 사항: 결제 도메인 경험"
+          }
+        ],
+        "createdAt": 0
+      },
+      "ok": false,
+      "data": null
+    },
+    {
+      "name": "label_emoji_200_units",
+      "raw": {
+        "version": 1,
+        "resume": {
+          "id": "r",
+          "title": "토스 백엔드",
+          "kind": "company",
+          "company": "토스",
+          "roleTitle": "백엔드",
+          "versionId": "v",
+          "versionNo": 2
+        },
+        "posting": {
+          "id": "p",
+          "company": "토스페이먼츠",
+          "roleTitle": "",
+          "url": "https://example.com"
+        },
+        "portfolio": {
+          "kind": "file",
+          "fileName": "p.pdf",
+          "url": null,
+          "truncated": false
+        },
+        "lines": [
+          {
+            "id": "r1",
+            "doc": "resume",
+            "label": "😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀",
+            "path": "basics.headline",
+            "text": "결제 백엔드 개발자"
+          },
+          {
+            "id": "r2",
+            "doc": "resume",
+            "label": "한 줄 소개",
+            "path": "basics.tagline",
+            "text": "정산 지연을 줄여 온 5년 차 (백엔드) 개발자"
+          },
+          {
+            "id": "r3",
+            "doc": "resume",
+            "label": "요약 1",
+            "path": "summary.0",
+            "text": "결제 시스템을 운영했습니다."
+          },
+          {
+            "id": "r4",
+            "doc": "resume",
+            "label": "요약 2",
+            "path": "summary.1",
+            "text": "장애 대응 경험이 있습니다."
+          },
+          {
+            "id": "r5",
+            "doc": "resume",
+            "label": "핵심 성과 1",
+            "path": "highlights.0.title",
+            "text": "결제 API p95 800ms → 320ms 🚀"
+          },
+          {
+            "id": "r6",
+            "doc": "resume",
+            "label": "경력 · 토스 백엔드 · 담당 범위",
+            "path": "experience.0.scope",
+            "text": "정산 시스템 담당"
+          },
+          {
+            "id": "r7",
+            "doc": "resume",
+            "label": "경력 · 토스 백엔드 · 기여 1",
+            "path": "experience.0.bullets.0",
+            "text": "정산 배치를 재작성해 처리 시간을 50분에서 35분으로 줄임"
+          },
+          {
+            "id": "r8",
+            "doc": "resume",
+            "label": "경력 · 토스 백엔드 · 기여 2",
+            "path": "experience.0.bullets.1",
+            "text": "장애 대응 문서화"
+          },
+          {
+            "id": "r9",
+            "doc": "resume",
+            "label": "경력 · 경력 2 · 기여 1",
+            "path": "experience.1.bullets.0",
+            "text": "사내 도구(어드민) 개발"
+          },
+          {
+            "id": "r10",
+            "doc": "resume",
+            "label": "프로젝트 · 정산 개편 · 역할",
+            "path": "projects.0.role",
+            "text": "리드"
+          },
+          {
+            "id": "r11",
+            "doc": "resume",
+            "label": "프로젝트 · 정산 개편 · 문제",
+            "path": "projects.0.problem",
+            "text": "월말 정산 지연"
+          },
+          {
+            "id": "r12",
+            "doc": "resume",
+            "label": "프로젝트 · 정산 개편 · 행동",
+            "path": "projects.0.action",
+            "text": "배치 분할"
+          },
+          {
+            "id": "r13",
+            "doc": "resume",
+            "label": "프로젝트 · 정산 개편 · 결과",
+            "path": "projects.0.result",
+            "text": "지연 0건(3개월)"
+          },
+          {
+            "id": "r14",
+            "doc": "resume",
+            "label": "기술 · 언어",
+            "path": "skills.0",
+            "text": "실무 5년 — Kotlin, SQL"
+          },
+          {
+            "id": "p1",
+            "doc": "portfolio",
+            "label": "포트폴리오 1",
+            "path": null,
+            "text": "포트폴리오 문단 하나입니다. 정산 개편의 배경과 지표를 설명합니다. 짧다"
+          },
+          {
+            "id": "p2",
+            "doc": "portfolio",
+            "label": "포트폴리오 2",
+            "path": null,
+            "text": "두 번째 문단은 결과와 회고를 다룹니다. 지연 건수는 3개월 동안 0건이었습니다."
+          },
+          {
+            "id": "j1",
+            "doc": "posting",
+            "label": "채용 공고 1",
+            "path": null,
+            "text": "주요 업무: 결제 정산 시스템 개발과 운영을 맡습니다 자격 요건: Kotlin 3년 이상 경험, 대용량 배치 운영 경험"
+          },
+          {
+            "id": "j2",
+            "doc": "posting",
+            "label": "채용 공고 2",
+            "path": null,
+            "text": "우대 사항: 결제 도메인 경험"
+          }
+        ],
+        "createdAt": 0
+      },
+      "ok": true,
+      "data": {
+        "version": 1,
+        "resume": {
+          "id": "r",
+          "title": "토스 백엔드",
+          "kind": "company",
+          "company": "토스",
+          "roleTitle": "백엔드",
+          "versionId": "v",
+          "versionNo": 2
+        },
+        "posting": {
+          "id": "p",
+          "company": "토스페이먼츠",
+          "roleTitle": "",
+          "url": "https://example.com"
+        },
+        "portfolio": {
+          "kind": "file",
+          "fileName": "p.pdf",
+          "url": null,
+          "truncated": false
+        },
+        "lines": [
+          {
+            "id": "r1",
+            "doc": "resume",
+            "label": "😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀",
+            "path": "basics.headline",
+            "text": "결제 백엔드 개발자"
+          },
+          {
+            "id": "r2",
+            "doc": "resume",
+            "label": "한 줄 소개",
+            "path": "basics.tagline",
+            "text": "정산 지연을 줄여 온 5년 차 (백엔드) 개발자"
+          },
+          {
+            "id": "r3",
+            "doc": "resume",
+            "label": "요약 1",
+            "path": "summary.0",
+            "text": "결제 시스템을 운영했습니다."
+          },
+          {
+            "id": "r4",
+            "doc": "resume",
+            "label": "요약 2",
+            "path": "summary.1",
+            "text": "장애 대응 경험이 있습니다."
+          },
+          {
+            "id": "r5",
+            "doc": "resume",
+            "label": "핵심 성과 1",
+            "path": "highlights.0.title",
+            "text": "결제 API p95 800ms → 320ms 🚀"
+          },
+          {
+            "id": "r6",
+            "doc": "resume",
+            "label": "경력 · 토스 백엔드 · 담당 범위",
+            "path": "experience.0.scope",
+            "text": "정산 시스템 담당"
+          },
+          {
+            "id": "r7",
+            "doc": "resume",
+            "label": "경력 · 토스 백엔드 · 기여 1",
+            "path": "experience.0.bullets.0",
+            "text": "정산 배치를 재작성해 처리 시간을 50분에서 35분으로 줄임"
+          },
+          {
+            "id": "r8",
+            "doc": "resume",
+            "label": "경력 · 토스 백엔드 · 기여 2",
+            "path": "experience.0.bullets.1",
+            "text": "장애 대응 문서화"
+          },
+          {
+            "id": "r9",
+            "doc": "resume",
+            "label": "경력 · 경력 2 · 기여 1",
+            "path": "experience.1.bullets.0",
+            "text": "사내 도구(어드민) 개발"
+          },
+          {
+            "id": "r10",
+            "doc": "resume",
+            "label": "프로젝트 · 정산 개편 · 역할",
+            "path": "projects.0.role",
+            "text": "리드"
+          },
+          {
+            "id": "r11",
+            "doc": "resume",
+            "label": "프로젝트 · 정산 개편 · 문제",
+            "path": "projects.0.problem",
+            "text": "월말 정산 지연"
+          },
+          {
+            "id": "r12",
+            "doc": "resume",
+            "label": "프로젝트 · 정산 개편 · 행동",
+            "path": "projects.0.action",
+            "text": "배치 분할"
+          },
+          {
+            "id": "r13",
+            "doc": "resume",
+            "label": "프로젝트 · 정산 개편 · 결과",
+            "path": "projects.0.result",
+            "text": "지연 0건(3개월)"
+          },
+          {
+            "id": "r14",
+            "doc": "resume",
+            "label": "기술 · 언어",
+            "path": "skills.0",
+            "text": "실무 5년 — Kotlin, SQL"
+          },
+          {
+            "id": "p1",
+            "doc": "portfolio",
+            "label": "포트폴리오 1",
+            "path": null,
+            "text": "포트폴리오 문단 하나입니다. 정산 개편의 배경과 지표를 설명합니다. 짧다"
+          },
+          {
+            "id": "p2",
+            "doc": "portfolio",
+            "label": "포트폴리오 2",
+            "path": null,
+            "text": "두 번째 문단은 결과와 회고를 다룹니다. 지연 건수는 3개월 동안 0건이었습니다."
+          },
+          {
+            "id": "j1",
+            "doc": "posting",
+            "label": "채용 공고 1",
+            "path": null,
+            "text": "주요 업무: 결제 정산 시스템 개발과 운영을 맡습니다 자격 요건: Kotlin 3년 이상 경험, 대용량 배치 운영 경험"
+          },
+          {
+            "id": "j2",
+            "doc": "posting",
+            "label": "채용 공고 2",
+            "path": null,
+            "text": "우대 사항: 결제 도메인 경험"
+          }
+        ],
+        "createdAt": 0
+      }
+    },
+    {
+      "name": "label_emoji_202_units",
+      "raw": {
+        "version": 1,
+        "resume": {
+          "id": "r",
+          "title": "토스 백엔드",
+          "kind": "company",
+          "company": "토스",
+          "roleTitle": "백엔드",
+          "versionId": "v",
+          "versionNo": 2
+        },
+        "posting": {
+          "id": "p",
+          "company": "토스페이먼츠",
+          "roleTitle": "",
+          "url": "https://example.com"
+        },
+        "portfolio": {
+          "kind": "file",
+          "fileName": "p.pdf",
+          "url": null,
+          "truncated": false
+        },
+        "lines": [
+          {
+            "id": "r1",
+            "doc": "resume",
+            "label": "😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀",
+            "path": "basics.headline",
+            "text": "결제 백엔드 개발자"
+          },
+          {
+            "id": "r2",
+            "doc": "resume",
+            "label": "한 줄 소개",
+            "path": "basics.tagline",
+            "text": "정산 지연을 줄여 온 5년 차 (백엔드) 개발자"
+          },
+          {
+            "id": "r3",
+            "doc": "resume",
+            "label": "요약 1",
+            "path": "summary.0",
+            "text": "결제 시스템을 운영했습니다."
+          },
+          {
+            "id": "r4",
+            "doc": "resume",
+            "label": "요약 2",
+            "path": "summary.1",
+            "text": "장애 대응 경험이 있습니다."
+          },
+          {
+            "id": "r5",
+            "doc": "resume",
+            "label": "핵심 성과 1",
+            "path": "highlights.0.title",
+            "text": "결제 API p95 800ms → 320ms 🚀"
+          },
+          {
+            "id": "r6",
+            "doc": "resume",
+            "label": "경력 · 토스 백엔드 · 담당 범위",
+            "path": "experience.0.scope",
+            "text": "정산 시스템 담당"
+          },
+          {
+            "id": "r7",
+            "doc": "resume",
+            "label": "경력 · 토스 백엔드 · 기여 1",
+            "path": "experience.0.bullets.0",
+            "text": "정산 배치를 재작성해 처리 시간을 50분에서 35분으로 줄임"
+          },
+          {
+            "id": "r8",
+            "doc": "resume",
+            "label": "경력 · 토스 백엔드 · 기여 2",
+            "path": "experience.0.bullets.1",
+            "text": "장애 대응 문서화"
+          },
+          {
+            "id": "r9",
+            "doc": "resume",
+            "label": "경력 · 경력 2 · 기여 1",
+            "path": "experience.1.bullets.0",
+            "text": "사내 도구(어드민) 개발"
+          },
+          {
+            "id": "r10",
+            "doc": "resume",
+            "label": "프로젝트 · 정산 개편 · 역할",
+            "path": "projects.0.role",
+            "text": "리드"
+          },
+          {
+            "id": "r11",
+            "doc": "resume",
+            "label": "프로젝트 · 정산 개편 · 문제",
+            "path": "projects.0.problem",
+            "text": "월말 정산 지연"
+          },
+          {
+            "id": "r12",
+            "doc": "resume",
+            "label": "프로젝트 · 정산 개편 · 행동",
+            "path": "projects.0.action",
+            "text": "배치 분할"
+          },
+          {
+            "id": "r13",
+            "doc": "resume",
+            "label": "프로젝트 · 정산 개편 · 결과",
+            "path": "projects.0.result",
+            "text": "지연 0건(3개월)"
+          },
+          {
+            "id": "r14",
+            "doc": "resume",
+            "label": "기술 · 언어",
+            "path": "skills.0",
+            "text": "실무 5년 — Kotlin, SQL"
+          },
+          {
+            "id": "p1",
+            "doc": "portfolio",
+            "label": "포트폴리오 1",
+            "path": null,
+            "text": "포트폴리오 문단 하나입니다. 정산 개편의 배경과 지표를 설명합니다. 짧다"
+          },
+          {
+            "id": "p2",
+            "doc": "portfolio",
+            "label": "포트폴리오 2",
+            "path": null,
+            "text": "두 번째 문단은 결과와 회고를 다룹니다. 지연 건수는 3개월 동안 0건이었습니다."
+          },
+          {
+            "id": "j1",
+            "doc": "posting",
+            "label": "채용 공고 1",
+            "path": null,
+            "text": "주요 업무: 결제 정산 시스템 개발과 운영을 맡습니다 자격 요건: Kotlin 3년 이상 경험, 대용량 배치 운영 경험"
+          },
+          {
+            "id": "j2",
+            "doc": "posting",
+            "label": "채용 공고 2",
+            "path": null,
+            "text": "우대 사항: 결제 도메인 경험"
+          }
+        ],
+        "createdAt": 0
+      },
+      "ok": false,
+      "data": null
+    },
+    {
+      "name": "text_too_long",
+      "raw": {
+        "version": 1,
+        "resume": {
+          "id": "r",
+          "title": "토스 백엔드",
+          "kind": "company",
+          "company": "토스",
+          "roleTitle": "백엔드",
+          "versionId": "v",
+          "versionNo": 2
+        },
+        "posting": {
+          "id": "p",
+          "company": "토스페이먼츠",
+          "roleTitle": "",
+          "url": "https://example.com"
+        },
+        "portfolio": {
+          "kind": "file",
+          "fileName": "p.pdf",
+          "url": null,
+          "truncated": false
+        },
+        "lines": [
+          {
+            "id": "r1",
+            "doc": "resume",
+            "label": "지원 직무",
+            "path": "basics.headline",
+            "text": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"
+          },
+          {
+            "id": "r2",
+            "doc": "resume",
+            "label": "한 줄 소개",
+            "path": "basics.tagline",
+            "text": "정산 지연을 줄여 온 5년 차 (백엔드) 개발자"
+          },
+          {
+            "id": "r3",
+            "doc": "resume",
+            "label": "요약 1",
+            "path": "summary.0",
+            "text": "결제 시스템을 운영했습니다."
+          },
+          {
+            "id": "r4",
+            "doc": "resume",
+            "label": "요약 2",
+            "path": "summary.1",
+            "text": "장애 대응 경험이 있습니다."
+          },
+          {
+            "id": "r5",
+            "doc": "resume",
+            "label": "핵심 성과 1",
+            "path": "highlights.0.title",
+            "text": "결제 API p95 800ms → 320ms 🚀"
+          },
+          {
+            "id": "r6",
+            "doc": "resume",
+            "label": "경력 · 토스 백엔드 · 담당 범위",
+            "path": "experience.0.scope",
+            "text": "정산 시스템 담당"
+          },
+          {
+            "id": "r7",
+            "doc": "resume",
+            "label": "경력 · 토스 백엔드 · 기여 1",
+            "path": "experience.0.bullets.0",
+            "text": "정산 배치를 재작성해 처리 시간을 50분에서 35분으로 줄임"
+          },
+          {
+            "id": "r8",
+            "doc": "resume",
+            "label": "경력 · 토스 백엔드 · 기여 2",
+            "path": "experience.0.bullets.1",
+            "text": "장애 대응 문서화"
+          },
+          {
+            "id": "r9",
+            "doc": "resume",
+            "label": "경력 · 경력 2 · 기여 1",
+            "path": "experience.1.bullets.0",
+            "text": "사내 도구(어드민) 개발"
+          },
+          {
+            "id": "r10",
+            "doc": "resume",
+            "label": "프로젝트 · 정산 개편 · 역할",
+            "path": "projects.0.role",
+            "text": "리드"
+          },
+          {
+            "id": "r11",
+            "doc": "resume",
+            "label": "프로젝트 · 정산 개편 · 문제",
+            "path": "projects.0.problem",
+            "text": "월말 정산 지연"
+          },
+          {
+            "id": "r12",
+            "doc": "resume",
+            "label": "프로젝트 · 정산 개편 · 행동",
+            "path": "projects.0.action",
+            "text": "배치 분할"
+          },
+          {
+            "id": "r13",
+            "doc": "resume",
+            "label": "프로젝트 · 정산 개편 · 결과",
+            "path": "projects.0.result",
+            "text": "지연 0건(3개월)"
+          },
+          {
+            "id": "r14",
+            "doc": "resume",
+            "label": "기술 · 언어",
+            "path": "skills.0",
+            "text": "실무 5년 — Kotlin, SQL"
+          },
+          {
+            "id": "p1",
+            "doc": "portfolio",
+            "label": "포트폴리오 1",
+            "path": null,
+            "text": "포트폴리오 문단 하나입니다. 정산 개편의 배경과 지표를 설명합니다. 짧다"
+          },
+          {
+            "id": "p2",
+            "doc": "portfolio",
+            "label": "포트폴리오 2",
+            "path": null,
+            "text": "두 번째 문단은 결과와 회고를 다룹니다. 지연 건수는 3개월 동안 0건이었습니다."
+          },
+          {
+            "id": "j1",
+            "doc": "posting",
+            "label": "채용 공고 1",
+            "path": null,
+            "text": "주요 업무: 결제 정산 시스템 개발과 운영을 맡습니다 자격 요건: Kotlin 3년 이상 경험, 대용량 배치 운영 경험"
+          },
+          {
+            "id": "j2",
+            "doc": "posting",
+            "label": "채용 공고 2",
+            "path": null,
+            "text": "우대 사항: 결제 도메인 경험"
+          }
+        ],
+        "createdAt": 0
+      },
+      "ok": false,
+      "data": null
+    },
+    {
+      "name": "path_missing",
+      "raw": {
+        "version": 1,
+        "resume": {
+          "id": "r",
+          "title": "토스 백엔드",
+          "kind": "company",
+          "company": "토스",
+          "roleTitle": "백엔드",
+          "versionId": "v",
+          "versionNo": 2
+        },
+        "posting": {
+          "id": "p",
+          "company": "토스페이먼츠",
+          "roleTitle": "",
+          "url": "https://example.com"
+        },
+        "portfolio": {
+          "kind": "file",
+          "fileName": "p.pdf",
+          "url": null,
+          "truncated": false
+        },
+        "lines": [
+          {
+            "id": "r1",
+            "doc": "resume",
+            "label": "지원 직무",
+            "text": "결제 백엔드 개발자"
+          },
+          {
+            "id": "r2",
+            "doc": "resume",
+            "label": "한 줄 소개",
+            "path": "basics.tagline",
+            "text": "정산 지연을 줄여 온 5년 차 (백엔드) 개발자"
+          },
+          {
+            "id": "r3",
+            "doc": "resume",
+            "label": "요약 1",
+            "path": "summary.0",
+            "text": "결제 시스템을 운영했습니다."
+          },
+          {
+            "id": "r4",
+            "doc": "resume",
+            "label": "요약 2",
+            "path": "summary.1",
+            "text": "장애 대응 경험이 있습니다."
+          },
+          {
+            "id": "r5",
+            "doc": "resume",
+            "label": "핵심 성과 1",
+            "path": "highlights.0.title",
+            "text": "결제 API p95 800ms → 320ms 🚀"
+          },
+          {
+            "id": "r6",
+            "doc": "resume",
+            "label": "경력 · 토스 백엔드 · 담당 범위",
+            "path": "experience.0.scope",
+            "text": "정산 시스템 담당"
+          },
+          {
+            "id": "r7",
+            "doc": "resume",
+            "label": "경력 · 토스 백엔드 · 기여 1",
+            "path": "experience.0.bullets.0",
+            "text": "정산 배치를 재작성해 처리 시간을 50분에서 35분으로 줄임"
+          },
+          {
+            "id": "r8",
+            "doc": "resume",
+            "label": "경력 · 토스 백엔드 · 기여 2",
+            "path": "experience.0.bullets.1",
+            "text": "장애 대응 문서화"
+          },
+          {
+            "id": "r9",
+            "doc": "resume",
+            "label": "경력 · 경력 2 · 기여 1",
+            "path": "experience.1.bullets.0",
+            "text": "사내 도구(어드민) 개발"
+          },
+          {
+            "id": "r10",
+            "doc": "resume",
+            "label": "프로젝트 · 정산 개편 · 역할",
+            "path": "projects.0.role",
+            "text": "리드"
+          },
+          {
+            "id": "r11",
+            "doc": "resume",
+            "label": "프로젝트 · 정산 개편 · 문제",
+            "path": "projects.0.problem",
+            "text": "월말 정산 지연"
+          },
+          {
+            "id": "r12",
+            "doc": "resume",
+            "label": "프로젝트 · 정산 개편 · 행동",
+            "path": "projects.0.action",
+            "text": "배치 분할"
+          },
+          {
+            "id": "r13",
+            "doc": "resume",
+            "label": "프로젝트 · 정산 개편 · 결과",
+            "path": "projects.0.result",
+            "text": "지연 0건(3개월)"
+          },
+          {
+            "id": "r14",
+            "doc": "resume",
+            "label": "기술 · 언어",
+            "path": "skills.0",
+            "text": "실무 5년 — Kotlin, SQL"
+          },
+          {
+            "id": "p1",
+            "doc": "portfolio",
+            "label": "포트폴리오 1",
+            "path": null,
+            "text": "포트폴리오 문단 하나입니다. 정산 개편의 배경과 지표를 설명합니다. 짧다"
+          },
+          {
+            "id": "p2",
+            "doc": "portfolio",
+            "label": "포트폴리오 2",
+            "path": null,
+            "text": "두 번째 문단은 결과와 회고를 다룹니다. 지연 건수는 3개월 동안 0건이었습니다."
+          },
+          {
+            "id": "j1",
+            "doc": "posting",
+            "label": "채용 공고 1",
+            "path": null,
+            "text": "주요 업무: 결제 정산 시스템 개발과 운영을 맡습니다 자격 요건: Kotlin 3년 이상 경험, 대용량 배치 운영 경험"
+          },
+          {
+            "id": "j2",
+            "doc": "posting",
+            "label": "채용 공고 2",
+            "path": null,
+            "text": "우대 사항: 결제 도메인 경험"
+          }
+        ],
+        "createdAt": 0
+      },
+      "ok": false,
+      "data": null
+    },
+    {
+      "name": "version_no_float",
+      "raw": {
+        "version": 1,
+        "resume": {
+          "id": "r",
+          "title": "토스 백엔드",
+          "kind": "company",
+          "company": "토스",
+          "roleTitle": "백엔드",
+          "versionId": "v",
+          "versionNo": 1.5
+        },
+        "posting": {
+          "id": "p",
+          "company": "토스페이먼츠",
+          "roleTitle": "",
+          "url": "https://example.com"
+        },
+        "portfolio": {
+          "kind": "file",
+          "fileName": "p.pdf",
+          "url": null,
+          "truncated": false
+        },
+        "lines": [
+          {
+            "id": "r1",
+            "doc": "resume",
+            "label": "지원 직무",
+            "path": "basics.headline",
+            "text": "결제 백엔드 개발자"
+          },
+          {
+            "id": "r2",
+            "doc": "resume",
+            "label": "한 줄 소개",
+            "path": "basics.tagline",
+            "text": "정산 지연을 줄여 온 5년 차 (백엔드) 개발자"
+          },
+          {
+            "id": "r3",
+            "doc": "resume",
+            "label": "요약 1",
+            "path": "summary.0",
+            "text": "결제 시스템을 운영했습니다."
+          },
+          {
+            "id": "r4",
+            "doc": "resume",
+            "label": "요약 2",
+            "path": "summary.1",
+            "text": "장애 대응 경험이 있습니다."
+          },
+          {
+            "id": "r5",
+            "doc": "resume",
+            "label": "핵심 성과 1",
+            "path": "highlights.0.title",
+            "text": "결제 API p95 800ms → 320ms 🚀"
+          },
+          {
+            "id": "r6",
+            "doc": "resume",
+            "label": "경력 · 토스 백엔드 · 담당 범위",
+            "path": "experience.0.scope",
+            "text": "정산 시스템 담당"
+          },
+          {
+            "id": "r7",
+            "doc": "resume",
+            "label": "경력 · 토스 백엔드 · 기여 1",
+            "path": "experience.0.bullets.0",
+            "text": "정산 배치를 재작성해 처리 시간을 50분에서 35분으로 줄임"
+          },
+          {
+            "id": "r8",
+            "doc": "resume",
+            "label": "경력 · 토스 백엔드 · 기여 2",
+            "path": "experience.0.bullets.1",
+            "text": "장애 대응 문서화"
+          },
+          {
+            "id": "r9",
+            "doc": "resume",
+            "label": "경력 · 경력 2 · 기여 1",
+            "path": "experience.1.bullets.0",
+            "text": "사내 도구(어드민) 개발"
+          },
+          {
+            "id": "r10",
+            "doc": "resume",
+            "label": "프로젝트 · 정산 개편 · 역할",
+            "path": "projects.0.role",
+            "text": "리드"
+          },
+          {
+            "id": "r11",
+            "doc": "resume",
+            "label": "프로젝트 · 정산 개편 · 문제",
+            "path": "projects.0.problem",
+            "text": "월말 정산 지연"
+          },
+          {
+            "id": "r12",
+            "doc": "resume",
+            "label": "프로젝트 · 정산 개편 · 행동",
+            "path": "projects.0.action",
+            "text": "배치 분할"
+          },
+          {
+            "id": "r13",
+            "doc": "resume",
+            "label": "프로젝트 · 정산 개편 · 결과",
+            "path": "projects.0.result",
+            "text": "지연 0건(3개월)"
+          },
+          {
+            "id": "r14",
+            "doc": "resume",
+            "label": "기술 · 언어",
+            "path": "skills.0",
+            "text": "실무 5년 — Kotlin, SQL"
+          },
+          {
+            "id": "p1",
+            "doc": "portfolio",
+            "label": "포트폴리오 1",
+            "path": null,
+            "text": "포트폴리오 문단 하나입니다. 정산 개편의 배경과 지표를 설명합니다. 짧다"
+          },
+          {
+            "id": "p2",
+            "doc": "portfolio",
+            "label": "포트폴리오 2",
+            "path": null,
+            "text": "두 번째 문단은 결과와 회고를 다룹니다. 지연 건수는 3개월 동안 0건이었습니다."
+          },
+          {
+            "id": "j1",
+            "doc": "posting",
+            "label": "채용 공고 1",
+            "path": null,
+            "text": "주요 업무: 결제 정산 시스템 개발과 운영을 맡습니다 자격 요건: Kotlin 3년 이상 경험, 대용량 배치 운영 경험"
+          },
+          {
+            "id": "j2",
+            "doc": "posting",
+            "label": "채용 공고 2",
+            "path": null,
+            "text": "우대 사항: 결제 도메인 경험"
+          }
+        ],
+        "createdAt": 0
+      },
+      "ok": false,
+      "data": null
+    },
+    {
+      "name": "version_no_missing",
+      "raw": {
+        "version": 1,
+        "resume": {
+          "id": "r",
+          "title": "토스 백엔드",
+          "kind": "company",
+          "company": "토스",
+          "roleTitle": "백엔드",
+          "versionId": "v"
+        },
+        "posting": {
+          "id": "p",
+          "company": "토스페이먼츠",
+          "roleTitle": "",
+          "url": "https://example.com"
+        },
+        "portfolio": {
+          "kind": "file",
+          "fileName": "p.pdf",
+          "url": null,
+          "truncated": false
+        },
+        "lines": [
+          {
+            "id": "r1",
+            "doc": "resume",
+            "label": "지원 직무",
+            "path": "basics.headline",
+            "text": "결제 백엔드 개발자"
+          },
+          {
+            "id": "r2",
+            "doc": "resume",
+            "label": "한 줄 소개",
+            "path": "basics.tagline",
+            "text": "정산 지연을 줄여 온 5년 차 (백엔드) 개발자"
+          },
+          {
+            "id": "r3",
+            "doc": "resume",
+            "label": "요약 1",
+            "path": "summary.0",
+            "text": "결제 시스템을 운영했습니다."
+          },
+          {
+            "id": "r4",
+            "doc": "resume",
+            "label": "요약 2",
+            "path": "summary.1",
+            "text": "장애 대응 경험이 있습니다."
+          },
+          {
+            "id": "r5",
+            "doc": "resume",
+            "label": "핵심 성과 1",
+            "path": "highlights.0.title",
+            "text": "결제 API p95 800ms → 320ms 🚀"
+          },
+          {
+            "id": "r6",
+            "doc": "resume",
+            "label": "경력 · 토스 백엔드 · 담당 범위",
+            "path": "experience.0.scope",
+            "text": "정산 시스템 담당"
+          },
+          {
+            "id": "r7",
+            "doc": "resume",
+            "label": "경력 · 토스 백엔드 · 기여 1",
+            "path": "experience.0.bullets.0",
+            "text": "정산 배치를 재작성해 처리 시간을 50분에서 35분으로 줄임"
+          },
+          {
+            "id": "r8",
+            "doc": "resume",
+            "label": "경력 · 토스 백엔드 · 기여 2",
+            "path": "experience.0.bullets.1",
+            "text": "장애 대응 문서화"
+          },
+          {
+            "id": "r9",
+            "doc": "resume",
+            "label": "경력 · 경력 2 · 기여 1",
+            "path": "experience.1.bullets.0",
+            "text": "사내 도구(어드민) 개발"
+          },
+          {
+            "id": "r10",
+            "doc": "resume",
+            "label": "프로젝트 · 정산 개편 · 역할",
+            "path": "projects.0.role",
+            "text": "리드"
+          },
+          {
+            "id": "r11",
+            "doc": "resume",
+            "label": "프로젝트 · 정산 개편 · 문제",
+            "path": "projects.0.problem",
+            "text": "월말 정산 지연"
+          },
+          {
+            "id": "r12",
+            "doc": "resume",
+            "label": "프로젝트 · 정산 개편 · 행동",
+            "path": "projects.0.action",
+            "text": "배치 분할"
+          },
+          {
+            "id": "r13",
+            "doc": "resume",
+            "label": "프로젝트 · 정산 개편 · 결과",
+            "path": "projects.0.result",
+            "text": "지연 0건(3개월)"
+          },
+          {
+            "id": "r14",
+            "doc": "resume",
+            "label": "기술 · 언어",
+            "path": "skills.0",
+            "text": "실무 5년 — Kotlin, SQL"
+          },
+          {
+            "id": "p1",
+            "doc": "portfolio",
+            "label": "포트폴리오 1",
+            "path": null,
+            "text": "포트폴리오 문단 하나입니다. 정산 개편의 배경과 지표를 설명합니다. 짧다"
+          },
+          {
+            "id": "p2",
+            "doc": "portfolio",
+            "label": "포트폴리오 2",
+            "path": null,
+            "text": "두 번째 문단은 결과와 회고를 다룹니다. 지연 건수는 3개월 동안 0건이었습니다."
+          },
+          {
+            "id": "j1",
+            "doc": "posting",
+            "label": "채용 공고 1",
+            "path": null,
+            "text": "주요 업무: 결제 정산 시스템 개발과 운영을 맡습니다 자격 요건: Kotlin 3년 이상 경험, 대용량 배치 운영 경험"
+          },
+          {
+            "id": "j2",
+            "doc": "posting",
+            "label": "채용 공고 2",
+            "path": null,
+            "text": "우대 사항: 결제 도메인 경험"
+          }
+        ],
+        "createdAt": 0
+      },
+      "ok": false,
+      "data": null
+    },
+    {
+      "name": "version_no_null",
+      "raw": {
+        "version": 1,
+        "resume": {
+          "id": "r",
+          "title": "토스 백엔드",
+          "kind": "company",
+          "company": "토스",
+          "roleTitle": "백엔드",
+          "versionId": "v",
+          "versionNo": null
+        },
+        "posting": {
+          "id": "p",
+          "company": "토스페이먼츠",
+          "roleTitle": "",
+          "url": "https://example.com"
+        },
+        "portfolio": {
+          "kind": "file",
+          "fileName": "p.pdf",
+          "url": null,
+          "truncated": false
+        },
+        "lines": [
+          {
+            "id": "r1",
+            "doc": "resume",
+            "label": "지원 직무",
+            "path": "basics.headline",
+            "text": "결제 백엔드 개발자"
+          },
+          {
+            "id": "r2",
+            "doc": "resume",
+            "label": "한 줄 소개",
+            "path": "basics.tagline",
+            "text": "정산 지연을 줄여 온 5년 차 (백엔드) 개발자"
+          },
+          {
+            "id": "r3",
+            "doc": "resume",
+            "label": "요약 1",
+            "path": "summary.0",
+            "text": "결제 시스템을 운영했습니다."
+          },
+          {
+            "id": "r4",
+            "doc": "resume",
+            "label": "요약 2",
+            "path": "summary.1",
+            "text": "장애 대응 경험이 있습니다."
+          },
+          {
+            "id": "r5",
+            "doc": "resume",
+            "label": "핵심 성과 1",
+            "path": "highlights.0.title",
+            "text": "결제 API p95 800ms → 320ms 🚀"
+          },
+          {
+            "id": "r6",
+            "doc": "resume",
+            "label": "경력 · 토스 백엔드 · 담당 범위",
+            "path": "experience.0.scope",
+            "text": "정산 시스템 담당"
+          },
+          {
+            "id": "r7",
+            "doc": "resume",
+            "label": "경력 · 토스 백엔드 · 기여 1",
+            "path": "experience.0.bullets.0",
+            "text": "정산 배치를 재작성해 처리 시간을 50분에서 35분으로 줄임"
+          },
+          {
+            "id": "r8",
+            "doc": "resume",
+            "label": "경력 · 토스 백엔드 · 기여 2",
+            "path": "experience.0.bullets.1",
+            "text": "장애 대응 문서화"
+          },
+          {
+            "id": "r9",
+            "doc": "resume",
+            "label": "경력 · 경력 2 · 기여 1",
+            "path": "experience.1.bullets.0",
+            "text": "사내 도구(어드민) 개발"
+          },
+          {
+            "id": "r10",
+            "doc": "resume",
+            "label": "프로젝트 · 정산 개편 · 역할",
+            "path": "projects.0.role",
+            "text": "리드"
+          },
+          {
+            "id": "r11",
+            "doc": "resume",
+            "label": "프로젝트 · 정산 개편 · 문제",
+            "path": "projects.0.problem",
+            "text": "월말 정산 지연"
+          },
+          {
+            "id": "r12",
+            "doc": "resume",
+            "label": "프로젝트 · 정산 개편 · 행동",
+            "path": "projects.0.action",
+            "text": "배치 분할"
+          },
+          {
+            "id": "r13",
+            "doc": "resume",
+            "label": "프로젝트 · 정산 개편 · 결과",
+            "path": "projects.0.result",
+            "text": "지연 0건(3개월)"
+          },
+          {
+            "id": "r14",
+            "doc": "resume",
+            "label": "기술 · 언어",
+            "path": "skills.0",
+            "text": "실무 5년 — Kotlin, SQL"
+          },
+          {
+            "id": "p1",
+            "doc": "portfolio",
+            "label": "포트폴리오 1",
+            "path": null,
+            "text": "포트폴리오 문단 하나입니다. 정산 개편의 배경과 지표를 설명합니다. 짧다"
+          },
+          {
+            "id": "p2",
+            "doc": "portfolio",
+            "label": "포트폴리오 2",
+            "path": null,
+            "text": "두 번째 문단은 결과와 회고를 다룹니다. 지연 건수는 3개월 동안 0건이었습니다."
+          },
+          {
+            "id": "j1",
+            "doc": "posting",
+            "label": "채용 공고 1",
+            "path": null,
+            "text": "주요 업무: 결제 정산 시스템 개발과 운영을 맡습니다 자격 요건: Kotlin 3년 이상 경험, 대용량 배치 운영 경험"
+          },
+          {
+            "id": "j2",
+            "doc": "posting",
+            "label": "채용 공고 2",
+            "path": null,
+            "text": "우대 사항: 결제 도메인 경험"
+          }
+        ],
+        "createdAt": 0
+      },
+      "ok": true,
+      "data": {
+        "version": 1,
+        "resume": {
+          "id": "r",
+          "title": "토스 백엔드",
+          "kind": "company",
+          "company": "토스",
+          "roleTitle": "백엔드",
+          "versionId": "v",
+          "versionNo": null
+        },
+        "posting": {
+          "id": "p",
+          "company": "토스페이먼츠",
+          "roleTitle": "",
+          "url": "https://example.com"
+        },
+        "portfolio": {
+          "kind": "file",
+          "fileName": "p.pdf",
+          "url": null,
+          "truncated": false
+        },
+        "lines": [
+          {
+            "id": "r1",
+            "doc": "resume",
+            "label": "지원 직무",
+            "path": "basics.headline",
+            "text": "결제 백엔드 개발자"
+          },
+          {
+            "id": "r2",
+            "doc": "resume",
+            "label": "한 줄 소개",
+            "path": "basics.tagline",
+            "text": "정산 지연을 줄여 온 5년 차 (백엔드) 개발자"
+          },
+          {
+            "id": "r3",
+            "doc": "resume",
+            "label": "요약 1",
+            "path": "summary.0",
+            "text": "결제 시스템을 운영했습니다."
+          },
+          {
+            "id": "r4",
+            "doc": "resume",
+            "label": "요약 2",
+            "path": "summary.1",
+            "text": "장애 대응 경험이 있습니다."
+          },
+          {
+            "id": "r5",
+            "doc": "resume",
+            "label": "핵심 성과 1",
+            "path": "highlights.0.title",
+            "text": "결제 API p95 800ms → 320ms 🚀"
+          },
+          {
+            "id": "r6",
+            "doc": "resume",
+            "label": "경력 · 토스 백엔드 · 담당 범위",
+            "path": "experience.0.scope",
+            "text": "정산 시스템 담당"
+          },
+          {
+            "id": "r7",
+            "doc": "resume",
+            "label": "경력 · 토스 백엔드 · 기여 1",
+            "path": "experience.0.bullets.0",
+            "text": "정산 배치를 재작성해 처리 시간을 50분에서 35분으로 줄임"
+          },
+          {
+            "id": "r8",
+            "doc": "resume",
+            "label": "경력 · 토스 백엔드 · 기여 2",
+            "path": "experience.0.bullets.1",
+            "text": "장애 대응 문서화"
+          },
+          {
+            "id": "r9",
+            "doc": "resume",
+            "label": "경력 · 경력 2 · 기여 1",
+            "path": "experience.1.bullets.0",
+            "text": "사내 도구(어드민) 개발"
+          },
+          {
+            "id": "r10",
+            "doc": "resume",
+            "label": "프로젝트 · 정산 개편 · 역할",
+            "path": "projects.0.role",
+            "text": "리드"
+          },
+          {
+            "id": "r11",
+            "doc": "resume",
+            "label": "프로젝트 · 정산 개편 · 문제",
+            "path": "projects.0.problem",
+            "text": "월말 정산 지연"
+          },
+          {
+            "id": "r12",
+            "doc": "resume",
+            "label": "프로젝트 · 정산 개편 · 행동",
+            "path": "projects.0.action",
+            "text": "배치 분할"
+          },
+          {
+            "id": "r13",
+            "doc": "resume",
+            "label": "프로젝트 · 정산 개편 · 결과",
+            "path": "projects.0.result",
+            "text": "지연 0건(3개월)"
+          },
+          {
+            "id": "r14",
+            "doc": "resume",
+            "label": "기술 · 언어",
+            "path": "skills.0",
+            "text": "실무 5년 — Kotlin, SQL"
+          },
+          {
+            "id": "p1",
+            "doc": "portfolio",
+            "label": "포트폴리오 1",
+            "path": null,
+            "text": "포트폴리오 문단 하나입니다. 정산 개편의 배경과 지표를 설명합니다. 짧다"
+          },
+          {
+            "id": "p2",
+            "doc": "portfolio",
+            "label": "포트폴리오 2",
+            "path": null,
+            "text": "두 번째 문단은 결과와 회고를 다룹니다. 지연 건수는 3개월 동안 0건이었습니다."
+          },
+          {
+            "id": "j1",
+            "doc": "posting",
+            "label": "채용 공고 1",
+            "path": null,
+            "text": "주요 업무: 결제 정산 시스템 개발과 운영을 맡습니다 자격 요건: Kotlin 3년 이상 경험, 대용량 배치 운영 경험"
+          },
+          {
+            "id": "j2",
+            "doc": "posting",
+            "label": "채용 공고 2",
+            "path": null,
+            "text": "우대 사항: 결제 도메인 경험"
+          }
+        ],
+        "createdAt": 0
+      }
+    },
+    {
+      "name": "posting_missing",
+      "raw": {
+        "version": 1,
+        "resume": {
+          "id": "r",
+          "title": "토스 백엔드",
+          "kind": "company",
+          "company": "토스",
+          "roleTitle": "백엔드",
+          "versionId": "v",
+          "versionNo": 2
+        },
+        "portfolio": {
+          "kind": "file",
+          "fileName": "p.pdf",
+          "url": null,
+          "truncated": false
+        },
+        "lines": [
+          {
+            "id": "r1",
+            "doc": "resume",
+            "label": "지원 직무",
+            "path": "basics.headline",
+            "text": "결제 백엔드 개발자"
+          },
+          {
+            "id": "r2",
+            "doc": "resume",
+            "label": "한 줄 소개",
+            "path": "basics.tagline",
+            "text": "정산 지연을 줄여 온 5년 차 (백엔드) 개발자"
+          },
+          {
+            "id": "r3",
+            "doc": "resume",
+            "label": "요약 1",
+            "path": "summary.0",
+            "text": "결제 시스템을 운영했습니다."
+          },
+          {
+            "id": "r4",
+            "doc": "resume",
+            "label": "요약 2",
+            "path": "summary.1",
+            "text": "장애 대응 경험이 있습니다."
+          },
+          {
+            "id": "r5",
+            "doc": "resume",
+            "label": "핵심 성과 1",
+            "path": "highlights.0.title",
+            "text": "결제 API p95 800ms → 320ms 🚀"
+          },
+          {
+            "id": "r6",
+            "doc": "resume",
+            "label": "경력 · 토스 백엔드 · 담당 범위",
+            "path": "experience.0.scope",
+            "text": "정산 시스템 담당"
+          },
+          {
+            "id": "r7",
+            "doc": "resume",
+            "label": "경력 · 토스 백엔드 · 기여 1",
+            "path": "experience.0.bullets.0",
+            "text": "정산 배치를 재작성해 처리 시간을 50분에서 35분으로 줄임"
+          },
+          {
+            "id": "r8",
+            "doc": "resume",
+            "label": "경력 · 토스 백엔드 · 기여 2",
+            "path": "experience.0.bullets.1",
+            "text": "장애 대응 문서화"
+          },
+          {
+            "id": "r9",
+            "doc": "resume",
+            "label": "경력 · 경력 2 · 기여 1",
+            "path": "experience.1.bullets.0",
+            "text": "사내 도구(어드민) 개발"
+          },
+          {
+            "id": "r10",
+            "doc": "resume",
+            "label": "프로젝트 · 정산 개편 · 역할",
+            "path": "projects.0.role",
+            "text": "리드"
+          },
+          {
+            "id": "r11",
+            "doc": "resume",
+            "label": "프로젝트 · 정산 개편 · 문제",
+            "path": "projects.0.problem",
+            "text": "월말 정산 지연"
+          },
+          {
+            "id": "r12",
+            "doc": "resume",
+            "label": "프로젝트 · 정산 개편 · 행동",
+            "path": "projects.0.action",
+            "text": "배치 분할"
+          },
+          {
+            "id": "r13",
+            "doc": "resume",
+            "label": "프로젝트 · 정산 개편 · 결과",
+            "path": "projects.0.result",
+            "text": "지연 0건(3개월)"
+          },
+          {
+            "id": "r14",
+            "doc": "resume",
+            "label": "기술 · 언어",
+            "path": "skills.0",
+            "text": "실무 5년 — Kotlin, SQL"
+          },
+          {
+            "id": "p1",
+            "doc": "portfolio",
+            "label": "포트폴리오 1",
+            "path": null,
+            "text": "포트폴리오 문단 하나입니다. 정산 개편의 배경과 지표를 설명합니다. 짧다"
+          },
+          {
+            "id": "p2",
+            "doc": "portfolio",
+            "label": "포트폴리오 2",
+            "path": null,
+            "text": "두 번째 문단은 결과와 회고를 다룹니다. 지연 건수는 3개월 동안 0건이었습니다."
+          },
+          {
+            "id": "j1",
+            "doc": "posting",
+            "label": "채용 공고 1",
+            "path": null,
+            "text": "주요 업무: 결제 정산 시스템 개발과 운영을 맡습니다 자격 요건: Kotlin 3년 이상 경험, 대용량 배치 운영 경험"
+          },
+          {
+            "id": "j2",
+            "doc": "posting",
+            "label": "채용 공고 2",
+            "path": null,
+            "text": "우대 사항: 결제 도메인 경험"
+          }
+        ],
+        "createdAt": 0
+      },
+      "ok": false,
+      "data": null
+    },
+    {
+      "name": "portfolio_bad_kind",
+      "raw": {
+        "version": 1,
+        "resume": {
+          "id": "r",
+          "title": "토스 백엔드",
+          "kind": "company",
+          "company": "토스",
+          "roleTitle": "백엔드",
+          "versionId": "v",
+          "versionNo": 2
+        },
+        "posting": {
+          "id": "p",
+          "company": "토스페이먼츠",
+          "roleTitle": "",
+          "url": "https://example.com"
+        },
+        "portfolio": {
+          "kind": "zip",
+          "fileName": null,
+          "url": null,
+          "truncated": false
+        },
+        "lines": [
+          {
+            "id": "r1",
+            "doc": "resume",
+            "label": "지원 직무",
+            "path": "basics.headline",
+            "text": "결제 백엔드 개발자"
+          },
+          {
+            "id": "r2",
+            "doc": "resume",
+            "label": "한 줄 소개",
+            "path": "basics.tagline",
+            "text": "정산 지연을 줄여 온 5년 차 (백엔드) 개발자"
+          },
+          {
+            "id": "r3",
+            "doc": "resume",
+            "label": "요약 1",
+            "path": "summary.0",
+            "text": "결제 시스템을 운영했습니다."
+          },
+          {
+            "id": "r4",
+            "doc": "resume",
+            "label": "요약 2",
+            "path": "summary.1",
+            "text": "장애 대응 경험이 있습니다."
+          },
+          {
+            "id": "r5",
+            "doc": "resume",
+            "label": "핵심 성과 1",
+            "path": "highlights.0.title",
+            "text": "결제 API p95 800ms → 320ms 🚀"
+          },
+          {
+            "id": "r6",
+            "doc": "resume",
+            "label": "경력 · 토스 백엔드 · 담당 범위",
+            "path": "experience.0.scope",
+            "text": "정산 시스템 담당"
+          },
+          {
+            "id": "r7",
+            "doc": "resume",
+            "label": "경력 · 토스 백엔드 · 기여 1",
+            "path": "experience.0.bullets.0",
+            "text": "정산 배치를 재작성해 처리 시간을 50분에서 35분으로 줄임"
+          },
+          {
+            "id": "r8",
+            "doc": "resume",
+            "label": "경력 · 토스 백엔드 · 기여 2",
+            "path": "experience.0.bullets.1",
+            "text": "장애 대응 문서화"
+          },
+          {
+            "id": "r9",
+            "doc": "resume",
+            "label": "경력 · 경력 2 · 기여 1",
+            "path": "experience.1.bullets.0",
+            "text": "사내 도구(어드민) 개발"
+          },
+          {
+            "id": "r10",
+            "doc": "resume",
+            "label": "프로젝트 · 정산 개편 · 역할",
+            "path": "projects.0.role",
+            "text": "리드"
+          },
+          {
+            "id": "r11",
+            "doc": "resume",
+            "label": "프로젝트 · 정산 개편 · 문제",
+            "path": "projects.0.problem",
+            "text": "월말 정산 지연"
+          },
+          {
+            "id": "r12",
+            "doc": "resume",
+            "label": "프로젝트 · 정산 개편 · 행동",
+            "path": "projects.0.action",
+            "text": "배치 분할"
+          },
+          {
+            "id": "r13",
+            "doc": "resume",
+            "label": "프로젝트 · 정산 개편 · 결과",
+            "path": "projects.0.result",
+            "text": "지연 0건(3개월)"
+          },
+          {
+            "id": "r14",
+            "doc": "resume",
+            "label": "기술 · 언어",
+            "path": "skills.0",
+            "text": "실무 5년 — Kotlin, SQL"
+          },
+          {
+            "id": "p1",
+            "doc": "portfolio",
+            "label": "포트폴리오 1",
+            "path": null,
+            "text": "포트폴리오 문단 하나입니다. 정산 개편의 배경과 지표를 설명합니다. 짧다"
+          },
+          {
+            "id": "p2",
+            "doc": "portfolio",
+            "label": "포트폴리오 2",
+            "path": null,
+            "text": "두 번째 문단은 결과와 회고를 다룹니다. 지연 건수는 3개월 동안 0건이었습니다."
+          },
+          {
+            "id": "j1",
+            "doc": "posting",
+            "label": "채용 공고 1",
+            "path": null,
+            "text": "주요 업무: 결제 정산 시스템 개발과 운영을 맡습니다 자격 요건: Kotlin 3년 이상 경험, 대용량 배치 운영 경험"
+          },
+          {
+            "id": "j2",
+            "doc": "posting",
+            "label": "채용 공고 2",
+            "path": null,
+            "text": "우대 사항: 결제 도메인 경험"
+          }
+        ],
+        "createdAt": 0
+      },
+      "ok": false,
+      "data": null
+    },
+    {
+      "name": "created_at_string",
+      "raw": {
+        "version": 1,
+        "resume": {
+          "id": "r",
+          "title": "토스 백엔드",
+          "kind": "company",
+          "company": "토스",
+          "roleTitle": "백엔드",
+          "versionId": "v",
+          "versionNo": 2
+        },
+        "posting": {
+          "id": "p",
+          "company": "토스페이먼츠",
+          "roleTitle": "",
+          "url": "https://example.com"
+        },
+        "portfolio": {
+          "kind": "file",
+          "fileName": "p.pdf",
+          "url": null,
+          "truncated": false
+        },
+        "lines": [
+          {
+            "id": "r1",
+            "doc": "resume",
+            "label": "지원 직무",
+            "path": "basics.headline",
+            "text": "결제 백엔드 개발자"
+          },
+          {
+            "id": "r2",
+            "doc": "resume",
+            "label": "한 줄 소개",
+            "path": "basics.tagline",
+            "text": "정산 지연을 줄여 온 5년 차 (백엔드) 개발자"
+          },
+          {
+            "id": "r3",
+            "doc": "resume",
+            "label": "요약 1",
+            "path": "summary.0",
+            "text": "결제 시스템을 운영했습니다."
+          },
+          {
+            "id": "r4",
+            "doc": "resume",
+            "label": "요약 2",
+            "path": "summary.1",
+            "text": "장애 대응 경험이 있습니다."
+          },
+          {
+            "id": "r5",
+            "doc": "resume",
+            "label": "핵심 성과 1",
+            "path": "highlights.0.title",
+            "text": "결제 API p95 800ms → 320ms 🚀"
+          },
+          {
+            "id": "r6",
+            "doc": "resume",
+            "label": "경력 · 토스 백엔드 · 담당 범위",
+            "path": "experience.0.scope",
+            "text": "정산 시스템 담당"
+          },
+          {
+            "id": "r7",
+            "doc": "resume",
+            "label": "경력 · 토스 백엔드 · 기여 1",
+            "path": "experience.0.bullets.0",
+            "text": "정산 배치를 재작성해 처리 시간을 50분에서 35분으로 줄임"
+          },
+          {
+            "id": "r8",
+            "doc": "resume",
+            "label": "경력 · 토스 백엔드 · 기여 2",
+            "path": "experience.0.bullets.1",
+            "text": "장애 대응 문서화"
+          },
+          {
+            "id": "r9",
+            "doc": "resume",
+            "label": "경력 · 경력 2 · 기여 1",
+            "path": "experience.1.bullets.0",
+            "text": "사내 도구(어드민) 개발"
+          },
+          {
+            "id": "r10",
+            "doc": "resume",
+            "label": "프로젝트 · 정산 개편 · 역할",
+            "path": "projects.0.role",
+            "text": "리드"
+          },
+          {
+            "id": "r11",
+            "doc": "resume",
+            "label": "프로젝트 · 정산 개편 · 문제",
+            "path": "projects.0.problem",
+            "text": "월말 정산 지연"
+          },
+          {
+            "id": "r12",
+            "doc": "resume",
+            "label": "프로젝트 · 정산 개편 · 행동",
+            "path": "projects.0.action",
+            "text": "배치 분할"
+          },
+          {
+            "id": "r13",
+            "doc": "resume",
+            "label": "프로젝트 · 정산 개편 · 결과",
+            "path": "projects.0.result",
+            "text": "지연 0건(3개월)"
+          },
+          {
+            "id": "r14",
+            "doc": "resume",
+            "label": "기술 · 언어",
+            "path": "skills.0",
+            "text": "실무 5년 — Kotlin, SQL"
+          },
+          {
+            "id": "p1",
+            "doc": "portfolio",
+            "label": "포트폴리오 1",
+            "path": null,
+            "text": "포트폴리오 문단 하나입니다. 정산 개편의 배경과 지표를 설명합니다. 짧다"
+          },
+          {
+            "id": "p2",
+            "doc": "portfolio",
+            "label": "포트폴리오 2",
+            "path": null,
+            "text": "두 번째 문단은 결과와 회고를 다룹니다. 지연 건수는 3개월 동안 0건이었습니다."
+          },
+          {
+            "id": "j1",
+            "doc": "posting",
+            "label": "채용 공고 1",
+            "path": null,
+            "text": "주요 업무: 결제 정산 시스템 개발과 운영을 맡습니다 자격 요건: Kotlin 3년 이상 경험, 대용량 배치 운영 경험"
+          },
+          {
+            "id": "j2",
+            "doc": "posting",
+            "label": "채용 공고 2",
+            "path": null,
+            "text": "우대 사항: 결제 도메인 경험"
+          }
+        ],
+        "createdAt": "0"
+      },
+      "ok": false,
+      "data": null
+    },
+    {
+      "name": "resume_kind_bad",
+      "raw": {
+        "version": 1,
+        "resume": {
+          "id": "r",
+          "title": "토스 백엔드",
+          "kind": "other",
+          "company": "토스",
+          "roleTitle": "백엔드",
+          "versionId": "v",
+          "versionNo": 2
+        },
+        "posting": {
+          "id": "p",
+          "company": "토스페이먼츠",
+          "roleTitle": "",
+          "url": "https://example.com"
+        },
+        "portfolio": {
+          "kind": "file",
+          "fileName": "p.pdf",
+          "url": null,
+          "truncated": false
+        },
+        "lines": [
+          {
+            "id": "r1",
+            "doc": "resume",
+            "label": "지원 직무",
+            "path": "basics.headline",
+            "text": "결제 백엔드 개발자"
+          },
+          {
+            "id": "r2",
+            "doc": "resume",
+            "label": "한 줄 소개",
+            "path": "basics.tagline",
+            "text": "정산 지연을 줄여 온 5년 차 (백엔드) 개발자"
+          },
+          {
+            "id": "r3",
+            "doc": "resume",
+            "label": "요약 1",
+            "path": "summary.0",
+            "text": "결제 시스템을 운영했습니다."
+          },
+          {
+            "id": "r4",
+            "doc": "resume",
+            "label": "요약 2",
+            "path": "summary.1",
+            "text": "장애 대응 경험이 있습니다."
+          },
+          {
+            "id": "r5",
+            "doc": "resume",
+            "label": "핵심 성과 1",
+            "path": "highlights.0.title",
+            "text": "결제 API p95 800ms → 320ms 🚀"
+          },
+          {
+            "id": "r6",
+            "doc": "resume",
+            "label": "경력 · 토스 백엔드 · 담당 범위",
+            "path": "experience.0.scope",
+            "text": "정산 시스템 담당"
+          },
+          {
+            "id": "r7",
+            "doc": "resume",
+            "label": "경력 · 토스 백엔드 · 기여 1",
+            "path": "experience.0.bullets.0",
+            "text": "정산 배치를 재작성해 처리 시간을 50분에서 35분으로 줄임"
+          },
+          {
+            "id": "r8",
+            "doc": "resume",
+            "label": "경력 · 토스 백엔드 · 기여 2",
+            "path": "experience.0.bullets.1",
+            "text": "장애 대응 문서화"
+          },
+          {
+            "id": "r9",
+            "doc": "resume",
+            "label": "경력 · 경력 2 · 기여 1",
+            "path": "experience.1.bullets.0",
+            "text": "사내 도구(어드민) 개발"
+          },
+          {
+            "id": "r10",
+            "doc": "resume",
+            "label": "프로젝트 · 정산 개편 · 역할",
+            "path": "projects.0.role",
+            "text": "리드"
+          },
+          {
+            "id": "r11",
+            "doc": "resume",
+            "label": "프로젝트 · 정산 개편 · 문제",
+            "path": "projects.0.problem",
+            "text": "월말 정산 지연"
+          },
+          {
+            "id": "r12",
+            "doc": "resume",
+            "label": "프로젝트 · 정산 개편 · 행동",
+            "path": "projects.0.action",
+            "text": "배치 분할"
+          },
+          {
+            "id": "r13",
+            "doc": "resume",
+            "label": "프로젝트 · 정산 개편 · 결과",
+            "path": "projects.0.result",
+            "text": "지연 0건(3개월)"
+          },
+          {
+            "id": "r14",
+            "doc": "resume",
+            "label": "기술 · 언어",
+            "path": "skills.0",
+            "text": "실무 5년 — Kotlin, SQL"
+          },
+          {
+            "id": "p1",
+            "doc": "portfolio",
+            "label": "포트폴리오 1",
+            "path": null,
+            "text": "포트폴리오 문단 하나입니다. 정산 개편의 배경과 지표를 설명합니다. 짧다"
+          },
+          {
+            "id": "p2",
+            "doc": "portfolio",
+            "label": "포트폴리오 2",
+            "path": null,
+            "text": "두 번째 문단은 결과와 회고를 다룹니다. 지연 건수는 3개월 동안 0건이었습니다."
+          },
+          {
+            "id": "j1",
+            "doc": "posting",
+            "label": "채용 공고 1",
+            "path": null,
+            "text": "주요 업무: 결제 정산 시스템 개발과 운영을 맡습니다 자격 요건: Kotlin 3년 이상 경험, 대용량 배치 운영 경험"
+          },
+          {
+            "id": "j2",
+            "doc": "posting",
+            "label": "채용 공고 2",
+            "path": null,
+            "text": "우대 사항: 결제 도메인 경험"
+          }
+        ],
+        "createdAt": 0
+      },
+      "ok": false,
+      "data": null
+    },
+    {
+      "name": "not_object",
+      "raw": [
+        1,
+        2
+      ],
+      "ok": false,
+      "data": null
+    }
+  ]
+}

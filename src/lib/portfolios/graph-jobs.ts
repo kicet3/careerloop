@@ -4,6 +4,7 @@ import "server-only";
  *   startGraphPortfolioJob → (라우트가 after(() => runGraphPortfolioJob(...)) 예약) → GET /api/portfolios/graph/jobs/[id]로 상태 확인
  *   runGraphPortfolioJob: 자료 모으기('material') → AI 작성('writing') → 저장('saving') → 'completed'(포트폴리오 id) / 'failed'(문구)
  *   끝나면 알림을 남긴다(진행 화면을 떠나도 결과를 안다).
+ * 실행은 claimGraphPortfolioRun(조건부 UPDATE)으로 시작해 Python 워커(worker/app/jobs/portfolio_graph.py)와 한쪽만 실행한다.
  * 실행 중 쓰기는 runId·status='running' 조건으로 건다. 시작 후 graphPortfolioStaleMs()가 지나도 'running'이면 읽을 때(진행 화면·알림 목록)
  * 'failed'로 닫고 실패 알림을 남기며 다시 시도를 허용한다. input은 다시 시도에만 쓰므로 완료하면 지운다.
  *
@@ -333,6 +334,21 @@ export interface RunGraphPortfolioDeps {
 
 class SupersededError extends Error {}
 
+/**
+ * 이 실행(runId)을 맡는다: 아직 아무도 이 runId를 맡지 않았을 때만 result에 { claimRunId, runner }를 적는다(조건부 UPDATE, 1행이면 이김).
+ * 작업 행은 처음부터 'running'이라 status만으로는 Vercel(after)과 Python 워커(worker/app/jobs/portfolio_graph.py)가 같은 runId를
+ * 함께 실행할 수 있다(워커가 받았는데 응답이 디스패치 타임아웃을 넘긴 경우 등). 두 쪽이 같은 SQL로 맡기 때문에 한쪽만 실행한다.
+ * 다시 시도는 새 runId를 쓰므로 남은 claim 표시와 상관없이 다시 맡을 수 있다. 완료 기록은 result를 통째로 바꾸므로 표시가 남지 않는다.
+ */
+export async function claimGraphPortfolioRun(userId: string, jobId: string, runId: string, runner: "vercel" | "worker" = "vercel"): Promise<boolean> {
+  const count = await prisma.$executeRaw`
+    UPDATE portfolio_draft_jobs
+       SET result = jsonb_build_object('claimRunId', run_id, 'runner', ${runner}::text)
+     WHERE id = ${jobId} AND user_id = ${userId} AND run_id = ${runId} AND status = 'running'
+       AND (result IS NULL OR result->>'claimRunId' IS DISTINCT FROM run_id)`;
+  return count > 0;
+}
+
 async function discardPortfolio(userId: string, portfolioId: string): Promise<void> {
   try {
     const { deletePortfolio } = await import("./service");
@@ -365,6 +381,8 @@ export async function runGraphPortfolioJob(
   try {
     const row = (await prisma.portfolioDraftJob.findFirst({ where: mine })) as JobRow | null;
     if (!row) return;
+    // 워커가 이미 맡았으면(또는 같은 runId를 다른 실행이 맡았으면) 아무것도 쓰지 않는다.
+    if (!(await claimGraphPortfolioRun(userId, jobId, runId))) return;
     label = row.label;
     const input = parseInput(row.input);
     if (!input) throw new FeatureError("작업 입력을 읽지 못했습니다. 포트폴리오 화면에서 다시 만들어 주세요.", 400);

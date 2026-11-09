@@ -1,0 +1,33 @@
+# CareerLoop AI 워커(FastAPI) — 맥미니에서 띄운다(README.md, docs/PYTHON-WORKER.md).
+#   docker compose -p careerloop-worker up -d --build
+# 127.0.0.1:8090에만 열고, cbt-nginx가 cbt_bank_default 네트워크로 careerloop-worker:8090에 프록시한다.
+# 비밀값은 같은 폴더의 .env(권한 600, git 제외)에서 읽는다 — 이름은 .env.example.
+services:
+  worker:
+    build:
+      context: ../../worker
+      dockerfile: ../deploy/worker/Dockerfile
+    image: careerloop-worker:latest
+    container_name: careerloop-worker
+    restart: unless-stopped
+    env_file: .env
+    ports:
+      - "127.0.0.1:8090:8090"
+    networks:
+      - cbt_bank_default
+    read_only: true
+    tmpfs:
+      - /tmp
+    cap_drop:
+      - ALL
+    security_opt:
+      - no-new-privileges:true
+    logging:
+      driver: json-file
+      options:
+        max-size: "10m"
+        max-file: "5"
+
+networks:
+  cbt_bank_default:
+    external: true

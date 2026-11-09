@@ -82,14 +82,14 @@ export async function findActiveRegenerate(
   const db = opts.db ?? prisma;
   const now = opts.now ?? Date.now();
   // draft-jobs.ts가 이 모듈을 불러오므로 순환을 피해 실행 때 불러온다.
-  const { draftStaleMs } = await import("./draft-jobs");
+  const { freshDraftJobWhere } = await import("./draft-jobs");
   const draft = await db.resumeDraftJob.findFirst({
     select: { id: true },
     where: {
       userId,
       targetResumeId: resumeId,
       status: "running",
-      startedAt: { gt: new Date(now - draftStaleMs()) },
+      ...freshDraftJobWhere(now),
       ...(opts.exceptDraftJobId ? { id: { not: opts.exceptDraftJobId } } : {}),
     },
   });

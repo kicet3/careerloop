@@ -520,6 +520,30 @@ describe("경험 그래프로 포트폴리오 만들기", () => {
     expect(["# 하나", "# 둘"]).toContain((await svc.getPortfolioText(A.id, id))!.text);
   });
 
+  it("claim: 워커가 먼저 맡은 runId는 Vercel 실행이 건너뛰고, 같은 runId를 두 번 실행해도 한 번만 쓴다", async () => {
+    const job = await startOk();
+    const row = await tdb.prisma.portfolioDraftJob.findUniqueOrThrow({ where: { id: job.id } });
+    // 워커(worker/app/jobs/portfolio_graph.py)가 같은 SQL로 먼저 맡았다.
+    expect(await jobs.claimGraphPortfolioRun(A.id, job.id, row.runId, "worker")).toBe(true);
+    expect(await jobs.claimGraphPortfolioRun(A.id, job.id, row.runId)).toBe(false);
+    await runAfter();
+    expect(state.calls).toHaveLength(0);
+    expect(await tdb.prisma.portfolioDraftJob.findUniqueOrThrow({ where: { id: job.id } })).toMatchObject({
+      status: "running",
+      result: { claimRunId: row.runId, runner: "worker" },
+    });
+    expect(await viewOf(job.id)).toMatchObject({ status: "running", notes: [], missingInfo: [], regenerate: false });
+    // 남의 작업은 맡지 못한다.
+    expect(await jobs.claimGraphPortfolioRun(B.id, job.id, row.runId, "worker")).toBe(false);
+
+    const second = await startOk();
+    const run2 = (await tdb.prisma.portfolioDraftJob.findUniqueOrThrow({ where: { id: second.id } })).runId;
+    await Promise.all([jobs.runGraphPortfolioJob(A.id, second.id, run2, "anthropic"), jobs.runGraphPortfolioJob(A.id, second.id, run2, "anthropic")]);
+    expect(state.calls).toHaveLength(1);
+    expect(await tdb.prisma.portfolio.count()).toBe(1);
+    expect((await viewOf(second.id)).status).toBe("completed");
+  });
+
   it("파일·링크로 내용을 바꾸면 생성 정보를 지운다", async () => {
     const job = await startOk();
     await runAfter();

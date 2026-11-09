@@ -257,6 +257,22 @@ export async function completeGeneration(
   });
 }
 
+/**
+ * 생성 시작 선점: 세션 행은 처음부터 'generating'이라 상태만으로는 Vercel after()와 Python 워커(worker/app/jobs/interview_store.py
+ * claim_generation_run)가 함께 LLM을 부를 수 있다. usage jsonb에 이 runId를 적는 조건부 UPDATE를 양쪽이 같은 SQL로 먼저 하고,
+ * 진 쪽(false)은 아무것도 하지 않는다. 다시 만들기는 새 runId라 다시 선점할 수 있고, completeGeneration이 usage를 사용량 4칸으로 다시 써 표시가 지워진다.
+ * updated_at은 건드리지 않는다(멈춤 판정 기준).
+ */
+export async function claimGenerationRun(userId: string, sessionId: string, runId: string, runner: "vercel" | "worker" = "vercel"): Promise<boolean> {
+  const count = await prisma.$executeRaw`
+    UPDATE interview_sessions
+       SET usage = (CASE WHEN jsonb_typeof(usage) = 'object' THEN usage ELSE '{}'::jsonb END)
+                   || jsonb_build_object('claimRunId', run_id, 'runner', ${runner}::text)
+     WHERE id = ${sessionId} AND user_id = ${userId} AND run_id = ${runId} AND status = 'generating'
+       AND (usage IS NULL OR jsonb_typeof(usage) <> 'object' OR usage->>'claimRunId' IS DISTINCT FROM run_id)`;
+  return count > 0;
+}
+
 /** 생성 실패 기록(사용자에게 보여도 되는 문구). runId가 다르면 false. */
 export async function failGeneration(sessionId: string, runId: string, error: string): Promise<boolean> {
   const { count } = await prisma.interviewSession.updateMany({
@@ -466,6 +482,21 @@ export async function completeAnswer(
     });
     return true;
   });
+}
+
+/**
+ * 피드백 시작 선점: 답변 행에는 run_id가 없어, 시도마다 바뀌는 created_at(resetAnswerForRetry가 지금으로 옮긴다)을 시도 표시로 쓴다.
+ * 'pending'인 답변의 usage jsonb에 이 시도 표시를 적는 조건부 UPDATE를 Vercel과 Python 워커(interview_store.py claim_answer_run)가
+ * 같은 SQL로 먼저 하고, 진 쪽(false)은 LLM을 부르지 않는다. 'pending' 답변의 usage는 쓰이지 않고 completeAnswer가 사용량으로 덮어쓴다.
+ */
+export async function claimAnswerRun(userId: string, answerId: string, runner: "vercel" | "worker" = "vercel"): Promise<boolean> {
+  const count = await prisma.$executeRaw`
+    UPDATE interview_answers
+       SET usage = jsonb_build_object('claimAttempt', (extract(epoch FROM created_at) * 1000)::bigint::text, 'runner', ${runner}::text)
+     WHERE id = ${answerId} AND user_id = ${userId} AND status = 'pending'
+       AND (usage IS NULL OR jsonb_typeof(usage) <> 'object'
+            OR usage->>'claimAttempt' IS DISTINCT FROM (extract(epoch FROM created_at) * 1000)::bigint::text)`;
+  return count > 0;
 }
 
 /** 피드백 실패 기록. 'pending'이 아니면 false. */

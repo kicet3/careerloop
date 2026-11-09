@@ -1,0 +1,158 @@
+{
+  "secret": "0123456789abcdef0123456789abcdef-test-secret",
+  "vectors": [
+    {
+      "method": "POST",
+      "path": "/v1/jobs/resume-draft",
+      "body": "{\"id\":\"job_1\",\"runId\":\"run_1\"}",
+      "ts": "1790000000",
+      "canonical": "worker.v1.1790000000.POST./v1/jobs/resume-draft.a50f4bd8030569b30773f118e159896962ee20527b971f5612b6da15e88916c8",
+      "signature": "v1=0625078b8aaa651aa7355908e4776d1981687f97165654db93524694e569810f"
+    },
+    {
+      "method": "get",
+      "path": "/readyz",
+      "body": "",
+      "ts": "1790000000",
+      "canonical": "worker.v1.1790000000.GET./readyz.e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+      "signature": "v1=0a370402119903fa4d3fdf3fcb474445eac0288a8bda539c374f3e6a6a00610d"
+    },
+    {
+      "method": "POST",
+      "path": "/v1/jobs/interview-questions",
+      "body": "{\"id\":\"이력서\",\"runId\":\"r\"}",
+      "ts": "1789999970",
+      "canonical": "worker.v1.1789999970.POST./v1/jobs/interview-questions.707a4044233e9159316d80e66c58f61c9b8f20fcdbd9b032c847f75f9600b489",
+      "signature": "v1=99be80678796562a910cfeb38de0d5e11bcaa415a8eb31722e5717b5e9edf062"
+    }
+  ],
+  "verify": [
+    {
+      "name": "ok",
+      "timestamp": "1790000000",
+      "signature": "v1=0625078b8aaa651aa7355908e4776d1981687f97165654db93524694e569810f",
+      "nowSec": 1790000000,
+      "method": "POST",
+      "path": "/v1/jobs/resume-draft",
+      "body": "{\"id\":\"job_1\",\"runId\":\"run_1\"}",
+      "expected": null
+    },
+    {
+      "name": "ok-skew-60",
+      "timestamp": "1790000000",
+      "signature": "v1=0625078b8aaa651aa7355908e4776d1981687f97165654db93524694e569810f",
+      "nowSec": 1790000060,
+      "method": "POST",
+      "path": "/v1/jobs/resume-draft",
+      "body": "{\"id\":\"job_1\",\"runId\":\"run_1\"}",
+      "expected": null
+    },
+    {
+      "name": "expired-61",
+      "timestamp": "1790000000",
+      "signature": "v1=0625078b8aaa651aa7355908e4776d1981687f97165654db93524694e569810f",
+      "nowSec": 1790000061,
+      "method": "POST",
+      "path": "/v1/jobs/resume-draft",
+      "body": "{\"id\":\"job_1\",\"runId\":\"run_1\"}",
+      "expected": "expired"
+    },
+    {
+      "name": "future-61",
+      "timestamp": "1790000000",
+      "signature": "v1=0625078b8aaa651aa7355908e4776d1981687f97165654db93524694e569810f",
+      "nowSec": 1789999939,
+      "method": "POST",
+      "path": "/v1/jobs/resume-draft",
+      "body": "{\"id\":\"job_1\",\"runId\":\"run_1\"}",
+      "expected": "expired"
+    },
+    {
+      "name": "missing-ts",
+      "timestamp": null,
+      "signature": "v1=0625078b8aaa651aa7355908e4776d1981687f97165654db93524694e569810f",
+      "nowSec": 1790000000,
+      "method": "POST",
+      "path": "/v1/jobs/resume-draft",
+      "body": "{\"id\":\"job_1\",\"runId\":\"run_1\"}",
+      "expected": "missing"
+    },
+    {
+      "name": "missing-sig",
+      "timestamp": "1790000000",
+      "signature": null,
+      "nowSec": 1790000000,
+      "method": "POST",
+      "path": "/v1/jobs/resume-draft",
+      "body": "{\"id\":\"job_1\",\"runId\":\"run_1\"}",
+      "expected": "missing"
+    },
+    {
+      "name": "no-prefix",
+      "timestamp": "1790000000",
+      "signature": "0625078b8aaa651aa7355908e4776d1981687f97165654db93524694e569810f",
+      "nowSec": 1790000000,
+      "method": "POST",
+      "path": "/v1/jobs/resume-draft",
+      "body": "{\"id\":\"job_1\",\"runId\":\"run_1\"}",
+      "expected": "malformed"
+    },
+    {
+      "name": "upper-hex",
+      "timestamp": "1790000000",
+      "signature": "v1=0625078B8AAA651AA7355908E4776D1981687F97165654DB93524694E569810F",
+      "nowSec": 1790000000,
+      "method": "POST",
+      "path": "/v1/jobs/resume-draft",
+      "body": "{\"id\":\"job_1\",\"runId\":\"run_1\"}",
+      "expected": "malformed"
+    },
+    {
+      "name": "bad-ts",
+      "timestamp": "1790000000.5",
+      "signature": "v1=0625078b8aaa651aa7355908e4776d1981687f97165654db93524694e569810f",
+      "nowSec": 1790000000,
+      "method": "POST",
+      "path": "/v1/jobs/resume-draft",
+      "body": "{\"id\":\"job_1\",\"runId\":\"run_1\"}",
+      "expected": "malformed"
+    },
+    {
+      "name": "tampered",
+      "timestamp": "1790000000",
+      "signature": "v1=0000000000000000000000000000000000000000000000000000000000000000",
+      "nowSec": 1790000000,
+      "method": "POST",
+      "path": "/v1/jobs/resume-draft",
+      "body": "{\"id\":\"job_1\",\"runId\":\"run_1\"}",
+      "expected": "mismatch"
+    },
+    {
+      "method": "POST",
+      "path": "/v1/jobs/portfolio-graph",
+      "body": "{\"id\":\"job_1\",\"runId\":\"run_1\"}",
+      "timestamp": "1790000000",
+      "signature": "v1=0625078b8aaa651aa7355908e4776d1981687f97165654db93524694e569810f",
+      "nowSec": 1790000000,
+      "expected": "mismatch"
+    },
+    {
+      "method": "POST",
+      "path": "/v1/jobs/resume-draft",
+      "body": "{\"id\":\"job_2\",\"runId\":\"run_1\"}",
+      "timestamp": "1790000000",
+      "signature": "v1=0625078b8aaa651aa7355908e4776d1981687f97165654db93524694e569810f",
+      "nowSec": 1790000000,
+      "expected": "mismatch"
+    },
+    {
+      "method": "PUT",
+      "path": "/v1/jobs/resume-draft",
+      "body": "{\"id\":\"job_1\",\"runId\":\"run_1\"}",
+      "timestamp": "1790000000",
+      "signature": "v1=0625078b8aaa651aa7355908e4776d1981687f97165654db93524694e569810f",
+      "nowSec": 1790000000,
+      "expected": "mismatch"
+    }
+  ]
+}

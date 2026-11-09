@@ -1,0 +1,2450 @@
+{
+  "sanitize": [
+    {
+      "name": "빠진 프로젝트·지어낸 프로젝트·[ADD] 안 숫자",
+      "material": {
+        "personName": "홍길동",
+        "projects": [
+          {
+            "id": "p1",
+            "name": "정산",
+            "text": "프로젝트 [p1] 정산\n- result: 처리 시간 6시간→40분, 1,200건 v2.5"
+          },
+          {
+            "id": "p2",
+            "name": "도구",
+            "text": "프로젝트 [p2] 도구"
+          }
+        ],
+        "links": [],
+        "contactLinks": [],
+        "posting": null
+      },
+      "output": {
+        "headline": "",
+        "coreSkills": [],
+        "sections": [
+          {
+            "key": "intro",
+            "body": "3년 차 개발자",
+            "bullets": []
+          }
+        ],
+        "projects": [
+          {
+            "projectId": "[p1]",
+            "name": "정산 개편",
+            "oneLiner": "",
+            "period": "",
+            "affiliation": "",
+            "techStack": [],
+            "sections": [
+              {
+                "key": "result",
+                "body": "처리 시간 6시간→40분",
+                "bullets": [
+                  "처리 1200건",
+                  "전환율 35% 향상",
+                  "[ADD: 전후 수치 7개]"
+                ]
+              }
+            ]
+          },
+          {
+            "projectId": "zz",
+            "name": "지어낸 프로젝트",
+            "oneLiner": "",
+            "period": "",
+            "affiliation": "",
+            "techStack": [],
+            "sections": []
+          }
+        ],
+        "notes": [],
+        "missingInfo": [
+          "팀 규모는?"
+        ]
+      },
+      "templateId": null,
+      "result": {
+        "headline": "",
+        "coreSkills": [],
+        "sections": [
+          {
+            "key": "intro",
+            "body": "[ADD: 수치 확인 — 3년 차 개발자]",
+            "bullets": []
+          }
+        ],
+        "projects": [
+          {
+            "projectId": "p1",
+            "name": "정산 개편",
+            "oneLiner": "",
+            "period": "",
+            "affiliation": "",
+            "techStack": [],
+            "sections": [
+              {
+                "key": "result",
+                "body": "처리 시간 6시간→40분",
+                "bullets": [
+                  "처리 1200건",
+                  "[ADD: 수치 확인 — 전환율 35% 향상]",
+                  "[ADD: 전후 수치 7개]"
+                ]
+              }
+            ]
+          }
+        ],
+        "notes": [],
+        "missingInfo": [
+          "팀 규모는?",
+          "'전환율 35% 향상' — 경험 그래프에 없는 수치(35)라 확인이 필요합니다. 맞다면 그래프에도 적어 주세요.",
+          "'도구' 프로젝트를 AI가 쓰지 않았습니다. 다시 만들거나 직접 더해 주세요.",
+          "'3년 차 개발자' — 경험 그래프에 없는 수치(3)라 확인이 필요합니다. 맞다면 그래프에도 적어 주세요."
+        ]
+      }
+    },
+    {
+      "name": "headline·한 줄 소개·모든 구역, 기술 스택·기간은 그대로",
+      "material": {
+        "personName": "홍길동",
+        "projects": [
+          {
+            "id": "p1",
+            "name": "정산",
+            "text": "프로젝트 [p1] 정산\n- result: 처리 시간 6시간→40분, 1,200건 v2.5"
+          },
+          {
+            "id": "p2",
+            "name": "도구",
+            "text": "프로젝트 [p2] 도구"
+          }
+        ],
+        "links": [],
+        "contactLinks": [],
+        "posting": null
+      },
+      "output": {
+        "headline": "트래픽 10배를 버틴 개발자",
+        "coreSkills": [],
+        "sections": [],
+        "projects": [
+          {
+            "projectId": "p1",
+            "name": "정산 개편",
+            "oneLiner": "사용자 10만 명 서비스",
+            "period": "2024.01 ~ 2024.06",
+            "affiliation": "",
+            "techStack": [
+              "Kotlin 1.9"
+            ],
+            "sections": [
+              {
+                "key": "overview",
+                "body": "5명 팀의 백엔드",
+                "bullets": []
+              },
+              {
+                "key": "problem",
+                "body": "6시간 걸리던 배치",
+                "bullets": []
+              },
+              {
+                "key": "solution",
+                "body": "",
+                "bullets": [
+                  "응답 시간을 200ms→50ms로 줄임",
+                  "40분으로 단축",
+                  "v2.5로 올림 [ADD: 버전 3]"
+                ]
+              },
+              {
+                "key": "troubleshooting",
+                "body": "",
+                "bullets": [
+                  "원인 3가지 중 하나 [대괄호] 포함"
+                ]
+              },
+              {
+                "key": "learned",
+                "body": "1,200건을 처리하며 배움",
+                "bullets": []
+              }
+            ]
+          },
+          {
+            "projectId": " p2 ",
+            "name": "도구",
+            "oneLiner": "2개 팀이 쓰는 도구",
+            "period": "",
+            "affiliation": "",
+            "techStack": [],
+            "sections": []
+          }
+        ],
+        "notes": [],
+        "missingInfo": []
+      },
+      "templateId": null,
+      "result": {
+        "headline": "[ADD: 수치 확인 — 트래픽 10배를 버틴 개발자]",
+        "coreSkills": [],
+        "sections": [],
+        "projects": [
+          {
+            "projectId": "p1",
+            "name": "정산 개편",
+            "oneLiner": "[ADD: 수치 확인 — 사용자 10만 명 서비스]",
+            "period": "2024.01 ~ 2024.06",
+            "affiliation": "",
+            "techStack": [
+              "Kotlin 1.9"
+            ],
+            "sections": [
+              {
+                "key": "overview",
+                "body": "[ADD: 수치 확인 — 5명 팀의 백엔드]",
+                "bullets": []
+              },
+              {
+                "key": "problem",
+                "body": "6시간 걸리던 배치",
+                "bullets": []
+              },
+              {
+                "key": "solution",
+                "body": "",
+                "bullets": [
+                  "[ADD: 수치 확인 — 응답 시간을 200ms→50ms로 줄임]",
+                  "40분으로 단축",
+                  "v2.5로 올림 [ADD: 버전 3]"
+                ]
+              },
+              {
+                "key": "troubleshooting",
+                "body": "",
+                "bullets": [
+                  "[ADD: 수치 확인 — 원인 3가지 중 하나 대괄호 포함]"
+                ]
+              },
+              {
+                "key": "learned",
+                "body": "1,200건을 처리하며 배움",
+                "bullets": []
+              }
+            ]
+          },
+          {
+            "projectId": "p2",
+            "name": "도구",
+            "oneLiner": "2개 팀이 쓰는 도구",
+            "period": "",
+            "affiliation": "",
+            "techStack": [],
+            "sections": []
+          }
+        ],
+        "notes": [],
+        "missingInfo": [
+          "'사용자 10만 명 서비스' — 경험 그래프에 없는 수치(10)라 확인이 필요합니다. 맞다면 그래프에도 적어 주세요.",
+          "'5명 팀의 백엔드' — 경험 그래프에 없는 수치(5)라 확인이 필요합니다. 맞다면 그래프에도 적어 주세요.",
+          "'응답 시간을 200ms→50ms로 줄임' — 경험 그래프에 없는 수치(200, 50)라 확인이 필요합니다. 맞다면 그래프에도 적어 주세요.",
+          "'원인 3가지 중 하나 [대괄호] 포함' — 경험 그래프에 없는 수치(3)라 확인이 필요합니다. 맞다면 그래프에도 적어 주세요.",
+          "'트래픽 10배를 버틴 개발자' — 경험 그래프에 없는 수치(10)라 확인이 필요합니다. 맞다면 그래프에도 적어 주세요."
+        ]
+      }
+    },
+    {
+      "name": "양식에 없는 key·서버 구역·중복·대소문자 key(project-pdf)",
+      "material": {
+        "personName": "홍길동",
+        "projects": [
+          {
+            "id": "p1",
+            "name": "정산",
+            "text": "프로젝트 [p1] 정산\n- result: 처리 시간 6시간→40분, 1,200건 v2.5"
+          },
+          {
+            "id": "p2",
+            "name": "도구",
+            "text": "프로젝트 [p2] 도구"
+          }
+        ],
+        "links": [],
+        "contactLinks": [],
+        "posting": null
+      },
+      "output": {
+        "headline": "",
+        "coreSkills": [],
+        "sections": [
+          {
+            "key": "toc",
+            "body": "목차",
+            "bullets": []
+          },
+          {
+            "key": "retrospective",
+            "body": "회고",
+            "bullets": []
+          },
+          {
+            "key": "intro",
+            "body": "소개",
+            "bullets": []
+          },
+          {
+            "key": "INTRO",
+            "body": "중복 소개",
+            "bullets": []
+          }
+        ],
+        "projects": [
+          {
+            "projectId": "p1",
+            "name": "정산 개편",
+            "oneLiner": "",
+            "period": "",
+            "affiliation": "",
+            "techStack": [],
+            "sections": [
+              {
+                "key": "result",
+                "body": "결과",
+                "bullets": []
+              },
+              {
+                "key": "links",
+                "body": "https://evil.example",
+                "bullets": []
+              },
+              {
+                "key": "baseline",
+                "body": "규칙 기반",
+                "bullets": []
+              },
+              {
+                "key": "problem",
+                "body": "문제",
+                "bullets": []
+              },
+              {
+                "key": "problem",
+                "body": "중복",
+                "bullets": []
+              },
+              {
+                "key": " Data ",
+                "body": "데이터",
+                "bullets": []
+              },
+              {
+                "key": "PRO-BLEM",
+                "body": "x",
+                "bullets": []
+              }
+            ]
+          }
+        ],
+        "notes": [],
+        "missingInfo": []
+      },
+      "templateId": null,
+      "result": {
+        "headline": "",
+        "coreSkills": [],
+        "sections": [
+          {
+            "key": "intro",
+            "body": "소개",
+            "bullets": []
+          },
+          {
+            "key": "retrospective",
+            "body": "회고",
+            "bullets": []
+          }
+        ],
+        "projects": [
+          {
+            "projectId": "p1",
+            "name": "정산 개편",
+            "oneLiner": "",
+            "period": "",
+            "affiliation": "",
+            "techStack": [],
+            "sections": [
+              {
+                "key": "problem",
+                "body": "문제",
+                "bullets": []
+              },
+              {
+                "key": "result",
+                "body": "결과",
+                "bullets": []
+              }
+            ]
+          }
+        ],
+        "notes": [],
+        "missingInfo": [
+          "'도구' 프로젝트를 AI가 쓰지 않았습니다. 다시 만들거나 직접 더해 주세요."
+        ]
+      }
+    },
+    {
+      "name": "같은 양식 key, ml-data",
+      "material": {
+        "personName": "홍길동",
+        "projects": [
+          {
+            "id": "p1",
+            "name": "정산",
+            "text": "프로젝트 [p1] 정산\n- result: 처리 시간 6시간→40분, 1,200건 v2.5"
+          },
+          {
+            "id": "p2",
+            "name": "도구",
+            "text": "프로젝트 [p2] 도구"
+          }
+        ],
+        "links": [],
+        "contactLinks": [],
+        "posting": null
+      },
+      "templateId": "ml-data",
+      "output": {
+        "headline": "",
+        "coreSkills": [],
+        "sections": [
+          {
+            "key": "intro",
+            "body": "소개 99개",
+            "bullets": []
+          }
+        ],
+        "projects": [
+          {
+            "projectId": "p1",
+            "name": "정산 개편",
+            "oneLiner": "",
+            "period": "",
+            "affiliation": "",
+            "techStack": [],
+            "sections": [
+              {
+                "key": "result",
+                "body": "결과",
+                "bullets": []
+              },
+              {
+                "key": "baseline",
+                "body": "규칙 기반",
+                "bullets": []
+              },
+              {
+                "key": "problem",
+                "body": "문제",
+                "bullets": []
+              },
+              {
+                "key": " Data ",
+                "body": "데이터",
+                "bullets": []
+              }
+            ]
+          }
+        ],
+        "notes": [],
+        "missingInfo": []
+      },
+      "result": {
+        "headline": "",
+        "coreSkills": [],
+        "sections": [
+          {
+            "key": "intro",
+            "body": "[ADD: 수치 확인 — 소개 99개]",
+            "bullets": []
+          }
+        ],
+        "projects": [
+          {
+            "projectId": "p1",
+            "name": "정산 개편",
+            "oneLiner": "",
+            "period": "",
+            "affiliation": "",
+            "techStack": [],
+            "sections": [
+              {
+                "key": "problem",
+                "body": "문제",
+                "bullets": []
+              },
+              {
+                "key": "baseline",
+                "body": "규칙 기반",
+                "bullets": []
+              },
+              {
+                "key": "data",
+                "body": "데이터",
+                "bullets": []
+              },
+              {
+                "key": "result",
+                "body": "결과",
+                "bullets": []
+              }
+            ]
+          }
+        ],
+        "notes": [],
+        "missingInfo": [
+          "'도구' 프로젝트를 AI가 쓰지 않았습니다. 다시 만들거나 직접 더해 주세요.",
+          "'소개 99개' — 경험 그래프에 없는 수치(99)라 확인이 필요합니다. 맞다면 그래프에도 적어 주세요."
+        ]
+      }
+    },
+    {
+      "name": "같은 projectId 두 번(뒤가 이긴다)·30개 상한·중복 missingInfo",
+      "material": {
+        "personName": "홍길동",
+        "projects": [
+          {
+            "id": "p1",
+            "name": "정산",
+            "text": "프로젝트 [p1] 정산\n- result: 처리 시간 6시간→40분, 1,200건 v2.5"
+          },
+          {
+            "id": "p2",
+            "name": "도구",
+            "text": "프로젝트 [p2] 도구"
+          }
+        ],
+        "links": [],
+        "contactLinks": [],
+        "posting": null
+      },
+      "templateId": "case-study",
+      "output": {
+        "headline": "",
+        "coreSkills": [],
+        "sections": [],
+        "projects": [
+          {
+            "projectId": "p1",
+            "name": "정산 개편",
+            "oneLiner": "첫째 1",
+            "period": "",
+            "affiliation": "",
+            "techStack": [],
+            "sections": []
+          },
+          {
+            "projectId": "p1",
+            "name": "정산 개편",
+            "oneLiner": "둘째 6시간",
+            "period": "",
+            "affiliation": "",
+            "techStack": [],
+            "sections": []
+          },
+          {
+            "projectId": "[p2]",
+            "name": "도구",
+            "oneLiner": "",
+            "period": "",
+            "affiliation": "",
+            "techStack": [],
+            "sections": [
+              {
+                "key": "result",
+                "body": "",
+                "bullets": [
+                  "항목 100",
+                  "항목 101",
+                  "항목 102",
+                  "항목 103",
+                  "항목 104",
+                  "항목 105",
+                  "항목 106",
+                  "항목 107",
+                  "항목 108",
+                  "항목 109"
+                ]
+              }
+            ]
+          }
+        ],
+        "notes": [],
+        "missingInfo": [
+          "질문 0",
+          "질문 1",
+          "질문 2",
+          "질문 3",
+          "질문 4",
+          "질문 5",
+          "질문 6",
+          "질문 7",
+          "질문 8",
+          "질문 9",
+          "질문 10",
+          "질문 11",
+          "질문 12",
+          "질문 13",
+          "질문 14",
+          "질문 0",
+          "질문 1",
+          "질문 2",
+          "질문 3",
+          "질문 4"
+        ]
+      },
+      "result": {
+        "headline": "",
+        "coreSkills": [],
+        "sections": [],
+        "projects": [
+          {
+            "projectId": "p1",
+            "name": "정산 개편",
+            "oneLiner": "둘째 6시간",
+            "period": "",
+            "affiliation": "",
+            "techStack": [],
+            "sections": []
+          },
+          {
+            "projectId": "p2",
+            "name": "도구",
+            "oneLiner": "",
+            "period": "",
+            "affiliation": "",
+            "techStack": [],
+            "sections": [
+              {
+                "key": "result",
+                "body": "",
+                "bullets": [
+                  "[ADD: 수치 확인 — 항목 100]",
+                  "[ADD: 수치 확인 — 항목 101]",
+                  "[ADD: 수치 확인 — 항목 102]",
+                  "[ADD: 수치 확인 — 항목 103]",
+                  "[ADD: 수치 확인 — 항목 104]",
+                  "[ADD: 수치 확인 — 항목 105]",
+                  "[ADD: 수치 확인 — 항목 106]",
+                  "[ADD: 수치 확인 — 항목 107]",
+                  "[ADD: 수치 확인 — 항목 108]",
+                  "[ADD: 수치 확인 — 항목 109]"
+                ]
+              }
+            ]
+          }
+        ],
+        "notes": [],
+        "missingInfo": [
+          "질문 0",
+          "질문 1",
+          "질문 2",
+          "질문 3",
+          "질문 4",
+          "질문 5",
+          "질문 6",
+          "질문 7",
+          "질문 8",
+          "질문 9",
+          "질문 10",
+          "질문 11",
+          "질문 12",
+          "질문 13",
+          "질문 14",
+          "'항목 100' — 경험 그래프에 없는 수치(100)라 확인이 필요합니다. 맞다면 그래프에도 적어 주세요.",
+          "'항목 101' — 경험 그래프에 없는 수치(101)라 확인이 필요합니다. 맞다면 그래프에도 적어 주세요.",
+          "'항목 102' — 경험 그래프에 없는 수치(102)라 확인이 필요합니다. 맞다면 그래프에도 적어 주세요.",
+          "'항목 103' — 경험 그래프에 없는 수치(103)라 확인이 필요합니다. 맞다면 그래프에도 적어 주세요.",
+          "'항목 104' — 경험 그래프에 없는 수치(104)라 확인이 필요합니다. 맞다면 그래프에도 적어 주세요.",
+          "'항목 105' — 경험 그래프에 없는 수치(105)라 확인이 필요합니다. 맞다면 그래프에도 적어 주세요.",
+          "'항목 106' — 경험 그래프에 없는 수치(106)라 확인이 필요합니다. 맞다면 그래프에도 적어 주세요.",
+          "'항목 107' — 경험 그래프에 없는 수치(107)라 확인이 필요합니다. 맞다면 그래프에도 적어 주세요.",
+          "'항목 108' — 경험 그래프에 없는 수치(108)라 확인이 필요합니다. 맞다면 그래프에도 적어 주세요.",
+          "'항목 109' — 경험 그래프에 없는 수치(109)라 확인이 필요합니다. 맞다면 그래프에도 적어 주세요."
+        ]
+      }
+    },
+    {
+      "name": "notion-web·연락처·이름에 숫자",
+      "material": {
+        "personName": "홍길동2",
+        "projects": [
+          {
+            "id": "p1",
+            "name": "정산",
+            "text": "프로젝트 [p1] 정산\n- result: 처리 시간 6시간→40분, 1,200건 v2.5"
+          },
+          {
+            "id": "p2",
+            "name": "도구",
+            "text": "프로젝트 [p2] 도구"
+          }
+        ],
+        "links": [],
+        "contactLinks": [],
+        "posting": null
+      },
+      "templateId": "notion-web",
+      "output": {
+        "headline": "홍길동2의 포트폴리오",
+        "coreSkills": [],
+        "sections": [
+          {
+            "key": "about",
+            "body": "😀 2명과 일함",
+            "bullets": []
+          },
+          {
+            "key": "contact",
+            "body": "x@y.z",
+            "bullets": []
+          }
+        ],
+        "projects": [],
+        "notes": [],
+        "missingInfo": []
+      },
+      "result": {
+        "headline": "홍길동2의 포트폴리오",
+        "coreSkills": [],
+        "sections": [
+          {
+            "key": "about",
+            "body": "😀 2명과 일함",
+            "bullets": []
+          }
+        ],
+        "projects": [],
+        "notes": [],
+        "missingInfo": [
+          "'정산' 프로젝트를 AI가 쓰지 않았습니다. 다시 만들거나 직접 더해 주세요.",
+          "'도구' 프로젝트를 AI가 쓰지 않았습니다. 다시 만들거나 직접 더해 주세요."
+        ]
+      }
+    }
+  ],
+  "markdown": [
+    {
+      "name": "양식 project-pdf",
+      "output": {
+        "headline": "정산을 빠르게 만드는 백엔드 개발자",
+        "coreSkills": [
+          "Kotlin",
+          " Spring ",
+          "",
+          "Postgre\nSQL"
+        ],
+        "sections": [
+          {
+            "key": "retrospective",
+            "body": "운영 안정성에 관심이 많다.",
+            "bullets": []
+          },
+          {
+            "key": "intro",
+            "body": "결제·정산 도메인에서 일했습니다.",
+            "bullets": []
+          },
+          {
+            "key": "made-up",
+            "body": "양식에 없는 구역",
+            "bullets": []
+          },
+          {
+            "key": "about",
+            "body": "  어바웃  ",
+            "bullets": []
+          },
+          {
+            "key": "summary",
+            "body": "요약 본문",
+            "bullets": [
+              "요약 1",
+              " "
+            ]
+          }
+        ],
+        "projects": [
+          {
+            "projectId": "p1",
+            "name": "정산 개편",
+            "oneLiner": "정산 배치를\n다시 만들었다",
+            "period": "2024.01 ~ 2024.06",
+            "affiliation": "페이랩",
+            "techStack": [
+              "Kotlin",
+              "a`b",
+              "  "
+            ],
+            "sections": [
+              {
+                "key": "result",
+                "body": "",
+                "bullets": [
+                  "정산 시간 6시간→40분",
+                  " "
+                ]
+              },
+              {
+                "key": "solution",
+                "body": "",
+                "bullets": [
+                  "청크 처리로 바꿈",
+                  "인덱스 추가"
+                ]
+              },
+              {
+                "key": "problem",
+                "body": "하루 정산이 6시간 걸렸다.",
+                "bullets": []
+              },
+              {
+                "key": "Overview",
+                "body": "백엔드 리드",
+                "bullets": []
+              },
+              {
+                "key": "problem",
+                "body": "중복 구역은 버린다",
+                "bullets": []
+              },
+              {
+                "key": "decisions",
+                "body": "",
+                "bullets": [
+                  "배치 → 청크"
+                ]
+              },
+              {
+                "key": "work",
+                "body": "작업",
+                "bullets": [
+                  "a",
+                  "b"
+                ]
+              }
+            ]
+          },
+          {
+            "projectId": "p2",
+            "name": "  ",
+            "oneLiner": "",
+            "period": "",
+            "affiliation": "사내",
+            "techStack": [],
+            "sections": [
+              {
+                "key": "features",
+                "body": "",
+                "bullets": [
+                  "기능"
+                ]
+              }
+            ]
+          }
+        ],
+        "notes": [],
+        "missingInfo": []
+      },
+      "opts": {
+        "title": " 프로젝트 중심 PDF ",
+        "personName": " 홍길동 ",
+        "links": [
+          [
+            "p1",
+            [
+              {
+                "label": "GitHub · u/[pay]",
+                "url": "https://github.com/u/pay"
+              },
+              {
+                "label": "프로젝트 링크",
+                "url": "https://pay.example.com"
+              }
+            ]
+          ],
+          [
+            "p2",
+            [
+              {
+                "label": "데모",
+                "url": "http://demo.example.com"
+              }
+            ]
+          ]
+        ],
+        "templateId": "project-pdf"
+      },
+      "markdown": "# 프로젝트 중심 PDF\n\n**홍길동**\n\n> 정산을 빠르게 만드는 백엔드 개발자\n\n## 자기소개\n\n결제·정산 도메인에서 일했습니다.\n\n## 기술 스택\n\nKotlin · Spring · Postgre SQL\n\n## 목차\n\n1. 정산 개편\n2. 프로젝트\n\n---\n\n## 1. 정산 개편\n\n**정산 배치를 다시 만들었다**\n\n2024.01 ~ 2024.06 · 페이랩\n\n### 개요\n\n백엔드 리드\n\n### 기술 스택\n\n`Kotlin` `ab`\n\n### 문제\n\n하루 정산이 6시간 걸렸다.\n\n### 해결\n\n- 청크 처리로 바꿈\n- 인덱스 추가\n\n### 결과\n\n- 정산 시간 6시간→40분\n\n### 링크\n\n- [GitHub · u/pay](https://github.com/u/pay)\n- [프로젝트 링크](https://pay.example.com)\n\n---\n\n## 2. 프로젝트\n\n사내\n\n### 개요\n\n[ADD: 개요 보완 필요]\n\n### 문제\n\n[ADD: 문제 보완 필요]\n\n### 해결\n\n[ADD: 해결 보완 필요]\n\n### 결과\n\n[ADD: 결과 보완 필요]\n\n### 링크\n\n- [데모](http://demo.example.com)\n\n---\n\n## 회고·성장 방향\n\n운영 안정성에 관심이 많다.\n"
+    },
+    {
+      "name": "양식 notion-web",
+      "output": {
+        "headline": "정산을 빠르게 만드는 백엔드 개발자",
+        "coreSkills": [
+          "Kotlin",
+          " Spring ",
+          "",
+          "Postgre\nSQL"
+        ],
+        "sections": [
+          {
+            "key": "retrospective",
+            "body": "운영 안정성에 관심이 많다.",
+            "bullets": []
+          },
+          {
+            "key": "intro",
+            "body": "결제·정산 도메인에서 일했습니다.",
+            "bullets": []
+          },
+          {
+            "key": "made-up",
+            "body": "양식에 없는 구역",
+            "bullets": []
+          },
+          {
+            "key": "about",
+            "body": "  어바웃  ",
+            "bullets": []
+          },
+          {
+            "key": "summary",
+            "body": "요약 본문",
+            "bullets": [
+              "요약 1",
+              " "
+            ]
+          }
+        ],
+        "projects": [
+          {
+            "projectId": "p1",
+            "name": "정산 개편",
+            "oneLiner": "정산 배치를\n다시 만들었다",
+            "period": "2024.01 ~ 2024.06",
+            "affiliation": "페이랩",
+            "techStack": [
+              "Kotlin",
+              "a`b",
+              "  "
+            ],
+            "sections": [
+              {
+                "key": "result",
+                "body": "",
+                "bullets": [
+                  "정산 시간 6시간→40분",
+                  " "
+                ]
+              },
+              {
+                "key": "solution",
+                "body": "",
+                "bullets": [
+                  "청크 처리로 바꿈",
+                  "인덱스 추가"
+                ]
+              },
+              {
+                "key": "problem",
+                "body": "하루 정산이 6시간 걸렸다.",
+                "bullets": []
+              },
+              {
+                "key": "Overview",
+                "body": "백엔드 리드",
+                "bullets": []
+              },
+              {
+                "key": "problem",
+                "body": "중복 구역은 버린다",
+                "bullets": []
+              },
+              {
+                "key": "decisions",
+                "body": "",
+                "bullets": [
+                  "배치 → 청크"
+                ]
+              },
+              {
+                "key": "work",
+                "body": "작업",
+                "bullets": [
+                  "a",
+                  "b"
+                ]
+              }
+            ]
+          },
+          {
+            "projectId": "p2",
+            "name": "  ",
+            "oneLiner": "",
+            "period": "",
+            "affiliation": "사내",
+            "techStack": [],
+            "sections": [
+              {
+                "key": "features",
+                "body": "",
+                "bullets": [
+                  "기능"
+                ]
+              }
+            ]
+          }
+        ],
+        "notes": [],
+        "missingInfo": []
+      },
+      "opts": {
+        "title": " 노션형 웹 포트폴리오 ",
+        "personName": " 홍길동 ",
+        "links": [
+          [
+            "p1",
+            [
+              {
+                "label": "GitHub · u/[pay]",
+                "url": "https://github.com/u/pay"
+              },
+              {
+                "label": "프로젝트 링크",
+                "url": "https://pay.example.com"
+              }
+            ]
+          ],
+          [
+            "p2",
+            [
+              {
+                "label": "데모",
+                "url": "http://demo.example.com"
+              }
+            ]
+          ]
+        ],
+        "templateId": "notion-web"
+      },
+      "markdown": "# 노션형 웹 포트폴리오\n\n**홍길동**\n\n> 정산을 빠르게 만드는 백엔드 개발자\n\n## About Me\n\n어바웃\n\n## 역량\n\nKotlin · Spring · Postgre SQL\n\n---\n\n## 1. 정산 개편\n\n**정산 배치를 다시 만들었다**\n\n2024.01 ~ 2024.06 · 페이랩\n\n### 요약\n\n[ADD: 요약 보완 필요]\n\n### 역할·기여\n\n[ADD: 역할·기여 보완 필요]\n\n### 사용 기술\n\n`Kotlin` `ab`\n\n### 주요 작업\n\n작업\n\n- a\n- b\n\n### 성과\n\n[ADD: 성과 보완 필요]\n\n### 링크\n\n- [GitHub · u/pay](https://github.com/u/pay)\n- [프로젝트 링크](https://pay.example.com)\n\n---\n\n## 2. 프로젝트\n\n사내\n\n### 요약\n\n[ADD: 요약 보완 필요]\n\n### 역할·기여\n\n[ADD: 역할·기여 보완 필요]\n\n### 주요 작업\n\n[ADD: 주요 작업 보완 필요]\n\n### 성과\n\n[ADD: 성과 보완 필요]\n\n### 링크\n\n- [데모](http://demo.example.com)\n\n---\n\n## 연락처\n\n- [ADD: 이메일·GitHub·블로그 주소]\n"
+    },
+    {
+      "name": "양식 career-case",
+      "output": {
+        "headline": "정산을 빠르게 만드는 백엔드 개발자",
+        "coreSkills": [
+          "Kotlin",
+          " Spring ",
+          "",
+          "Postgre\nSQL"
+        ],
+        "sections": [
+          {
+            "key": "retrospective",
+            "body": "운영 안정성에 관심이 많다.",
+            "bullets": []
+          },
+          {
+            "key": "intro",
+            "body": "결제·정산 도메인에서 일했습니다.",
+            "bullets": []
+          },
+          {
+            "key": "made-up",
+            "body": "양식에 없는 구역",
+            "bullets": []
+          },
+          {
+            "key": "about",
+            "body": "  어바웃  ",
+            "bullets": []
+          },
+          {
+            "key": "summary",
+            "body": "요약 본문",
+            "bullets": [
+              "요약 1",
+              " "
+            ]
+          }
+        ],
+        "projects": [
+          {
+            "projectId": "p1",
+            "name": "정산 개편",
+            "oneLiner": "정산 배치를\n다시 만들었다",
+            "period": "2024.01 ~ 2024.06",
+            "affiliation": "페이랩",
+            "techStack": [
+              "Kotlin",
+              "a`b",
+              "  "
+            ],
+            "sections": [
+              {
+                "key": "result",
+                "body": "",
+                "bullets": [
+                  "정산 시간 6시간→40분",
+                  " "
+                ]
+              },
+              {
+                "key": "solution",
+                "body": "",
+                "bullets": [
+                  "청크 처리로 바꿈",
+                  "인덱스 추가"
+                ]
+              },
+              {
+                "key": "problem",
+                "body": "하루 정산이 6시간 걸렸다.",
+                "bullets": []
+              },
+              {
+                "key": "Overview",
+                "body": "백엔드 리드",
+                "bullets": []
+              },
+              {
+                "key": "problem",
+                "body": "중복 구역은 버린다",
+                "bullets": []
+              },
+              {
+                "key": "decisions",
+                "body": "",
+                "bullets": [
+                  "배치 → 청크"
+                ]
+              },
+              {
+                "key": "work",
+                "body": "작업",
+                "bullets": [
+                  "a",
+                  "b"
+                ]
+              }
+            ]
+          },
+          {
+            "projectId": "p2",
+            "name": "  ",
+            "oneLiner": "",
+            "period": "",
+            "affiliation": "사내",
+            "techStack": [],
+            "sections": [
+              {
+                "key": "features",
+                "body": "",
+                "bullets": [
+                  "기능"
+                ]
+              }
+            ]
+          }
+        ],
+        "notes": [],
+        "missingInfo": []
+      },
+      "opts": {
+        "title": " 경력 기술형 ",
+        "personName": " 홍길동 ",
+        "links": [
+          [
+            "p1",
+            [
+              {
+                "label": "GitHub · u/[pay]",
+                "url": "https://github.com/u/pay"
+              },
+              {
+                "label": "프로젝트 링크",
+                "url": "https://pay.example.com"
+              }
+            ]
+          ],
+          [
+            "p2",
+            [
+              {
+                "label": "데모",
+                "url": "http://demo.example.com"
+              }
+            ]
+          ]
+        ],
+        "templateId": "career-case"
+      },
+      "markdown": "# 경력 기술형\n\n**홍길동**\n\n> 정산을 빠르게 만드는 백엔드 개발자\n\n## 요약\n\n요약 본문\n\n- 요약 1\n\n## 기술 스택\n\nKotlin · Spring · Postgre SQL\n\n---\n\n## 사례 1. 정산 개편\n\n**정산 배치를 다시 만들었다**\n\n2024.01 ~ 2024.06 · 페이랩\n\n### 배경\n\n[ADD: 배경 보완 필요]\n\n### 문제\n\n하루 정산이 6시간 걸렸다.\n\n### 해결\n\n- 청크 처리로 바꿈\n- 인덱스 추가\n\n### 기술 선택 이유\n\n[ADD: 기술 선택 이유 보완 필요]\n\n### 결과\n\n- 정산 시간 6시간→40분\n\n### 사용 기술\n\n`Kotlin` `ab`\n\n### 링크\n\n- [GitHub · u/pay](https://github.com/u/pay)\n- [프로젝트 링크](https://pay.example.com)\n\n---\n\n## 사례 2. 프로젝트\n\n사내\n\n### 배경\n\n[ADD: 배경 보완 필요]\n\n### 문제\n\n[ADD: 문제 보완 필요]\n\n### 해결\n\n[ADD: 해결 보완 필요]\n\n### 기술 선택 이유\n\n[ADD: 기술 선택 이유 보완 필요]\n\n### 결과\n\n[ADD: 결과 보완 필요]\n\n### 링크\n\n- [데모](http://demo.example.com)\n"
+    },
+    {
+      "name": "양식 case-study",
+      "output": {
+        "headline": "정산을 빠르게 만드는 백엔드 개발자",
+        "coreSkills": [
+          "Kotlin",
+          " Spring ",
+          "",
+          "Postgre\nSQL"
+        ],
+        "sections": [
+          {
+            "key": "retrospective",
+            "body": "운영 안정성에 관심이 많다.",
+            "bullets": []
+          },
+          {
+            "key": "intro",
+            "body": "결제·정산 도메인에서 일했습니다.",
+            "bullets": []
+          },
+          {
+            "key": "made-up",
+            "body": "양식에 없는 구역",
+            "bullets": []
+          },
+          {
+            "key": "about",
+            "body": "  어바웃  ",
+            "bullets": []
+          },
+          {
+            "key": "summary",
+            "body": "요약 본문",
+            "bullets": [
+              "요약 1",
+              " "
+            ]
+          }
+        ],
+        "projects": [
+          {
+            "projectId": "p1",
+            "name": "정산 개편",
+            "oneLiner": "정산 배치를\n다시 만들었다",
+            "period": "2024.01 ~ 2024.06",
+            "affiliation": "페이랩",
+            "techStack": [
+              "Kotlin",
+              "a`b",
+              "  "
+            ],
+            "sections": [
+              {
+                "key": "result",
+                "body": "",
+                "bullets": [
+                  "정산 시간 6시간→40분",
+                  " "
+                ]
+              },
+              {
+                "key": "solution",
+                "body": "",
+                "bullets": [
+                  "청크 처리로 바꿈",
+                  "인덱스 추가"
+                ]
+              },
+              {
+                "key": "problem",
+                "body": "하루 정산이 6시간 걸렸다.",
+                "bullets": []
+              },
+              {
+                "key": "Overview",
+                "body": "백엔드 리드",
+                "bullets": []
+              },
+              {
+                "key": "problem",
+                "body": "중복 구역은 버린다",
+                "bullets": []
+              },
+              {
+                "key": "decisions",
+                "body": "",
+                "bullets": [
+                  "배치 → 청크"
+                ]
+              },
+              {
+                "key": "work",
+                "body": "작업",
+                "bullets": [
+                  "a",
+                  "b"
+                ]
+              }
+            ]
+          },
+          {
+            "projectId": "p2",
+            "name": "  ",
+            "oneLiner": "",
+            "period": "",
+            "affiliation": "사내",
+            "techStack": [],
+            "sections": [
+              {
+                "key": "features",
+                "body": "",
+                "bullets": [
+                  "기능"
+                ]
+              }
+            ]
+          }
+        ],
+        "notes": [],
+        "missingInfo": []
+      },
+      "opts": {
+        "title": " 케이스 스터디 ",
+        "personName": " 홍길동 ",
+        "links": [
+          [
+            "p1",
+            [
+              {
+                "label": "GitHub · u/[pay]",
+                "url": "https://github.com/u/pay"
+              },
+              {
+                "label": "프로젝트 링크",
+                "url": "https://pay.example.com"
+              }
+            ]
+          ],
+          [
+            "p2",
+            [
+              {
+                "label": "데모",
+                "url": "http://demo.example.com"
+              }
+            ]
+          ]
+        ],
+        "templateId": "case-study"
+      },
+      "markdown": "# 케이스 스터디\n\n**홍길동**\n\n> 정산을 빠르게 만드는 백엔드 개발자\n\n## 소개\n\n요약 본문\n\n- 요약 1\n\n---\n\n## Case 1. 정산 개편\n\n**정산 배치를 다시 만들었다**\n\n2024.01 ~ 2024.06 · 페이랩\n\n### Problem · 문제\n\n하루 정산이 6시간 걸렸다.\n\n### Role · 역할\n\n[ADD: Role · 역할 보완 필요]\n\n### Approach · 접근\n\n[ADD: Approach · 접근 보완 필요]\n\n### Decisions · 결정과 트레이드오프\n\n- 배치 → 청크\n\n### Result · 결과\n\n- 정산 시간 6시간→40분\n\n### Stack · 기술\n\n`Kotlin` `ab`\n\n### 링크\n\n- [GitHub · u/pay](https://github.com/u/pay)\n- [프로젝트 링크](https://pay.example.com)\n\n---\n\n## Case 2. 프로젝트\n\n사내\n\n### Problem · 문제\n\n[ADD: Problem · 문제 보완 필요]\n\n### Role · 역할\n\n[ADD: Role · 역할 보완 필요]\n\n### Approach · 접근\n\n[ADD: Approach · 접근 보완 필요]\n\n### Decisions · 결정과 트레이드오프\n\n[ADD: Decisions · 결정과 트레이드오프 보완 필요]\n\n### Result · 결과\n\n[ADD: Result · 결과 보완 필요]\n\n### 링크\n\n- [데모](http://demo.example.com)\n"
+    },
+    {
+      "name": "양식 github-readme",
+      "output": {
+        "headline": "정산을 빠르게 만드는 백엔드 개발자",
+        "coreSkills": [
+          "Kotlin",
+          " Spring ",
+          "",
+          "Postgre\nSQL"
+        ],
+        "sections": [
+          {
+            "key": "retrospective",
+            "body": "운영 안정성에 관심이 많다.",
+            "bullets": []
+          },
+          {
+            "key": "intro",
+            "body": "결제·정산 도메인에서 일했습니다.",
+            "bullets": []
+          },
+          {
+            "key": "made-up",
+            "body": "양식에 없는 구역",
+            "bullets": []
+          },
+          {
+            "key": "about",
+            "body": "  어바웃  ",
+            "bullets": []
+          },
+          {
+            "key": "summary",
+            "body": "요약 본문",
+            "bullets": [
+              "요약 1",
+              " "
+            ]
+          }
+        ],
+        "projects": [
+          {
+            "projectId": "p1",
+            "name": "정산 개편",
+            "oneLiner": "정산 배치를\n다시 만들었다",
+            "period": "2024.01 ~ 2024.06",
+            "affiliation": "페이랩",
+            "techStack": [
+              "Kotlin",
+              "a`b",
+              "  "
+            ],
+            "sections": [
+              {
+                "key": "result",
+                "body": "",
+                "bullets": [
+                  "정산 시간 6시간→40분",
+                  " "
+                ]
+              },
+              {
+                "key": "solution",
+                "body": "",
+                "bullets": [
+                  "청크 처리로 바꿈",
+                  "인덱스 추가"
+                ]
+              },
+              {
+                "key": "problem",
+                "body": "하루 정산이 6시간 걸렸다.",
+                "bullets": []
+              },
+              {
+                "key": "Overview",
+                "body": "백엔드 리드",
+                "bullets": []
+              },
+              {
+                "key": "problem",
+                "body": "중복 구역은 버린다",
+                "bullets": []
+              },
+              {
+                "key": "decisions",
+                "body": "",
+                "bullets": [
+                  "배치 → 청크"
+                ]
+              },
+              {
+                "key": "work",
+                "body": "작업",
+                "bullets": [
+                  "a",
+                  "b"
+                ]
+              }
+            ]
+          },
+          {
+            "projectId": "p2",
+            "name": "  ",
+            "oneLiner": "",
+            "period": "",
+            "affiliation": "사내",
+            "techStack": [],
+            "sections": [
+              {
+                "key": "features",
+                "body": "",
+                "bullets": [
+                  "기능"
+                ]
+              }
+            ]
+          }
+        ],
+        "notes": [],
+        "missingInfo": []
+      },
+      "opts": {
+        "title": " GitHub README형 ",
+        "personName": " 홍길동 ",
+        "links": [
+          [
+            "p1",
+            [
+              {
+                "label": "GitHub · u/[pay]",
+                "url": "https://github.com/u/pay"
+              },
+              {
+                "label": "프로젝트 링크",
+                "url": "https://pay.example.com"
+              }
+            ]
+          ],
+          [
+            "p2",
+            [
+              {
+                "label": "데모",
+                "url": "http://demo.example.com"
+              }
+            ]
+          ]
+        ],
+        "templateId": "github-readme"
+      },
+      "markdown": "# GitHub README형\n\n**홍길동**\n\n> 정산을 빠르게 만드는 백엔드 개발자\n\n---\n\n## 1. 정산 개편\n\n**정산 배치를 다시 만들었다**\n\n2024.01 ~ 2024.06 · 페이랩\n\n### 배경·문제\n\n[ADD: 배경·문제 보완 필요]\n\n### 주요 기능\n\n[ADD: 주요 기능 보완 필요]\n\n### 기술 스택\n\n`Kotlin` `ab`\n\n### 아키텍처\n\n[ADD: 아키텍처 보완 필요]\n\n### 트러블슈팅·기술적 의사결정\n\n- 배치 → 청크\n\n### 팀·기여도\n\n[ADD: 팀·기여도 보완 필요]\n\n### 링크\n\n- [GitHub · u/pay](https://github.com/u/pay)\n- [프로젝트 링크](https://pay.example.com)\n\n---\n\n## 2. 프로젝트\n\n사내\n\n### 배경·문제\n\n[ADD: 배경·문제 보완 필요]\n\n### 주요 기능\n\n- 기능\n\n### 아키텍처\n\n[ADD: 아키텍처 보완 필요]\n\n### 트러블슈팅·기술적 의사결정\n\n[ADD: 트러블슈팅·기술적 의사결정 보완 필요]\n\n### 팀·기여도\n\n[ADD: 팀·기여도 보완 필요]\n\n### 링크\n\n- [데모](http://demo.example.com)\n"
+    },
+    {
+      "name": "양식 ml-data",
+      "output": {
+        "headline": "정산을 빠르게 만드는 백엔드 개발자",
+        "coreSkills": [
+          "Kotlin",
+          " Spring ",
+          "",
+          "Postgre\nSQL"
+        ],
+        "sections": [
+          {
+            "key": "retrospective",
+            "body": "운영 안정성에 관심이 많다.",
+            "bullets": []
+          },
+          {
+            "key": "intro",
+            "body": "결제·정산 도메인에서 일했습니다.",
+            "bullets": []
+          },
+          {
+            "key": "made-up",
+            "body": "양식에 없는 구역",
+            "bullets": []
+          },
+          {
+            "key": "about",
+            "body": "  어바웃  ",
+            "bullets": []
+          },
+          {
+            "key": "summary",
+            "body": "요약 본문",
+            "bullets": [
+              "요약 1",
+              " "
+            ]
+          }
+        ],
+        "projects": [
+          {
+            "projectId": "p1",
+            "name": "정산 개편",
+            "oneLiner": "정산 배치를\n다시 만들었다",
+            "period": "2024.01 ~ 2024.06",
+            "affiliation": "페이랩",
+            "techStack": [
+              "Kotlin",
+              "a`b",
+              "  "
+            ],
+            "sections": [
+              {
+                "key": "result",
+                "body": "",
+                "bullets": [
+                  "정산 시간 6시간→40분",
+                  " "
+                ]
+              },
+              {
+                "key": "solution",
+                "body": "",
+                "bullets": [
+                  "청크 처리로 바꿈",
+                  "인덱스 추가"
+                ]
+              },
+              {
+                "key": "problem",
+                "body": "하루 정산이 6시간 걸렸다.",
+                "bullets": []
+              },
+              {
+                "key": "Overview",
+                "body": "백엔드 리드",
+                "bullets": []
+              },
+              {
+                "key": "problem",
+                "body": "중복 구역은 버린다",
+                "bullets": []
+              },
+              {
+                "key": "decisions",
+                "body": "",
+                "bullets": [
+                  "배치 → 청크"
+                ]
+              },
+              {
+                "key": "work",
+                "body": "작업",
+                "bullets": [
+                  "a",
+                  "b"
+                ]
+              }
+            ]
+          },
+          {
+            "projectId": "p2",
+            "name": "  ",
+            "oneLiner": "",
+            "period": "",
+            "affiliation": "사내",
+            "techStack": [],
+            "sections": [
+              {
+                "key": "features",
+                "body": "",
+                "bullets": [
+                  "기능"
+                ]
+              }
+            ]
+          }
+        ],
+        "notes": [],
+        "missingInfo": []
+      },
+      "opts": {
+        "title": " AI·데이터형 ",
+        "personName": " 홍길동 ",
+        "links": [
+          [
+            "p1",
+            [
+              {
+                "label": "GitHub · u/[pay]",
+                "url": "https://github.com/u/pay"
+              },
+              {
+                "label": "프로젝트 링크",
+                "url": "https://pay.example.com"
+              }
+            ]
+          ],
+          [
+            "p2",
+            [
+              {
+                "label": "데모",
+                "url": "http://demo.example.com"
+              }
+            ]
+          ]
+        ],
+        "templateId": "ml-data"
+      },
+      "markdown": "# AI·데이터형\n\n**홍길동**\n\n> 정산을 빠르게 만드는 백엔드 개발자\n\n## 소개\n\n결제·정산 도메인에서 일했습니다.\n\n## 기술 스택\n\nKotlin · Spring · Postgre SQL\n\n---\n\n## 1. 정산 개편\n\n**정산 배치를 다시 만들었다**\n\n2024.01 ~ 2024.06 · 페이랩\n\n### 문제 정의\n\n하루 정산이 6시간 걸렸다.\n\n### 베이스라인\n\n[ADD: 베이스라인 보완 필요]\n\n### 데이터·라벨\n\n[ADD: 데이터·라벨 보완 필요]\n\n### 평가 설계\n\n[ADD: 평가 설계 보완 필요]\n\n### 모델 선택 근거\n\n[ADD: 모델 선택 근거 보완 필요]\n\n### 결과\n\n- 정산 시간 6시간→40분\n\n### 사용 기술\n\n`Kotlin` `ab`\n\n### 링크\n\n- [GitHub · u/pay](https://github.com/u/pay)\n- [프로젝트 링크](https://pay.example.com)\n\n---\n\n## 2. 프로젝트\n\n사내\n\n### 문제 정의\n\n[ADD: 문제 정의 보완 필요]\n\n### 베이스라인\n\n[ADD: 베이스라인 보완 필요]\n\n### 데이터·라벨\n\n[ADD: 데이터·라벨 보완 필요]\n\n### 평가 설계\n\n[ADD: 평가 설계 보완 필요]\n\n### 모델 선택 근거\n\n[ADD: 모델 선택 근거 보완 필요]\n\n### 결과\n\n[ADD: 결과 보완 필요]\n\n### 링크\n\n- [데모](http://demo.example.com)\n"
+    },
+    {
+      "name": "양식 project-pdf — 빈 출력·연락처",
+      "output": {
+        "headline": "",
+        "coreSkills": [],
+        "sections": [],
+        "projects": [
+          {
+            "projectId": "p1",
+            "name": "정산 개편",
+            "oneLiner": "",
+            "period": "",
+            "affiliation": "",
+            "techStack": [],
+            "sections": []
+          }
+        ],
+        "notes": [],
+        "missingInfo": []
+      },
+      "opts": {
+        "title": "",
+        "contactLinks": [
+          {
+            "label": "GitHub · hong",
+            "url": "https://github.com/hong"
+          }
+        ],
+        "templateId": "project-pdf"
+      },
+      "markdown": "# 포트폴리오\n\n## 자기소개\n\n[ADD: 자기소개 보완 필요]\n\n## 목차\n\n1. 정산 개편\n\n---\n\n## 1. 정산 개편\n\n### 개요\n\n[ADD: 개요 보완 필요]\n\n### 문제\n\n[ADD: 문제 보완 필요]\n\n### 해결\n\n[ADD: 해결 보완 필요]\n\n### 결과\n\n[ADD: 결과 보완 필요]\n"
+    },
+    {
+      "name": "양식 notion-web — 빈 출력·연락처",
+      "output": {
+        "headline": "",
+        "coreSkills": [],
+        "sections": [],
+        "projects": [
+          {
+            "projectId": "p1",
+            "name": "정산 개편",
+            "oneLiner": "",
+            "period": "",
+            "affiliation": "",
+            "techStack": [],
+            "sections": []
+          }
+        ],
+        "notes": [],
+        "missingInfo": []
+      },
+      "opts": {
+        "title": "",
+        "contactLinks": [
+          {
+            "label": "GitHub · hong",
+            "url": "https://github.com/hong"
+          }
+        ],
+        "templateId": "notion-web"
+      },
+      "markdown": "# 포트폴리오\n\n## About Me\n\n[ADD: About Me 보완 필요]\n\n---\n\n## 1. 정산 개편\n\n### 요약\n\n[ADD: 요약 보완 필요]\n\n### 역할·기여\n\n[ADD: 역할·기여 보완 필요]\n\n### 주요 작업\n\n[ADD: 주요 작업 보완 필요]\n\n### 성과\n\n[ADD: 성과 보완 필요]\n\n---\n\n## 연락처\n\n- [GitHub · hong](https://github.com/hong)\n- [ADD: 이메일·블로그 주소]\n"
+    },
+    {
+      "name": "양식 career-case — 빈 출력·연락처",
+      "output": {
+        "headline": "",
+        "coreSkills": [],
+        "sections": [],
+        "projects": [
+          {
+            "projectId": "p1",
+            "name": "정산 개편",
+            "oneLiner": "",
+            "period": "",
+            "affiliation": "",
+            "techStack": [],
+            "sections": []
+          }
+        ],
+        "notes": [],
+        "missingInfo": []
+      },
+      "opts": {
+        "title": "",
+        "contactLinks": [
+          {
+            "label": "GitHub · hong",
+            "url": "https://github.com/hong"
+          }
+        ],
+        "templateId": "career-case"
+      },
+      "markdown": "# 포트폴리오\n\n## 요약\n\n[ADD: 요약 보완 필요]\n\n---\n\n## 사례 1. 정산 개편\n\n### 배경\n\n[ADD: 배경 보완 필요]\n\n### 문제\n\n[ADD: 문제 보완 필요]\n\n### 해결\n\n[ADD: 해결 보완 필요]\n\n### 기술 선택 이유\n\n[ADD: 기술 선택 이유 보완 필요]\n\n### 결과\n\n[ADD: 결과 보완 필요]\n"
+    },
+    {
+      "name": "양식 case-study — 빈 출력·연락처",
+      "output": {
+        "headline": "",
+        "coreSkills": [],
+        "sections": [],
+        "projects": [
+          {
+            "projectId": "p1",
+            "name": "정산 개편",
+            "oneLiner": "",
+            "period": "",
+            "affiliation": "",
+            "techStack": [],
+            "sections": []
+          }
+        ],
+        "notes": [],
+        "missingInfo": []
+      },
+      "opts": {
+        "title": "",
+        "contactLinks": [
+          {
+            "label": "GitHub · hong",
+            "url": "https://github.com/hong"
+          }
+        ],
+        "templateId": "case-study"
+      },
+      "markdown": "# 포트폴리오\n\n---\n\n## Case 1. 정산 개편\n\n### Problem · 문제\n\n[ADD: Problem · 문제 보완 필요]\n\n### Role · 역할\n\n[ADD: Role · 역할 보완 필요]\n\n### Approach · 접근\n\n[ADD: Approach · 접근 보완 필요]\n\n### Decisions · 결정과 트레이드오프\n\n[ADD: Decisions · 결정과 트레이드오프 보완 필요]\n\n### Result · 결과\n\n[ADD: Result · 결과 보완 필요]\n"
+    },
+    {
+      "name": "양식 github-readme — 빈 출력·연락처",
+      "output": {
+        "headline": "",
+        "coreSkills": [],
+        "sections": [],
+        "projects": [
+          {
+            "projectId": "p1",
+            "name": "정산 개편",
+            "oneLiner": "",
+            "period": "",
+            "affiliation": "",
+            "techStack": [],
+            "sections": []
+          }
+        ],
+        "notes": [],
+        "missingInfo": []
+      },
+      "opts": {
+        "title": "",
+        "contactLinks": [
+          {
+            "label": "GitHub · hong",
+            "url": "https://github.com/hong"
+          }
+        ],
+        "templateId": "github-readme"
+      },
+      "markdown": "# 포트폴리오\n\n---\n\n## 1. 정산 개편\n\n### 배경·문제\n\n[ADD: 배경·문제 보완 필요]\n\n### 주요 기능\n\n[ADD: 주요 기능 보완 필요]\n\n### 아키텍처\n\n[ADD: 아키텍처 보완 필요]\n\n### 트러블슈팅·기술적 의사결정\n\n[ADD: 트러블슈팅·기술적 의사결정 보완 필요]\n\n### 팀·기여도\n\n[ADD: 팀·기여도 보완 필요]\n"
+    },
+    {
+      "name": "양식 ml-data — 빈 출력·연락처",
+      "output": {
+        "headline": "",
+        "coreSkills": [],
+        "sections": [],
+        "projects": [
+          {
+            "projectId": "p1",
+            "name": "정산 개편",
+            "oneLiner": "",
+            "period": "",
+            "affiliation": "",
+            "techStack": [],
+            "sections": []
+          }
+        ],
+        "notes": [],
+        "missingInfo": []
+      },
+      "opts": {
+        "title": "",
+        "contactLinks": [
+          {
+            "label": "GitHub · hong",
+            "url": "https://github.com/hong"
+          }
+        ],
+        "templateId": "ml-data"
+      },
+      "markdown": "# 포트폴리오\n\n## 소개\n\n[ADD: 소개 보완 필요]\n\n---\n\n## 1. 정산 개편\n\n### 문제 정의\n\n[ADD: 문제 정의 보완 필요]\n\n### 베이스라인\n\n[ADD: 베이스라인 보완 필요]\n\n### 데이터·라벨\n\n[ADD: 데이터·라벨 보완 필요]\n\n### 평가 설계\n\n[ADD: 평가 설계 보완 필요]\n\n### 모델 선택 근거\n\n[ADD: 모델 선택 근거 보완 필요]\n\n### 결과\n\n[ADD: 결과 보완 필요]\n"
+    },
+    {
+      "name": "모르는 양식·링크 없음·이름 공백",
+      "output": {
+        "headline": "정산을 빠르게 만드는 백엔드 개발자",
+        "coreSkills": [
+          "Kotlin",
+          " Spring ",
+          "",
+          "Postgre\nSQL"
+        ],
+        "sections": [
+          {
+            "key": "retrospective",
+            "body": "운영 안정성에 관심이 많다.",
+            "bullets": []
+          },
+          {
+            "key": "intro",
+            "body": "결제·정산 도메인에서 일했습니다.",
+            "bullets": []
+          },
+          {
+            "key": "made-up",
+            "body": "양식에 없는 구역",
+            "bullets": []
+          },
+          {
+            "key": "about",
+            "body": "  어바웃  ",
+            "bullets": []
+          },
+          {
+            "key": "summary",
+            "body": "요약 본문",
+            "bullets": [
+              "요약 1",
+              " "
+            ]
+          }
+        ],
+        "projects": [
+          {
+            "projectId": "p1",
+            "name": "정산 개편",
+            "oneLiner": "정산 배치를\n다시 만들었다",
+            "period": "2024.01 ~ 2024.06",
+            "affiliation": "페이랩",
+            "techStack": [
+              "Kotlin",
+              "a`b",
+              "  "
+            ],
+            "sections": [
+              {
+                "key": "result",
+                "body": "",
+                "bullets": [
+                  "정산 시간 6시간→40분",
+                  " "
+                ]
+              },
+              {
+                "key": "solution",
+                "body": "",
+                "bullets": [
+                  "청크 처리로 바꿈",
+                  "인덱스 추가"
+                ]
+              },
+              {
+                "key": "problem",
+                "body": "하루 정산이 6시간 걸렸다.",
+                "bullets": []
+              },
+              {
+                "key": "Overview",
+                "body": "백엔드 리드",
+                "bullets": []
+              },
+              {
+                "key": "problem",
+                "body": "중복 구역은 버린다",
+                "bullets": []
+              },
+              {
+                "key": "decisions",
+                "body": "",
+                "bullets": [
+                  "배치 → 청크"
+                ]
+              },
+              {
+                "key": "work",
+                "body": "작업",
+                "bullets": [
+                  "a",
+                  "b"
+                ]
+              }
+            ]
+          },
+          {
+            "projectId": "p2",
+            "name": "  ",
+            "oneLiner": "",
+            "period": "",
+            "affiliation": "사내",
+            "techStack": [],
+            "sections": [
+              {
+                "key": "features",
+                "body": "",
+                "bullets": [
+                  "기능"
+                ]
+              }
+            ]
+          }
+        ],
+        "notes": [],
+        "missingInfo": []
+      },
+      "opts": {
+        "title": "제목",
+        "personName": "   ",
+        "templateId": "nope"
+      },
+      "markdown": "# 제목\n\n> 정산을 빠르게 만드는 백엔드 개발자\n\n## 자기소개\n\n결제·정산 도메인에서 일했습니다.\n\n## 기술 스택\n\nKotlin · Spring · Postgre SQL\n\n## 목차\n\n1. 정산 개편\n2. 프로젝트\n\n---\n\n## 1. 정산 개편\n\n**정산 배치를 다시 만들었다**\n\n2024.01 ~ 2024.06 · 페이랩\n\n### 개요\n\n백엔드 리드\n\n### 기술 스택\n\n`Kotlin` `ab`\n\n### 문제\n\n하루 정산이 6시간 걸렸다.\n\n### 해결\n\n- 청크 처리로 바꿈\n- 인덱스 추가\n\n### 결과\n\n- 정산 시간 6시간→40분\n\n---\n\n## 2. 프로젝트\n\n사내\n\n### 개요\n\n[ADD: 개요 보완 필요]\n\n### 문제\n\n[ADD: 문제 보완 필요]\n\n### 해결\n\n[ADD: 해결 보완 필요]\n\n### 결과\n\n[ADD: 결과 보완 필요]\n\n---\n\n## 회고·성장 방향\n\n운영 안정성에 관심이 많다.\n"
+    },
+    {
+      "name": "연락처 GitHub 아님",
+      "output": {
+        "headline": "정산을 빠르게 만드는 백엔드 개발자",
+        "coreSkills": [
+          "Kotlin",
+          " Spring ",
+          "",
+          "Postgre\nSQL"
+        ],
+        "sections": [
+          {
+            "key": "retrospective",
+            "body": "운영 안정성에 관심이 많다.",
+            "bullets": []
+          },
+          {
+            "key": "intro",
+            "body": "결제·정산 도메인에서 일했습니다.",
+            "bullets": []
+          },
+          {
+            "key": "made-up",
+            "body": "양식에 없는 구역",
+            "bullets": []
+          },
+          {
+            "key": "about",
+            "body": "  어바웃  ",
+            "bullets": []
+          },
+          {
+            "key": "summary",
+            "body": "요약 본문",
+            "bullets": [
+              "요약 1",
+              " "
+            ]
+          }
+        ],
+        "projects": [
+          {
+            "projectId": "p1",
+            "name": "정산 개편",
+            "oneLiner": "정산 배치를\n다시 만들었다",
+            "period": "2024.01 ~ 2024.06",
+            "affiliation": "페이랩",
+            "techStack": [
+              "Kotlin",
+              "a`b",
+              "  "
+            ],
+            "sections": [
+              {
+                "key": "result",
+                "body": "",
+                "bullets": [
+                  "정산 시간 6시간→40분",
+                  " "
+                ]
+              },
+              {
+                "key": "solution",
+                "body": "",
+                "bullets": [
+                  "청크 처리로 바꿈",
+                  "인덱스 추가"
+                ]
+              },
+              {
+                "key": "problem",
+                "body": "하루 정산이 6시간 걸렸다.",
+                "bullets": []
+              },
+              {
+                "key": "Overview",
+                "body": "백엔드 리드",
+                "bullets": []
+              },
+              {
+                "key": "problem",
+                "body": "중복 구역은 버린다",
+                "bullets": []
+              },
+              {
+                "key": "decisions",
+                "body": "",
+                "bullets": [
+                  "배치 → 청크"
+                ]
+              },
+              {
+                "key": "work",
+                "body": "작업",
+                "bullets": [
+                  "a",
+                  "b"
+                ]
+              }
+            ]
+          },
+          {
+            "projectId": "p2",
+            "name": "  ",
+            "oneLiner": "",
+            "period": "",
+            "affiliation": "사내",
+            "techStack": [],
+            "sections": [
+              {
+                "key": "features",
+                "body": "",
+                "bullets": [
+                  "기능"
+                ]
+              }
+            ]
+          }
+        ],
+        "notes": [],
+        "missingInfo": []
+      },
+      "opts": {
+        "title": "t",
+        "templateId": "notion-web",
+        "contactLinks": [
+          {
+            "label": "블로그",
+            "url": "https://blog.example.com"
+          }
+        ]
+      },
+      "markdown": "# t\n\n> 정산을 빠르게 만드는 백엔드 개발자\n\n## About Me\n\n어바웃\n\n## 역량\n\nKotlin · Spring · Postgre SQL\n\n---\n\n## 1. 정산 개편\n\n**정산 배치를 다시 만들었다**\n\n2024.01 ~ 2024.06 · 페이랩\n\n### 요약\n\n[ADD: 요약 보완 필요]\n\n### 역할·기여\n\n[ADD: 역할·기여 보완 필요]\n\n### 사용 기술\n\n`Kotlin` `ab`\n\n### 주요 작업\n\n작업\n\n- a\n- b\n\n### 성과\n\n[ADD: 성과 보완 필요]\n\n---\n\n## 2. 프로젝트\n\n사내\n\n### 요약\n\n[ADD: 요약 보완 필요]\n\n### 역할·기여\n\n[ADD: 역할·기여 보완 필요]\n\n### 주요 작업\n\n[ADD: 주요 작업 보완 필요]\n\n### 성과\n\n[ADD: 성과 보완 필요]\n\n---\n\n## 연락처\n\n- [블로그](https://blog.example.com)\n- [ADD: 이메일·GitHub·블로그 주소]\n"
+    }
+  ],
+  "numbers": [
+    {
+      "text": "1,200건 · 40분 · 35%",
+      "source": "1200 40",
+      "result": [
+        "35"
+      ]
+    },
+    {
+      "text": "v2.5.1 그리고 2.5와 1.000,5",
+      "source": "2.5",
+      "result": [
+        "2.5.1",
+        "1.0005"
+      ]
+    },
+    {
+      "text": "숫자 없음",
+      "source": "",
+      "result": []
+    },
+    {
+      "text": "٣ 아랍 숫자와 ３ 전각 숫자, 12",
+      "source": "12",
+      "result": []
+    },
+    {
+      "text": "10 10 20 10",
+      "source": "",
+      "result": [
+        "10",
+        "20"
+      ]
+    }
+  ],
+  "errors": [
+    {
+      "name": "LlmPermanentError refusal",
+      "kind": "permanent",
+      "reason": "refusal",
+      "message": "포트폴리오를 만들지 못했습니다. AI 모델이 응답을 거절했습니다. 이력서·공고 내용을 확인한 뒤 다시 시도해 주세요."
+    },
+    {
+      "name": "LlmPermanentError invalid_output",
+      "kind": "permanent",
+      "reason": "invalid_output",
+      "message": "포트폴리오를 만들지 못했습니다. AI 응답이 정해진 형식과 맞지 않았습니다(재요청 후에도 실패). 다시 시도해 주세요."
+    },
+    {
+      "name": "LlmPermanentError max_tokens",
+      "kind": "permanent",
+      "reason": "max_tokens",
+      "message": "포트폴리오를 만들지 못했습니다. AI 응답이 서버의 출력 길이 한도에서 끊겼습니다(한도를 올려 다시 요청한 뒤에도). 다시 시도해 주세요."
+    },
+    {
+      "name": "LlmPermanentError context_window",
+      "kind": "permanent",
+      "reason": "context_window",
+      "message": "포트폴리오를 만들지 못했습니다. 이력서와 공고를 합친 입력이 AI 모델이 한 번에 읽을 수 있는 양을 넘었습니다. 줄여서 다시 진단해 주세요."
+    },
+    {
+      "name": "LlmPermanentError bad_request",
+      "kind": "permanent",
+      "reason": "bad_request",
+      "message": "포트폴리오를 만들지 못했습니다. AI 서비스가 요청을 받아들이지 않았습니다(입력이 너무 길거나 형식 오류)."
+    },
+    {
+      "name": "LlmPermanentError auth",
+      "kind": "permanent",
+      "reason": "auth",
+      "message": "포트폴리오를 만들지 못했습니다. AI 계정 로그인이 없거나 만료되었습니다. 'AI 연결' 화면에서 다시 로그인한 뒤 재시도해 주세요."
+    },
+    {
+      "name": "LlmPermanentError usage_limit",
+      "kind": "permanent",
+      "reason": "usage_limit",
+      "message": "포트폴리오를 만들지 못했습니다. 연결된 AI 계정의 사용량 한도에 걸렸습니다. 한도가 풀린 뒤 다시 시도해 주세요."
+    },
+    {
+      "name": "LlmPermanentError unavailable",
+      "kind": "permanent",
+      "reason": "unavailable",
+      "message": "포트폴리오를 만들지 못했습니다. 선택한 AI 엔진을 지금 쓸 수 없습니다(CLI 미설치 또는 기능 꺼짐). 'AI 연결' 화면을 확인해 주세요."
+    },
+    {
+      "name": "LlmPermanentError timeout",
+      "kind": "permanent",
+      "reason": "timeout",
+      "message": "포트폴리오를 만들지 못했습니다. AI 응답이 제한 시간 안에 오지 않았습니다. 다시 시도해 주세요."
+    },
+    {
+      "name": "FeatureError",
+      "kind": "feature",
+      "message": "고른 프로젝트 중 내 경험 그래프에 없는 항목이 있습니다."
+    },
+    {
+      "name": "TimeoutError",
+      "kind": "timeout",
+      "message": "포트폴리오를 만드는 데 시간이 너무 오래 걸려 중단했습니다. 프로젝트 수를 줄여 다시 시도해 주세요."
+    },
+    {
+      "name": "기타 오류",
+      "kind": "other",
+      "message": "포트폴리오를 만들지 못했습니다. 잠시 후 다시 시도해 주세요."
+    }
+  ],
+  "addMarkers": [
+    {
+      "text": "# 제목\n- [ADD: 팀 규모]\n- [ADD: 수치 확인 — 3배] 끝",
+      "count": 2
+    },
+    {
+      "text": "[ADD 아님]",
+      "count": 0
+    },
+    {
+      "text": "[ADD:]",
+      "count": 1
+    },
+    {
+      "text": "[ADD: a [ADD: b]]",
+      "count": 1
+    }
+  ],
+  "input": [
+    {
+      "raw": {
+        "projectIds": [
+          "a",
+          " a ",
+          "b"
+        ],
+        "provider": "anthropic"
+      },
+      "parsed": {
+        "projectIds": [
+          "a",
+          "b"
+        ],
+        "templateId": "project-pdf",
+        "provider": "anthropic"
+      }
+    },
+    {
+      "raw": {
+        "projectIds": []
+      },
+      "parsed": null
+    },
+    {
+      "raw": {
+        "projectIds": [
+          "p0",
+          "p1",
+          "p2",
+          "p3",
+          "p4",
+          "p5",
+          "p6",
+          "p7",
+          "p8",
+          "p9",
+          "p10",
+          "p11",
+          "p12"
+        ]
+      },
+      "parsed": null
+    },
+    {
+      "raw": {
+        "projectIds": [
+          "p1"
+        ],
+        "notes": "xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx"
+      },
+      "parsed": null
+    },
+    {
+      "raw": {
+        "projectIds": [
+          "p1"
+        ],
+        "notes": "😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀"
+      },
+      "parsed": {
+        "projectIds": [
+          "p1"
+        ],
+        "notes": "😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀",
+        "templateId": "project-pdf"
+      }
+    },
+    {
+      "raw": {
+        "projectIds": [
+          "p1"
+        ],
+        "notes": "😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀"
+      },
+      "parsed": null
+    },
+    {
+      "raw": {
+        "projectIds": [
+          "p1"
+        ],
+        "templateId": "ml-data",
+        "postingId": " post_a ",
+        "title": "  이름  ",
+        "portfolioId": null,
+        "extra": 1
+      },
+      "parsed": {
+        "projectIds": [
+          "p1"
+        ],
+        "postingId": "post_a",
+        "title": "이름",
+        "templateId": "ml-data",
+        "portfolioId": null
+      }
+    },
+    {
+      "raw": {
+        "projectIds": [
+          "p1"
+        ],
+        "templateId": "fancy"
+      },
+      "parsed": null
+    },
+    {
+      "raw": {
+        "projectIds": [
+          "p1"
+        ],
+        "templateId": null
+      },
+      "parsed": null
+    },
+    {
+      "raw": {
+        "projectIds": [
+          "p1"
+        ],
+        "postingId": ""
+      },
+      "parsed": null
+    },
+    {
+      "raw": {
+        "projectIds": [
+          "p1"
+        ],
+        "postingId": "xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx"
+      },
+      "parsed": null
+    },
+    {
+      "raw": {
+        "projectIds": [
+          "   "
+        ]
+      },
+      "parsed": null
+    },
+    {
+      "raw": {
+        "projectIds": [
+          "p1"
+        ],
+        "title": "ttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttt"
+      },
+      "parsed": null
+    },
+    {
+      "raw": {
+        "projectIds": [
+          "p1"
+        ],
+        "provider": " anthropic ",
+        "notes": "  메모  "
+      },
+      "parsed": {
+        "projectIds": [
+          "p1"
+        ],
+        "notes": "메모",
+        "templateId": "project-pdf",
+        "provider": "anthropic"
+      }
+    },
+    {
+      "raw": {
+        "projectIds": [
+          "p1"
+        ],
+        "provider": null,
+        "postingId": null
+      },
+      "parsed": {
+        "projectIds": [
+          "p1"
+        ],
+        "postingId": null,
+        "templateId": "project-pdf",
+        "provider": null
+      }
+    },
+    {
+      "raw": {
+        "projectIds": [
+          1
+        ]
+      },
+      "parsed": null
+    },
+    {
+      "raw": {
+        "projectIds": "p1"
+      },
+      "parsed": null
+    },
+    {
+      "raw": null,
+      "parsed": null
+    },
+    {
+      "raw": "문자열",
+      "parsed": null
+    },
+    {
+      "raw": [],
+      "parsed": null
+    }
+  ]
+}

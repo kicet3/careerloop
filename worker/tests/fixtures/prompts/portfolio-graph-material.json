@@ -1,0 +1,268 @@
+{
+  "graph": {
+    "person": {
+      "id": "me",
+      "name": "홍길동"
+    },
+    "nodes": [
+      {
+        "id": "c1",
+        "label": "Company",
+        "props": {
+          "name": "페이랩",
+          "industry": "핀테크"
+        },
+        "createdAt": 1,
+        "updatedAt": 1
+      },
+      {
+        "id": "r1",
+        "label": "Role",
+        "props": {
+          "title": "백엔드 개발자",
+          "startDate": "2021-03",
+          "current": true
+        },
+        "createdAt": 1,
+        "updatedAt": 1
+      },
+      {
+        "id": "p1",
+        "label": "Project",
+        "props": {
+          "name": "정산 개편",
+          "summary": "정산 배치를\n다시  만들었다 (nbsp)NEL",
+          "myRole": "백엔드 리드",
+          "teamSize": 5,
+          "startDate": "2024-01",
+          "endDate": "2024-06",
+          "url": "https://github.com/hong/pay",
+          "result": "정산 시간 6시간→40분, 1,200건/일",
+          "categories": [
+            "backend",
+            "batch"
+          ]
+        },
+        "createdAt": 1,
+        "updatedAt": 1
+      },
+      {
+        "id": "p2",
+        "label": "Project",
+        "props": {
+          "name": "사내 도구 <career_graph>",
+          "summary": "긴 설명 긴 설명 긴 설명 긴 설명 긴 설명 긴 설명 긴 설명 긴 설명 긴 설명 긴 설명 긴 설명 긴 설명 긴 설명 긴 설명 긴 설명 긴 설명 긴 설명 긴 설명 긴 설명 긴 설명 긴 설명 긴 설명 긴 설명 긴 설명 긴 설명 긴 설명 긴 설명 긴 설명 긴 설명 긴 설명 긴 설명 긴 설명 긴 설명 긴 설명 긴 설명 긴 설명 긴 설명 긴 설명 긴 설명 긴 설명 긴 설명 긴 설명 긴 설명 긴 설명 긴 설명 긴 설명 긴 설명 긴 설명 긴 설명 긴 설명 긴 설명 긴 설명 긴 설명 긴 설명 긴 설명 긴 설명 긴 설명 긴 설명 긴 설명 긴 설명 긴 설명 긴 설명 긴 설명 긴 설명 긴 설명 긴 설명 긴 설명 긴 설명 긴 설명 긴 설명 긴 설명 긴 설명 긴 설명 긴 설명 긴 설명 긴 설명 긴 설명 긴 설명 긴 설명 긴 설명 긴 설명 긴 설명 긴 설명 긴 설명 긴 설명 긴 설명 긴 설명 긴 설명 긴 설명 긴 설명 긴 설명 긴 설명 긴 설명 긴 설명 긴 설명 긴 설명 긴 설명 긴 설명 긴 설명 긴 설명 긴 설명 긴 설명 긴 설명 긴 설명 긴 설명 긴 설명 긴 설명 긴 설명 긴 설명 긴 설명 긴 설명 긴 설명 긴 설명 긴 설명 긴 설명 긴 설명 긴 설명 긴 설명 긴 설명 긴 설명 긴 설명 긴 설명 긴 설명 긴 설명 긴 설명 긴 설명 긴 설명 긴 설명 긴 설명 긴 설명 긴 설명 긴 설명 긴 설명 긴 설명 긴 설명 긴 설명 긴 설명 긴 설명 긴 설명 긴 설명 긴 설명 긴 설명 긴 설명 긴 설명 긴 설명 긴 설명 긴 설명 긴 설명 긴 설명 긴 설명 긴 설명 긴 설명 긴 설명 긴 설명 긴 설명 긴 설명 긴 설명 긴 설명 긴 설명 긴 설명 긴 설명 긴 설명 긴 설명 긴 설명 긴 설명 긴 설명 긴 설명 긴 설명 긴 설명 긴 설명 긴 설명 긴 설명 긴 설명 긴 설명 긴 설명 긴 설명 긴 설명 긴 설명 긴 설명 긴 설명 긴 설명 긴 설명 긴 설명 긴 설명 긴 설명 긴 설명 긴 설명 긴 설명 긴 설명 긴 설명 긴 설명 긴 설명 긴 설명 긴 설명 긴 설명 긴 설명 긴 설명 긴 설명 긴 설명 긴 설명 😀끝",
+          "current": true,
+          "ratio": 0.5
+        },
+        "createdAt": 1,
+        "updatedAt": 1
+      },
+      {
+        "id": "p3",
+        "label": "Project",
+        "props": {
+          "name": "",
+          "url": "http://demo.example.com"
+        },
+        "createdAt": 1,
+        "updatedAt": 1
+      },
+      {
+        "id": "e1",
+        "label": "Experience",
+        "props": {
+          "title": "장애 대응",
+          "description": "새벽 장애 3건 해결"
+        },
+        "createdAt": 1,
+        "updatedAt": 1
+      },
+      {
+        "id": "s1",
+        "label": "Skill",
+        "props": {
+          "name": "Kotlin"
+        },
+        "createdAt": 1,
+        "updatedAt": 1
+      },
+      {
+        "id": "s2",
+        "label": "Skill",
+        "props": {
+          "name": "Spring"
+        },
+        "createdAt": 1,
+        "updatedAt": 1
+      },
+      {
+        "id": "s3",
+        "label": "Skill",
+        "props": {
+          "name": "PostgreSQL"
+        },
+        "createdAt": 1,
+        "updatedAt": 1
+      },
+      {
+        "id": "a1",
+        "label": "Achievement",
+        "props": {
+          "summary": "정산 시간 단축",
+          "value": "6시간→40분"
+        },
+        "createdAt": 1,
+        "updatedAt": 1
+      },
+      {
+        "id": "a2",
+        "label": "Achievement",
+        "props": {
+          "summary": "장애 0건"
+        },
+        "createdAt": 1,
+        "updatedAt": 1
+      }
+    ],
+    "edges": [
+      {
+        "id": "WORKED_AT:me:c1",
+        "type": "WORKED_AT",
+        "from": "me",
+        "to": "c1"
+      },
+      {
+        "id": "HAD_ROLE:me:r1",
+        "type": "HAD_ROLE",
+        "from": "me",
+        "to": "r1"
+      },
+      {
+        "id": "AT_COMPANY:r1:c1",
+        "type": "AT_COMPANY",
+        "from": "r1",
+        "to": "c1"
+      },
+      {
+        "id": "WORKED_ON:me:p1",
+        "type": "WORKED_ON",
+        "from": "me",
+        "to": "p1"
+      },
+      {
+        "id": "PART_OF:p1:r1",
+        "type": "PART_OF",
+        "from": "p1",
+        "to": "r1"
+      },
+      {
+        "id": "USED_SKILL:p1:s1",
+        "type": "USED_SKILL",
+        "from": "p1",
+        "to": "s1"
+      },
+      {
+        "id": "USED_SKILL:p1:s2",
+        "type": "USED_SKILL",
+        "from": "p1",
+        "to": "s2"
+      },
+      {
+        "id": "ACHIEVED:p1:a1",
+        "type": "ACHIEVED",
+        "from": "p1",
+        "to": "a1"
+      },
+      {
+        "id": "RELATED_TO:e1:p1",
+        "type": "RELATED_TO",
+        "from": "e1",
+        "to": "p1"
+      },
+      {
+        "id": "USED_SKILL:e1:s3",
+        "type": "USED_SKILL",
+        "from": "e1",
+        "to": "s3"
+      },
+      {
+        "id": "ACHIEVED:e1:a2",
+        "type": "ACHIEVED",
+        "from": "e1",
+        "to": "a2"
+      },
+      {
+        "id": "USED_SKILL:p2:s1",
+        "type": "USED_SKILL",
+        "from": "p2",
+        "to": "s1"
+      }
+    ]
+  },
+  "projectText": [
+    {
+      "projectId": "p1",
+      "maxChars": 9000,
+      "text": "프로젝트 [p1] 정산 개편\n속성:\n- summary: 정산 배치를 다시 만들었다 (nbsp)NEL\n- myRole: 백엔드 리드\n- teamSize: 5\n- startDate: 2024-01\n- endDate: 2024-06\n- url: https://github.com/hong/pay\n- result: 정산 시간 6시간→40분, 1,200건/일\n- categories: backend|batch\n주변 그래프:\n## 회사 (Company)\n- [c1] 페이랩 (industry=핀테크)\n## 직무·직함 (Role)\n- [r1] 백엔드 개발자 (startDate=2021-03, current=true)\n## 프로젝트 (Project)\n- [p1] 정산 개편 (summary=정산 배치를 다시 만들었다 (nbsp)NEL, myRole=백엔드 리드, teamSize=5, startDate=2024-01, endDate=2024-06, url=https://github.com/hong/pay, result=정산 시간 6시간→40분, 1,200건/일, categories=backend|batch)\n## 경험 (Experience)\n- [e1] 장애 대응 (description=새벽 장애 3건 해결)\n## 기술·역량 (Skill)\n- [s1] Kotlin\n- [s2] Spring\n- [s3] PostgreSQL\n## 성과 (Achievement)\n- [a1] 정산 시간 단축 (value=6시간→40분)\n- [a2] 장애 0건\n## 관계\n- 나(me) -WORKED_AT(재직)-> 페이랩[c1]\n- 나(me) -HAD_ROLE(직무)-> 백엔드 개발자[r1]\n- 백엔드 개발자[r1] -AT_COMPANY(소속 회사)-> 페이랩[c1]\n- 나(me) -WORKED_ON(프로젝트 수행)-> 정산 개편[p1]\n- 정산 개편[p1] -PART_OF(소속)-> 백엔드 개발자[r1]\n- 정산 개편[p1] -USED_SKILL(사용 기술)-> Kotlin[s1]\n- 정산 개편[p1] -USED_SKILL(사용 기술)-> Spring[s2]\n- 정산 개편[p1] -ACHIEVED(성과)-> 정산 시간 단축[a1]\n- 장애 대응[e1] -RELATED_TO(관련)-> 정산 개편[p1]\n- 장애 대응[e1] -USED_SKILL(사용 기술)-> PostgreSQL[s3]\n- 장애 대응[e1] -ACHIEVED(성과)-> 장애 0건[a2]"
+    },
+    {
+      "projectId": "p1",
+      "maxChars": 1200,
+      "text": "프로젝트 [p1] 정산 개편\n속성:\n- summary: 정산 배치를 다시 만들었다 (nbsp)NEL\n- myRole: 백엔드 리드\n- teamSize: 5\n- startDate: 2024-01\n- endDate: 2024-06\n- url: https://github.com/hong/pay\n- result: 정산 시간 6시간→40분, 1,200건/일\n- categories: backend|batch\n주변 그래프:\n## 회사 (Company)\n- [c1] 페이랩 (industry=핀테크)\n## 직무·직함 (Role)\n- [r1] 백엔드 개발자 (startDate=2021-03, current=true)\n## 프로젝트 (Project)\n- [p1] 정산 개편 (summary=정산 배치를 다시 만들었다 (nbsp)NEL, myRole=백엔드 리드, teamSize=5, startDate=2024-01, endDate=2024-06, url=https://github.com/hong/pay, result=정산 시간 6시간→40분, 1,200건/일, categories=backend|batch)\n## 경험 (Experience)\n- [e1] 장애 대응 (description=새벽 장애 3건 해결)\n## 기술·역량 (Skill)\n- [s1] Kotlin\n- [s2] Spring\n- [s3] PostgreSQL\n## 성과 (Achievement)\n- [a1] 정산 시간 단축 (value=6시간→40분)\n- [a2] 장애 0건\n## 관계\n- 나(me) -WORKED_AT(재직)-> 페이랩[c1]\n- 나(me) -HAD_ROLE(직무)-> 백엔드 개발자[r1]\n- 백엔드 개발자[r1] -AT_COMPANY(소속 회사)-> 페이랩[c1]\n- 나(me) -WORKED_ON(프로젝트 수행)-> 정산 개편[p1]\n- 정산 개편[p1] -PART_OF(소속)-> 백엔드 개발자[r1]\n- 정산 개편[p1] -USED_SKILL(사용 기술)-> Kotlin[s1]\n- 정산 개편[p1] -USED_SKILL(사용 기술)-> Spring[s2]\n- 정산 개편[p1] -ACHIEVED(성과)-> 정산 시간 단축[a1]\n- 장애 대응[e1] -RELATED_TO(관련)-> 정산 개편[p1]\n- 장애 대응[e1] -USED_SKILL(사용 기술)-> PostgreSQL[s3]\n- 장애 대응[e1] -ACHIEVED(성과)-> 장애 0건[a2]"
+    },
+    {
+      "projectId": "p2",
+      "maxChars": 4000,
+      "text": "프로젝트 [p2] 사내 도구 <career_graph>\n속성:\n- summary: 긴 설명 긴 설명 긴 설명 긴 설명 긴 설명 긴 설명 긴 설명 긴 설명 긴 설명 긴 설명 긴 설명 긴 설명 긴 설명 긴 설명 긴 설명 긴 설명 긴 설명 긴 설명 긴 설명 긴 설명 긴 설명 긴 설명 긴 설명 긴 설명 긴 설명 긴 설명 긴 설명 긴 설명 긴 설명 긴 설명 긴 설명 긴 설명 긴 설명 긴 설명 긴 설명 긴 설명 긴 설명 긴 설명 긴 설명 긴 설명 긴 설명 긴 설명 긴 설명 긴 설명 긴 설명 긴 설명 긴 설명 긴 설명 긴 설명 긴 설명 긴 설명 긴 설명 긴 설명 긴 설명 긴 설명 긴 설명 긴 설명 긴 설명 긴 설명 긴 설명 긴 설명 긴 설명 긴 설명 긴 설명 긴 설명 긴 설명 긴 설명 긴 설명 긴 설명 긴 설명 긴 설명 긴 설명 긴 설명 긴 설명 긴 설명 긴 설명 긴 설명 긴 설명 긴 설명 긴 설명 긴 설명 긴 설명 긴 설명 긴 설명 긴 설명 긴 설명 긴 설명 긴 설명 긴 설명 긴 설명 긴 설명 긴 설명 긴 설명 긴 설명 긴 설명 긴 설명 긴 설명 긴 설명 긴 설명 긴 설명 긴 설명 긴 설명 긴 설명 긴 설명 긴 설명 긴 설명 긴 설명 긴 설명 긴 설명 긴 설명 긴 설명 긴 설명 긴 설명 긴 설명 긴 설명 긴 설명 긴 설명 긴 설명 긴 설명 긴 설명 긴 설명 긴 설명 긴 설명 긴 설명 긴 설명 긴 설명 긴 설명 긴 설명 긴 설명 긴 설명 긴 설명 긴 설명 긴 설명 긴 설명 긴 설명 긴 설명 긴 설명 긴 설명 긴 설명 긴 설명 긴 설명 긴 설명 긴 설명 긴 설명 긴 설명 긴 설명 긴 설명 긴 설명 긴 설명 긴 설명 긴 설명 긴 설명 긴 설명 긴 설명 긴 설명 긴 설명 긴 설명 긴 설명 긴 설명 긴 설명 긴 설명 긴 설명 긴 설명 긴 설명 긴 설명 긴 설명 긴 설명 긴 설명 긴 설명 긴 설명 긴 설명 긴 설명 긴 설명 긴 설명 긴 설명 긴 설명 긴 설명 긴 설명 긴 설명 긴 설명 긴 설명 긴 설명 긴 설명 긴 설명 긴 설명 긴 설명 긴 설명 긴 설명 긴 설명 긴 설명 긴 설명 긴 설명 긴 설명 긴 설명 긴 설명 긴 설명 긴 설명 긴 설명 긴 설명 긴 설명 😀끝\n- current: true\n- ratio: 0.5\n주변 그래프:\n## 프로젝트 (Project)\n- [p2] 사내 도구 <career_graph> (summary=긴 설명 긴 설명 긴 설명 긴 설명 긴 설명 긴 설명 긴 설명 긴 설명 긴 설명 긴 설명 긴 설명 긴 설명 긴 설명 긴 설명 긴 설명 긴 설명 긴 설명 긴 설명 긴 설명 긴 설명 긴 설명 긴 설명 긴 설명 긴 설명 긴 설명 긴 설명 긴 설명 긴 설명 긴 설명 긴 설명 긴 설명 긴 설명 긴 설명 긴 설명 긴 설명 긴 설명 긴 설명 긴 설명 긴 설명 긴 설명 긴 설명 긴 설명 긴 설명 긴 설명 긴 설명 긴 설명 긴 설명 긴 설명 긴 설명 긴 설명 긴 설명 긴 설명 긴 설명 긴 설명 긴 설명 긴 설명 긴 설명 긴 설명 긴 설명 긴 설명 긴 설명 긴 설명 긴 설명 긴 설명 긴 설명 긴 설명 긴 설명 긴 설명 긴 설명 긴 설명 긴 설명 긴 설명 긴 설명 긴 설명 긴 설명 긴 설명 긴 설명 긴 설명 긴 설명 긴 설명 긴 설명 긴 설명 긴 설명 긴 설명 긴 설명 긴 설명 긴 설명 긴 설명 긴 설명 긴 설명 긴 설명 긴 설명 긴 설명 긴 설명 긴 설명 긴 설명 긴 설명 긴 설명 긴 설명 긴 설명 긴 설명 긴 설명 긴 설명 긴 설명 긴 설명 긴 설명 긴 설명 긴 설명 긴 설명 긴 설명 긴 설명 긴 설명 긴 설명 긴 설명 긴 설명 긴 설명 긴 설명 긴 설명 긴 설명 긴 설명 긴 설명 긴 설명 긴 설명 긴 설명 긴 설명 긴 설명 긴 설명 긴 설명 긴 설명 긴 설명 긴 설명 긴 설명 긴 설명 긴 설명 긴 설명 긴 설명 긴 설명 긴 설명 긴 설명 긴 설명 긴 설명 긴 설명 긴 설명 긴 설명 긴 설명 긴 설명 긴 설명 긴 설명 긴 설명 긴 설명 긴 설명 긴 설명 긴 설명 긴 설명 긴 설명 긴 설명 긴 설명 긴 설명 긴 설명 긴 설명 긴 설명 긴 설명 긴 설명 긴 설명 긴 설명 긴 설명 긴 설명 긴 설명 긴 설명 긴 설명 긴 설명 긴 설명 긴 설명 긴 설명 긴 설명 긴 설명 긴 설명 긴 설명 긴 설명 긴 설명 긴 설명 긴 설명 긴 설명 긴 설명 긴 설명 긴 설명 긴 설명 긴 설명 긴 설명 긴 설명 긴 설명 긴 설명 긴 설명 긴 설명 긴 설명 긴 설명 긴 설명 긴 설명 긴 설명 긴 설명 …(잘림), current=true, ratio=0.5)\n## 기술·역량 (Skill)\n- [s1] Kotlin\n## 관계\n- 사내 도구 <career_graph>[p2] -USED_SKILL(사용 기술)-> Kotlin[s1]"
+    },
+    {
+      "projectId": "p2",
+      "maxChars": 1000,
+      "text": "프로젝트 [p2] 사내 도구 <career_graph>\n속성:\n- summary: 긴 설명 긴 설명 긴 설명 긴 설명 긴 설명 긴 설명 긴 설명 긴 설명 긴 설명 긴 설명 긴 설명 긴 설명 긴 설명 긴 설명 긴 설명 긴 설명 긴 설명 긴 설명 긴 설명 긴 설명 긴 설명 긴 설명 긴 설명 긴 설명 긴 설명 긴 설명 긴 설명 긴 설명 긴 설명 긴 설명 긴 설명 긴 설명 긴 설명 긴 설명 긴 설명 긴 설명 긴 설명 긴 설명 긴 설명 긴 설명 긴 설명 긴 설명 긴 설명 긴 설명 긴 설명 긴 설명 긴 설명 긴 설명 긴 설명 긴 설명 긴 설명 긴 설명 긴 설명 긴 설명 긴 설명 긴 설명 긴 설명 긴 설명 긴 설명 긴 설명 긴 설명 긴 설명 긴 설명 긴 설명 긴 설명 긴 설명 긴 설명 긴 설명 긴 설명 긴 설명 긴 설명 긴 설명 긴 설명 긴 설명 긴 설명 긴 설명 긴 설명 긴 설명 긴 설명 긴 설명 긴 설명 긴 설명 긴 설명 긴 설명 긴 설명 긴 설명 긴 설명 긴 설명 긴 설명 긴 설명 긴 설명 긴 설명 긴 설명 긴 설명 긴 설명 긴 설명 긴 설명 긴 설명 긴 설명 긴 설명 긴 설명 긴 설명 긴 설명 긴 설명 긴 설명 긴 설명 긴 설명 긴 설명 긴 설명 긴 설명 긴 설명 긴 설명 긴 설명 긴 설명 긴 설명 긴 설명 긴 설명 긴 설명 긴 설명 긴 설명 긴 설명 긴 설명 긴 설명 긴 설명 긴 설명 긴 설명 긴 설명 긴 설명 긴 설명 긴 설명 긴 설명 긴 설명 긴 설명 긴 설명 긴 설명 긴 설명 긴 설명 긴 설명 긴 설명 긴 설명 긴 설명 긴 설명 긴 설명 긴 설명 긴 설명 긴 설명 긴 설명 긴 설명 긴 설명 긴 설명 긴 설명 긴 설명 긴 설명 긴 설명 긴 설명 긴 설명 긴 설명 긴 설명 긴 설명 긴 설명 긴 설명 긴 설명 긴 설명 긴 설명 긴 설명 긴 설명 긴 설명 긴 설명 긴 설명 긴 설명 긴 설명 긴 설명 긴 설명 긴 설명 긴 설명 긴 설명 긴 설명 긴 설명 긴 설명 긴 설명 긴 설명 긴 설명 긴 설명 긴 설명 긴 설명 긴 설명 긴 설명 긴 설명 긴 설명 긴 설명 긴 설명 긴 설명 긴 설명 긴 설명 긴 설명 긴 설명 긴 설명 긴 설명 긴 설명 긴 설명 😀끝\n- current: true\n- ratio: 0.5\n주변 그래프:\n## 프로젝트 (Project)\n- [p2] 사내 도구 <career_graph> (summary=긴 설명 긴 설명 긴 설명 긴 설명 긴 설명 긴 설명 긴 설명 긴 설명 긴 설명 긴 설명 긴 설명 긴 설명 긴 설명 긴 설명 긴 설명 긴 설명 긴 설명 긴 설명 긴 설명 긴 설명 긴 설명 긴 설명 긴 설명 긴 설명 긴 설명 긴 설명 긴 설명 긴 설명 긴 설명 긴 설명 긴 설명 긴 설명 긴 설명 긴 설명 긴 설명 긴 설명 긴 설명 긴 설명 긴 설명 긴 설명 긴 설명 긴 설명 긴 설명 긴 설명 긴 설명 긴 설명 긴 설명 긴 설명 긴 설명 긴 설명 긴 설명 긴 설명 긴 설명 긴 설명 긴 설명 긴 설명 긴 설명 긴 설명 긴 설명 긴 설명 긴 설명 긴 설명 긴 설명 긴 설명 긴 설명 긴 설명 긴 설명 긴 설명 긴 설명 긴 설명 긴 설명 긴 설명 긴 설명 긴 설명 긴 설명 긴 설명 긴 설명 긴 설명 긴 설명 긴 설명 …(잘림), current=true, ratio=0.5)\n## 기술·역량 (Skill)\n- [s1] Kotlin\n## 관계\n- 사내 도구 <career_graph>[p2] -USED_SKILL(사용 기술)-> Kotlin[s1]"
+    },
+    {
+      "projectId": "p3",
+      "maxChars": 9000,
+      "text": "프로젝트 [p3] 프로젝트\n속성:\n- url: http://demo.example.com\n주변 그래프:\n## 프로젝트 (Project)\n- [p3] 프로젝트 (url=http://demo.example.com)"
+    }
+  ],
+  "perProject": [
+    {
+      "count": 1,
+      "chars": 9000
+    },
+    {
+      "count": 2,
+      "chars": 9000
+    },
+    {
+      "count": 3,
+      "chars": 9000
+    },
+    {
+      "count": 5,
+      "chars": 9000
+    },
+    {
+      "count": 6,
+      "chars": 8000
+    },
+    {
+      "count": 12,
+      "chars": 4000
+    },
+    {
+      "count": 16,
+      "chars": 3000
+    },
+    {
+      "count": 17,
+      "chars": 3000
+    },
+    {
+      "count": 100,
+      "chars": 3000
+    }
+  ]
+}

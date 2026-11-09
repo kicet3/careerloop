@@ -1,0 +1,153 @@
+{
+  "type": "object",
+  "properties": {
+    "headline": {
+      "type": "string",
+      "description": "포트폴리오 첫머리 한 줄(어떤 문제를 어떻게 푸는 사람인지)"
+    },
+    "coreSkills": {
+      "maxItems": 15,
+      "type": "array",
+      "items": {
+        "type": "string"
+      },
+      "description": "대표 기술(자료에 있는 것만)"
+    },
+    "sections": {
+      "maxItems": 10,
+      "type": "array",
+      "items": {
+        "type": "object",
+        "properties": {
+          "key": {
+            "type": "string",
+            "description": "양식의 구역 key(지침에 적힌 영문 key 그대로)"
+          },
+          "body": {
+            "type": "string",
+            "description": "문단(없으면 빈 문자열)"
+          },
+          "bullets": {
+            "maxItems": 10,
+            "type": "array",
+            "items": {
+              "type": "string"
+            },
+            "description": "목록 항목 한 줄씩(없으면 빈 배열)"
+          }
+        },
+        "required": [
+          "key",
+          "body",
+          "bullets"
+        ],
+        "additionalProperties": false
+      },
+      "description": "양식의 최상위 구역(프로젝트 앞·뒤, 지침 순서대로)"
+    },
+    "projects": {
+      "maxItems": 12,
+      "type": "array",
+      "items": {
+        "type": "object",
+        "properties": {
+          "projectId": {
+            "type": "string",
+            "description": "자료의 프로젝트 id([p1] 같은 대괄호 안 값) 그대로"
+          },
+          "name": {
+            "type": "string",
+            "description": "프로젝트 이름(자료 그대로)"
+          },
+          "oneLiner": {
+            "type": "string",
+            "description": "한 줄 소개(무엇을 왜 만들었는지)"
+          },
+          "period": {
+            "type": "string",
+            "description": "기간 'YYYY.MM ~ YYYY.MM'(자료에 없으면 빈 문자열)"
+          },
+          "affiliation": {
+            "type": "string",
+            "description": "소속(회사·팀·동아리 등, 자료에 없으면 빈 문자열)"
+          },
+          "techStack": {
+            "maxItems": 20,
+            "type": "array",
+            "items": {
+              "type": "string"
+            },
+            "description": "사용 기술 이름(자료에 있는 것만)"
+          },
+          "sections": {
+            "maxItems": 14,
+            "type": "array",
+            "items": {
+              "type": "object",
+              "properties": {
+                "key": {
+                  "type": "string",
+                  "description": "양식의 구역 key(지침에 적힌 영문 key 그대로)"
+                },
+                "body": {
+                  "type": "string",
+                  "description": "문단(없으면 빈 문자열)"
+                },
+                "bullets": {
+                  "maxItems": 10,
+                  "type": "array",
+                  "items": {
+                    "type": "string"
+                  },
+                  "description": "목록 항목 한 줄씩(없으면 빈 배열)"
+                }
+              },
+              "required": [
+                "key",
+                "body",
+                "bullets"
+              ],
+              "additionalProperties": false
+            },
+            "description": "양식의 프로젝트 구역(지침 순서대로)"
+          }
+        },
+        "required": [
+          "projectId",
+          "name",
+          "oneLiner",
+          "period",
+          "affiliation",
+          "techStack",
+          "sections"
+        ],
+        "additionalProperties": false
+      }
+    },
+    "notes": {
+      "maxItems": 10,
+      "type": "array",
+      "items": {
+        "type": "string"
+      },
+      "description": "작성하며 내린 판단(무엇을 강조·생략했는지)"
+    },
+    "missingInfo": {
+      "maxItems": 20,
+      "type": "array",
+      "items": {
+        "type": "string"
+      },
+      "description": "사용자가 채우면 좋은 정보(질문 형태). 본문에는 [ADD: ...]로 남긴다"
+    }
+  },
+  "required": [
+    "headline",
+    "coreSkills",
+    "sections",
+    "projects",
+    "notes",
+    "missingInfo"
+  ],
+  "additionalProperties": false
+}

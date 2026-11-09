@@ -1,0 +1,465 @@
+{
+  "type": "object",
+  "properties": {
+    "document": {
+      "type": "object",
+      "properties": {
+        "basics": {
+          "type": "object",
+          "properties": {
+            "name": {
+              "type": "string",
+              "maxLength": 80
+            },
+            "headline": {
+              "type": "string",
+              "maxLength": 160,
+              "description": "지원 직무만 짧게(예: 백엔드 개발자). 문장형 소개는 tagline에"
+            },
+            "tagline": {
+              "type": "string",
+              "maxLength": 200,
+              "description": "한 줄 소개: 경력 근거로 쓴 한 문장(예: 결제 시스템 지연을 줄여 온 5년 차 백엔드 개발자). 없으면 빈 문자열"
+            },
+            "totalExperience": {
+              "type": "string",
+              "maxLength": 40,
+              "description": "총 경력(예: \"5년 3개월\"). 자료로 계산할 수 없으면 빈 문자열"
+            },
+            "email": {
+              "type": "string",
+              "maxLength": 160
+            },
+            "phone": {
+              "type": "string",
+              "maxLength": 40
+            },
+            "location": {
+              "type": "string",
+              "maxLength": 80
+            },
+            "portfolioUrl": {
+              "type": "string",
+              "maxLength": 500,
+              "description": "포트폴리오 또는 업무 자료 URL. 자료에 없으면 빈 문자열"
+            },
+            "links": {
+              "maxItems": 6,
+              "type": "array",
+              "items": {
+                "type": "object",
+                "properties": {
+                  "label": {
+                    "type": "string",
+                    "maxLength": 40
+                  },
+                  "url": {
+                    "type": "string",
+                    "maxLength": 500
+                  }
+                },
+                "required": [
+                  "label",
+                  "url"
+                ],
+                "additionalProperties": false
+              }
+            }
+          },
+          "required": [
+            "name",
+            "headline",
+            "tagline",
+            "totalExperience",
+            "email",
+            "phone",
+            "location",
+            "portfolioUrl",
+            "links"
+          ],
+          "additionalProperties": false
+        },
+        "summary": {
+          "type": "string",
+          "maxLength": 1500,
+          "description": "직무 요약. 성과 중심 양식은 줄바꿈으로 나눈 2문장"
+        },
+        "headings": {
+          "type": "object",
+          "properties": {
+            "highlights": {
+              "type": "string",
+              "maxLength": 30
+            },
+            "experience": {
+              "type": "string",
+              "maxLength": 30
+            },
+            "projects": {
+              "type": "string",
+              "maxLength": 30
+            },
+            "skills": {
+              "type": "string",
+              "maxLength": 30
+            },
+            "education": {
+              "type": "string",
+              "maxLength": 30
+            }
+          },
+          "required": [
+            "highlights",
+            "experience",
+            "projects",
+            "skills",
+            "education"
+          ],
+          "additionalProperties": false,
+          "description": "섹션 제목 바꾸기. 기본 제목을 쓰면 빈 문자열"
+        },
+        "highlights": {
+          "maxItems": 8,
+          "type": "array",
+          "items": {
+            "type": "object",
+            "properties": {
+              "title": {
+                "type": "string",
+                "maxLength": 200,
+                "description": "핵심 성과 한 줄: 지표 기준값 → 개선값 · 개선 폭"
+              },
+              "context": {
+                "type": "string",
+                "maxLength": 300,
+                "description": "근거: 측정 기간·대상 / 본인이 한 핵심 행동"
+              }
+            },
+            "required": [
+              "title",
+              "context"
+            ],
+            "additionalProperties": false
+          }
+        },
+        "experience": {
+          "maxItems": 20,
+          "type": "array",
+          "items": {
+            "type": "object",
+            "properties": {
+              "company": {
+                "type": "string",
+                "maxLength": 120
+              },
+              "department": {
+                "type": "string",
+                "maxLength": 120,
+                "description": "부서·조직"
+              },
+              "title": {
+                "type": "string",
+                "maxLength": 120,
+                "description": "직무·직급"
+              },
+              "startDate": {
+                "type": "string",
+                "maxLength": 20,
+                "description": "YYYY.MM 형식 권장"
+              },
+              "endDate": {
+                "type": "string",
+                "maxLength": 20,
+                "description": "YYYY.MM, 재직 중이면 \"현재\""
+              },
+              "location": {
+                "type": "string",
+                "maxLength": 80
+              },
+              "scope": {
+                "type": "string",
+                "maxLength": 600,
+                "description": "담당 범위·주요 책임 한 문장"
+              },
+              "bullets": {
+                "maxItems": 15,
+                "type": "array",
+                "items": {
+                  "type": "string",
+                  "maxLength": 500
+                },
+                "description": "대표 기여(직접 결정·실행한 일과 검증된 결과)"
+              }
+            },
+            "required": [
+              "company",
+              "department",
+              "title",
+              "startDate",
+              "endDate",
+              "location",
+              "scope",
+              "bullets"
+            ],
+            "additionalProperties": false
+          }
+        },
+        "projects": {
+          "maxItems": 20,
+          "type": "array",
+          "items": {
+            "type": "object",
+            "properties": {
+              "name": {
+                "type": "string",
+                "maxLength": 120
+              },
+              "company": {
+                "type": "string",
+                "maxLength": 120,
+                "description": "프로젝트를 한 회사·활동명"
+              },
+              "team": {
+                "type": "string",
+                "maxLength": 120,
+                "description": "팀 구성(예: 백엔드 3·디자인 1)"
+              },
+              "role": {
+                "type": "string",
+                "maxLength": 120,
+                "description": "내 역할: 결정·실행 범위"
+              },
+              "startDate": {
+                "type": "string",
+                "maxLength": 20
+              },
+              "endDate": {
+                "type": "string",
+                "maxLength": 20
+              },
+              "summary": {
+                "type": "string",
+                "maxLength": 600
+              },
+              "problem": {
+                "type": "string",
+                "maxLength": 500,
+                "description": "문제: 어떤 자료로 어떤 원인·상황을 확인했는지"
+              },
+              "action": {
+                "type": "string",
+                "maxLength": 500,
+                "description": "행동: 본인의 판단·실행·협업"
+              },
+              "result": {
+                "type": "string",
+                "maxLength": 500,
+                "description": "결과: 기간·대상과 지표 전후 변화 또는 검증 결과"
+              },
+              "evidence": {
+                "type": "string",
+                "maxLength": 300,
+                "description": "근거: 측정 자료명 또는 공개 가능한 링크"
+              },
+              "bullets": {
+                "maxItems": 15,
+                "type": "array",
+                "items": {
+                  "type": "string",
+                  "maxLength": 500
+                }
+              },
+              "techs": {
+                "maxItems": 20,
+                "type": "array",
+                "items": {
+                  "type": "string",
+                  "maxLength": 60
+                }
+              }
+            },
+            "required": [
+              "name",
+              "company",
+              "team",
+              "role",
+              "startDate",
+              "endDate",
+              "summary",
+              "problem",
+              "action",
+              "result",
+              "evidence",
+              "bullets",
+              "techs"
+            ],
+            "additionalProperties": false
+          }
+        },
+        "skills": {
+          "maxItems": 10,
+          "type": "array",
+          "items": {
+            "type": "object",
+            "properties": {
+              "category": {
+                "type": "string",
+                "maxLength": 60,
+                "description": "역량·분류(예: 데이터 분석, 백엔드)"
+              },
+              "detail": {
+                "type": "string",
+                "maxLength": 300,
+                "description": "실제로 할 수 있는 일과 적용 경험 한 줄"
+              },
+              "items": {
+                "maxItems": 30,
+                "type": "array",
+                "items": {
+                  "type": "string",
+                  "maxLength": 60
+                }
+              }
+            },
+            "required": [
+              "category",
+              "detail",
+              "items"
+            ],
+            "additionalProperties": false
+          }
+        },
+        "education": {
+          "maxItems": 10,
+          "type": "array",
+          "items": {
+            "type": "object",
+            "properties": {
+              "school": {
+                "type": "string",
+                "maxLength": 120
+              },
+              "degree": {
+                "type": "string",
+                "maxLength": 60
+              },
+              "major": {
+                "type": "string",
+                "maxLength": 120
+              },
+              "startDate": {
+                "type": "string",
+                "maxLength": 20
+              },
+              "endDate": {
+                "type": "string",
+                "maxLength": 20
+              },
+              "note": {
+                "type": "string",
+                "maxLength": 300
+              }
+            },
+            "required": [
+              "school",
+              "degree",
+              "major",
+              "startDate",
+              "endDate",
+              "note"
+            ],
+            "additionalProperties": false
+          }
+        },
+        "certifications": {
+          "maxItems": 20,
+          "type": "array",
+          "items": {
+            "type": "object",
+            "properties": {
+              "name": {
+                "type": "string",
+                "maxLength": 120
+              },
+              "issuer": {
+                "type": "string",
+                "maxLength": 120
+              },
+              "date": {
+                "type": "string",
+                "maxLength": 20
+              }
+            },
+            "required": [
+              "name",
+              "issuer",
+              "date"
+            ],
+            "additionalProperties": false
+          }
+        },
+        "extras": {
+          "maxItems": 8,
+          "type": "array",
+          "items": {
+            "type": "object",
+            "properties": {
+              "title": {
+                "type": "string",
+                "maxLength": 80
+              },
+              "items": {
+                "maxItems": 15,
+                "type": "array",
+                "items": {
+                  "type": "string",
+                  "maxLength": 300
+                }
+              }
+            },
+            "required": [
+              "title",
+              "items"
+            ],
+            "additionalProperties": false
+          }
+        }
+      },
+      "required": [
+        "basics",
+        "summary",
+        "headings",
+        "highlights",
+        "experience",
+        "projects",
+        "skills",
+        "education",
+        "certifications",
+        "extras"
+      ],
+      "additionalProperties": false
+    },
+    "notes": {
+      "maxItems": 10,
+      "type": "array",
+      "items": {
+        "type": "string"
+      },
+      "description": "초안을 쓰며 내린 판단·가정(한국어)"
+    },
+    "missingInfo": {
+      "maxItems": 10,
+      "type": "array",
+      "items": {
+        "type": "string"
+      },
+      "description": "채워야 할 정보에 대한 질문. 본문에는 [ADD: ...]로 남긴다"
+    }
+  },
+  "required": [
+    "document",
+    "notes",
+    "missingInfo"
+  ],
+  "additionalProperties": false
+}

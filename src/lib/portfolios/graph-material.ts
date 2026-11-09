@@ -158,7 +158,13 @@ export interface PortfolioMaterial {
   posting: { company: string; roleTitle: string; jdText: string } | null;
 }
 
-function projectText(graph: CareerGraph, projectId: string, maxChars: number): string {
+/** 프로젝트 하나에 주는 자료 글자 수(전체 상한을 프로젝트 수로 나눈다). */
+export function perProjectMaxChars(count: number): number {
+  return Math.max(PER_PROJECT_MIN, Math.min(PER_PROJECT_MAX, Math.floor(MATERIAL_MAX_CHARS / count)));
+}
+
+/** 프롬프트에 넣는 프로젝트 하나의 자료(속성 원문 + 주변 그래프). Python 워커(worker/app/jobs/portfolio_graph_material.py)와 글자까지 같아야 한다. */
+export function projectText(graph: CareerGraph, projectId: string, maxChars: number): string {
   const project = graph.nodes.find((n) => n.id === projectId)!;
   const titleKey = NODE_TITLE_KEY.Project;
   const own = Object.entries(propsOf(project))
@@ -180,7 +186,7 @@ export async function loadPortfolioMaterial(
 ): Promise<PortfolioMaterial> {
   const graph = await loadOwnGraph(user);
   assertProjectsInGraph(graph, input.projectIds);
-  const per = Math.max(PER_PROJECT_MIN, Math.min(PER_PROJECT_MAX, Math.floor(MATERIAL_MAX_CHARS / input.projectIds.length)));
+  const per = perProjectMaxChars(input.projectIds.length);
   const projects = input.projectIds.map((id) => {
     const node = graph.nodes.find((n) => n.id === id)!;
     return { id, name: nodeDisplayName(node), text: projectText(graph, id, per) };
@@ -218,7 +224,8 @@ export async function loadPortfolioMaterial(
 // AI 작성
 // ---------------------------------------------------------------------------
 
-const BASE_RULES = [
+/** 시스템 프롬프트의 기본 규칙. Python 워커는 graph-worker-fixtures.test.ts가 뽑은 JSON으로 같은 문구를 읽는다. */
+export const BASE_RULES = [
   "너는 한국 채용 시장을 잘 아는 포트폴리오 작성 코치다. 지원자의 경험 그래프(프로젝트와 주변 노드) 자료만으로, 아래 '포트폴리오 양식'의 구역 순서·지침에 맞춰 포트폴리오를 구조화된 형식으로 쓴다.",
   "",
   "사실 규칙(양식보다 우선한다):",
