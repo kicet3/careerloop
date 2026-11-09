@@ -132,7 +132,7 @@
               "context": {
                 "type": "string",
                 "maxLength": 300,
-                "description": "근거: 측정 기간·대상 / 본인이 한 핵심 행동"
+                "description": "측정 기간·대상 / 본인이 한 핵심 행동"
               }
             },
             "required": [
@@ -259,7 +259,7 @@
               "evidence": {
                 "type": "string",
                 "maxLength": 300,
-                "description": "근거: 측정 자료명 또는 공개 가능한 링크"
+                "description": "쓰지 않는 칸(예전 문서 호환용). 항상 빈 문자열"
               },
               "bullets": {
                 "maxItems": 15,

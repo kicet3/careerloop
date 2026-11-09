@@ -205,6 +205,37 @@ describe("에이전트 작업 — 끝까지", () => {
   });
 });
 
+describe("프로젝트 근거 칸(evidence)", () => {
+  it("모델이 프로젝트 evidence를 채워도 저장한 이력서에서는 비우고, 미리보기 텍스트에 '근거'가 없다", async () => {
+    const fake = new FakeLlmClient({ delayMs: 0 });
+    let filled = 0;
+    state.client = {
+      name: "rec",
+      generate: async (req) => {
+        state.calls.push({ label: req.task ?? req.stage, user: req.user });
+        const res = await fake.generate(req);
+        if (req.task === "resume-agent-write") {
+          const o = res.output as { projects?: { evidence: string }[]; document?: { projects?: { evidence: string }[] } };
+          for (const p of o.projects ?? o.document?.projects ?? []) {
+            p.evidence = "정산 대시보드 근거자료";
+            filled++;
+          }
+        }
+        return res;
+      },
+    } as LlmClient;
+    const id = await start();
+    await runAfter();
+    const job = await view(id);
+    expect(job.status).toBe("completed");
+    expect(filled).toBeGreaterThan(0);
+    const doc = (await service.getResumeDetail("ua", job.resumeId!))!.current!.document;
+    expect(doc.projects.length).toBeGreaterThan(0);
+    expect(doc.projects.every((p) => p.evidence === "")).toBe(true);
+    expect(layout.resumeToText(doc, "developer")).not.toContain("근거자료");
+  });
+});
+
 describe("수정 루프 종료", () => {
   it("근거로 못 고치는 키워드만 남으면 다음 수정이 op 0개 → 심사 없이 plateau로 끝난다", async () => {
     const id = await start({ jdText: `${AGENT_JD}\n- Terraform 인프라 자동화 경험` });

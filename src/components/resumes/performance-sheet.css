@@ -278,11 +278,6 @@
   font-weight: 650;
   color: var(--ink);
 }
-.pf-evidence {
-  font-size: 8pt;
-  color: var(--muted);
-  margin-top: 5px;
-}
 .pf-skills {
   display: grid;
   grid-template-columns: 92px minmax(0, 1fr);

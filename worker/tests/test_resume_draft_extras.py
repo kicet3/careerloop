@@ -204,3 +204,15 @@ def test_missing_questions_global_state_not_military() -> None:
     doc = empty_resume_document()
     doc["extras"] = [{"title": "기타", "items": ["전역 상태 관리(Redux) 스터디 발표"]}]
     assert "병역" in extras_missing_questions(doc)[0]
+
+
+def test_project_evidence_cleared() -> None:
+    """프로젝트 근거 칸(evidence)은 이력서에 쓰지 않는다 — 모델이 채워도 후처리가 비운다(TS clearProjectEvidence)."""
+    base_project = {"name": "정산", "company": "", "team": "", "role": "", "startDate": "", "endDate": "", "summary": "", "problem": "", "action": "", "result": "누락 0건", "bullets": [], "techs": []}
+    out = _llm_output(projects=[{**base_project, "evidence": "정산 대시보드"}, {**base_project, "name": "결제", "evidence": "https://example.com/report"}])
+    before = [p["evidence"] for p in out["document"]["projects"]]
+    draft = postprocess_draft(out, BASE)
+    assert [p["evidence"] for p in draft["document"]["projects"]] == ["", ""]
+    assert [p["name"] for p in draft["document"]["projects"]] == ["정산", "결제"]
+    assert [p["evidence"] for p in out["document"]["projects"]] == before  # 입력은 그대로
+    assert "측정 자료명" not in SYSTEM and "결과와 근거" not in SYSTEM

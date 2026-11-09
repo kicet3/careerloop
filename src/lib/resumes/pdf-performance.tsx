@@ -129,7 +129,6 @@ const st = StyleSheet.create({
   },
   dd: { flex: 1, fontSize: 9.3, lineHeight: 1.62 },
   ddResult: { fontWeight: 700, color: C.ink },
-  evidence: { fontSize: 8, color: C.muted, marginTop: px(5) },
 
   skillName: {
     width: px(92),
@@ -285,7 +284,6 @@ export function PerformancePdfDocument({ doc, photo = null }: { doc: ResumeDocum
               <R style={st.bulletText} text={x} />
             </View>
           ))}
-          {has(p.evidence) ? <R style={st.evidence} text={`근거: ${p.evidence.trim()}`} /> : null}
         </View>,
         [p.summary, p.problem, p.action, p.result],
         p.bullets,

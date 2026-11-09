@@ -342,7 +342,7 @@ export function ResumeDocumentForm({
               onChange={(v) => up({ title: v })}
             />
             <Text
-              label="근거"
+              label="측정 기간·핵심 행동"
               value={x.context}
               max={300}
               placeholder="[측정 기간·대상] / [본인이 수행한 핵심 행동]"
@@ -416,7 +416,6 @@ export function ResumeDocumentForm({
             <Area label="문제" value={x.problem} max={500} rows={2} placeholder="[어떤 자료]로 [개선이 필요한 원인·상황]을 확인." onChange={(v) => up({ problem: v })} />
             <Area label="행동" value={x.action} max={500} rows={2} placeholder="[선택 기준]에 따라 [본인의 판단·실행·협업]을 수행." onChange={(v) => up({ action: v })} />
             <Area label="결과" value={x.result} max={500} rows={2} placeholder="[기간·대상]에서 [지표 전후 변화 또는 검증 결과] 확인." onChange={(v) => up({ result: v })} />
-            <Text label="근거" value={x.evidence} max={300} placeholder="측정 자료명 또는 공개 가능한 링크" onChange={(v) => up({ evidence: v })} />
             <ListText label="한 일·결과" mode="lines" values={x.bullets} maxItems={15} maxLen={500} rows={3} onChange={(v) => up({ bullets: v })} />
             <ListText label="기술" mode="commas" values={x.techs} maxItems={20} maxLen={60} placeholder="Kotlin, Spring, MySQL" onChange={(v) => up({ techs: v })} />
           </div>

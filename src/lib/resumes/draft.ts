@@ -9,6 +9,7 @@ import { prisma } from "@/lib/db/client";
 import type { UsageTotals } from "@/lib/db/types";
 import { CHAT_TAGS } from "@/lib/domain/chat";
 import {
+  clearProjectEvidence,
   draftSectionOrder,
   RESUME_SECTION_LABELS,
   RESUME_TEMPLATES,
@@ -118,7 +119,8 @@ export async function generateResumeDraft(client: LlmClient, ctx: DraftContext, 
     signal,
   });
   // 지원 동기는 LLM이 쓰지 않는다(구조화 출력에도 없다). 추천은 /api/resumes/[id]/motivation/suggest가 따로 한다.
-  const draft: DraftOutput = { ...res.output, document: { ...res.output.document, motivation: "" } };
+  // 프로젝트 근거 칸(evidence)은 이력서에 쓰지 않는다 — 모델이 채워도 비운다.
+  const draft: DraftOutput = { ...res.output, document: clearProjectEvidence({ ...res.output.document, motivation: "" }) };
   // 수상·기타 묶음 규칙과 사소한 일화 제거(extras-guide.ts — 에이전트와 같은 기준).
   const extras = normalizeExtras(draft.document.extras, { newcomer: isNewcomerDocument(draft.document) });
   draft.document.extras = extras.extras;

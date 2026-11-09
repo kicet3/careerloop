@@ -22,7 +22,7 @@ export const isExperienceEmpty = (e: ResumeExperience) =>
   blank(e.company) && blank(e.title) && blank(e.department) && blank(e.scope) && e.bullets.every(blank);
 
 export const isProjectEmpty = (p: ResumeProject) =>
-  [p.name, p.summary, p.problem, p.action, p.result, p.evidence, p.team, p.company].every(blank) && p.bullets.every(blank);
+  [p.name, p.summary, p.problem, p.action, p.result, p.team, p.company].every(blank) && p.bullets.every(blank);
 
 export function isSectionEmpty(doc: ResumeDocument, key: ResumeSectionKey): boolean {
   switch (key) {
@@ -178,7 +178,6 @@ export function resumeToText(doc: ResumeDocument, templateId: ResumeTemplateId):
             ["문제", p.problem],
             ["행동", p.action],
             ["결과", p.result],
-            ["근거", p.evidence],
           ] as const) {
             if (v.trim()) out.push(`- ${label}: ${v.trim()}`);
           }

@@ -42,7 +42,6 @@ const css = {
   entryHead: "pf-entry-head",
   entryMeta: "pf-entry-meta",
   entryTitle: "pf-entry-title",
-  evidence: "pf-evidence",
   experience: "pf-experience",
   field: "pf-field",
   header: "pf-header",
@@ -122,7 +121,6 @@ const PH = {
   problem: ["[어떤 자료]로 [개선이 필요한 원인·상황]을 확인.", "[고객·동료·업무]의 [문제]와 [목표 또는 제약]을 파악."],
   action: ["[선택 기준]에 따라 [본인의 판단·실행·협업]을 수행.", "[비교한 대안·합의 기준]을 바탕으로 [본인 행동]을 실행."],
   result: ["[기간·대상]에서 [지표 전후 변화 또는 검증 결과] 확인.", "[확인한 결과]를 얻고 [프로세스·기준·산출물]을 정착."],
-  evidence: "[측정 자료명 또는 공개 가능한 링크]",
   skillName: ["[업무·방법론]", "[도구·기술]"],
   skillDetail: ["[실제로 수행할 수 있는 일과 적용 경험]", "[도구명]을 활용한 [분석·설계·개발·운영 범위]"],
   // 원본은 '[학교·전공]' 한 칸이지만 문서에서는 학교와 전공이 따로라 두 칸으로 나눴다.
@@ -673,7 +671,7 @@ export function PerformanceSheet({
               path={`highlights.${i}.context`}
               value={h.context}
               placeholder={pick(PH.highlightContext, i)}
-              label={`핵심 성과 ${i + 1}의 근거`}
+              label={`핵심 성과 ${i + 1}의 측정 기간·핵심 행동`}
               max={300}
               onChange={on((v) => set({ highlights: upAt(doc.highlights, i, { context: v }) }))}
             />
@@ -926,17 +924,6 @@ export function PerformanceSheet({
             {detail("problem", "문제")}
             {detail("action", "행동")}
             {detail("result", "결과")}
-            <div className={css.evidence}>
-              근거:{" "}
-              <Field
-                path={`projects.${i}.evidence`}
-                value={p.evidence}
-                placeholder={PH.evidence}
-                label={`${n} 프로젝트 근거`}
-                max={300}
-                onChange={on((v) => upProj(i, { evidence: v }))}
-              />
-            </div>
             {edit && <RemoveButton label={`${n} 프로젝트 삭제`} onClick={() => set({ projects: removeAt(doc.projects, i) })} />}
             {edit && doc.projects.length > 1 && <ReorderControls r={projOrder} i={i} label={`${n} 프로젝트`} />}
           </article>

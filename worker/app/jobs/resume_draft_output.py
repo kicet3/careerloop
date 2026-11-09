@@ -234,6 +234,8 @@ def postprocess_draft(output: dict[str, Any], ctx: DraftContext) -> dict[str, An
     # 지원 동기는 LLM이 쓰지 않는다 — 빈 칸으로 둔다(사용자가 쓴다).
     draft = {**out, "document": {**out["document"], "motivation": ""}}
     doc = draft["document"]
+    # 프로젝트 근거 칸(evidence)은 이력서에 쓰지 않는다 — 모델이 채워도 비운다(TS clearProjectEvidence).
+    doc["projects"] = [{**p, "evidence": ""} for p in doc["projects"]]
     extras = normalize_extras(doc["extras"], newcomer=is_newcomer_document(doc))
     doc["extras"] = extras.extras
     if extras.dropped:

@@ -249,7 +249,6 @@ function pushSection(col: Column, doc: ResumeDocument, k: ResumeSectionKey, t: R
               </p>,
             );
           bullets(grp, grp, [...projectStoryLines(p), ...p.bullets]);
-          if (p.evidence.trim()) col.push(`${grp}:evidence`, grp, <p style={s.sub}>근거: {p.evidence}</p>);
           if (p.techs.some((x) => x.trim())) col.push(`${grp}:techs`, grp, <p style={s.sub}>기술: {joinParts(p.techs, ", ")}</p>);
           col.addAfter(7 * gp);
         });

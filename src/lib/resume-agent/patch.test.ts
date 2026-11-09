@@ -109,4 +109,11 @@ describe("applyPatch", () => {
     // 다른 근거도 있으면 제외 ref만 빼고 받는다.
     expect(r.draft.citations).toContainEqual({ path: "experience[0].bullets[1]", refs: ["E2"], requirementIds: [] });
   });
+
+  it("프로젝트 근거 칸(evidence)을 고치는 op는 버린다(이력서에 '근거:' 줄을 쓰지 않는다)", () => {
+    const r = applyPatch(base(), [op({ op: "replace", path: "projects[0].evidence", value: "정산 대시보드", refs: ["E1"] })], ctx);
+    expect(r.draft.document.projects[0]!.evidence).toBe("");
+    expect(r.changes).toEqual([]);
+    expect(r.rejected).toEqual([{ op: "replace", path: "projects[0].evidence", reason: "path_invalid" }]);
+  });
 });

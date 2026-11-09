@@ -105,7 +105,7 @@ export function linePaths(doc: ResumeDocument): { path: DocPath; value: string }
     e.bullets.forEach((b, j) => out.push({ path: `experience[${i}].bullets[${j}]`, value: b }));
   });
   doc.projects.forEach((p, i) => {
-    for (const k of ["summary", "problem", "action", "result", "evidence"] as const) out.push({ path: `projects[${i}].${k}`, value: p[k] });
+    for (const k of ["summary", "problem", "action", "result"] as const) out.push({ path: `projects[${i}].${k}`, value: p[k] });
     p.bullets.forEach((b, j) => out.push({ path: `projects[${i}].bullets[${j}]`, value: b }));
   });
   doc.skills.forEach((s, i) => out.push({ path: `skills[${i}].detail`, value: s.detail }));
@@ -216,7 +216,7 @@ export function numberedDocText(doc: ResumeDocument): string {
   });
   doc.projects.forEach((p, i) => {
     add(`projects[${i}]`, [p.name, p.company, p.role, `${p.startDate} ~ ${p.endDate}`, p.techs.length ? `기술: ${p.techs.join(", ")}` : ""].filter((x) => x.trim() && x.trim() !== "~").join(" | "));
-    for (const k of ["summary", "problem", "action", "result", "evidence"] as const) add(`projects[${i}].${k}`, p[k]);
+    for (const k of ["summary", "problem", "action", "result"] as const) add(`projects[${i}].${k}`, p[k]);
     p.bullets.forEach((b, j) => add(`projects[${i}].bullets[${j}]`, b));
   });
   doc.skills.forEach((s, i) => {

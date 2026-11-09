@@ -6,7 +6,7 @@ import "server-only";
  * 만들기 전에 이력서 id를 단계 행에 적어 두고 다음 시도가 회수한다).
  */
 import { prisma } from "@/lib/db/client";
-import { StoredResumeDocumentSchema, type ResumeDocument } from "@/lib/domain/resumes";
+import { clearProjectEvidence, StoredResumeDocumentSchema, type ResumeDocument } from "@/lib/domain/resumes";
 import { extrasPathMapper, isNewcomerDocument, normalizeExtras } from "@/lib/resumes/extras-guide";
 import { honorificLeftoverNote, normalizeDocumentHonorific } from "@/lib/resumes/honorific";
 import type { CreateResumeParams } from "@/lib/resumes/service";
@@ -46,7 +46,8 @@ export async function prepareFinalize(ctx: StepContext, user: { name: string | n
   if (!jd || !plan || !ret || !draft || round === null) throw new AgentStepError("missing_input", "저장할 초안이 없습니다.", false);
   const pack = packAt(ctx.rows, version, round) ?? ret.pack;
 
-  const doc: ResumeDocument = structuredClone(draft.document);
+  // 프로젝트 근거 칸(evidence)은 이력서에 쓰지 않는다 — 모델이 채워도 비우고, 그 칸의 인용도 뺀다(아래 citations).
+  const doc: ResumeDocument = clearProjectEvidence(structuredClone(draft.document));
   if (!doc.basics.name.trim() && user.name?.trim()) doc.basics.name = user.name.trim().slice(0, 80);
   const email = doc.basics.email.trim();
   if ((!email || /^\[ADD:[^\]]*\]$/.test(email)) && user.email?.trim()) doc.basics.email = user.email.trim().slice(0, 160);
@@ -58,7 +59,7 @@ export async function prepareFinalize(ctx: StepContext, user: { name: string | n
   const remap = extrasPathMapper(extrasBefore, doc.extras);
   const citations = draft.citations.flatMap((c) => {
     const path = remap(c.path);
-    return path === null ? [] : [{ ...c, path }];
+    return path === null || /^projects\[\d+\]\.evidence$/.test(path) ? [] : [{ ...c, path }];
   });
   // 지원 동기: v1은 비워 둔다. v2 지원처별 이력서는 검증된 초안([ADD] 자리표시 포함)을 넣는다 — 사용자가 다듬는다.
   const motivationOn = version === 2 && input.kind === "company" && ctx.settings.motivation !== false;

@@ -74,3 +74,12 @@ describe("텍스트 도우미", () => {
     expect(resumeToText(doc, "classic")).toContain("## 관련 경험");
   });
 });
+
+describe("프로젝트 근거 칸(evidence)", () => {
+  it("evidence만 있는 프로젝트는 빈 항목으로 본다(화면·PDF에 내보내지 않는 칸)", () => {
+    const doc = emptyResumeDocument();
+    doc.projects = [{ ...EMPTY_RESUME_ITEM.project(), evidence: "정산 대시보드" }];
+    expect(isSectionEmpty(doc, "projects")).toBe(true);
+    expect(resumeToText(doc, "classic")).toBe("");
+  });
+});

@@ -117,3 +117,31 @@ describe("generateResumeDraft", () => {
     expect(draft.missingInfo.some((m) => m.includes("어학"))).toBe(true);
   });
 });
+
+describe("generateResumeDraft — 프로젝트 근거 칸", () => {
+  it("모델이 evidence를 채워도 초안에서는 비운다", async () => {
+    const client = new FakeLlmClient({ delayMs: 0 });
+    const { ResumeDraftOutputSchema, EMPTY_RESUME_ITEM } = await import("@/lib/domain/resumes");
+    const llm = {
+      name: "fake",
+      generate: vi.fn(async () => {
+        const out = await client.generate({ task: "resume-draft", system: "", user: "", schema: ResumeDraftOutputSchema, effort: "low" });
+        out.output.document.projects = [
+          { ...EMPTY_RESUME_ITEM.project(), name: "정산", result: "누락 0건", evidence: "정산 대시보드" },
+          { ...EMPTY_RESUME_ITEM.project(), name: "결제", result: "응답 40% 단축", evidence: "https://example.com/report" },
+        ];
+        return out;
+      }),
+    };
+    const { draft } = await generateResumeDraft(llm as never, base);
+    expect(draft.document.projects.map((p) => p.evidence)).toEqual(["", ""]);
+    expect(draft.document.projects.map((p) => p.name)).toEqual(["정산", "결제"]);
+  });
+
+  it("초안 규칙은 evidence를 비워 두라고 하고, 작성 기준에 '결과와 근거'가 없다", () => {
+    const { system } = buildResumeDraftPrompt(base);
+    expect(system).toContain("evidence는 쓰지 않는 칸이라 빈 문자열로 둔다");
+    expect(system).not.toContain("측정 자료명");
+    expect(system).not.toContain("결과와 근거");
+  });
+});

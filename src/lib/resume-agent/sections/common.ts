@@ -76,7 +76,7 @@ export function fragmentChars(fragment: SectionFragment): number {
   const n = (xs: readonly (string | undefined)[]) => xs.reduce((a, s) => a + (s ?? "").trim().length, 0);
   let c = 0;
   for (const e of fragment.experience ?? []) c += n([e.company, e.title, e.scope, ...e.bullets]);
-  for (const p of fragment.projects ?? []) c += n([p.name, p.summary, p.problem, p.action, p.result, p.evidence, ...p.bullets]);
+  for (const p of fragment.projects ?? []) c += n([p.name, p.summary, p.problem, p.action, p.result, ...p.bullets]);
   for (const h of fragment.highlights ?? []) c += n([h.title, h.context]);
   for (const s of fragment.skills ?? []) c += n([s.category, s.items.join(", "), s.detail]);
   for (const x of fragment.extras ?? []) c += n([x.title, ...x.items]);

@@ -506,7 +506,8 @@ function extrasToDrop(
   ]
     .map(compactKey)
     .filter((k) => k.length >= 6);
-  const bodyRefs = new Set(citations.filter((c) => /^(experience|projects)\[/.test(c.path)).flatMap((c) => c.refs));
+  // 프로젝트 근거 칸(evidence)은 이력서에 나오지 않는다(finalize가 비운다) — 그 칸의 인용은 본문으로 보지 않는다.
+  const bodyRefs = new Set(citations.filter((c) => /^(experience|projects)\[/.test(c.path) && !/^projects\[\d+\]\.evidence$/.test(c.path)).flatMap((c) => c.refs));
   const out: { path: string; text: string; reason: "trivial_extra" | "duplicate_extra" }[] = [];
   doc.extras.forEach((g, i) =>
     g.items.forEach((text, j) => {

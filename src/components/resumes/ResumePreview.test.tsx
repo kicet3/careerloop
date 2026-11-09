@@ -181,3 +181,43 @@ describe("지원 동기 섹션", () => {
     expect(resumeToText(doc, "classic")).toContain("## 지원 동기\n가\n\n나\n\n다");
   });
 });
+
+describe("프로젝트 근거 줄 없음(예전 문서에 evidence 값이 있어도)", () => {
+  const withEvidence = () => {
+    const doc = makeSampleResume();
+    doc.projects = doc.projects.map((p) => ({ ...p, evidence: "정산 대시보드 근거자료" }));
+    return doc;
+  };
+
+  it.each(RESUME_TEMPLATE_IDS)("%s 미리보기에 '근거:'와 그 값이 없다", (id) => {
+    const html = renderToStaticMarkup(<ResumePreview document={withEvidence()} templateId={id} />);
+    expect(html).toContain(withEvidence().projects[0]!.name);
+    expect(html).not.toContain("근거:");
+    expect(html).not.toContain("근거자료");
+  });
+
+  it("성과 양식 편집 모드에도 근거 칸이 없다", async () => {
+    const { PerformanceSheet } = await import("./PerformanceSheet");
+    const html = renderToStaticMarkup(<PerformanceSheet document={withEvidence()} onChange={() => {}} />);
+    expect(html).not.toContain("근거:");
+    expect(html).not.toContain("근거자료");
+    expect(html).not.toMatch(/data-field="projects\.\d+\.evidence"/);
+  });
+
+  it("구조화 편집 폼에도 근거 칸이 없다", async () => {
+    const { ResumeDocumentForm } = await import("./ResumeDocumentForm");
+    const { RESUME_SECTION_KEYS } = await import("@/lib/domain/resumes");
+    const html = renderToStaticMarkup(<ResumeDocumentForm value={withEvidence()} onChange={() => {}} sectionOrder={RESUME_SECTION_KEYS} />);
+    expect(html).toContain("문제");
+    expect(html).not.toContain("근거자료");
+    expect(html).not.toContain("측정 자료명 또는 공개 가능한 링크");
+  });
+
+  it("텍스트 내보내기(resumeToText)에도 '근거:' 줄이 없다", () => {
+    for (const id of RESUME_TEMPLATE_IDS) {
+      const text = resumeToText(withEvidence(), id);
+      expect(text).toContain("- 문제:");
+      expect(text).not.toContain("근거");
+    }
+  });
+});

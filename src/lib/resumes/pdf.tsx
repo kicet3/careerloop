@@ -247,7 +247,6 @@ function sectionItems({ s, doc, k, t, narrow }: { s: S; doc: ResumeDocument; k: 
               {joinParts([p.company, p.team]) ? <T s={s} style={s.itemSub}>{joinParts([p.company, p.team])}</T> : null}
               {p.summary.trim() ? <Rich s={s} style={s.itemSub} text={p.summary} /> : null}
               <Bullets s={s} items={[...projectStoryLines(p), ...p.bullets]} />
-              {p.evidence.trim() ? <T s={s} style={s.itemSub}>근거: {p.evidence}</T> : null}
               {p.techs.some((x) => x.trim()) ? (
                 <T s={s} style={s.itemSub}>
                   기술: {joinParts(p.techs, ", ")}
@@ -255,7 +254,7 @@ function sectionItems({ s, doc, k, t, narrow }: { s: S; doc: ResumeDocument; k: 
               ) : null}
             </View>
           ),
-          texts: [joinParts([p.name, p.role]), joinParts([p.company, p.team]), p.summary, ...projectStoryLines(p), ...p.bullets, p.evidence, p.techs.join(", ")],
+          texts: [joinParts([p.name, p.role]), joinParts([p.company, p.team]), p.summary, ...projectStoryLines(p), ...p.bullets, p.techs.join(", ")],
         }));
     case "skills":
       return doc.skills

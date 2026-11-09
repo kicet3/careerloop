@@ -19,7 +19,6 @@ export function maxCharsFor(path: string): number {
   if (/^highlights\[\d+\]\.context$/.test(path)) return 300;
   if (/^experience\[\d+\]\.scope$/.test(path)) return 600;
   if (/^projects\[\d+\]\.summary$/.test(path)) return 600;
-  if (/^projects\[\d+\]\.evidence$/.test(path)) return 300;
   if (/^skills\[\d+\]\.detail$/.test(path) || /^extras\[\d+\]\.items\[\d+\]$/.test(path) || /^education\[\d+\]\.note$/.test(path)) return 300;
   return 500;
 }
@@ -69,7 +68,8 @@ export function applyPatch(
   for (const op of ops) {
     const value = op.value.trim();
     if (op.op === "replace" || op.op === "insert" || op.op === "remove") {
-      if (!isDocPath(op.path)) {
+      // 프로젝트 근거 칸(evidence)은 이력서에 쓰지 않는다(clearProjectEvidence) — 그 칸을 고치는 op는 버린다.
+      if (!isDocPath(op.path) || /^projects\[\d+\]\.evidence$/.test(op.path)) {
         reject(op, "path_invalid");
         continue;
       }

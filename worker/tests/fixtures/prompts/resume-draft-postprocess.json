@@ -2099,6 +2099,186 @@
       }
     },
     {
+      "name": "project-evidence-cleared",
+      "personName": null,
+      "personEmail": null,
+      "material": {
+        "kind": "graph",
+        "text": "g"
+      },
+      "output": {
+        "document": {
+          "basics": {
+            "name": "홍길동",
+            "headline": "백엔드 개발자",
+            "tagline": "",
+            "totalExperience": "",
+            "email": "work@corp.kr",
+            "phone": "",
+            "location": "",
+            "portfolioUrl": "",
+            "links": []
+          },
+          "summary": "결제 시스템을 만든 백엔드 개발자입니다.",
+          "headings": {
+            "highlights": "",
+            "experience": "",
+            "projects": "",
+            "skills": "",
+            "education": ""
+          },
+          "highlights": [],
+          "experience": [
+            {
+              "company": "페이랩",
+              "department": "결제팀",
+              "title": "개발자",
+              "startDate": "2021.03",
+              "endDate": "현재",
+              "location": "",
+              "scope": "결제 API",
+              "bullets": [
+                "응답 시간 40% 단축"
+              ]
+            }
+          ],
+          "projects": [
+            {
+              "name": "정산",
+              "company": "",
+              "team": "",
+              "role": "",
+              "startDate": "",
+              "endDate": "",
+              "summary": "",
+              "problem": "",
+              "action": "",
+              "result": "",
+              "evidence": "정산 대시보드",
+              "bullets": [
+                "정산 결과"
+              ],
+              "techs": []
+            },
+            {
+              "name": "결제",
+              "company": "",
+              "team": "",
+              "role": "",
+              "startDate": "",
+              "endDate": "",
+              "summary": "",
+              "problem": "",
+              "action": "",
+              "result": "",
+              "evidence": "https://example.com/report",
+              "bullets": [
+                "결제 결과"
+              ],
+              "techs": []
+            }
+          ],
+          "skills": [],
+          "education": [],
+          "certifications": [],
+          "extras": []
+        },
+        "notes": [
+          "JD 대응: 충족 2개 / 확인 필요 1개"
+        ],
+        "missingInfo": [
+          "Kafka 경험이 있는지"
+        ]
+      },
+      "ok": true,
+      "draft": {
+        "document": {
+          "basics": {
+            "name": "홍길동",
+            "headline": "백엔드 개발자",
+            "tagline": "",
+            "totalExperience": "",
+            "email": "work@corp.kr",
+            "phone": "",
+            "location": "",
+            "portfolioUrl": "",
+            "links": []
+          },
+          "summary": "결제 시스템을 만든 백엔드 개발자입니다.",
+          "headings": {
+            "highlights": "",
+            "experience": "",
+            "projects": "",
+            "skills": "",
+            "education": ""
+          },
+          "highlights": [],
+          "experience": [
+            {
+              "company": "페이랩",
+              "department": "결제팀",
+              "title": "개발자",
+              "startDate": "2021.03",
+              "endDate": "현재",
+              "location": "",
+              "scope": "결제 API",
+              "bullets": [
+                "응답 시간 40% 단축"
+              ]
+            }
+          ],
+          "projects": [
+            {
+              "name": "정산",
+              "company": "",
+              "team": "",
+              "role": "",
+              "startDate": "",
+              "endDate": "",
+              "summary": "",
+              "problem": "",
+              "action": "",
+              "result": "",
+              "evidence": "",
+              "bullets": [
+                "정산 결과"
+              ],
+              "techs": []
+            },
+            {
+              "name": "결제",
+              "company": "",
+              "team": "",
+              "role": "",
+              "startDate": "",
+              "endDate": "",
+              "summary": "",
+              "problem": "",
+              "action": "",
+              "result": "",
+              "evidence": "",
+              "bullets": [
+                "결제 결과"
+              ],
+              "techs": []
+            }
+          ],
+          "skills": [],
+          "education": [],
+          "certifications": [],
+          "extras": [],
+          "motivation": ""
+        },
+        "notes": [
+          "JD 대응: 충족 2개 / 확인 필요 1개"
+        ],
+        "missingInfo": [
+          "Kafka 경험이 있는지",
+          "수상·어학 정보가 자료에 없어 '수상·기타'에 넣지 않았습니다. 해당하는 것이 있으면 날짜·기관과 함께 알려 주세요(없으면 그대로 두세요)."
+        ]
+      }
+    },
+    {
       "name": "not-object",
       "personName": null,
       "personEmail": null,

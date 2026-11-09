@@ -73,7 +73,7 @@ export const ResumeDocumentSchema = z.object({
     .array(
       z.object({
         title: s(200).describe("핵심 성과 한 줄: 지표 기준값 → 개선값 · 개선 폭"),
-        context: s(300).describe("근거: 측정 기간·대상 / 본인이 한 핵심 행동"),
+        context: s(300).describe("측정 기간·대상 / 본인이 한 핵심 행동"),
       }),
     )
     .max(8),
@@ -104,7 +104,8 @@ export const ResumeDocumentSchema = z.object({
         problem: s(500).describe("문제: 어떤 자료로 어떤 원인·상황을 확인했는지"),
         action: s(500).describe("행동: 본인의 판단·실행·협업"),
         result: s(500).describe("결과: 기간·대상과 지표 전후 변화 또는 검증 결과"),
-        evidence: s(300).describe("근거: 측정 자료명 또는 공개 가능한 링크"),
+        // 예전 문서 호환용 칸: 화면·PDF·텍스트에 내보내지 않고, 생성 결과에서는 비운다(clearProjectEvidence).
+        evidence: s(300).describe("쓰지 않는 칸(예전 문서 호환용). 항상 빈 문자열"),
         bullets: bullets(),
         techs: z.array(s(60)).max(20),
       }),
@@ -175,6 +176,14 @@ export const EMPTY_RESUME_ITEM = {
   education: (): ResumeEducation => ({ school: "", degree: "", major: "", startDate: "", endDate: "", note: "" }),
   certification: (): ResumeCertification => ({ name: "", issuer: "", date: "" }),
 };
+
+/**
+ * 프로젝트 근거 칸(evidence)을 비운다(입력을 바꾸지 않는다). 이력서에 '근거:' 줄을 쓰지 않는다 —
+ * 단일 초안·에이전트(v1·v2) 마지막 단계가 부른다. 예전 문서는 값이 남아도 화면·PDF·텍스트에서 내보내지 않는다.
+ */
+export function clearProjectEvidence(doc: ResumeDocument): ResumeDocument {
+  return { ...doc, projects: doc.projects.map((p) => ({ ...p, evidence: "" })) };
+}
 
 export function emptyResumeDocument(): ResumeDocument {
   return {

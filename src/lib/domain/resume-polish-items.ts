@@ -20,7 +20,7 @@ export const isPolishItemSection = (s: unknown): s is PolishItemSection => (POLI
 
 /** 항목 제안이 다룰 수 있는 칸(문서 스키마 순서). 목록 칸(bullets·techs)은 줄마다 하나. */
 export const POLISH_ITEM_FIELDS = {
-  projects: ["name", "company", "team", "role", "startDate", "endDate", "summary", "problem", "action", "result", "evidence", "bullets", "techs"],
+  projects: ["name", "company", "team", "role", "startDate", "endDate", "summary", "problem", "action", "result", "bullets", "techs"],
   experience: ["company", "department", "title", "startDate", "endDate", "location", "scope", "bullets"],
 } as const satisfies Record<PolishItemSection, readonly string[]>;
 export type PolishItemField = (typeof POLISH_ITEM_FIELDS)[PolishItemSection][number];
@@ -47,7 +47,6 @@ const FIELD_LABELS: Record<PolishItemSection, Record<string, string>> = {
     problem: "문제",
     action: "행동",
     result: "결과",
-    evidence: "근거",
     bullets: "기여",
     techs: "기술",
   },
@@ -131,7 +130,7 @@ export function emptyPolishItem(section: PolishItemSection): PolishItemRecord {
 
 /** 항목 칸 하나의 새 값. 목록 칸(bullets·techs)은 한 줄에 하나. */
 export const PolishItemChangeOutputSchema = z.object({
-  field: z.enum(ALL_ITEM_FIELDS).describe("고칠 칸(프로젝트: name·company·team·role·startDate·endDate·summary·problem·action·result·evidence·bullets·techs / 경력: company·department·title·startDate·endDate·location·scope·bullets)"),
+  field: z.enum(ALL_ITEM_FIELDS).describe("고칠 칸(프로젝트: name·company·team·role·startDate·endDate·summary·problem·action·result·bullets·techs / 경력: company·department·title·startDate·endDate·location·scope·bullets)"),
   value: z.string().describe("그 칸에 그대로 넣을 새 값. bullets·techs는 한 줄에 하나. 자료에 없는 수치는 [ADD: 수치 확인 — …], 모르는 사실은 [ADD: …]"),
 });
 export type PolishItemChangeOutput = z.input<typeof PolishItemChangeOutputSchema>;

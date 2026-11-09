@@ -263,6 +263,13 @@ const postprocessCases: { name: string; personName: string | null; personEmail: 
       skills: [{ category: "백엔드", detail: "대용량 API를 설계할 수 있다.", items: ["Kotlin"] }],
     }),
   },
+  {
+    // 프로젝트 근거 칸(evidence)은 이력서에 쓰지 않는다 — 모델이 채워도 후처리가 비운다.
+    name: "project-evidence-cleared",
+    personName: null,
+    personEmail: null,
+    output: out({ ...baseDoc(), projects: [{ ...project("정산"), evidence: "정산 대시보드" }, { ...project("결제"), evidence: "https://example.com/report" }] }),
+  },
   { name: "not-object", personName: null, personEmail: null, output: { document: "x", notes: [], missingInfo: [] } },
 ];
 
