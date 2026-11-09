@@ -9,7 +9,9 @@
  */
 import { emptyResumeDocument } from "@/lib/domain/resumes";
 import { usageOfError, type GenerateResult } from "@/lib/llm/types";
+import { honorificLeftoverNote } from "@/lib/resumes/honorific";
 import { runMotivationSuggest, writeMotivationDraft } from "@/lib/resumes/motivation";
+import { checkProjectCount, PROJECT_COUNT_MIN } from "@/lib/resumes/project-count";
 import { linePaths, parseCitations, refsForLine } from "../citations";
 import { SECTION_LABELS, WRITING_SECTIONS, type SectionId, type WritingSection } from "../job-types";
 import { MAX_STEP_ATTEMPTS, parsedOutput } from "../next-step";
@@ -26,7 +28,19 @@ import {
   type SectionStepOutput,
 } from "../schemas";
 import { SECTION_AGENTS } from "../sections/agents";
-import { feedbackRefs, fragmentDoc, lineChanges, ownsPath, pickFragment, restoreKeepPaths, reviewersFor, sameFragment, sectionEvidence, trimToBudget } from "../sections/common";
+import {
+  feedbackRefs,
+  fragmentDoc,
+  lineChanges,
+  ownsPath,
+  pickFragment,
+  projectCandidateCount,
+  restoreKeepPaths,
+  reviewersFor,
+  sameFragment,
+  sectionEvidence,
+  trimToBudget,
+} from "../sections/common";
 import { verifyDraft } from "../verify";
 import { addUsage, agentPromptContext, AgentStepError, UsageMeter, ZERO_USAGE, type StepContext, type StepResult } from "./shared";
 
@@ -251,6 +265,15 @@ async function runWritingSection(ctx: StepContext, section: WritingSection, roun
     throw new AgentStepError("section_empty", `${SECTION_LABELS[section]}을(를) 하나도 쓰지 못했습니다. 다시 시도합니다.`, false, undefined, meter.usage);
   }
 
+  // 대표 프로젝트 2~3개(project-count.ts): 2개 미만이면 질문·안내를 남긴다(근거에 없는 프로젝트를 지어 채우지 않는다).
+  // 3개 초과는 위 분량 자르기(항목 상한 3)가 맡는다.
+  let missingInfo = verified.draft.missingInfo;
+  if (section === "projects" && (fragment.projects ?? []).length < PROJECT_COUNT_MIN) {
+    const pc = checkProjectCount(fragment.projects ?? [], projectCandidateCount(pack, brief));
+    notes.push(...pc.notes);
+    missingInfo = [...new Set([...missingInfo, ...pc.missingInfo])];
+  }
+
   const changes = prev ? lineChanges(section, round, prev.output.fragment, fragment, { issueIds: feedback?.issueIds ?? [], reviewers: reviewersFor(feedback?.issueIds ?? [], review?.round.issues ?? []) }) : [];
   const unchanged = prev ? sameFragment(prev.output.fragment, fragment) : false;
   const output: SectionStepOutput = {
@@ -258,7 +281,7 @@ async function runWritingSection(ctx: StepContext, section: WritingSection, roun
     fragment,
     citations: citations.slice(0, 120),
     notes: notes.slice(0, 10),
-    missingInfo: verified.draft.missingInfo.slice(0, 10),
+    missingInfo: missingInfo.slice(0, 10),
     needEvidence: use.out.needEvidence.slice(0, 3),
     coveredRequirementIds: [...new Set(use.out.coveredRequirementIds.filter((r) => requirementIds.has(r)))].slice(0, 20),
     retried,
@@ -334,5 +357,7 @@ async function runMotivationDraftSection(ctx: StepContext, round: number): Promi
   const summary = res.draft ? [`초안 ${res.draft.length}자 · 직접 채울 자리 ${res.placeholders}곳`] : ["근거로 쓸 내용이 없어 지원 동기 칸을 비워 둡니다"];
   if (round > 0) summary.push(feedback.length ? `총괄 피드백 ${feedback.length}개를 반영해 다시 썼습니다` : "바뀐 본문에 맞춰 다시 썼습니다");
   if (!suggestion) summary.push("추천 재료 없이 작전·본문만으로 썼습니다");
-  return { output: { ...baseOutput("motivation_draft", round), fragment: { motivation: res.draft } }, summary, usage: addUsage(ZERO_USAGE, res.usage), model: res.model };
+  const plainNote = honorificLeftoverNote(res.plainEndings.map((text) => ({ text })));
+  if (plainNote) summary.push(plainNote);
+  return { output: { ...baseOutput("motivation_draft", round), fragment: { motivation: res.draft }, ...(plainNote ? { notes: [plainNote] } : {}) }, summary, usage: addUsage(ZERO_USAGE, res.usage), model: res.model };
 }

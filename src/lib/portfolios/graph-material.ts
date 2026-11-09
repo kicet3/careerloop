@@ -40,6 +40,7 @@ import { getCareerGraph, graphEnabled, graphToText } from "@/lib/graph/service";
 import type { LlmClient } from "@/lib/llm";
 import { stripPlaceholders, unverifiedNumbers } from "@/lib/text/numbers";
 import { TAGS } from "@/lib/panel/prompts";
+import { honorificRuleFor } from "@/lib/resumes/honorific";
 
 export const GRAPH_DISABLED_MESSAGE = "경험 그래프 저장소(Neo4j)가 설정되지 않아 경험 그래프로 포트폴리오를 만들 수 없습니다.";
 export const GRAPH_EMPTY_MESSAGE = "경험 그래프에 프로젝트가 없습니다. '경험 그래프'에서 프로젝트를 먼저 정리해 주세요.";
@@ -243,6 +244,7 @@ export const BASE_RULES = [
   "- sections의 각 항목은 { key, body, bullets }. key는 아래 목록의 영문 key 그대로 쓰고 목록에 없는 key는 만들지 않는다. 문단은 body, 목록은 bullets(한 항목 한 문장)에 쓰고 안 쓰는 쪽은 빈 값으로 둔다. 제목은 쓰지 않는다(서버가 양식 제목을 붙인다).",
   "- [선택] 구역은 자료가 없으면 아예 빼고, 필수 구역은 자료가 부족하면 [ADD: …]로 남긴다. '서버가 채움' 구역(기술 스택·링크·목차)은 sections에 쓰지 않는다.",
   "- notes에는 무엇을 강조·생략했는지 짧게 적는다.",
+  `- ${honorificRuleFor("sections의 body·bullets")}`,
 ];
 
 function sectionGuideLines(sections: readonly PortfolioTemplateSection[]): string[] {

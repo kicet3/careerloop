@@ -3,7 +3,7 @@
 - ResumeDraftOutputSchema(domain/resumes.ts): document는 upgradeResumeDocument로 빠진 필드를 빈 값으로 채운 뒤 검증한다.
   zod 객체는 모르는 키를 버리므로(strip) 여기서도 스키마에 없는 키를 버리고, 키 순서를 스키마 순서로 맞춘다.
   문자열 길이(maxLength)는 zod처럼 UTF-16 길이로 잰다.
-- 후처리(postprocess_draft): TS draft.ts generateResumeDraft의 LLM 호출 뒤 단계(지원 동기 비우기, 수상·기타 정리, missingInfo 질문,
+- 후처리(postprocess_draft): TS draft.ts generateResumeDraft의 LLM 호출 뒤 단계(지원 동기 비우기, 수상·기타 정리, 대표 프로젝트 수, 경어체 통일, missingInfo 질문,
   이름·메일 기본값)와 같다.
 - ResumeDocumentSchema(저장 직전 검증): 초안 document 스키마 + motivation(1500자).
 - CreateResumeInputSchema(resumes/types.ts): 작업 행 input(JSON)을 다시 읽을 때의 검증·기본값.
@@ -19,10 +19,11 @@ from typing import Any
 
 from jsonschema import Draft202012Validator, ValidationError, validators
 
+from app.honorific import honorific_leftover_note, normalize_document_honorific
 from app.jobs.resume_draft_extras import extras_missing_questions, is_newcomer_document, normalize_extras
 from app.jsutil import js_len, js_slice, js_trim
 from app.llm.schemas import OutputSchema, raw_schema
-from app.prompts.resume_draft import DraftContext, RESUME_TEMPLATE_IDS
+from app.prompts.resume_draft import PROJECT_COUNT_MAX, PROJECT_COUNT_MIN, PROJECT_MORE_QUESTION, DraftContext, RESUME_TEMPLATE_IDS
 
 # ---------------------------------------------------------------------------
 # zod처럼 검증하는 JSON Schema 도우미
@@ -204,6 +205,29 @@ RESUME_DRAFT_OUTPUT_SCHEMA = ResumeDraftOutputSchema()
 _ADD_ONLY = re.compile(r"^\[ADD:[^\]]*\]\Z")
 
 
+@dataclass(frozen=True)
+class ProjectCountCheck:
+    keep: int
+    notes: list[str]
+    missing_info: list[str]
+
+
+def check_project_count(projects: list[dict[str, Any]], available: int | None) -> ProjectCountCheck:
+    """대표 프로젝트 2~3개 점검(TS project-count.ts checkProjectCount). 넘치면 앞의 3개, 모자라면 질문·안내만(지어 채우지 않는다)."""
+    n = len(projects)
+    if n > PROJECT_COUNT_MAX:
+        dropped = ", ".join(js_trim(p["name"]) or "(이름 없음)" for p in projects[PROJECT_COUNT_MAX:])
+        return ProjectCountCheck(PROJECT_COUNT_MAX, [f"대표 프로젝트는 2~3개 기준이라 앞의 {PROJECT_COUNT_MAX}개만 남기고 {dropped}를 뺐습니다."], [])
+    if n >= PROJECT_COUNT_MIN:
+        return ProjectCountCheck(n, [], [])
+    notes = (
+        [f"경험 그래프에 프로젝트가 {available}개 있지만 초안에는 {n}개만 들어갔습니다. 다시 생성하거나 직접 더해 대표 프로젝트를 2~3개로 맞춰 주세요."]
+        if available is not None and available >= PROJECT_COUNT_MIN and available > n
+        else []
+    )
+    return ProjectCountCheck(n, notes, [PROJECT_MORE_QUESTION])
+
+
 def postprocess_draft(output: dict[str, Any], ctx: DraftContext) -> dict[str, Any]:
     """LLM 출력(검증된 값) → 초안(document에 지원 동기 칸 포함). 입력을 바꾸지 않는다."""
     out = copy.deepcopy(output)
@@ -214,8 +238,20 @@ def postprocess_draft(output: dict[str, Any], ctx: DraftContext) -> dict[str, An
     doc["extras"] = extras.extras
     if extras.dropped:
         draft["notes"] = [*draft["notes"], f"수상·기타에서 사소한 일화·소감 {len(extras.dropped)}줄을 뺐습니다."][:10]
+    # 대표 프로젝트 2~3개: 넘치면 앞의 3개만, 모자라면 질문·안내만 더한다.
+    projects = check_project_count(doc["projects"], ctx.material.project_count if ctx.material.kind == "graph" else None)
+    doc["projects"] = doc["projects"][: projects.keep]
+    if projects.notes:
+        draft["notes"] = [*draft["notes"], *projects.notes][:10]
+    # 문장 끝 경어체 통일(TS honorific.ts): 확실한 평어체만 바꾸고, 판단할 수 없는 문장은 notes로 알린다.
+    honorific = normalize_document_honorific(doc)
+    doc = honorific.document
+    draft["document"] = doc
+    honorific_note = honorific_leftover_note(honorific.leftovers)
+    if honorific_note:
+        draft["notes"] = [*draft["notes"], honorific_note][:10]
     # new Set([...]) — 처음 나온 순서를 지키며 겹친 것을 뺀다.
-    draft["missingInfo"] = list(dict.fromkeys([*draft["missingInfo"], *extras_missing_questions(doc)]))[:10]
+    draft["missingInfo"] = list(dict.fromkeys([*draft["missingInfo"], *extras_missing_questions(doc), *projects.missing_info]))[:10]
     name = js_trim(ctx.person_name) if ctx.person_name else ""
     if not js_trim(doc["basics"]["name"]) and name:
         doc["basics"]["name"] = js_slice(name, 0, 80)

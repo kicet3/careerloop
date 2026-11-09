@@ -28,7 +28,15 @@ import {
 } from "@/lib/domain/chat";
 import { extractKeywords } from "@/lib/skills/dictionary";
 import { emptyResumeDocument, type ResumeDraftOutput } from "@/lib/domain/resumes";
-import { POLISH_DOCUMENT_TAG, POLISH_TARGET_TAG, type ResumePolishDocOutput, type ResumePolishOutput } from "@/lib/domain/resume-polish";
+import {
+  POLISH_DOCUMENT_TAG,
+  POLISH_ITEMS_TAG,
+  POLISH_TARGET_TAG,
+  type PolishItemChangeOutput,
+  type PolishItemOutput,
+  type ResumePolishDocOutput,
+  type ResumePolishOutput,
+} from "@/lib/domain/resume-polish";
 import type { GraphPortfolioOutput } from "@/lib/domain/graph-portfolio";
 import { getPortfolioTemplate } from "@/lib/domain/portfolio-templates";
 import type { InterviewFeedbackOutput, InterviewQuestionsOutput } from "@/lib/domain/interview";
@@ -1253,6 +1261,8 @@ function fakeAgentRevise(user: string): unknown {
 /**
  * 가짜 이력서 다듬기: <polish_target>의 글로 대안 2개(짧게 / 수치 자리표시)를 낸다. 그래프 근거 [1]이 있으면 그 이름을 셋째 대안에 쓴다.
  * 요청에 "[가짜:수치]"가 있으면 근거에 없는 숫자(73%)를 넣는다(서버 사실 검증 시험용).
+ * 요청에 "[가짜:묶음]" 또는 "한번에 채워"가 있고 <polish_items>(대상 칸이 든 항목)가 있으면 그 항목의 이름·문제·행동·결과·기술을 한 번에 채운다(itemChanges).
+ * 요청에 "[가짜:평어]"가 있으면 평어체('~했다')로 끝나는 대안·안내를 낸다(둘째 대안 '개발자다.'는 자동으로 바꿀 수 없는 꼴 — 서버 문체 정리 시험용).
  */
 function fakeResumePolish(user: string): ResumePolishOutput {
   const target = (extractTag(user, POLISH_TARGET_TAG) ?? "").trim();
@@ -1267,13 +1277,46 @@ function fakeResumePolish(user: string): ResumePolishOutput {
   const source = sourceLines(user)[0];
   if (source) suggestions.push({ text: `${first} (${source.text.split(" · ").at(-1)!.slice(0, 40)})`, reason: "그래프 근거를 함께 적었다." });
   if (message.includes("[가짜:수치]")) suggestions[0] = { text: `${first}, 처리 시간 73% 단축`, reason: "수치를 강조했다." };
+  const plain = message.includes("[가짜:평어]");
+  if (plain) {
+    suggestions[0] = { text: "정산 흐름을 다시 설계했다. [ADD: 수치 확인 — 처리 시간을 줄였다]", reason: "행동을 앞에 두었다." };
+    suggestions[1] = { text: "정산 배치를 맡은 백엔드 개발자다.", reason: "역할을 앞에 두었다." };
+  }
+  const grouped = extractTag(user, POLISH_ITEMS_TAG) !== null && wantsGrouped(message);
   return {
     scope: "on_topic",
     scopeReason: "",
-    reply: "요청에 맞춰 이렇게 바꿔 볼 수 있어요.",
+    reply: plain ? "요청에 맞춰 문장을 다시 썼다." : "요청에 맞춰 이렇게 바꿔 볼 수 있어요.",
     suggestions: suggestions.slice(0, 3),
     followUpQuestion: "이 일로 바뀐 지표와 기간을 알려 주실 수 있나요?",
+    itemChanges: grouped ? fakeProjectChanges(user, message) : [],
+    itemReason: grouped ? "프로젝트 이름·문제·행동·결과를 한 번에 채웠다." : "",
   };
+}
+
+const wantsGrouped = (message: string) => message.includes("[가짜:묶음]") || /한\s?번에\s?채워/.test(message);
+const wantsAdd = (message: string) => message.includes("[가짜:추가]") || /프로젝트\s?추가/.test(message);
+
+/** 그래프 근거·도구 결과에서 처음 보이는 프로젝트(이름 — 요약). 없으면 null. */
+function fakeGraphProject(user: string): { name: string; summary: string } | null {
+  const sources = extractTag(user, CHAT_TAGS.graphSources) ?? "";
+  const tools = extractTag(user, CHAT_TAGS.toolResults) ?? "";
+  const tool = /^N\d+ · (?:Project|프로젝트) · ([^\n—]+?)(?: — ([^\n]*))?$/m.exec(tools);
+  if (tool) return { name: tool[1]!.trim(), summary: (tool[2] ?? "").trim() };
+  const src = /^\[\d+\] 프로젝트 · ([^\n]+)$/m.exec(sources);
+  return src ? { name: src[1]!.trim(), summary: "" } : null;
+}
+
+/** 가짜 프로젝트 칸 묶음: 이름(그래프 프로젝트가 있으면 그 이름)·문제·행동·결과·기술. "[가짜:수치]"면 결과에 근거 없는 73%. */
+function fakeProjectChanges(user: string, message: string): PolishItemChangeOutput[] {
+  const project = fakeGraphProject(user);
+  return [
+    { field: "name", value: project?.name ?? "[ADD: 프로젝트 이름]" },
+    { field: "problem", value: "월말 정산 배치가 늦어 다음 날 업무가 밀렸다" },
+    { field: "action", value: "배치를 이벤트 기반으로 나눠 다시 설계했다" },
+    { field: "result", value: message.includes("[가짜:수치]") ? "정산 시간을 73% 줄였다" : "[ADD: 수치 확인 — 정산 시간 전후]" },
+    { field: "techs", value: "Kafka\nRust" },
+  ];
 }
 
 /**
@@ -1282,6 +1325,7 @@ function fakeResumePolish(user: string): ResumePolishOutput {
  *   - "[가짜:그래프:검색어]" → search_graph {query: 검색어}, 결과에 N1이 있으면 다음 스텝에 get_node {id: "N1"}
  *   - "[가짜:노드:값]" → get_node {id: 값}(격리·인자 검증 시험 — 실제 노드 id·남의 handle)
  *   - "[가짜:도구반복]" → 매 스텝 list_nodes를 부른다(스텝 상한·최종 답 강제 시험)
+ *   - "[가짜:추가]"·"프로젝트 추가"(근거에 프로젝트가 없을 때) → search_graph {query: 요청 글}
  * 이미 부른 도구는 다시 부르지 않는다(<tool_results>의 "#n 도구 →" 줄로 판단).
  */
 function fakeResumePolishStep(user: string): unknown {
@@ -1294,6 +1338,10 @@ function fakeResumePolishStep(user: string): unknown {
   const q = /\[가짜:그래프:([^\]]+)\]/.exec(message)?.[1];
   if (q && !called("search_graph")) calls.push({ tool: "search_graph", args: { query: q } });
   else if (q && /^N1 · /m.test(results) && !called("get_node")) calls.push({ tool: "get_node", args: { id: "N1" } });
+  // 새 프로젝트 추가 요청이면 그 경험을 그래프에서 찾는다(이미 근거·도구 결과가 있으면 다시 찾지 않는다).
+  if (!q && wantsAdd(message) && !called("search_graph") && !fakeGraphProject(user)) {
+    calls.push({ tool: "search_graph", args: { query: message.replace(/\[가짜:[^\]]*\]/g, " ").trim().slice(0, 200) || "프로젝트" } });
+  }
   const raw = /\[가짜:노드:([^\]]+)\]/.exec(message)?.[1];
   if (raw && !called("get_node")) calls.push({ tool: "get_node", args: { id: raw } });
   if (calls.length > 0) return { action: "call_tools", thought: "", calls: calls.slice(0, 3) };
@@ -1304,6 +1352,7 @@ function fakeResumePolishStep(user: string): unknown {
  * 가짜 전체 이력서 다듬기: <polish_document> 표의 글이 있는 칸 앞쪽 2개에 제안을 내고, 서버 거르기를 시험하려고
  * 다듬을 수 없는 칸(basics.email·motivation)과 없는 칸(experience[9].bullets[0]) 제안을 섞는다.
  * 질문에 "[가짜:수치]"가 있으면 답변·첫 제안에 근거 없는 숫자(73%)를 넣는다.
+ * 질문에 "[가짜:평어]"가 있으면 첫 제안과 답변을 평어체('~했다·~이다')로 끝낸다(서버 문체 정리 시험용).
  */
 function fakeResumePolishDoc(user: string): ResumePolishDocOutput {
   const table = extractTag(user, POLISH_DOCUMENT_TAG) ?? "";
@@ -1312,9 +1361,15 @@ function fakeResumePolishDoc(user: string): ResumePolishDocOutput {
     .map((m) => ({ path: m[1]!, label: m[2]!, text: m[3]!.trim() }))
     .filter((f) => f.text !== "(비어 있음)");
   const fake = message.includes("[가짜:수치]");
+  const plain = message.includes("[가짜:평어]");
   const suggestions = fields.slice(0, 2).map((f, i) => ({
     path: f.path,
-    after: i === 0 && fake ? `${f.text.replace(/[.。]$/, "")}, 처리 시간 73% 단축` : `${f.text.replace(/[.。]$/, "")} — [ADD: 수치 확인 — 개선 전후 지표]`,
+    after:
+      i === 0 && plain
+        ? "정산 흐름을 다시 설계했다. [ADD: 수치 확인 — 처리 시간을 줄였다]"
+        : i === 0 && fake
+          ? `${f.text.replace(/[.。]$/, "")}, 처리 시간 73% 단축`
+          : `${f.text.replace(/[.。]$/, "")} — [ADD: 수치 확인 — 개선 전후 지표]`,
     reason: `${f.label}에 결과 자리를 더했다.`,
   }));
   suggestions.push(
@@ -1323,11 +1378,38 @@ function fakeResumePolishDoc(user: string): ResumePolishDocOutput {
     { path: "experience[9].bullets[0]", after: "없는 칸", reason: "없는 칸" },
   );
   const weakest = fields[0]?.label ?? "요약";
+  // 항목 제안: "[가짜:묶음]"이면 첫 프로젝트(projects[0])의 여러 칸을 한 번에, "[가짜:추가]"면 그래프·도구 결과의 프로젝트를 새로 더한다.
+  const itemsTable = extractTag(user, POLISH_ITEMS_TAG) ?? "";
+  const items: PolishItemOutput[] = [];
+  if (wantsGrouped(message) && /^- \[projects\[0\]\]/m.test(itemsTable)) {
+    items.push({ kind: "edit", section: "projects", index: 0, changes: fakeProjectChanges(user, message), reason: "프로젝트 칸을 한 번에 채웠다." });
+  }
+  const project = fakeGraphProject(user);
+  if (wantsAdd(message) && project) {
+    items.push({
+      kind: "add",
+      section: "projects",
+      index: -1,
+      changes: [
+        { field: "name", value: project.name },
+        { field: "summary", value: project.summary || `${project.name} 프로젝트` },
+        { field: "startDate", value: "2023.01" },
+        { field: "techs", value: "Go\nKafka\nRust" },
+        { field: "result", value: message.includes("[가짜:수치]") ? "정산 시간을 73% 줄였다" : "" },
+      ],
+      reason: "경험 그래프에 있는 프로젝트를 더했다.",
+    });
+  }
   return {
     scope: "on_topic",
     scopeReason: "",
-    answer: fake ? `가장 약한 부분은 ${weakest}입니다. 응답 시간을 73% 줄인 경험이 강점입니다.` : `가장 약한 부분은 ${weakest}입니다. 결과 수치가 빠져 있어요.`,
+    answer: plain
+      ? `가장 약한 부분은 ${weakest}이다. 결과 수치가 빠져 있다.`
+      : fake
+        ? `가장 약한 부분은 ${weakest}입니다. 응답 시간을 73% 줄인 경험이 강점입니다.`
+        : `가장 약한 부분은 ${weakest}입니다. 결과 수치가 빠져 있어요.`,
     suggestions,
+    items,
     followUpQuestion: "가장 자랑하고 싶은 성과의 지표를 알려 주실 수 있나요?",
   };
 }

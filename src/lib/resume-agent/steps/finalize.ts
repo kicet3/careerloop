@@ -8,6 +8,7 @@ import "server-only";
 import { prisma } from "@/lib/db/client";
 import { StoredResumeDocumentSchema, type ResumeDocument } from "@/lib/domain/resumes";
 import { extrasPathMapper, isNewcomerDocument, normalizeExtras } from "@/lib/resumes/extras-guide";
+import { honorificLeftoverNote, normalizeDocumentHonorific } from "@/lib/resumes/honorific";
 import type { CreateResumeParams } from "@/lib/resumes/service";
 import type { MotivationSuggestResponse } from "@/lib/domain/resume-motivation";
 import { MOTIVATION_DRAFT_MAX } from "@/lib/domain/resume-motivation";
@@ -65,7 +66,10 @@ export async function prepareFinalize(ctx: StepContext, user: { name: string | n
   const motivationAt = motivationOn ? sectionOutputAt(ctx.rows, "motivation_draft", round) : null;
   const motivationDraft = motivationAt?.output.fragment.motivation ?? "";
   doc.motivation = motivationDraft;
-  const document = StoredResumeDocumentSchema.parse(doc);
+  // 문장 끝 경어체 통일(v1·v2 공통, 결정적 — 줄 수·경로는 그대로라 인용 경로가 바뀌지 않는다). 판단할 수 없는 평어체는 리포트 notes로.
+  const honorific = normalizeDocumentHonorific(doc);
+  const honorificNote = honorificLeftoverNote(honorific.leftovers);
+  const document = StoredResumeDocumentSchema.parse(honorific.document);
 
   // 그사이 연결할 공고가 지워졌으면 공고 없이 만든다(FK 위반 방지).
   let postingId = input.kind === "general" ? null : (input.postingId ?? null);
@@ -100,6 +104,7 @@ export async function prepareFinalize(ctx: StepContext, user: { name: string | n
     ...ret.warnings,
     ...(graphChanged ? ["실행 중 경험 그래프가 바뀌어 새 내용으로 이어서 썼습니다."] : []),
     ...draft.notes.slice(0, 4),
+    ...(honorificNote && !draft.notes.slice(0, 4).includes(honorificNote) ? [honorificNote] : []),
   ];
   const base = buildAgentReport({
     jd: jd.jd,

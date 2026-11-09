@@ -4,6 +4,7 @@
  */
 import type { NodeLabel } from "@/lib/domain/graph";
 import { emptyResumeDocument, type ResumeDocument } from "@/lib/domain/resumes";
+import { PROJECT_COUNT_MIN } from "@/lib/resumes/project-count";
 import { compactKey } from "@/lib/skills/dictionary";
 import { arrayAt, arraySlot, excludedRefs, itemPathOf, lineValue, linePaths, requirementsForLine, setLine, shiftCitations } from "../citations";
 import type { WritingSection } from "../job-types";
@@ -101,6 +102,13 @@ function coversPrimary(citations: readonly Citation[], path: string, primary: Re
     requirementsForLine(citations, path).some((r) => primary.has(r));
 }
 
+/** 대표 프로젝트 후보 수: 근거(pack)의 프로젝트(Project) 노드 중 작전이 빼지 않은 것(대표 프로젝트 2~3개 점검용). */
+export function projectCandidateCount(pack: EvidencePack, brief: Pick<SectionBrief, "exclude" | "include">): number {
+  const included = new Set(brief.include.projects.map((p) => p.ref));
+  const excluded = new Set(brief.exclude.map((e) => e.ref).filter((r) => !included.has(r)));
+  return pack.items.filter((i) => i.label === "Project" && !excluded.has(i.ref)).length;
+}
+
 /** 항목 목록(구역별): [컨테이너 경로, 항목 수, 항목의 줄 컨테이너]. */
 function itemContainers(section: WritingSection, doc: ResumeDocument): { container: string; lines: ((i: number) => string | null) }[] {
   switch (section) {
@@ -177,7 +185,8 @@ export function trimToBudget(
     if (section === "experience" || section === "projects") {
       const items = section === "experience" ? doc.experience : doc.projects;
       for (let i = items.length - 1; i >= 0 && !done; i--) done = dropLast(`${section}[${i}].bullets`, 1);
-      if (!done) done = dropLast(section, 1);
+      // 대표 프로젝트는 글자 수 때문에 2개 아래로 줄이지 않는다(기본 2~3개 — project-count.ts).
+      if (!done) done = dropLast(section, section === "projects" ? PROJECT_COUNT_MIN : 1);
     } else if (section === "extras") {
       for (let gi = doc.extras.length - 1; gi >= 0 && !done; gi--) done = dropLast(`extras[${gi}].items`, 1);
     } else {

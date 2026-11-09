@@ -306,6 +306,9 @@ describe("compose", () => {
     expect(ok.output.topFallback).toBe(false);
     expect(ok.output.draft.citations.some((c) => c.path === "summary")).toBe(true);
     expect(ok.output.verify.numbersFlagged.length).toBeGreaterThanOrEqual(0);
+    // 문장 끝 경어체 통일: 조립 문서에 바꿀 수 있는 평어체가 남지 않는다.
+    const { normalizeDocumentHonorific } = await import("@/lib/resumes/honorific");
+    expect(normalizeDocumentHonorific(ok.output.draft.document).changed).toBe(0);
   });
 });
 
@@ -471,6 +474,26 @@ describe("총괄 정리(리뷰 반영)", () => {
     expect(unlinked?.instructions.join(" ")).toContain("JD 요건");
     expect(critiqueMotivation("토스가 강조하는 Kafka 이벤트 파이프라인 운영에 주문 시스템 개편 경험을 잇겠습니다.", doc, JD_V2)).toBeNull();
     expect(critiqueMotivation("[ADD: 지원 계기]", doc, JD_V2)).toBeNull();
+  });
+
+  it("문체: 경어체 변환기가 바꾸지 못한 평어체 줄은 그 구역(요약은 compose)에 문체 지시로 — LLM이 keep이어도 다시 쓴다", async () => {
+    const { routeHonorificStyle } = await import("./steps/critique");
+    const doc = composeOut(0).draft.document;
+    doc.summary = "결제 도메인 개발자다.";
+    doc.experience[0]!.bullets = ["주문 처리 시간을 줄였습니다.", "담당은 백엔드다."];
+    doc.motivation = "지원 동기는 비교 대상이 아니다다.";
+    const routed = new Map();
+    const sections = routeHonorificStyle(routed, doc);
+    expect([...sections]).toEqual(["experience"]);
+    expect(routed.get("experience").style[0]).toContain("experience[0].bullets[1]");
+    expect(routed.get("compose").style[0]).toContain("summary");
+    const keepAll = { sections: (["experience", "compose"] as const).map((section) => ({ section, score: 90, decision: "keep" as const, instructions: ["유지"], issueIds: [], requirementIds: [], keepPaths: [], targetChars: null, evidenceQueries: [] })), crossSection: [], summary: "s" };
+    const merged = mergeCritique(routed, keepAll, new Map());
+    const exp = merged.feedback.find((f) => f.section === "experience");
+    expect(exp?.instructions.join(" ")).toContain("'~했습니다/~합니다/~입니다'로 끝낸다");
+    expect(merged.composeFeedback.join(" ")).toContain("summary의 문장 끝이 평어체다");
+    const { critiqueMotivation } = await import("./steps/critique");
+    expect(critiqueMotivation("토스가 강조하는 Kafka 이벤트 파이프라인 운영에 주문 시스템 개편 경험을 잇는 개발자다.", doc, JD_V2)?.instructions.join(" ")).toContain("평어체");
   });
 
   it("조립: 핵심 성과가 조립된 본문 줄과 거의 같으면 핵심 성과 쪽을 지운다(같은 라운드에 함께 다시 쓴 경우의 안전망)", () => {

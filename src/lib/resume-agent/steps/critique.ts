@@ -2,7 +2,8 @@
  * 단계 critique(v2 총괄 피드백, task resume-agent-critique — docs/RESUME-SECTION-AGENTS.md §4.3):
  *   1) 결정적 라우팅: 심사 지적의 경로 접두로 구역을 정한다(experience[ → 경력 …, summary·basics. → compose, 지원 동기는 대상 아님).
  *      경로 없는 지적·적합도 missing/partial 요건은 작전의 주 책임 구역으로, ATS 누락 키워드는 그 키워드를 맡은 구역(없으면 경력)으로.
- *      needsUserInfo 지적은 피드백에서 빼고 질문으로만 남긴다. 분량 초과·구역 사이 중복도 그 구역으로.
+ *      needsUserInfo 지적은 피드백에서 빼고 질문으로만 남긴다. 분량 초과·구역 사이 중복도 그 구역으로. 경어체 변환기가 바꾸지 못한
+ *      평어체 줄은 문체 지시로 그 구역에(routeHonorificStyle).
  *   2) 총괄 LLM: 구역별 점수·keep|revise·지시. 3) 서버 정리: 지적·요건·분량 초과가 없는 구역의 revise는 keep으로 강등,
  *      한 라운드 MAX_SECTIONS_PER_ROUND(점수 낮은 순). 지시문은 길이·개수를 자르고 태그 문자를 지운다.
  *   4) 다음 라운드 근거 재검색(ctx.evidence.expand — 작업 행 userId만): 요건 공백·누락 키워드·구역의 needEvidence·총괄 검색어.
@@ -16,7 +17,9 @@ import { parsedOutput } from "../next-step";
 import { composeOf, currentPackV2, MAX_SECTIONS_PER_ROUND, sectionOutputAt } from "../next-step-v2";
 import { buildCritiquePrompt, cleanInstruction } from "../prompts-v2";
 import { LlmCritiqueSchema, type ComposeStepOutput, type CritiqueStepOutput, type EvidencePack, type LlmCritique, type ReviewRound, type SectionBrief, type SectionFeedback } from "../schemas";
-import { fragmentDoc, nearDuplicate, ownsPath, sectionOfPath } from "../sections/common";
+import { fragmentDoc, nearDuplicate, ownsPath, projectCandidateCount, sectionOfPath } from "../sections/common";
+import { PROJECT_COUNT_MIN } from "@/lib/resumes/project-count";
+import { normalizeDocumentHonorific, normalizeHonorific } from "@/lib/resumes/honorific";
 import { linePaths } from "../citations";
 import { splitSentences } from "../verify";
 import { stripPlaceholders } from "@/lib/text/numbers";
@@ -34,9 +37,11 @@ interface Routed {
   texts: string[];
   overBudget: boolean;
   severe: boolean;
+  /** 문체 지시(경어체 변환기가 바꾸지 못한 평어체 줄) — LLM 지시가 있어도 덧붙인다. */
+  style: string[];
 }
 
-const emptyRouted = (): Routed => ({ issueIds: new Set(), requirementIds: new Set(), keywords: new Set(), quotes: [], texts: [], overBudget: false, severe: false });
+const emptyRouted = (): Routed => ({ issueIds: new Set(), requirementIds: new Set(), keywords: new Set(), quotes: [], texts: [], overBudget: false, severe: false, style: [] });
 
 /** 1) 결정적 라우팅(순수 — 테스트용으로 내보낸다). */
 export function routeFeedback(
@@ -123,6 +128,53 @@ export function routeFeedback(
 }
 
 /**
+ * 대표 프로젝트 부족(결정적, 순수 — 테스트용): 조립된 문서의 프로젝트가 2개 미만인데 근거에 작전이 빼지 않은 프로젝트(Project)가
+ * 2개 이상이고 아직 인용하지 않은 후보가 있으면 projects 구역에 다시 쓰기를 건다(심각 — 총괄 LLM이 keep이라 해도).
+ * 근거에 프로젝트가 1개 이하면 아무것도 하지 않는다(지어내지 않는다 — 구역 단계가 질문으로 남긴다). 다시 쓰기를 걸었으면 true.
+ */
+export function routeProjectShortfall(
+  routed: Map<Target, Routed>,
+  draft: Pick<ComposeStepOutput["draft"], "document" | "citations">,
+  pack: EvidencePack,
+  brief: Pick<SectionBrief, "exclude" | "include">,
+): boolean {
+  const n = draft.document.projects.length;
+  const available = projectCandidateCount(pack, brief);
+  if (n >= PROJECT_COUNT_MIN || available < PROJECT_COUNT_MIN || available <= n) return false;
+  const used = new Set(draft.citations.filter((c) => c.path.startsWith("projects[")).flatMap((c) => c.refs));
+  const included = new Set(brief.include.projects.map((p) => p.ref));
+  const excluded = new Set(brief.exclude.map((e) => e.ref).filter((r) => !included.has(r)));
+  const candidates = pack.items.filter((i) => i.label === "Project" && !used.has(i.ref) && !excluded.has(i.ref)).map((i) => i.ref);
+  // 쓰지 않은 후보가 없으면 다시 써도 늘릴 근거가 없다(라운드만 쓴다) — 구역 단계 질문에 맡긴다.
+  if (candidates.length === 0) return false;
+  if (!routed.has("projects")) routed.set("projects", emptyRouted());
+  const r = routed.get("projects")!;
+  r.severe = true;
+  r.texts.push(
+    `대표 프로젝트가 ${n}개뿐이다 — 근거에 프로젝트가 ${available}개 있으니 JD 요건과 가장 가까운 것을 더해 2~3개로 쓴다(후보: ${candidates.slice(0, 4).join(", ")}). 근거에 있는 프로젝트만 쓴다.`,
+  );
+  return true;
+}
+
+/**
+ * 문체(결정적, 순수 — 테스트용): compose가 경어체 변환기(honorific.ts)를 돌린 뒤에도 남은 평어체 줄('~개발자다.'처럼 판단할 수 없는 것)을
+ * 그 줄의 구역(요약·상단은 compose)에 문체 지시로 건다. 지원 동기는 critiqueMotivation이 본다. 지시를 건 본문 구역을 돌려준다.
+ */
+export function routeHonorificStyle(routed: Map<Target, Routed>, document: ComposeStepOutput["draft"]["document"]): Set<WritingSection> {
+  const sections = new Set<WritingSection>();
+  for (const l of normalizeDocumentHonorific(document).leftovers) {
+    const t = sectionOfPath(l.path);
+    if (t === null) continue;
+    if (!routed.has(t)) routed.set(t, emptyRouted());
+    const r = routed.get(t)!;
+    if (r.style.length >= 4) continue;
+    r.style.push(`${l.path}의 문장 끝이 평어체다('${l.text.slice(-40)}') — 뜻·수치·[ADD] 자리표시는 그대로 두고 '~했습니다/~합니다/~입니다'로 끝낸다.`);
+    if (t !== "compose") sections.add(t);
+  }
+  return sections;
+}
+
+/**
  * 근거를 못 찾은 요건 정리(순수 — 테스트용): 그 요건 id를 빼고, 그 요건(id·요건 문장)을 언급한 지시도 지운다(지어내도록 압박하지 않게).
  * 그 뒤 남은 사유(지적·남은 요건·키워드·분량 초과·중복)가 없는 구역은 뺀다 — 지시문이 남아 있다는 것만으로는 다시 쓰지 않는다.
  */
@@ -130,7 +182,12 @@ export function dropUnresolved(
   feedback: readonly SectionFeedback[],
   unresolved: ReadonlySet<string>,
   reqs: ReadonlyMap<string, { text: string }>,
-  ctx: { issues: readonly Pick<ReviewRound["issues"][number], "id" | "requirementId">[]; compose: Pick<ComposeStepOutput, "budgetReport" | "duplicates"> },
+  ctx: {
+    issues: readonly Pick<ReviewRound["issues"][number], "id" | "requirementId">[];
+    compose: Pick<ComposeStepOutput, "budgetReport" | "duplicates">;
+    /** 요건과 무관한 결정적 사유가 있는 구역(예: 대표 프로젝트 부족) — 빼지 않는다. */
+    keep?: ReadonlySet<WritingSection>;
+  },
 ): SectionFeedback[] {
   if (unresolved.size === 0) return [...feedback];
   const reqIdRe = [...unresolved].map((id) => new RegExp(`(^|[^A-Za-z0-9])${id}(?![0-9])`));
@@ -147,7 +204,7 @@ export function dropUnresolved(
     });
     const overBudget = ctx.compose.budgetReport.some((b) => b.section === f.section && b.over);
     const duplicate = ctx.compose.duplicates.some((d) => d.section === f.section && !d.removed);
-    const reason = otherIssues || requirementIds.length > 0 || f.keywords.length > 0 || !!overBudget || duplicate;
+    const reason = otherIssues || requirementIds.length > 0 || f.keywords.length > 0 || !!overBudget || duplicate || !!ctx.keep?.has(f.section);
     if (!reason) return [];
     return [{ ...f, requirementIds, instructions: instructions.length > 0 ? instructions : ["지적된 줄을 근거 안에서 고친다. 근거가 없는 요건은 쓰지 않는다."] }];
   });
@@ -170,6 +227,7 @@ export function critiqueMotivation(draft: string, doc: Pick<ComposeStepOutput["d
     const c = compactKey(sentence);
     return lines.some((l) => nearDuplicate(sentence, l) || (compactKey(l).length >= 15 && c.includes(compactKey(l))));
   });
+  if (normalizeHonorific(body).leftovers.length > 0) instructions.push(cleanInstruction("문장 끝이 평어체('~다')인 문장이 있다 — 뜻·수치는 그대로 두고 '~했습니다/~합니다/~입니다'로 끝낸다."));
   if (copied) instructions.push(cleanInstruction(`이력서 본문 줄을 거의 그대로 옮긴 문장이 있다('${copied.trim().slice(0, 60)}') — 본문을 반복하지 말고 회사가 강조하는 점과 이어지는 한 문장으로 줄인다.`));
   if (jd.source !== "inferred") {
     const c = compactKey(body);
@@ -183,7 +241,7 @@ export function critiqueMotivation(draft: string, doc: Pick<ComposeStepOutput["d
   return instructions.length > 0 ? { instructions: instructions.slice(0, 5) } : null;
 }
 
-const hasWork = (r: Routed | undefined) => !!r && (r.issueIds.size > 0 || r.requirementIds.size > 0 || r.keywords.size > 0 || r.overBudget || r.texts.length > 0);
+const hasWork = (r: Routed | undefined) => !!r && (r.issueIds.size > 0 || r.requirementIds.size > 0 || r.keywords.size > 0 || r.overBudget || r.texts.length > 0 || r.style.length > 0);
 
 /** 3) 서버 정리(순수 — 테스트용). LLM 결과가 없으면 결정적 피드백. */
 export function mergeCritique(
@@ -201,12 +259,13 @@ export function mergeCritique(
     const work = hasWork(r);
     // 근거 없는 재작성 방지: 지적·요건·키워드·분량 초과가 없으면 LLM이 revise라 해도 keep.
     // LLM이 명시적으로 keep이라 했어도 심각한 지적·누락 키워드가 있으면 다시 쓴다.
-    const revise = work && (!e || e.decision === "revise" || !!r?.severe || (r?.keywords.size ?? 0) > 0);
+    const revise = work && (!e || e.decision === "revise" || !!r?.severe || (r?.keywords.size ?? 0) > 0 || (r?.style.length ?? 0) > 0);
     sectionScores.push({ section: s, score, decision: revise ? "revise" : "keep" });
     if (!revise || !r) continue;
     const llmIssues = (e?.issueIds ?? []).map((id) => shortIds.get(id)).filter((x): x is string => !!x);
     const instructions = [...(e?.instructions ?? []).map((x) => cleanInstruction(x)).filter(Boolean)];
     if (instructions.length === 0) instructions.push(...r.texts.map((x) => cleanInstruction(x)));
+    instructions.push(...r.style.map((x) => cleanInstruction(x)));
     if (r.keywords.size > 0) instructions.push(cleanInstruction(`서류 자동 필터가 못 찾은 JD 키워드(${[...r.keywords].join(", ")})를 근거가 있는 줄에 JD 표기 그대로 넣는다. 근거가 없으면 넣지 않는다.`));
     feedback.push({
       section: s,
@@ -223,12 +282,14 @@ export function mergeCritique(
   feedback.sort((a, b) => (a.score ?? 50) - (b.score ?? 50));
   const composeEntry = llm?.sections.find((x) => x.section === "compose");
   const composeRouted = routed.get("compose");
-  const composeFeedback =
-    composeEntry?.decision === "revise" && composeEntry.instructions.length > 0
+  const composeFeedback = [
+    ...(composeEntry?.decision === "revise" && composeEntry.instructions.length > 0
       ? composeEntry.instructions.map((x) => cleanInstruction(x))
       : hasWork(composeRouted)
         ? composeRouted!.texts.map((x) => cleanInstruction(x))
-        : [];
+        : []),
+    ...(composeRouted?.style ?? []).map((x) => cleanInstruction(x)),
+  ];
   return { feedback: feedback.slice(0, maxSections), composeFeedback: [...new Set(composeFeedback)].filter(Boolean).slice(0, 6), sectionScores };
 }
 
@@ -241,6 +302,8 @@ export async function runCritiqueStep(ctx: StepContext, k: number): Promise<Step
   if (!jd || !brief || !compose || !review || !pack0) throw new AgentStepError("missing_input", "피드백할 초안·심사 결과가 없습니다.", false);
   const meter = new UsageMeter();
   const { routed, questions } = routeFeedback(review.round, brief, compose, jd.jd, pack0);
+  const projectShortfall = routeProjectShortfall(routed, compose.draft, pack0, brief);
+  const styleSections = routeHonorificStyle(routed, compose.draft.document);
 
   // 지적 id를 짧은 번호로(I1…): 프롬프트에 내부 id를 넣지 않는다.
   const shortIds = new Map<string, string>();
@@ -317,7 +380,7 @@ export async function runCritiqueStep(ctx: StepContext, k: number): Promise<Step
       const t = reqs.get(id)?.text;
       if (t) questions.push({ requirementId: id, question: `${t} 경험이 있나요? 있다면 어느 직무·프로젝트에서 했는지 알려 주세요.` });
     }
-    feedback = dropUnresolved(feedback, unresolved, reqs, { issues: review.round.issues, compose });
+    feedback = dropUnresolved(feedback, unresolved, reqs, { issues: review.round.issues, compose, keep: new Set<WritingSection>([...(projectShortfall ? (["projects"] as const) : []), ...styleSections]) });
   }
   // 지원 동기 초안(이 라운드까지의 최신): 다시 쓸 본문 구역이 있는 라운드에만 함께 다시 쓴다(next-step-v2).
   const motivationOn = ctx.job.input.kind === "company" && ctx.settings.motivation !== false;

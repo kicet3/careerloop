@@ -8,6 +8,18 @@
  */
 import { z } from "zod";
 import { ResumeDocumentSchema, type ResumeDocument } from "./resumes";
+import {
+  isPolishItemSuggestion,
+  MAX_DOC_ITEM_SUGGESTIONS,
+  PolishItemChangeOutputSchema,
+  PolishItemExcludeSchema,
+  polishItemOfPath,
+  PolishItemOutputSchema,
+  type PolishItemRecord,
+  type PolishItemSuggestion,
+} from "./resume-polish-items";
+
+export * from "./resume-polish-items";
 
 // ---------------------------------------------------------------------------
 // 대상 경로
@@ -169,6 +181,8 @@ export function polishTargets(doc: ResumeDocument, opts: { includeEmpty?: boolea
 
 /** 프롬프트에서 다듬을 칸의 지금 글을 감싸는 태그(src/lib/resumes/polish.ts가 태그 탈출을 막고, 가짜 LLM이 읽는다). */
 export const POLISH_TARGET_TAG = "polish_target";
+/** 프롬프트에서 항목(프로젝트·경력) 표를 감싸는 태그: 항목 제안(여러 칸 한 번에 고치기·새 항목 추가)의 대상. 가짜 LLM이 읽는다. */
+export const POLISH_ITEMS_TAG = "polish_items";
 
 export const MAX_POLISH_MESSAGE_CHARS = 1000;
 export const PolishUserMessageSchema = z.string().trim().min(1, "요청을 입력해 주세요.").max(MAX_POLISH_MESSAGE_CHARS, `요청은 ${MAX_POLISH_MESSAGE_CHARS}자까지 보낼 수 있습니다.`);
@@ -191,6 +205,11 @@ export const ResumePolishOutputSchema = z.object({
     .max(3)
     .describe("대안 문구 2~3개. 범위 밖이면 []"),
   followUpQuestion: z.string().default("").describe('더 좋게 쓰려고 사용자에게 물을 질문 하나(예: 개선 수치). 없으면 ""'),
+  itemChanges: z
+    .array(PolishItemChangeOutputSchema)
+    .default([])
+    .describe("이 칸이 든 항목(<polish_items>) 하나의 여러 칸을 한 번에 채우거나 고칠 때만(예: 이름·문제·행동·결과를 한꺼번에). 바꿀 칸만. 아니면 []"),
+  itemReason: z.string().default("").describe('itemChanges가 있을 때 이유 한 문장. 없으면 ""'),
 });
 export type ResumePolishOutput = z.input<typeof ResumePolishOutputSchema>;
 
@@ -250,8 +269,12 @@ export interface ResumePolishData {
   graphSources: number;
   /** 이 답변을 만들며 부른 도구(없으면 생략). */
   tools?: PolishToolUse[];
+  /** 이 칸이 든 항목의 여러 칸을 한 번에 고치는 제안(대상 항목은 서버가 대상 칸으로 정한다). 예전 메시지에는 없다. */
+  itemSuggestion?: PolishItemSuggestion;
   /** 적용한 제안 번호(0부터)와 그로 만든 버전. */
   appliedIndex?: number;
+  /** 항목 제안(itemSuggestion)을 적용했다. */
+  appliedItem?: boolean;
   appliedVersionId?: string;
 }
 
@@ -260,9 +283,28 @@ export const ApplyPolishSchema = z.object({
   index: z.number().int().min(0).max(2),
 });
 
+/** 칸 모드의 항목 제안 적용. exclude: 카드에서 체크를 푼 칸. */
+export const ApplyPolishItemSchema = z.object({
+  messageId: z.string().min(1).max(40),
+  item: z.literal(true),
+  exclude: PolishItemExcludeSchema.optional(),
+});
+
 // ---------------------------------------------------------------------------
 // 지난 글에 대한 대화(순수 — 서버 프롬프트 이력·패널 표시가 같은 규칙을 쓴다)
 // ---------------------------------------------------------------------------
+
+/** 적용한 답변이 대상 칸에 넣은 글(항목 제안이면 그 칸의 새 값 — 그 칸을 바꾸지 않았으면 before). */
+function polishAppliedText(data: Partial<ResumePolishData>): string | undefined {
+  if (typeof data.appliedIndex === "number") return data.suggestions?.[data.appliedIndex]?.text;
+  if (!data.appliedItem || !data.itemSuggestion || typeof data.targetPath !== "string") return undefined;
+  const at = polishItemOfPath(data.targetPath);
+  const change = at ? data.itemSuggestion.changes.find((c) => c.field === at.field) : undefined;
+  if (!change) return data.before;
+  const after = change.after;
+  if (Array.isArray(after)) return at?.sub !== null && at?.sub !== undefined ? after[at.sub] : undefined;
+  return after;
+}
 
 /**
  * 대화가 '지금 저장된 글'과 이어지는 첫 메시지 위치. 그 앞의 메시지는 이전 글(칸이 지워지거나 순서가 바뀌어 다른 문장이 됐거나,
@@ -280,7 +322,7 @@ export function polishContinuationStart(
     const m = messages[i]!;
     const data = m.data as Partial<ResumePolishData> | null | undefined;
     if (m.role !== "assistant" || data?.kind !== "resume-polish" || typeof data.before !== "string") continue;
-    const appliedText = m.status === "applied" && typeof data.appliedIndex === "number" ? data.suggestions?.[data.appliedIndex]?.text : undefined;
+    const appliedText = m.status === "applied" ? polishAppliedText(data) : undefined;
     if (live.has(data.before)) continue;
     if (appliedText !== undefined && live.has(appliedText)) {
       live.add(data.before);
@@ -336,11 +378,19 @@ export const ResumePolishDocOutputSchema = z.object({
       }),
     )
     .describe(`구체적으로 고칠 칸 0~${MAX_DOC_SUGGESTIONS}개(칸마다 하나). 질문에 답만 하면 되면 []`),
+  items: z
+    .array(PolishItemOutputSchema)
+    .default([])
+    .describe(
+      `항목 제안 0~${MAX_DOC_ITEM_SUGGESTIONS}개: 프로젝트·경력 하나의 여러 칸을 한 번에 채우거나 고칠 때(edit), 새 항목을 추가해 달라고 할 때(add). 칸 제안과 합쳐 ${MAX_DOC_SUGGESTIONS}개까지. 없으면 []`,
+    ),
   followUpQuestion: z.string().default("").describe('더 좋게 쓰려고 사용자에게 물을 질문 하나. 없으면 ""'),
 });
 export type ResumePolishDocOutput = z.input<typeof ResumePolishDocOutputSchema>;
 
-export interface PolishDocSuggestion {
+/** 전체 이력서 모드의 칸 제안(예전 메시지는 kind가 없다). */
+export interface PolishDocFieldSuggestion {
+  kind?: "field";
   path: string;
   /** 화면용 칸 이름(제안을 만들 때 문서 기준). */
   label: string;
@@ -350,7 +400,14 @@ export interface PolishDocSuggestion {
   reason: string;
   /** 서버 사실 검증이 [ADD: 수치 확인 — …]로 바꾼 숫자(원문). */
   flagged: string[];
+  /** 프로젝트·경력 칸이면 제안 때 그 항목의 정체(polishItemAnchor) — 순서가 바뀌어 같은 자리에 다른 항목이 오면 적용하지 않는다. */
+  anchor?: PolishItemRecord;
 }
+
+/** 전체 이력서 모드 제안: 칸 하나(field) 또는 항목 하나(item-edit·item-add). 번호(applied·indices)는 이 배열의 자리다. */
+export type PolishDocSuggestion = PolishDocFieldSuggestion | PolishItemSuggestion;
+
+export const isPolishDocFieldSuggestion = (s: PolishDocSuggestion): s is PolishDocFieldSuggestion => !isPolishItemSuggestion(s);
 
 /** 전체 이력서 답변(assistant 메시지 data). */
 export interface ResumePolishDocData {
@@ -377,6 +434,11 @@ export const ApplyPolishDocSchema = z.object({
     .min(1, "적용할 제안을 골라 주세요.")
     .max(MAX_DOC_SUGGESTIONS)
     .refine((xs) => new Set(xs).size === xs.length, "같은 제안을 두 번 고를 수 없습니다."),
+  /** 항목 고치기 제안에서 체크를 푼 칸. */
+  exclude: z
+    .array(z.object({ index: z.number().int().min(0).max(MAX_DOC_SUGGESTIONS - 1), fields: PolishItemExcludeSchema }))
+    .max(MAX_DOC_SUGGESTIONS)
+    .optional(),
 });
 
 /** 적용 충돌(409) 응답의 칸 목록. */

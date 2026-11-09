@@ -15,7 +15,7 @@ POST = load_fixture("prompts/resume-draft-postprocess.json")
 
 
 def _material(m: dict) -> DraftMaterial:
-    return DraftMaterial(m["kind"], m["text"], m.get("diagnosisTitle", ""))
+    return DraftMaterial(m["kind"], m["text"], m.get("diagnosisTitle", ""), project_count=m.get("projectCount"))
 
 
 def _ordered(v: object) -> str:
@@ -47,7 +47,7 @@ def test_output_schema_and_postprocess_match_ts(case: dict) -> None:
     assert ok == case["ok"], value
     if not ok:
         return
-    ctx = DraftContext("c", "r", "", "classic", DraftMaterial("graph", "g"), person_name=case["personName"], person_email=case["personEmail"])
+    ctx = DraftContext("c", "r", "", "classic", _material(case["material"]), person_name=case["personName"], person_email=case["personEmail"])
     draft = postprocess_draft(value, ctx)
     assert draft == case["draft"]
     assert _ordered(draft) == _ordered(case["draft"])

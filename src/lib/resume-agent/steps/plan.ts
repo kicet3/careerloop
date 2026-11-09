@@ -5,11 +5,15 @@
 import { excludedRefs } from "../citations";
 import { parsedOutput } from "../next-step";
 import { buildPlanPrompt } from "../prompts";
-import { LlmPlanSchema, type PlanStepOutput, type ResumeAgentPlan } from "../schemas";
+import { PROJECT_COUNT_MAX, PROJECT_COUNT_MIN } from "@/lib/resumes/project-count";
+import { LlmPlanSchema, type EvidencePack, type PlanStepOutput, type ResumeAgentPlan } from "../schemas";
 import type { z } from "zod";
 import { agentPromptContext, AgentStepError, UsageMeter, type StepContext, type StepResult } from "./shared";
 
-export function sanitizePlan(raw: z.infer<typeof LlmPlanSchema>, ctx: { packRefs: ReadonlySet<string>; requirementIds: readonly string[]; mustIds: readonly string[]; skillStatus: ReadonlyMap<string, string> }): { plan: ResumeAgentPlan; warnings: string[] } {
+export function sanitizePlan(
+  raw: z.infer<typeof LlmPlanSchema>,
+  ctx: { packRefs: ReadonlySet<string>; requirementIds: readonly string[]; mustIds: readonly string[]; skillStatus: ReadonlyMap<string, string>; pack?: EvidencePack },
+): { plan: ResumeAgentPlan; warnings: string[] } {
   const ref = (r: string) => r.trim().replace(/^\[|\]$/g, "");
   const okRef = (r: string) => ctx.packRefs.has(ref(r));
   const reqSet = new Set(ctx.requirementIds);
@@ -48,7 +52,49 @@ export function sanitizePlan(raw: z.infer<typeof LlmPlanSchema>, ctx: { packRefs
   const excluded = excludedRefs(plan);
   const seenExcluded = new Set<string>();
   plan.exclude = plan.exclude.filter((e) => excluded.has(e.ref) && !seenExcluded.has(e.ref) && !!seenExcluded.add(e.ref));
+  // 작전이 이유를 들어 뺀 프로젝트(원래 exclude — 요건 매핑에 쓰였어도)는 결정적으로 되살리지 않는다.
+  balanceProjects(plan, ctx.pack, reqSet, warnings, new Set(raw.exclude.map((e) => ref(e.ref))));
   return { plan, warnings };
+}
+
+/**
+ * 대표 프로젝트 2~3개(project-count.ts, 결정적): 같은 ref는 하나만, 3개가 넘으면 앞(관련도 순)의 3개만.
+ * 2개 미만이면 근거(pack)의 프로젝트(Project) 노드 중 고르지도 빼지도(explicitlyExcluded 포함) 않은 것을 JD 요건 연결이 많은 순으로 더한다 —
+ * 근거에 있는 노드만 쓰므로 지어내지 않는다. 근거에 더 없으면 그대로 둔다(구역 에이전트·후처리가 질문으로 남긴다).
+ */
+export function balanceProjects(
+  plan: ResumeAgentPlan,
+  pack: EvidencePack | undefined,
+  reqSet: ReadonlySet<string>,
+  warnings: string[],
+  explicitlyExcluded: ReadonlySet<string> = new Set(),
+): void {
+  const seen = new Set<string>();
+  plan.include.projects = plan.include.projects.filter((p) => !seen.has(p.ref) && !!seen.add(p.ref));
+  if (plan.include.projects.length > PROJECT_COUNT_MAX) {
+    warnings.push(`대표 프로젝트 ${plan.include.projects.length}개 중 앞의 ${PROJECT_COUNT_MAX}개만 씁니다(2~3개 기준).`);
+    plan.include.projects = plan.include.projects.slice(0, PROJECT_COUNT_MAX);
+  }
+  if (!pack || plan.include.projects.length >= PROJECT_COUNT_MIN) return;
+  const excluded = new Set([...plan.exclude.map((e) => e.ref), ...explicitlyExcluded]);
+  const reqsOf = (ref: string) =>
+    [
+      ...new Set([
+        ...plan.requirementMap.filter((r) => r.refs.includes(ref)).map((r) => r.requirementId),
+        ...pack.byRequirement.filter((b) => b.refs.includes(ref)).map((b) => b.requirementId),
+      ]),
+    ].filter((id) => reqSet.has(id));
+  const candidates = pack.items
+    .filter((i) => i.label === "Project" && !seen.has(i.ref) && !excluded.has(i.ref))
+    .map((i, order) => ({ item: i, reqs: reqsOf(i.ref), order }))
+    .sort((a, b) => b.reqs.length - a.reqs.length || a.order - b.order);
+  const added: string[] = [];
+  for (const c of candidates) {
+    if (plan.include.projects.length >= PROJECT_COUNT_MIN) break;
+    plan.include.projects.push({ ref: c.item.ref, why: `대표 프로젝트 2~3개 기준으로 근거에서 더함(JD 요건 ${c.reqs.length}개와 연결)`, requirementIds: c.reqs });
+    added.push(c.item.ref);
+  }
+  if (added.length > 0) warnings.push(`대표 프로젝트가 모자라 근거의 프로젝트 ${added.join(", ")}를 더했습니다.`);
 }
 
 export async function runPlanStep(ctx: StepContext): Promise<StepResult<PlanStepOutput>> {
@@ -65,6 +111,7 @@ export async function runPlanStep(ctx: StepContext): Promise<StepResult<PlanStep
     requirementIds: [...jd.jd.mustHave, ...jd.jd.niceToHave].map((r) => r.id),
     mustIds: jd.jd.mustHave.map((r) => r.id),
     skillStatus: new Map(ret.pack.byRequirement.map((b) => [b.requirementId, b.skillStatus])),
+    pack: ret.pack,
   });
   const count = (s: string) => plan.requirementMap.filter((r) => r.status === s).length;
   const summary = [

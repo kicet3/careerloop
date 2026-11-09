@@ -26,12 +26,14 @@ import { TAGS } from "@/lib/panel/prompts";
 import type { ResumeDraftSource } from "./types";
 import { RESUME_FACT_RULES } from "./draft-rules";
 import { emphasisLines } from "./emphasis";
+import { honorificLeftoverNote, normalizeDocumentHonorific } from "./honorific";
 import { extrasMissingQuestions, isNewcomerDocument, normalizeExtras } from "./extras-guide";
+import { checkProjectCount, PROJECT_COUNT_RULE } from "./project-count";
 import { RESUME_WRITING_CRITERIA_PROMPT } from "./writing-guide";
 
-/** 초안 자료: 그래프 텍스트 또는 진단 재작성본(Markdown). */
+/** 초안 자료: 그래프 텍스트 또는 진단 재작성본(Markdown). projectCount는 그래프의 프로젝트(Project) 노드 수(프롬프트에 넣지 않는다 — 후처리 점검용). */
 export type DraftMaterial =
-  | { kind: "graph"; text: string }
+  | { kind: "graph"; text: string; projectCount?: number }
   | { kind: "diagnosis"; text: string; diagnosisTitle: string };
 
 export interface DraftContext {
@@ -55,6 +57,7 @@ const SYSTEM = [
   ...RESUME_FACT_RULES,
   "10. 아래 작성 기준을 따른다(규칙 1이 우선한다).",
   RESUME_WRITING_CRITERIA_PROMPT,
+  `11. ${PROJECT_COUNT_RULE}`,
   "",
   `보안: ${INJECTION_RULE}`,
 ].join("\n");
@@ -73,7 +76,7 @@ export function buildResumeDraftPrompt(ctx: DraftContext): { system: string; use
     lines.push(
       field(
         "양식 메모",
-        "A4 1장 분량. summary는 '[문제]를 [방법]으로 개선하는 [직무]입니다.'와 '[경험·도메인]에서 [담당 범위]를 맡아 [결과]를 만들었습니다.' 두 문장을 줄바꿈으로 나눠 쓴다. highlights 2~3개, 경력 불릿은 항목당 1~3개, 프로젝트는 대표 2개를 문제·행동·결과로.",
+        "A4 1장 분량. summary는 '[문제]를 [방법]으로 개선하는 [직무]입니다.'와 '[경험·도메인]에서 [담당 범위]를 맡아 [결과]를 만들었습니다.' 두 문장을 줄바꿈으로 나눠 쓴다. highlights 2~3개, 경력 불릿은 항목당 1~3개, 프로젝트는 대표 2~3개를 문제·행동·결과로.",
       ),
     );
   }
@@ -120,7 +123,16 @@ export async function generateResumeDraft(client: LlmClient, ctx: DraftContext, 
   const extras = normalizeExtras(draft.document.extras, { newcomer: isNewcomerDocument(draft.document) });
   draft.document.extras = extras.extras;
   if (extras.dropped.length > 0) draft.notes = [...draft.notes, `수상·기타에서 사소한 일화·소감 ${extras.dropped.length}줄을 뺐습니다.`].slice(0, 10);
-  draft.missingInfo = [...new Set([...draft.missingInfo, ...extrasMissingQuestions(draft.document)])].slice(0, 10);
+  // 대표 프로젝트 2~3개(project-count.ts): 넘치면 앞의 3개만, 모자라면 질문·안내만 더한다(지어 채우지 않는다).
+  const projects = checkProjectCount(draft.document.projects, ctx.material.kind === "graph" ? (ctx.material.projectCount ?? null) : null);
+  draft.document.projects = draft.document.projects.slice(0, projects.keep);
+  if (projects.notes.length > 0) draft.notes = [...draft.notes, ...projects.notes].slice(0, 10);
+  // 문장 끝 경어체 통일(honorific.ts): 확실한 평어체만 '~습니다'로 바꾸고, 판단할 수 없는 문장은 바꾸지 않고 notes로 알린다.
+  const honorific = normalizeDocumentHonorific(draft.document);
+  draft.document = honorific.document;
+  const honorificNote = honorificLeftoverNote(honorific.leftovers);
+  if (honorificNote) draft.notes = [...draft.notes, honorificNote].slice(0, 10);
+  draft.missingInfo = [...new Set([...draft.missingInfo, ...extrasMissingQuestions(draft.document), ...projects.missingInfo])].slice(0, 10);
   // 계정 이름이 있고 초안에 이름이 비었으면 채운다(지어낸 값이 아니다).
   if (!draft.document.basics.name.trim() && ctx.personName?.trim()) draft.document.basics.name = ctx.personName.trim().slice(0, 80);
   // 메일 주소는 로그인 메일을 기본값으로 쓴다(비었거나 [ADD: …] 자리표시만 있을 때).
@@ -150,7 +162,7 @@ export async function loadDraftMaterial(
       if (graph.nodes.length === 0) {
         throw new FeatureError("경험 그래프가 비어 있습니다. '경험 그래프'에서 경력·경험을 먼저 정리해 주세요.", 409);
       }
-      return { kind: "graph", text: graphToText(graph, { maxChars: GRAPH_TEXT_MAX }) };
+      return { kind: "graph", text: graphToText(graph, { maxChars: GRAPH_TEXT_MAX }), projectCount: graph.nodes.filter((n) => n.label === "Project").length };
     }
     case "diagnosis": {
       const d = await prisma.diagnosis.findFirst({ select: { id: true, title: true }, where: { id: source.diagnosisId, userId: user.id } });

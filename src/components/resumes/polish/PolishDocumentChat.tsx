@@ -7,16 +7,26 @@ import { Button } from "@/components/ui/Button";
 import { cn } from "@/components/ui/cn";
 import type { ChatMessage } from "@/lib/domain/chat";
 import {
+  isPolishItemSuggestion,
   MAX_POLISH_MESSAGE_CHARS,
   POLISH_DOCUMENT_PATH,
+  POLISH_ITEM_SECTION_LABEL,
   type PolishConflictField,
+  type PolishDocFieldSuggestion,
   type PolishDocSuggestion,
+  polishItemAnchorMatches,
+  polishItemFieldValue,
+  polishItemState,
+  polishPathAnchorMatches,
   polishSectionLabel,
   polishTargets,
   type ResumePolishDocData,
+  samePolishItemValue,
 } from "@/lib/domain/resume-polish";
+import type { ResumeDocument } from "@/lib/domain/resumes";
 import { smallInputClass } from "../styles";
 import { DiffView } from "./DiffView";
+import { PolishItemCard } from "./PolishItemCard";
 import { PolishToolTrace } from "./PolishToolTrace";
 import type { PolishApplied } from "./PolishPanel";
 
@@ -26,9 +36,13 @@ interface DocView {
   messages: ChatMessage[];
   /** 저장된 현재 버전의 칸 글(경로 → 글). */
   fields: Record<string, string>;
+  /** 저장된 현재 버전의 프로젝트·경력 항목(항목 제안 상태). */
+  sections: Pick<ResumeDocument, "projects" | "experience">;
 }
 
-const QUICK = ["가장 약한 부분이 어디야?", "JD 대비 빠진 키워드는?", "수치가 부족한 줄은?", "요약을 JD에 맞게"] as const;
+type Exclude = { index: number; fields: string[] }[];
+
+const QUICK = ["가장 약한 부분이 어디야?", "JD 대비 빠진 키워드는?", "수치가 부족한 줄은?", "요약을 JD에 맞게", "첫 프로젝트 이름·문제·행동·결과 한번에 채워 줘", "경험 그래프에서 프로젝트 추가해 줘"] as const;
 
 async function readError(res: Response, fallback: string): Promise<{ error: string; conflicts: PolishConflictField[] }> {
   const data = (await res.json().catch(() => null)) as { error?: string; conflicts?: PolishConflictField[] } | null;
@@ -110,7 +124,7 @@ export function PolishDocumentChat({
     }
   }
 
-  async function apply(messageId: string, indices: number[]) {
+  async function apply(messageId: string, indices: number[], exclude: Exclude = []) {
     if (applying || indices.length === 0) return;
     setApplying(true);
     setError(null);
@@ -118,7 +132,7 @@ export function PolishDocumentChat({
       const res = await fetch(`/api/resumes/${resumeId}/polish/apply`, {
         method: "POST",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ messageId, indices }),
+        body: JSON.stringify({ messageId, indices, ...(exclude.length ? { exclude } : {}) }),
       });
       if (!res.ok) {
         setError(await readError(res, "적용하지 못했습니다."));
@@ -135,6 +149,7 @@ export function PolishDocumentChat({
               ...v,
               target: { ...v.target, versionId: result.version.id },
               fields: Object.fromEntries(polishTargets(result.document, { includeEmpty: true }).map((t) => [t.path, t.text])),
+              sections: { projects: result.document.projects, experience: result.document.experience },
               messages: v.messages.map((m) => (m.id === result.message.id ? result.message : m)),
             }
           : v,
@@ -168,11 +183,12 @@ export function PolishDocumentChat({
             key={m.id}
             message={m}
             fields={view.fields}
+            sections={view.sections ?? { projects: [], experience: [] }}
             dirty={dirty}
             applying={applying}
             selected={selected?.messageId === m.id ? selected.indices : []}
             onToggle={(i) => toggle(m.id, i)}
-            onApply={(indices) => void apply(m.id, indices)}
+            onApply={(indices, exclude) => void apply(m.id, indices, exclude)}
             onJump={onJump}
           />
         ))}
@@ -241,9 +257,10 @@ export function PolishDocumentChat({
   );
 }
 
-function DocMessage({
+export function DocMessage({
   message: m,
   fields,
+  sections,
   dirty,
   applying,
   selected,
@@ -253,13 +270,16 @@ function DocMessage({
 }: {
   message: ChatMessage;
   fields: Record<string, string>;
+  sections: Pick<ResumeDocument, "projects" | "experience">;
   dirty: boolean;
   applying: boolean;
   selected: number[];
   onToggle: (index: number) => void;
-  onApply: (indices: number[]) => void;
+  onApply: (indices: number[], exclude?: Exclude) => void;
   onJump: (path: string) => void;
 }) {
+  // 항목 고치기 카드에서 체크를 푼 칸(제안 번호 → 칸).
+  const [excluded, setExcluded] = useState<Record<number, string[]>>({});
   if (m.role === "user") {
     return <div className="ml-8 rounded-lg bg-indigo-600 px-3 py-2 text-sm whitespace-pre-wrap text-white">{m.content}</div>;
   }
@@ -267,13 +287,28 @@ function DocMessage({
   const appliedSet = new Set((data?.applied ?? []).map((a) => a.index));
   const groups = new Map<string, { s: PolishDocSuggestion; i: number }[]>();
   data?.suggestions.forEach((s, i) => {
-    const key = polishSectionLabel(s.path);
+    const key = isPolishItemSuggestion(s) ? POLISH_ITEM_SECTION_LABEL[s.section] : polishSectionLabel(s.path);
     groups.set(key, [...(groups.get(key) ?? []), { s, i }]);
   });
+  const excludeOf = (i: number) => excluded[i] ?? [];
+  const excludeList = (indices: number[]): Exclude => indices.filter((i) => excludeOf(i).length).map((i) => ({ index: i, fields: excludeOf(i) }));
   // 저장된 칸 글이 제안 때 글이면 적용할 수 있다(적용한 뒤 되돌린 제안도 다시 적용할 수 있다).
-  const selectable = (s: PolishDocSuggestion) => fields[s.path] === s.before;
+  // 항목 고치기는 고를 칸(체크를 푼 칸 뺀)이 모두 제안 때 값이면, 추가는 같은 항목이 없고 상한 아래면 적용할 수 있다.
+  const selectable = (s: PolishDocSuggestion, i: number) => {
+    if (!isPolishItemSuggestion(s)) return fields[s.path] === s.before && polishPathAnchorMatches(sections, s.path, s.anchor);
+    const state = polishItemState(sections, s, appliedSet.has(i));
+    if (s.kind === "item-add") return state === "live";
+    const cur = sections[s.section][s.index];
+    const active = s.changes.filter((c) => !excludeOf(i).includes(c.field));
+    return (
+      state !== "applied" &&
+      polishItemAnchorMatches(cur, s.anchor) &&
+      active.length > 0 &&
+      active.every((c) => samePolishItemValue(polishItemFieldValue(cur, c.field), c.before))
+    );
+  };
   // 고른 뒤 바뀐 칸(다시 읽기·다른 카드 적용)은 '선택 적용'에서 뺀다.
-  const picked = selected.filter((i) => data?.suggestions[i] && selectable(data.suggestions[i]));
+  const picked = selected.filter((i) => data?.suggestions[i] && selectable(data.suggestions[i], i));
   const blockedTitle = dirty ? "새 버전으로 저장하지 않은 변경이 있어요. 먼저 저장(새 버전)해 주세요." : undefined;
   return (
     <div className="mr-2 space-y-2">
@@ -285,49 +320,35 @@ function DocMessage({
         <div key={section} className="space-y-1.5">
           <p className="text-[11px] font-semibold text-slate-500">{section}</p>
           {items.map(({ s, i }) => {
-            const live = selectable(s);
-            const applied = appliedSet.has(i) && !live && fields[s.path] === s.after;
-            const reverted = appliedSet.has(i) && live;
-            const stale = !live && !applied;
-            return (
-              <div key={i} className={cn("space-y-2 rounded-lg border px-3 py-2", picked.includes(i) ? "border-indigo-500 ring-2 ring-indigo-500/20" : "border-slate-200", (applied || stale) && "opacity-70")}>
-                <div className="flex items-start justify-between gap-2">
-                  <label className="flex items-start gap-2 text-xs font-medium text-slate-700">
-                    <input
-                      type="checkbox"
-                      className="mt-0.5"
-                      checked={picked.includes(i)}
-                      disabled={!live}
-                      onChange={() => onToggle(i)}
-                      aria-label={`${s.label} 선택`}
-                    />
-                    {s.label}
-                  </label>
-                  <button type="button" className="shrink-0 text-[11px] text-indigo-700 underline" onClick={() => onJump(s.path)}>
-                    칸으로 이동
-                  </button>
-                </div>
-                <DiffView before={s.before} after={s.after} />
-                {s.reason && <p className="text-xs text-slate-500">{s.reason}</p>}
-                <div className="flex flex-wrap items-center justify-between gap-1">
-                  <span className="flex flex-wrap gap-1">
-                    {applied && <Badge tone="positive">적용함</Badge>}
-                    {reverted && <Badge tone="neutral">적용 뒤 되돌림 — 다시 적용할 수 있어요</Badge>}
-                    {stale && <Badge tone="neutral">제안 뒤 바뀐 칸 — 적용할 수 없어요</Badge>}
-                    {s.flagged.length > 0 && <Badge tone="warning">근거 없는 수치 {s.flagged.join(", ")} → 확인 필요</Badge>}
-                  </span>
-                  <Button size="sm" variant="secondary" disabled={!live || dirty || applying} title={blockedTitle} onClick={() => onApply([i])}>
-                    적용
-                  </Button>
-                </div>
-              </div>
-            );
+            if (isPolishItemSuggestion(s)) {
+              return (
+                <PolishItemCard
+                  key={i}
+                  suggestion={s}
+                  state={polishItemState(sections, s, appliedSet.has(i))}
+                  current={s.kind === "item-edit" ? sections[s.section][s.index] : undefined}
+                  excluded={excludeOf(i)}
+                  onToggleField={(field) =>
+                    setExcluded((cur) => {
+                      const xs = cur[i] ?? [];
+                      return { ...cur, [i]: xs.includes(field) ? xs.filter((f) => f !== field) : [...xs, field] };
+                    })
+                  }
+                  dirty={dirty}
+                  applying={applying}
+                  onApply={() => onApply([i], excludeList([i]))}
+                  selected={picked.includes(i)}
+                  onToggleSelect={() => onToggle(i)}
+                />
+              );
+            }
+            return fieldCard(s, i);
           })}
         </div>
       ))}
       {data && data.suggestions.length > 1 && (
         <div className="flex justify-end">
-          <Button size="sm" loading={applying} disabled={picked.length === 0 || dirty || applying} title={blockedTitle} onClick={() => onApply(picked)}>
+          <Button size="sm" loading={applying} disabled={picked.length === 0 || dirty || applying} title={blockedTitle} onClick={() => onApply(picked, excludeList(picked))}>
             선택 적용{picked.length ? ` (${picked.length})` : ""} · 새 버전 하나로
           </Button>
         </div>
@@ -337,4 +358,45 @@ function DocMessage({
       <PolishToolTrace tools={data?.tools} />
     </div>
   );
+
+  /** 칸 제안 카드(일반 함수 — 렌더마다 새 컴포넌트를 만들지 않는다). */
+  function fieldCard(s: PolishDocFieldSuggestion, i: number) {
+    const live = selectable(s, i);
+    const applied = appliedSet.has(i) && !live && fields[s.path] === s.after;
+    const reverted = appliedSet.has(i) && live;
+    const stale = !live && !applied;
+    return (
+      <div key={i} className={cn("space-y-2 rounded-lg border px-3 py-2", picked.includes(i) ? "border-indigo-500 ring-2 ring-indigo-500/20" : "border-slate-200", (applied || stale) && "opacity-70")}>
+        <div className="flex items-start justify-between gap-2">
+          <label className="flex items-start gap-2 text-xs font-medium text-slate-700">
+            <input
+              type="checkbox"
+              className="mt-0.5"
+              checked={picked.includes(i)}
+              disabled={!live}
+              onChange={() => onToggle(i)}
+              aria-label={`${s.label} 선택`}
+            />
+            {s.label}
+          </label>
+          <button type="button" className="shrink-0 text-[11px] text-indigo-700 underline" onClick={() => onJump(s.path)}>
+            칸으로 이동
+          </button>
+        </div>
+        <DiffView before={s.before} after={s.after} />
+        {s.reason && <p className="text-xs text-slate-500">{s.reason}</p>}
+        <div className="flex flex-wrap items-center justify-between gap-1">
+          <span className="flex flex-wrap gap-1">
+            {applied && <Badge tone="positive">적용함</Badge>}
+            {reverted && <Badge tone="neutral">적용 뒤 되돌림 — 다시 적용할 수 있어요</Badge>}
+            {stale && <Badge tone="neutral">제안 뒤 바뀐 칸 — 적용할 수 없어요</Badge>}
+            {s.flagged.length > 0 && <Badge tone="warning">근거 없는 수치 {s.flagged.join(", ")} → 확인 필요</Badge>}
+          </span>
+          <Button size="sm" variant="secondary" disabled={!live || dirty || applying} title={blockedTitle} onClick={() => onApply([i])}>
+            적용
+          </Button>
+        </div>
+      </div>
+    );
+  }
 }

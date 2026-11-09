@@ -11,6 +11,7 @@ import { field, INJECTION_RULE, wrapData } from "@/lib/chat/prompt";
 import { TAGS } from "@/lib/panel/prompts";
 import { RESUME_FACT_RULES } from "@/lib/resumes/draft-rules";
 import { emphasisLines } from "@/lib/resumes/emphasis";
+import { PROJECT_COUNT_RULE } from "@/lib/resumes/project-count";
 import { RESUME_WRITING_CRITERIA_PROMPT } from "@/lib/resumes/writing-guide";
 import { excludedRefs, numberedDocText } from "./citations";
 import { evidenceLine } from "./evidence-text";
@@ -32,6 +33,7 @@ const AGENT_RULES = [
   "A4. JD 요건(R1…)의 strong·partial 근거는 앞쪽(최근 경력 첫 불릿, 대표 프로젝트, 요약)에 JD 용어로 쓰고, citations.requirementIds에 그 요건 ID를 적는다. gap 요건은 지어내지 말고 missingInfo 질문으로 남긴다.",
   "A5. 이름·연락처(email·phone)·링크·portfolioUrl은 쓰지 않는다(서버가 채운다). 해당 칸은 빈 문자열.",
   "A6. '주도·리드·총괄·단독·최초·유일' 같은 표현은 근거 줄에 그 사실(역할)이 있을 때만 쓴다.",
+  `A7. ${PROJECT_COUNT_RULE} 프로젝트는 근거의 프로젝트(Project) 노드에서만 고른다.`,
 ];
 
 /** plan·write·revise 공용 system(요청마다 바뀌지 않는다). */
@@ -59,7 +61,7 @@ export function header(ctx: AgentPromptContext): string[] {
     lines.push(
       field(
         "양식 메모",
-        "A4 1장 분량. summary는 '[문제]를 [방법]으로 개선하는 [직무]입니다.'와 '[경험·도메인]에서 [담당 범위]를 맡아 [결과]를 만들었습니다.' 두 문장을 줄바꿈으로 나눠 쓴다. highlights 2~3개, 경력 불릿은 항목당 1~3개, 프로젝트는 대표 2개를 문제·행동·결과로.",
+        "A4 1장 분량. summary는 '[문제]를 [방법]으로 개선하는 [직무]입니다.'와 '[경험·도메인]에서 [담당 범위]를 맡아 [결과]를 만들었습니다.' 두 문장을 줄바꿈으로 나눠 쓴다. highlights 2~3개, 경력 불릿은 항목당 1~3개, 프로젝트는 대표 2~3개를 문제·행동·결과로.",
       ),
     );
   }
@@ -126,7 +128,7 @@ export function buildPlanPrompt(ctx: AgentPromptContext, jd: JdAnalysis, pack: E
     "## 할 일",
     "1. requirementMap: JD의 모든 요건(mustHave·niceToHave의 R…)마다 근거 ref를 고르고 strong | partial | gap으로 판정한다. 근거 줄에 없는 것은 gap이다. 직무명이나 기술 보유(Skill 노드)만으로 strong 금지 — '기술 대조: claimed'는 최대 partial. angle에는 이 근거를 어떤 JD 용어·표현으로 쓸지.",
     "2. positioning: 이 지원자를 이 직무에 어떤 사람으로 내세울지 한 문장. headline: 직무명만(문장 금지). sectionEmphasis: 섹션별 강조점.",
-    "3. include: 넣을 경력(Role ref, emphasis)과 대표 프로젝트 2~4개(Project ref, 대응 요건), 넣을 만한 수상·기타(규칙 9의 카테고리에 드는 근거만 — 수상·대외활동·교육·어학·발표·오픈소스·멘토링·자격·병역 등). exclude: 뺄 항목과 이유(직무 무관·중복·사소한 일화·단순 참석 — 규칙 9 기준).",
+    "3. include: 넣을 경력(Role ref, emphasis)과 대표 프로젝트 2~3개(Project ref, 대응 요건 — JD 관련도 높은 순. 근거에 프로젝트가 2개 미만이면 있는 만큼만(없으면 비운다), 3개가 넘으면 관련도 높은 3개), 넣을 만한 수상·기타(규칙 9의 카테고리에 드는 근거만 — 수상·대외활동·교육·어학·발표·오픈소스·멘토링·자격·병역 등). exclude: 뺄 항목과 이유(직무 무관·중복·사소한 일화·단순 참석 — 규칙 9 기준).",
     "4. keywordPlan: JD 키워드마다 어느 섹션에서 어느 근거로 쓸지. 근거 없는 키워드는 넣지 않는다.",
     "5. gapQuestions: gap 요건마다 지원자에게 물을 질문 한 개(경험 그래프 채팅으로 보낼 문장).",
   ].join("\n");
@@ -161,7 +163,7 @@ export function buildWriteBodyPrompt(
     "",
     "## 할 일",
     "- experience: plan.include.experience의 직무(Role) 근거로, 최근 순. company·title·startDate·endDate는 근거 줄 값 그대로(YYYY.MM, 재직 중이면 \"현재\"). bullets는 strong·partial 요건 근거를 앞에.",
-    "- projects: plan.include.projects 순서대로. 근거의 situation·action·result를 problem·action·result에. techs는 근거의 '기술:'에 있는 것만.",
+    "- projects: plan.include.projects 순서대로(기본 2~3개 — 규칙 A7). 근거의 situation·action·result를 problem·action·result에. techs는 근거의 '기술:'에 있는 것만.",
     "- education·certifications: 근거의 학력·자격 노드만. extras: plan.include.extras만(없으면 빈 배열). plan.exclude의 노드는 어느 섹션에도 쓰지 않는다(서버가 지운다).",
     "- extras는 규칙 9의 카테고리별 한 줄 형식으로 쓰고, 줄마다 citations(\"extras[0].items[0]\")를 단다. 인용 없는 줄, 경력·프로젝트에 쓴 내용의 반복, 사소한 일화·소감은 서버가 지운다. 묶음 순서·합치기는 서버가 규칙 9대로 정리한다.",
     '- citations: 항목마다 { path: "experience[0]" | "projects[1]" | "education[0]" | "certifications[0]" | "extras[0].items[0]", refs: [근거 ref], requirementIds: [대응 요건] }. 한 줄만 다른 근거면 줄 경로(예: "experience[0].bullets[2]")로 따로 단다.',

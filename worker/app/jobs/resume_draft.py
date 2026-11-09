@@ -109,7 +109,8 @@ async def load_draft_material(ctx: WorkerContext, user: dict[str, Any], source: 
         graph = assert_graph_owner(await load_graph(ctx.graph, user_id, user.get("name")), user_id)
         if len(graph.nodes) == 0:
             raise FeatureError(GRAPH_EMPTY_MESSAGE, 409)
-        return DraftMaterial("graph", graph_to_text(graph, max_chars=GRAPH_TEXT_MAX))
+        project_count = sum(1 for n in graph.nodes if n.label == "Project")
+        return DraftMaterial("graph", graph_to_text(graph, max_chars=GRAPH_TEXT_MAX), project_count=project_count)
     if kind == "diagnosis":
         d = await ctx.db.fetchone("SELECT id, title FROM diagnoses WHERE id = %s AND user_id = %s LIMIT 1", (source["diagnosisId"], user_id))
         if d is None:

@@ -4,6 +4,7 @@
  * 가진 구역에 남기고 나머지는 secondary로), 소유가 없는 근거는 라벨로 배정, 분량은 표 값의 1.3배 상한·0.5배 하한, 합계가
  * PAGE_CHARS × pageTarget × 1.05를 넘으면 비례 축소. 첫 시도가 실패하면 두 번째 시도부터 축소 모드(배정·소유를 LLM에 받지 않는다).
  */
+import { PROJECT_COUNT_MAX, PROJECT_COUNT_MIN } from "@/lib/resumes/project-count";
 import { SECTION_LABELS, WRITING_SECTIONS, type WritingSection } from "../job-types";
 import { parsedOutput } from "../next-step";
 import { buildPlanPrompt, type AgentPromptContext } from "../prompts";
@@ -32,14 +33,15 @@ export const DEFAULT_BUDGETS: Record<1 | 2, Record<WritingSection, SectionBudget
   1: {
     highlights: { items: 3, linesPerItem: 1, chars: 280 },
     experience: { items: 4, linesPerItem: 4, chars: 700 },
-    projects: { items: 2, linesPerItem: 4, chars: 500 },
+    // 대표 프로젝트 기본 2~3개(project-count.ts) — 항목 상한 3.
+    projects: { items: 3, linesPerItem: 3, chars: 600 },
     skills: { items: 4, linesPerItem: 8, chars: 180 },
     extras: { items: 6, linesPerItem: 3, chars: 200 },
   },
   2: {
     highlights: { items: 4, linesPerItem: 1, chars: 400 },
     experience: { items: 6, linesPerItem: 5, chars: 1500 },
-    projects: { items: 4, linesPerItem: 5, chars: 1100 },
+    projects: { items: 3, linesPerItem: 5, chars: 1100 },
     skills: { items: 6, linesPerItem: 8, chars: 250 },
     extras: { items: 8, linesPerItem: 4, chars: 300 },
   },
@@ -79,6 +81,8 @@ export function clampBudgets(
     const pick = (v: number | undefined, base: number) => (v === undefined || !Number.isFinite(v) || v > base * 1.3 || v < Math.floor(base * 0.5) ? base : Math.round(v));
     out[s] = r ? { items: pick(r.items, t.items), linesPerItem: pick(r.linesPerItem, t.linesPerItem), chars: pick(r.chars, t.chars) } : { ...t };
   }
+  // 대표 프로젝트 항목 수는 2~3개(project-count.ts)로 묶는다.
+  out.projects = { ...out.projects, items: Math.min(PROJECT_COUNT_MAX, Math.max(PROJECT_COUNT_MIN, out.projects.items)) };
   const total = WRITING_SECTIONS.reduce((n, s) => n + out[s].chars, 0) + SUMMARY_CHARS[pageTarget];
   const cap = PAGE_CHARS * pageTarget * 1.05;
   if (total > cap) {
@@ -275,6 +279,7 @@ export async function runBriefStep(ctx: StepContext): Promise<StepResult<BriefSt
     requirementIds,
     mustIds,
     skillStatus: new Map(ret.pack.byRequirement.map((b) => [b.requirementId, b.skillStatus])),
+    pack: ret.pack,
   });
   const { brief, warnings } = sanitizeBrief(raw, plan, { pack: ret.pack, requirementIds, mustIds, company });
   const count = (s: string) => plan.requirementMap.filter((r) => r.status === s).length;

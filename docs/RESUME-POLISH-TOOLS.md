@@ -66,9 +66,46 @@ get_jd_analysis가 모으는 자료는 다음과 같다(`loadPolishJdSources`). 
 - 화면(`PolishToolTrace`)은 접을 수 있는 한 줄 "참고한 자료: JD 분석 · 경험 그래프 n건"을 보여 준다. n은 이 턴에서 본 서로 다른 노드 수다(`fresh` — 같은 노드를 다시 조회해도 더하지 않는다). 펼치면 호출마다 이름과 결과가 나온다.
 - 개인정보 처리방침은 바꾸지 않았다. 같은 사용자의 같은 자료(이력서·공고·경험 그래프)를 같은 LLM 처리자에게 보내기 때문이다.
 
-## 5. 테스트
+## 5. 항목 제안: 여러 칸 한 번에 고치기·새 항목 추가
+
+칸 제안(`{path, after}`)은 한 칸만 바꾼다. 프로젝트·경력은 항목 하나를 카드 하나로 다루는 **항목 제안**을 더했다.
+계약은 `src/lib/domain/resume-polish-items.ts`(순수, 화면·서버 공용), 검증은 `src/lib/resumes/polish-items.ts`다.
+
+| 종류 | 언제 | 모드 | 적용 |
+| --- | --- | --- | --- |
+| `item-edit` | 한 항목의 여러 칸(이름·회사·팀·역할·기간·요약·문제·행동·결과·근거·기여·기술 / 경력: 회사·부서·직무·기간·지역·담당 범위·기여)을 한 번에 채우거나 고칠 때 | 칸 모드(대상 칸이 든 항목), 전체 모드 | 고칠 칸 전부를 한 번에. 하나라도 제안 뒤 바뀌었거나 그 자리에 다른 항목이 왔으면(순서 바꾸기·앞에 추가 — `anchor`) 409 + 바뀐 칸 목록, 아무것도 바꾸지 않는다 |
+| `item-add` | 사용자가 새 프로젝트·경력 추가를 요청했을 때 | 전체 모드만 | 제안한 자리(0~길이, 넘으면 맨 뒤)에 넣는다. 같은 항목(같은 이름 — 경력은 회사+직무)이 있거나 이미 적용 기록(`data.applied`)이 있으면 409(추가한 항목을 고친 뒤에도 중복 추가하지 않는다), 섹션 상한(20)을 넘으면 400 |
+
+- **LLM 출력**: 칸 모드 `ResumePolishOutputSchema.itemChanges[{field, value}]`·`itemReason`, 전체 모드 `ResumePolishDocOutputSchema.items[{kind, section, index, changes, reason}]`.
+  목록 칸(bullets·techs)은 value 한 줄에 하나. 예전 출력(필드 없음)은 기본값 `[]`로 받는다.
+- **대상은 서버가 정한다**: 칸 모드는 대상 경로(`projects[0].problem`)의 항목으로 고정한다. LLM의 kind·section·index는 무시하고, 추가도 받지 않는다.
+  전체 모드는 지금 문서에 있는 항목만 고칠 수 있다(없는 index·허용 밖 섹션·칸은 버리고 `dropped`에 센다). before는 서버가 지금 값으로 채운다.
+- **예산**: 항목 제안 최대 `MAX_DOC_ITEM_SUGGESTIONS`(3)을 먼저 받고, 남은 자리(6 − 항목 수)에 칸 제안을 받는다. 항목 고치기가 바꾸는 칸의 칸 제안은 뺀다(같은 칸을 두 번 고치지 않게). 같은 항목 고치기는 첫 제안만.
+- **사실 검증**(같은 근거 — 이력서·JD·그래프·도구 결과·사용자 말, 고치기는 before 값 포함):
+  - 글 칸·기여 줄: 근거 없는 숫자는 칸 모드와 같은 `[ADD: 수치 확인 — …]`.
+  - 기간(startDate·endDate): 숫자 묶음이 근거에 없으면 그 변경을 버린다(20자 칸이라 감쌀 수 없다). `2023-01`과 `2023.01`은 같은 근거로 본다.
+  - 기술·이름 근거(facts)는 JD와 JD 분석 도구(get_jd_analysis) 결과를 뺀 것이다(이력서·그래프·그래프 도구 결과·사용자 말). JD에 있다고 사용자가 해 본 것은 아니다.
+  - 기술(techs): facts에 낱말로 없는 기술명은 뺀다(부분 문자열로 맞추지 않는다 — `Go`≠`google`, `Java`≠`JavaScript`. 표기 차이 `Node.js`/`NodeJS`는 같게 본다).
+  - 이름·사실 칸(프로젝트 이름·회사, 경력 회사·부서·직무): 고치기·추가 모두 facts에 없으면 `[ADD: 이름 확인 — …]`/`[ADD: 사실 확인 — …]`. 프로젝트 역할·팀 구성은 값은 두고 '근거 확인 필요'로 표시한다.
+  - 추가: 이름 칸(프로젝트 이름 또는 회사, 경력은 회사) 중 하나가 facts에 있어야 받는다 — 이름까지 자리표시인 새 항목(요약·문제·행동을 통째로 지어냈을 수 있다)은 버린다. 비어 있는 핵심 칸(프로젝트 문제·행동·결과·이름, 경력 회사·직무·담당 범위)은 `[ADD: …]` 자리표시. 새 항목은 문서 스키마로 다시 검증한다.
+  - 칸 모드에서 대상이 목록 줄(`projects[0].bullets[3]`)이면 그 목록 칸은 항목 제안에서 받지 않는다(줄 수가 바뀌면 대화의 대상 줄이 사라지거나 다른 줄을 가리킨다).
+  - 칸 글자·줄 수 상한은 `ResumeDocumentSchema`에서 읽어 자른다(`polishItemFieldLimit`).
+- **프롬프트**: 전체 모드는 `<polish_items>`(섹션별 개수/상한, 칸별 상한, 항목마다 `- [projects[0]] name=…; role=…`)를 더 싣는다. 칸 모드는 대상 칸이 항목 안이면 그 항목 한 줄을 싣는다. `<polish_items>` 태그도 `safe`가 무력화한다.
+  추가 요청이면 search_graph·get_node로 그 경험의 사실을 찾고 찾은 사실만 쓰라고 지시한다(규칙 8).
+- **적용 API**(`POST /api/resumes/[id]/polish/apply`): 칸 모드 `{messageId, item: true, exclude?: string[]}`, 전체 모드 `{messageId, indices, exclude?: [{index, fields}]}`.
+  exclude는 카드에서 체크를 푼 칸이다. 충돌 확인도 고른 칸만 한다. 항목 고치기와 항목 칸의 칸 제안은 제안 때 항목 정체(`anchor` — 바꾸지 않는 이름·회사·직무·기간, 모두 비면 고치지 않는 칸 전체)도 확인한다(anchor가 없는 예전 제안은 확인하지 않는다). 전체 모드는 칸·항목 고치기를 먼저(제안 때 자리), 추가는 마지막에 큰 자리부터 넣는다. 결과는 새 버전 하나(source ai)다.
+- **저장 형식·호환**: 칸 모드 data에 `itemSuggestion?`·`appliedItem?`, 전체 모드 `suggestions[]`에 `kind: "item-edit" | "item-add"` 항목이 섞인다. 예전 메시지(칸 제안에 kind 없음)는 그대로 칸 카드로 보이고 적용된다.
+  `polishContinuationStart`는 적용한 항목 제안의 대상 칸 새 값으로 이어진다.
+- **화면**: `PolishItemCard`가 칸마다 전/후(체크로 빼기)와 적용 버튼 하나, 추가는 새 항목 미리보기와 추가 버튼을 보인다. 상태는 `polishItemState`(live·applied·stale·full)다.
+  상태를 보려고 전체 모드 조회는 `sections`(프로젝트·경력), 칸 모드 조회는 `item`(대상 항목의 지금 값)을 더 돌려준다.
+  적용하면 편집기는 서버가 돌려준 문서로 바뀌고, 새 항목 객체는 `reorder.ts`의 새 key를 받는다(순서 바꾸기 상태가 엉뚱한 항목에 남지 않는다).
+
+## 6. 테스트
 
 - `src/lib/resumes/polish-tools.test.ts`: 인자 검증(범위 키, 크기), 격리(실제 id, 발급 안 한 handle, 남의 그래프, 표시 없는 그래프), 예산, JD 보기(없음 안내, 구역, 크기·태그), 루프(스텝 1회 종료, 최종 답 강제, 스텝당 호출 수, 시간 부족, toolText, 보안 예외로 중단).
 - `src/lib/resumes/polish.api.test.ts`·`polish-document.api.test.ts` "도구" 블록은 가짜 LLM으로 끝까지 돌린다. 확인하는 것은 그래프 도구 체인, 격리, 도구 결과 수치를 근거로 인정하는지, 남의 공고, 스텝 상한이다.
 - 가짜 LLM(`src/test/fake-llm.ts` `resume-polish-step`)은 요청에 `[가짜:JD]`, `[가짜:그래프:검색어]`, `[가짜:노드:값]`, `[가짜:도구반복]` 표식이 있을 때만 도구를 부른다.
 - `src/components/resumes/polish/PolishToolTrace.test.tsx`: 참고한 자료 줄.
+- `src/lib/resumes/polish-items.test.ts`: 항목 제안 검증(없는 항목·칸·상한 넘침, 칸 글자·줄 수, 숫자·기술·기간·이름 검증, 추가 자리표시·중복), 적용 순서, 상태, 예전 메시지 호환.
+- `src/lib/resumes/polish-items.api.test.ts`: 가짜 LLM으로 두 모드 끝까지(`[가짜:묶음]`·"한번에 채워" → 묶음, `[가짜:추가]`·"프로젝트 추가" → 그래프에서 찾아 추가). 원자 적용·409·exclude·상한 400·예산 6·예전 메시지 적용.
+- `src/components/resumes/polish/PolishItemCard.test.tsx`: 카드(고치기·추가·상태 배지), 답변 안 카드, 예전 메시지 화면.

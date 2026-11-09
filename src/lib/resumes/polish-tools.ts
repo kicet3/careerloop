@@ -233,6 +233,8 @@ export class PolishToolSession {
   #chars = 0;
   /** LLM에 보인 도구 결과 본문에서 서버 표식 숫자를 뺀 것(숫자 검증의 근거로 쓴다 — evidenceText). */
   readonly evidence: string[] = [];
+  /** evidence에서 JD 분석(get_jd_analysis) 결과를 뺀 것 — 사용자 경험의 근거(기술·이름 확인)로 쓴다. JD에 있다고 사용자가 해 본 것은 아니다. */
+  readonly factEvidence: string[] = [];
   readonly trace: PolishToolUse[] = [];
 
   constructor(userId: string, sources: PolishToolSources) {
@@ -297,6 +299,7 @@ export class PolishToolSession {
       out = { ...out, text };
       this.#chars += text.length;
       this.evidence.push(evidenceText(text));
+      if (tool !== "get_jd_analysis") this.factEvidence.push(evidenceText(text));
     }
     if (out.status === "ok") this.trace.push({ tool, status: "ok", items: out.items, ...(tool !== "get_jd_analysis" ? { fresh: this.#fresh } : {}) });
     else this.trace.push({ tool, status: out.status, items: 0 });
@@ -413,6 +416,8 @@ export interface PolishLoopResult<T> {
   usage: LlmUsage;
   /** LLM에 보인 도구 결과(숫자 검증 근거). */
   toolText: string;
+  /** toolText에서 JD 분석 결과를 뺀 것(사용자 경험 근거). */
+  factToolText: string;
   trace: PolishToolUse[];
   steps: number;
 }
@@ -449,7 +454,7 @@ export async function runPolishLoop<T>(input: PolishLoopInput<T>): Promise<Polis
         signal: input.signal,
       });
       add(res.usage);
-      return { output: res.output, usage, toolText: input.session.evidence.join("\n"), trace: input.session.trace, steps: step };
+      return { output: res.output, usage, toolText: input.session.evidence.join("\n"), factToolText: input.session.factEvidence.join("\n"), trace: input.session.trace, steps: step };
     }
     const res = await input.client.generate({
       task: tasks.step,
@@ -463,7 +468,7 @@ export async function runPolishLoop<T>(input: PolishLoopInput<T>): Promise<Polis
     });
     add(res.usage);
     const out = res.output;
-    if (out.action === "final") return { output: out.answer, usage, toolText: input.session.evidence.join("\n"), trace: input.session.trace, steps: step };
+    if (out.action === "final") return { output: out.answer, usage, toolText: input.session.evidence.join("\n"), factToolText: input.session.factEvidence.join("\n"), trace: input.session.trace, steps: step };
     const lines: string[] = [];
     for (const call of out.calls.slice(0, POLISH_TOOL_LIMITS.maxCallsPerStep)) {
       input.signal.throwIfAborted();

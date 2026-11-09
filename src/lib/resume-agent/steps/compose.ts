@@ -4,10 +4,11 @@
  *   2) 교차 구역 중복(결정적): 다른 구역이 소유한 근거를 상세 인용한 줄은 duplicates로 기록(critique에 넘긴다), 경력·프로젝트에 거의 같은
  *      문장이 있으면 소유 구역이 아닌 쪽을 지운다.
  *   3) 상단(LLM, task resume-agent-compose): headline·tagline·summary — 본문에 이미 인용된 ref만 허용. 실패하면 작전의 headline·positioning으로 결정적 대체.
- *   4) 사실 검증: 조립 문서 전체에 verifyDraft(v1 그대로). 5) 분량 측정: 구역별 글자 수·예산, 전체 쪽수 추정.
+ *   4) 사실 검증: 조립 문서 전체에 verifyDraft(v1 그대로) 뒤 문장 끝 경어체 통일(honorific.ts). 5) 분량 측정: 구역별 글자 수·예산, 전체 쪽수 추정.
  * compose는 LLM 실패로 작업을 실패시키지 않는다.
  */
 import { usageOfError } from "@/lib/llm/types";
+import { honorificLeftoverNote, normalizeDocumentHonorific } from "@/lib/resumes/honorific";
 import { linePaths, parseCitations, refsForLine } from "../citations";
 import { WRITING_SECTIONS, type WritingSection } from "../job-types";
 import { parsedOutput } from "../next-step";
@@ -138,6 +139,11 @@ export async function runComposeStep(ctx: StepContext, k: number): Promise<StepR
   // 4) 사실 검증(조립 문서 전체).
   const verified = verifyDraft({ document: doc, citations, notes: [...assembled.draft.notes, ...notes].slice(0, 20), missingInfo: [...new Set([...missing, ...brief.gapQuestions.map((g) => g.question)])].slice(0, 30) }, pack, brief, { allowRetry: false });
   verified.draft.document.motivation = "";
+  // 문장 끝 경어체 통일(결정적): 확실한 평어체만 '~습니다'로 바꾼다. 남은 평어체는 notes에 알리고 critique가 그 구역에 다시 쓰기를 건다.
+  const honorific = normalizeDocumentHonorific(verified.draft.document);
+  verified.draft.document = honorific.document;
+  const honorificNote = honorificLeftoverNote(honorific.leftovers);
+  if (honorificNote) verified.draft.notes = [...verified.draft.notes, honorificNote].slice(0, 20);
 
   // 5) 분량.
   const budgetReport = WRITING_SECTIONS.map((s) => {

@@ -46,6 +46,7 @@ import { findReusableJdAnalysis } from "@/lib/resume-agent/jd-source";
 import { LlmMotivationDraftSchema, type EvidencePack } from "@/lib/resume-agent/schemas";
 import { flagUnverified, splitSentences } from "@/lib/resume-agent/verify";
 import { stripPlaceholders, unverifiedNumbers } from "@/lib/text/numbers";
+import { HONORIFIC_ENDING_HINT, normalizeHonorific } from "./honorific";
 import type { ResumeMeta } from "./types";
 
 /** 지원 동기는 지원처별 이력서에만 있다. */
@@ -62,7 +63,7 @@ const SYSTEM = [
   "",
   "규칙:",
   "1. draft 밖의 항목(companyPoints·linkedExperiences·outline·questions·cautions)에는 지원 동기 본문을 대신 쓰지 않는다. 완성된 문장·문단('저는 ~하여 지원하게 되었습니다' 같은 글)을 내지 않는다. 그 항목은 한 구절, '~을 적어 보세요' 같은 안내, 또는 질문으로 쓴다.",
-  "2. 지원자의 동기·감정·가치관·회사와의 인연(예: '어릴 때부터 써 온 서비스', '깊이 공감했다')을 지어내지 않는다. 자료에 없으면 questions로 묻는다.",
+  "2. 지원자의 동기·감정·가치관·회사와의 인연(예: '어릴 때부터 써 온 서비스', '깊이 공감했습니다')을 지어내지 않는다. 자료에 없으면 questions로 묻는다.",
   "3. 숫자(연차·성과·기간·규모)는 공고나 경험 그래프에 그대로 있는 것만 쓴다.",
   "4. companyPoints: 공고(<job_posting>)가 강조하는 업무·가치·요건을 point(명사형 구절)로, 근거 공고 구절을 jdQuote에 원문 그대로 복사한다. 공고가 없으면 빈 배열.",
   "5. linkedExperiences: 경험 그래프(<career_graph>)에서 회사·직무와 이어지는 노드 2~3개. nodeId는 대괄호 안의 id 그대로, name은 노드 이름 그대로, why는 근거 줄에 있는 사실로 어떻게 이어지는지 한 구절.",
@@ -71,7 +72,7 @@ const SYSTEM = [
   "8. cautions: 쓸 때 주의할 점 2~3개(예: 회사 칭찬만 나열, 이력서 내용 반복, 근거 없는 포부).",
   `9. <${MOTIVATION_DRAFT_TAG}>에 이미 쓴 글이 있으면 재료는 빠진 부분 위주로 추천한다(재료 항목에서 그 글을 고쳐 쓰거나 이어 쓰지 않는다).`,
   `10. 항목 하나는 ${MOTIVATION_HINT_MAX}자 안. 한국어로 쓴다.`,
-  "11. draft: companyPoints·linkedExperiences·outline을 종합한 지원 동기 초안 3~5문장(700자 안, 한 문단, 존댓말 '~습니다').",
+  `11. draft: companyPoints·linkedExperiences·outline을 종합한 지원 동기 초안 3~5문장(700자 안, 한 문단, 존댓말 '~습니다'). ${HONORIFIC_ENDING_HINT}`,
   "   - 공고·회사 자료와 경험 그래프(그리고 지원자가 쓴 글)에 있는 사실만 쓴다. 경험은 그래프의 이름·사실 그대로, 회사가 강조하는 점은 공고 표현 그대로 잇는다.",
   "   - 자료에 없는 동기·계기·감정·개인 사정은 지어내지 말고 그 자리에 [ADD: 이 회사를 알게 된 계기], [ADD: 이 회사여야 하는 이유] 같은 자리표시를 둔다.",
   "   - 자료에 없는 숫자는 쓰지 않는다(서버가 [ADD: 수치 확인 — …]로 바꾼다).",
@@ -198,7 +199,8 @@ export interface MotivationDraftSources {
  * 3) MOTIVATION_DRAFT_MAX를 넘으면 뒤 문장부터 뺀다. 자리표시만 남으면 빈 문자열.
  */
 export function verifyMotivationDraft(draft: string, sources: string | MotivationDraftSources, max = MOTIVATION_DRAFT_MAX): string {
-  const text = draft.replace(/\r/g, "").replace(/[ \t]+/g, " ").replace(/\n{3,}/g, "\n\n").trim();
+  // 문장 끝 경어체 통일(honorific.ts): 확실한 평어체('~했다/~한다/~이다')만 '~습니다'로 바꾼다. 남은 평어체는 호출부가 알린다.
+  const text = normalizeHonorific(draft.replace(/\r/g, "").replace(/[ \t]+/g, " ").replace(/\n{3,}/g, "\n\n").trim()).text;
   if (!text) return "";
   const s: MotivationDraftSources = typeof sources === "string" ? { text: sources, numbers: sources } : sources;
   const src = compact(s.text);
@@ -243,6 +245,9 @@ export function verifyMotivationDraft(draft: string, sources: string | Motivatio
   return stripPlaceholders(out).trim() ? out : "";
 }
 
+/** 초안에 '~다'로 끝나 자동으로 바꾸지 못한 문장이 남았을 때의 주의 사항. */
+export const MOTIVATION_PLAIN_ENDING_CAUTION = "초안에 '~다'로 끝나는 문장이 남아 있습니다. 이력서 다른 문장처럼 '~습니다'로 고쳐 쓰세요.";
+
 export function filterMotivationSuggestion(
   raw: MotivationSuggestion,
   ctx: { jdText: string; graph: CareerGraph; motivation: string; company: string; roleTitle: string; graphUnavailable?: boolean; pack?: EvidencePack | null },
@@ -281,6 +286,13 @@ export function filterMotivationSuggestion(
   if (!hasJd) cautions.unshift("이력서에 채용 공고 본문이 없어 회사가 강조하는 점은 추천하지 못했습니다. 공고를 연결하면 더 구체적으로 추천합니다.");
   if (ctx.graphUnavailable) cautions.unshift("경험 그래프를 불러오지 못해 이어지는 경험은 추천하지 못했습니다. 그래프 없이 공고·지금 쓴 글만으로 추천했습니다.");
   else if (!ctx.pack && ctx.graph.nodes.length === 0) cautions.unshift("경험 그래프가 비어 있어 이어지는 경험은 추천하지 못했습니다.");
+  // 초안(검증 뒤)에 판단할 수 없는 평어체 문장이 남으면 주의 사항으로 알린다(조용히 바꾸지 않는다).
+  const draft = verifyMotivationDraft(raw.draft ?? "", {
+    text: source,
+    numbers: [material, ctx.motivation, ctx.company, ctx.roleTitle].join("\n"),
+    jdQuotes: companyPoints.map((p) => p.jdQuote),
+  });
+  if (normalizeHonorific(draft).leftovers.length > 0) cautions.unshift(MOTIVATION_PLAIN_ENDING_CAUTION);
   return {
     companyPoints: companyPoints.slice(0, 5),
     linkedExperiences: linkedExperiences.slice(0, 3),
@@ -288,11 +300,7 @@ export function filterMotivationSuggestion(
     questions: list(raw.questions).slice(0, 6),
     cautions: cautions.slice(0, 5),
     // 초안 숫자는 지원자 근거로만 대조한다(공고 요건의 '5년 이상' 같은 숫자를 지원자 사실로 쓰지 않게) — 통과한 공고 인용 구절을 그대로 담은 숫자만 예외.
-    draft: verifyMotivationDraft(raw.draft ?? "", {
-      text: source,
-      numbers: [material, ctx.motivation, ctx.company, ctx.roleTitle].join("\n"),
-      jdQuotes: companyPoints.map((p) => p.jdQuote),
-    }),
+    draft,
   };
 }
 
@@ -405,7 +413,7 @@ const DRAFT_SYSTEM = [
   "너는 한국 채용 시장을 잘 아는 지원 동기 작성 에이전트다. 이력서의 지원 동기 칸에 들어갈 초안을 쓴다. 지원자가 [ADD: …] 자리를 채우고 내 말로 다듬는다.",
   "",
   "규칙:",
-  "1. 3~5문장, 한 문단, 존댓말('~습니다'), 700자 안. 구성은 회사가 강조하는 점 → 이어지는 내 경험 → 입사 후 기여 순서.",
+  `1. 3~5문장, 한 문단, 존댓말('~습니다'), 700자 안. 구성은 회사가 강조하는 점 → 이어지는 내 경험 → 입사 후 기여 순서. ${HONORIFIC_ENDING_HINT}`,
   "2. 회사가 강조하는 점은 공고(<job_posting>) 표현 그대로, 경험은 이력서에 실제로 쓴 줄(<resume>)과 근거(<career_graph>)의 사실 그대로 잇는다.",
   "3. 개인적인 계기·감정·회사와의 인연은 쓰지 않고 [ADD: 지원 계기 — 무엇을 쓰면 좋을지] 자리표시로 남긴다. 상투 표현('어릴 때부터', '감명', '매료', '열정')은 쓰지 않는다.",
   "4. 숫자는 근거·공고에 그대로 있는 것만. usedPoints에는 쓴 재료(회사가 강조하는 점)의 번호, usedRefs에는 쓴 근거 ref(E…).",
@@ -470,7 +478,7 @@ export function buildMotivationDraftPrompt(input: MotivationDraftInput): { syste
  * 지원 동기 초안 에이전트: 쓰고 → verifyMotivationDraft(표현 = JD 원문 + 근거 + 이력서 줄 + 회사·직무, 숫자 = JD 원문을 뺀 같은 자료 +
  * 문장이 그대로 담은 추천의 공고 인용 구절). 자리표시만 남으면 "".
  */
-export async function writeMotivationDraft(input: MotivationDraftInput, deps: { llm: LlmClient; signal?: AbortSignal }): Promise<{ draft: string; placeholders: number; usage: LlmUsage; model: string }> {
+export async function writeMotivationDraft(input: MotivationDraftInput, deps: { llm: LlmClient; signal?: AbortSignal }): Promise<{ draft: string; placeholders: number; /** 자동으로 바꾸지 못한 평어체 문장. */ plainEndings: string[]; usage: LlmUsage; model: string }> {
   const { system, user } = buildMotivationDraftPrompt(input);
   const res = await deps.llm.generate({ task: "resume-agent-motivation", system, user, schema: LlmMotivationDraftSchema, effort: "low", maxTokens: 6_000, signal: deps.signal, cacheUser: false });
   const own = [evidenceSourceText(input.pack.items), input.company, input.roleTitle, ...input.resumeLines].join("\n");
@@ -479,7 +487,7 @@ export async function writeMotivationDraft(input: MotivationDraftInput, deps: { 
     numbers: own,
     jdQuotes: input.suggestion?.companyPoints.map((p) => p.jdQuote) ?? [],
   });
-  return { draft, placeholders: (draft.match(/\[ADD:[^\]]*\]/g) ?? []).length, usage: res.usage, model: res.model };
+  return { draft, placeholders: (draft.match(/\[ADD:[^\]]*\]/g) ?? []).length, plainEndings: normalizeHonorific(draft).leftovers, usage: res.usage, model: res.model };
 }
 
 // ---------------------------------------------------------------------------

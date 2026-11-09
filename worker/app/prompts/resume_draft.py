@@ -5,7 +5,7 @@ TS와 글자 하나까지 같아야 한다(tests/fixtures/prompts/resume-draft.j
 
 같은 파일에 옮긴 TS 원본:
 - src/lib/panel/prompts.ts TAGS·neutralize, src/lib/domain/chat.ts CHAT_TAGS, src/lib/chat/prompt.ts INJECTION_RULE·neutralizeChat·wrapData·field
-- src/lib/resumes/draft-rules.ts RESUME_FACT_RULES, writing-guide.ts RESUME_WRITING_CRITERIA_PROMPT, emphasis.ts emphasisLines
+- src/lib/resumes/draft-rules.ts RESUME_FACT_RULES, writing-guide.ts RESUME_WRITING_CRITERIA_PROMPT(경어체 규칙은 app/honorific.py), emphasis.ts emphasisLines
 - src/lib/domain/resumes.ts RESUME_TEMPLATES(이름·설명·섹션 순서)·RESUME_SECTION_LABELS·draftSectionOrder
 """
 
@@ -15,6 +15,7 @@ import re
 from dataclasses import dataclass
 from typing import Any, Literal
 
+from app.honorific import HONORIFIC_RULE
 from app.jobs.resume_draft_extras import EXTRAS_GUIDE_PROMPT_LINES
 from app.jsutil import JS_WS_CLASS, js_collapse_ws, js_slice, js_trim
 
@@ -165,8 +166,15 @@ RESUME_WRITING_CRITERIA_PROMPT = "\n".join(
         "- 숫자가 없으면 도입·재사용·재발 없음 확인처럼 확인 가능한 결과를 쓴다.",
         "- 협업·성격은 형용사 대신 상황 → 내 행동 → 상대·업무의 변화로 보여 준다.",
         "- '진행 중'인 일을 완료형으로 바꾸지 않는다.",
+        f"- {HONORIFIC_RULE}",
     ]
 )
+
+#: 대표 프로젝트 개수 기준(TS resumes/project-count.ts).
+PROJECT_COUNT_MIN = 2
+PROJECT_COUNT_MAX = 3
+PROJECT_COUNT_RULE = "프로젝트는 기본 2~3개를 쓴다: 자료(경험 그래프의 프로젝트·기존 이력서·저장소)에 있는 프로젝트 중 JD(없으면 지원 직무)와 가장 관련 있는 것부터 고르고, 3개가 넘으면 관련도 높은 3개만 쓴다. 자료에 프로젝트가 2개 미만이면 개수를 맞추려고 지어내지 말고 있는 만큼만 쓰며(없으면 빈 배열) missingInfo에 다른 프로젝트를 묻는 질문을 남긴다."
+PROJECT_MORE_QUESTION = "이 직무와 관련해 이력서에 더 넣을 프로젝트(이름·기간·내 역할·결과)가 있나요? 대표 프로젝트는 2~3개를 권장합니다."
 
 # ---------------------------------------------------------------------------
 # 양식(domain/resumes.ts) — 프롬프트에 쓰는 이름·설명·섹션 순서만
@@ -262,6 +270,8 @@ class DraftMaterial:
     kind: Literal["graph", "diagnosis"]
     text: str
     diagnosis_title: str = ""
+    #: 그래프의 프로젝트(Project) 노드 수(프롬프트에 넣지 않는다 — 후처리 점검용). 모르면 None.
+    project_count: int | None = None
 
 
 @dataclass(frozen=True)
@@ -287,12 +297,13 @@ SYSTEM = "\n".join(
         *RESUME_FACT_RULES,
         "10. 아래 작성 기준을 따른다(규칙 1이 우선한다).",
         RESUME_WRITING_CRITERIA_PROMPT,
+        f"11. {PROJECT_COUNT_RULE}",
         "",
         f"보안: {INJECTION_RULE}",
     ]
 )
 
-_PERFORMANCE_MEMO = "A4 1장 분량. summary는 '[문제]를 [방법]으로 개선하는 [직무]입니다.'와 '[경험·도메인]에서 [담당 범위]를 맡아 [결과]를 만들었습니다.' 두 문장을 줄바꿈으로 나눠 쓴다. highlights 2~3개, 경력 불릿은 항목당 1~3개, 프로젝트는 대표 2개를 문제·행동·결과로."
+_PERFORMANCE_MEMO = "A4 1장 분량. summary는 '[문제]를 [방법]으로 개선하는 [직무]입니다.'와 '[경험·도메인]에서 [담당 범위]를 맡아 [결과]를 만들었습니다.' 두 문장을 줄바꿈으로 나눠 쓴다. highlights 2~3개, 경력 불릿은 항목당 1~3개, 프로젝트는 대표 2~3개를 문제·행동·결과로."
 
 
 def build_resume_draft_prompt(ctx: DraftContext) -> tuple[str, str]:

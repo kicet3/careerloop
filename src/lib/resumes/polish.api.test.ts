@@ -247,6 +247,27 @@ describe("대화", () => {
   });
 });
 
+describe("문체(경어체)", () => {
+  it("대안·안내의 평어체 끝은 숫자 자리표시 뒤 경어체로 맞추고, [ADD: …]·before는 그대로, 못 바꾼 문장은 '문체 확인 필요'", async () => {
+    const view = (await (await post(resumeA, { targetPath: TARGET, message: "문장으로 다시 써 줘 [가짜:평어]" })).json()) as View;
+    const { m, data } = lastPolish(view);
+    // 시스템 프롬프트에 문체 규칙이 들어간다.
+    expect(polish.POLISH_SYSTEM).toContain("경어체");
+    expect(data.suggestions[0]!.text).toBe("정산 흐름을 다시 설계했습니다. [ADD: 수치 확인 — 처리 시간을 줄였다]");
+    expect(data.suggestions[0]!.reason).toBe("행동을 앞에 두었다.");
+    // '개발자다.'는 자동으로 바꿀 수 없다 — 제안은 두고 reason에 표시한다.
+    expect(data.suggestions[1]!.text).toBe("정산 배치를 맡은 백엔드 개발자다.");
+    expect(data.suggestions[1]!.reason).toContain("문체 확인 필요");
+    expect(m.content).toBe("요청에 맞춰 문장을 다시 썼습니다.");
+    // 사용자가 쓴 지금 글(before)은 바꾸지 않는다.
+    expect(data.before).toBe(BULLET);
+    // 적용: 저장된 칸 글이 before와 같으면 경어체 문구가 그대로 들어간다.
+    const out = (await (await apply(resumeA, { messageId: m.id, index: 0 })).json()) as { document: ResumeDocument };
+    expect(out.document.experience[0]!.bullets[0]).toBe(data.suggestions[0]!.text);
+    expect(out.document.summary).toBe(baseDoc().summary);
+  });
+});
+
 describe("도구(JD 분석·경험 그래프)", () => {
   /** resumeA의 JD를 비우고 공고에 연결한다(JD는 도구로만 보인다). */
   async function linkPosting(userId: string, jdText: string): Promise<string> {
@@ -453,6 +474,20 @@ describe("순수 함수", () => {
     );
     expect(out.map((s) => s.text)).toEqual(["배치 시간 단축", "정산 6시간 → 40분", "Kafka로 정산 배치 개편"]);
     expect(out.every((s) => s.flagged.length === 0)).toBe(true);
+  });
+
+  it("verifySuggestions: 경어체로 맞추고, 원문을 문체만 바꾼 대안은 원문과 같은 것으로 뺀다", () => {
+    const out = polish.verifySuggestions(
+      [
+        { text: BULLET, reason: "같다" },
+        { text: "정산 배치 처리 시간을 줄였습니다", reason: "문체만" },
+        { text: "정산 배치를 다시 설계했다.", reason: "행동" },
+        { text: "\"설계했다\"라고 적었다. [ADD: 수치 확인 — 99% 줄였다]", reason: "인용" },
+      ],
+      { before: BULLET, source: "", maxChars: 500 },
+    );
+    expect(out.map((s) => s.text)).toEqual(["정산 배치를 다시 설계했습니다.", "\"설계했다\"라고 적었습니다. [ADD: 수치 확인 — 99% 줄였다]"]);
+    expect(out.every((s) => !s.reason.includes("문체 확인 필요"))).toBe(true);
   });
 
   it("prefilterPolishScope: 다듬기 요청은 통과, 코드 요청·탈옥은 잡는다", () => {

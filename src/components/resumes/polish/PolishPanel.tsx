@@ -12,6 +12,8 @@ import {
   POLISH_DOCUMENT_LABEL,
   POLISH_DOCUMENT_PATH,
   polishContinuationStart,
+  polishItemEditState,
+  type PolishItemSection,
   polishTargetText,
   polishTargets,
   type ResumePolishData,
@@ -22,6 +24,7 @@ import { smallInputClass } from "../styles";
 import { DiffView } from "./DiffView";
 import { PolishToolTrace } from "./PolishToolTrace";
 import { PolishDocumentChat } from "./PolishDocumentChat";
+import { PolishItemCard } from "./PolishItemCard";
 
 export interface PolishApplied {
   version: ResumeVersionMeta;
@@ -33,9 +36,13 @@ interface View {
   target: { path: string; label: string; text: string; versionId: string };
   threadId: string | null;
   messages: ChatMessage[];
+  /** 대상 칸이 든 항목(프로젝트·경력)의 저장된 지금 값. */
+  item?: { section: PolishItemSection; index: number; value: Record<string, unknown> };
 }
 
 const QUICK = ["더 짧게", "JD 키워드 넣어서", "수치 강조", "더 구체적으로"] as const;
+/** 대상 칸이 프로젝트 안이면 더 보이는 빠른 요청. */
+const QUICK_PROJECT = "이름·문제·행동·결과 한번에 채워 줘";
 
 async function readError(res: Response, fallback: string): Promise<string> {
   const data = (await res.json().catch(() => null)) as { error?: string } | null;
@@ -138,7 +145,8 @@ export function PolishPanel({
     }
   }
 
-  async function apply(messageId: string, index: number) {
+  /** index: 대안 문구 번호, "item": 항목 제안(exclude는 체크를 푼 칸). */
+  async function apply(messageId: string, index: number | "item", exclude: string[] = []) {
     if (applying) return;
     setApplying(true);
     setError(null);
@@ -146,7 +154,7 @@ export function PolishPanel({
       const res = await fetch(`/api/resumes/${resumeId}/polish/apply`, {
         method: "POST",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ messageId, index }),
+        body: JSON.stringify(index === "item" ? { messageId, item: true, ...(exclude.length ? { exclude } : {}) } : { messageId, index }),
       });
       if (!res.ok) {
         setError(await readError(res, "적용하지 못했습니다."));
@@ -160,6 +168,9 @@ export function PolishPanel({
           ? {
               ...v,
               target: { ...v.target, text: polishTargetText(result.document, v.target.path) ?? v.target.text, versionId: result.version.id },
+              ...(v.item
+                ? { item: { ...v.item, value: (result.document[v.item.section][v.item.index] as unknown as Record<string, unknown> | undefined) ?? v.item.value } }
+                : {}),
               messages: v.messages.map((m) => (m.id === result.message.id ? result.message : m)),
             }
           : v,
@@ -243,6 +254,10 @@ export function PolishPanel({
               stale={i < liveFrom}
               selected={preview?.messageId === m.id ? preview.index : null}
               onPick={(index) => setPreview({ messageId: m.id, index })}
+              item={view.item}
+              dirty={dirty}
+              applying={applying}
+              onApplyItem={(exclude) => void apply(m.id, "item", exclude)}
             />
           </div>
         ))}
@@ -291,7 +306,7 @@ export function PolishPanel({
         }}
       >
         <div className="flex flex-wrap gap-1.5">
-          {QUICK.map((q) => (
+          {[...QUICK, ...(view?.item?.section === "projects" ? [QUICK_PROJECT] : [])].map((q) => (
             <button
               key={q}
               type="button"
@@ -324,18 +339,28 @@ export function PolishPanel({
   );
 }
 
-function MessageBubble({
+export function MessageBubble({
   message: m,
   stale,
   selected,
   onPick,
+  item,
+  dirty = false,
+  applying = false,
+  onApplyItem,
 }: {
   message: ChatMessage;
   /** 이전 글에 대한 대화(적용 불가, 흐리게). */
   stale: boolean;
   selected: number | null;
   onPick: (index: number) => void;
+  /** 대상 칸이 든 항목의 저장된 지금 값(항목 제안 상태). */
+  item?: View["item"];
+  dirty?: boolean;
+  applying?: boolean;
+  onApplyItem?: (exclude: string[]) => void;
 }) {
+  const [excluded, setExcluded] = useState<string[]>([]);
   if (m.role === "user") {
     return <div className={cn("ml-8 rounded-lg bg-indigo-600 px-3 py-2 text-sm whitespace-pre-wrap text-white", stale && "opacity-50")}>{m.content}</div>;
   }
@@ -370,6 +395,31 @@ function MessageBubble({
           </button>
         );
       })}
+      {data?.itemSuggestion && (
+        <PolishItemCard
+          suggestion={data.itemSuggestion}
+          state={
+            m.status === "applied"
+              ? data.appliedItem
+                ? "applied"
+                : "stale"
+              : stale || !item || item.section !== data.itemSuggestion.section || item.index !== data.itemSuggestion.index
+                ? "stale"
+                : polishItemEditState(item.value, data.itemSuggestion)
+          }
+          // 이미 적용한 답변·이전 글에 대한 답변은 어느 칸도 적용할 수 없다(지금 값을 넘기지 않는다).
+          current={
+            m.status !== "applied" && !stale && item && item.section === data.itemSuggestion.section && item.index === data.itemSuggestion.index
+              ? item.value
+              : undefined
+          }
+          excluded={excluded}
+          onToggleField={(field) => setExcluded((xs) => (xs.includes(field) ? xs.filter((f) => f !== field) : [...xs, field]))}
+          dirty={dirty}
+          applying={applying}
+          onApply={() => onApplyItem?.(excluded)}
+        />
+      )}
       {data?.followUpQuestion && <p className="text-xs text-slate-600">질문: {data.followUpQuestion}</p>}
       {data && data.graphSources > 0 && <p className="text-[11px] text-slate-400">경험 그래프 근거 {data.graphSources}개를 참고했어요.</p>}
       <PolishToolTrace tools={data?.tools} />

@@ -5,6 +5,7 @@
  * 특정인의 사례·원문 문장을 옮기지 않고, 확인 가능한 행동으로 바꿔 적었다.
  */
 import type { ResumeDocument } from "@/lib/domain/resumes";
+import { HONORIFIC_RULE } from "./honorific";
 
 export interface WritingTip {
   title: string;
@@ -132,4 +133,5 @@ export const RESUME_WRITING_CRITERIA_PROMPT = [
   "- 숫자가 없으면 도입·재사용·재발 없음 확인처럼 확인 가능한 결과를 쓴다.",
   "- 협업·성격은 형용사 대신 상황 → 내 행동 → 상대·업무의 변화로 보여 준다.",
   "- '진행 중'인 일을 완료형으로 바꾸지 않는다.",
+  `- ${HONORIFIC_RULE}`,
 ].join("\n");

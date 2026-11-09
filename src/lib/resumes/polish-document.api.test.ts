@@ -11,7 +11,7 @@ import { afterAll, beforeAll, beforeEach, describe, expect, it, vi } from "vites
 import { createTestDb, type TestDb } from "@/test/db";
 import type { ChatMessage } from "@/lib/domain/chat";
 import type { CareerGraph } from "@/lib/domain/graph";
-import { polishMaxChars, type ResumePolishDocData } from "@/lib/domain/resume-polish";
+import { type PolishDocFieldSuggestion, polishMaxChars, type ResumePolishDocData } from "@/lib/domain/resume-polish";
 import { emptyResumeDocument, type ResumeDocument } from "@/lib/domain/resumes";
 import { qaGraph } from "@/lib/graph/__fixtures__/qa-graph";
 import type { GenerateResult, LlmRequest } from "@/lib/llm/types";
@@ -139,9 +139,11 @@ const apply = (id: string, body: unknown, headers: Record<string, string> = {}) 
 
 type View = { target: { path: string; versionId: string }; threadId: string | null; messages: ChatMessage[]; fields: Record<string, string> };
 const askView = async (id: string, message: string) => (await (await ask(id, message)).json()) as View;
+/** 칸 제안만 보는 시험용(항목 제안은 lastItems). */
+type FieldDocData = Omit<ResumePolishDocData, "suggestions"> & { suggestions: PolishDocFieldSuggestion[] };
 const lastDoc = (v: View) => {
   const m = v.messages.at(-1)!;
-  return { m, data: m.data as ResumePolishDocData };
+  return { m, data: m.data as FieldDocData };
 };
 
 describe("대화·격리", () => {
@@ -299,6 +301,38 @@ describe("근거 없는 수치", () => {
     const bad = polishDoc.verifyAnswer("요약이 좋아요. 매출을 40% 올린 점이 강점입니다.", "");
     expect(bad.flagged).toEqual(["40"]);
     expect(bad.text).toMatch(/^요약이 좋아요\. \[ADD: 수치 확인 — /);
+  });
+});
+
+describe("문체(경어체)", () => {
+  it("칸 제안 after·답변은 경어체로 맞추고, [ADD: …]·before(저장된 글)는 그대로 — 적용 충돌 확인도 저장된 글로 한다", async () => {
+    const { m, data } = lastDoc(await askView(resumeA, "문장으로 다시 써 줘 [가짜:평어]"));
+    expect(polishDoc.POLISH_DOC_SYSTEM).toContain("경어체");
+    const first = data.suggestions[0]!;
+    expect(first.path).toBe("basics.tagline");
+    expect(first.after).toBe("정산 흐름을 다시 설계했습니다. [ADD: 수치 확인 — 처리 시간을 줄였다]");
+    expect(first.before).toBe(TAGLINE);
+    expect(first.reason).not.toContain("문체 확인 필요");
+    expect(m.content).toBe("가장 약한 부분은 한 줄 소개입니다. 결과 수치가 빠져 있습니다.");
+    // 저장된 요약(사용자가 쓴 평어체 글)은 제안을 만들어도 바뀌지 않는다.
+    expect((await service.getVersionDocument("ua", resumeA))!.document.summary).toBe(SUMMARY);
+    const res = await apply(resumeA, { messageId: m.id, indices: [0] });
+    expect(res.status).toBe(201);
+    expect(((await res.json()) as { document: ResumeDocument }).document.basics.tagline).toBe(first.after);
+  });
+
+  it("verifyDocSuggestions: 지금 글을 문체만 바꾼 제안은 버리고, 못 바꾼 평어체는 reason에 '문체 확인 필요'", () => {
+    const out = polishDoc.verifyDocSuggestions(
+      [
+        { path: "summary", after: "결제 정산 시스템을 운영했습니다.", reason: "문체만" },
+        { path: "basics.tagline", after: "결제 정산을 맡은 백엔드 개발자다.", reason: "역할" },
+      ],
+      baseDoc(),
+      "",
+    );
+    expect(out.dropped).toBe(1);
+    expect(out.suggestions.map((s) => [s.path, s.after])).toEqual([["basics.tagline", "결제 정산을 맡은 백엔드 개발자다."]]);
+    expect(out.suggestions[0]!.reason).toMatch(/^역할 · 문체 확인 필요: '/);
   });
 });
 

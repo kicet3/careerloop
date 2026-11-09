@@ -109,6 +109,7 @@ export function buildBriefPrompt(ctx: AgentPromptContext, jd: JdAnalysis, pack: 
     "6. assignments: 구역(experience 경력 · projects 대표 프로젝트 · highlights 핵심 성과 · skills 직무 역량 · extras 수상·기타·학력·자격)마다 주 책임 요건(primaryRequirementIds), 언급만 할 요건(secondaryRequirementIds), 이 구역이 쓸 근거 refs, 이 구역에서 보여 줄 각도(angle), 이 구역 몫의 JD 키워드(keywords), 분량(budget)을 정한다. 같은 요건의 주 책임 구역은 하나다.",
     "7. evidenceOwner: 근거 하나를 어느 구역이 '상세히' 쓰는지(경력 직무·회사 → experience, 프로젝트 → projects, 수상·활동·자격·학력 → extras). 다른 구역은 그 근거를 한 줄 요약(highlights)이나 이름(skills)으로만 쓴다.",
     `8. pageTarget: A4 쪽수 목표(경력 3년 이상이거나 프로젝트가 많으면 2, 아니면 1 — 기본 ${defaults.pageTarget}). budget 기본값(넘기면 서버가 줄인다):\n${table}`,
+    "   대표 프로젝트(projects)는 쪽수와 관계없이 기본 2~3개(budget.items 2~3): include.projects에 JD 관련도 높은 순으로 근거의 프로젝트 2~3개를 고른다. 근거에 프로젝트가 2개 미만이면 있는 만큼만(없으면 비운다) 고르고 지어내지 않는다.",
     defaults.company
       ? "9. motivation: 지원 동기 초안에서 회사와 이을 각도(companyAngle)와 이어 쓸 근거 ref 1~3개(linkRefs). summaryAngle: 요약을 어떤 각도로 쓸지 한 문장."
       : "9. motivation은 null(공용 이력서). summaryAngle: 요약을 어떤 각도로 쓸지 한 문장.",

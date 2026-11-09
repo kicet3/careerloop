@@ -13,6 +13,8 @@ import { buildStagePrompt, DRAFT_MODE_NOTE, type PanelInput } from "@/lib/panel/
 import { runPanelStage } from "@/lib/panel/pipeline";
 import { buildIndex, retrieve } from "@/lib/graph/retrieve";
 import { RESUME_FACT_RULES } from "@/lib/resumes/draft-rules";
+import { PROJECT_COUNT_RULE } from "@/lib/resumes/project-count";
+import { HONORIFIC_RULE } from "@/lib/resumes/honorific";
 import type { LlmClient, LlmRequest } from "@/lib/llm/types";
 import { FakeLlmClient } from "@/test/fake-llm";
 import { qaGraph } from "@/lib/graph/__fixtures__/qa-graph";
@@ -52,10 +54,17 @@ describe("패널 프롬프트(진단 경로) 불변", () => {
 });
 
 describe("단일 초안 프롬프트 불변", () => {
-  it("사실 규칙 추출 뒤에도 같다(새 자료 태그 이름 두 개만 INJECTION_RULE에 더해짐)", () => {
+  it("사실 규칙 추출 뒤에도 같다(새 자료 태그 이름 두 개만 INJECTION_RULE에 더해짐 · 대표 프로젝트 2~3개 규칙 11과 양식 메모 · 작성 기준의 경어체 규칙만 바뀜)", () => {
     const d = buildResumeDraftPrompt({ company: "c", roleTitle: "r", jdText: "j", templateId: "performance", material: { kind: "graph", text: "g" } });
-    const before = d.system.replace(", <resume_plan>, <requirement_candidates>", "").replace(", <tool_results>, <evidence>, <question>", "");
-    expect(sha(before + d.user)).toBe("75466e4b9716867f3497a6f61c34e1585bc3d142ea4579d2761ad3355ebe8f93");
+    const before = d.system
+      .replace(", <resume_plan>, <requirement_candidates>", "")
+      .replace(", <tool_results>, <evidence>, <question>", "")
+      .replace(`\n11. ${PROJECT_COUNT_RULE}`, "")
+      .replace(`\n- ${HONORIFIC_RULE}`, "");
+    expect(d.system).toContain(`\n- ${HONORIFIC_RULE}\n`);
+    expect(d.system).toContain(`\n11. ${PROJECT_COUNT_RULE}\n`);
+    expect(d.user).toContain("프로젝트는 대표 2~3개를");
+    expect(sha(before + d.user.replace("프로젝트는 대표 2~3개를", "프로젝트는 대표 2개를"))).toBe("75466e4b9716867f3497a6f61c34e1585bc3d142ea4579d2761ad3355ebe8f93");
     const rules = d.system.slice(d.system.indexOf("규칙:"), d.system.indexOf("10. 아래 작성 기준"));
     expect(rules).toBe(["규칙:", ...RESUME_FACT_RULES, ""].join("\n"));
   });
