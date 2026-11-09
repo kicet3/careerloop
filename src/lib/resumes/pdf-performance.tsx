@@ -10,7 +10,7 @@ import type { ReactNode } from "react";
 import { Document, Image, Page, StyleSheet, Text, View, type Styles } from "@react-pdf/renderer";
 import { RESUME_SECTION_LABELS, type ResumeDocument } from "@/lib/domain/resumes";
 import { SERVICE_CREDIT } from "@/lib/brand";
-import { isExperienceEmpty, isProjectEmpty, motivationParagraphs, performanceHeading, splitAddMarkers } from "./layout";
+import { isExperienceEmpty, isHighlightEmpty, isProjectEmpty, motivationParagraphs, performanceHeading, splitAddMarkers } from "./layout";
 import { NO_HYPHEN, PDF_FONT } from "./pdf-fonts";
 
 const C = {
@@ -83,12 +83,10 @@ const st = StyleSheet.create({
   sectionEnd: { height: px(16) },
 
   highlightTitle: { fontSize: 10, lineHeight: 1.55, fontWeight: 700 },
-  highlightContext: {
-    fontSize: 8.5,
-    lineHeight: 1.6,
-    color: C.muted,
-    marginTop: px(1),
-  },
+  // 상세 성과: 성과 요약 아래 불릿 줄(줄마다 하나).
+  highlightDetailRow: { flexDirection: "row", marginTop: px(2), paddingLeft: px(3) },
+  highlightDetailDot: { width: px(11), fontSize: 8.8, lineHeight: 1.6, color: C.muted },
+  highlightDetailText: { flex: 1, fontSize: 8.8, lineHeight: 1.6, color: C.muted },
 
   entryHead: {
     flexDirection: "row",
@@ -226,13 +224,20 @@ export function PerformancePdfDocument({ doc, photo = null }: { doc: ResumeDocum
   const contact = [b.email, b.phone, b.portfolioUrl].filter(has);
 
   const highlightRows = doc.highlights
-    .filter((h) => has(h.title) || has(h.context))
+    .filter((h) => !isHighlightEmpty(h))
     .map((h, i) =>
       row(
         <View key={i}>
           {has(h.title) ? <R style={st.highlightTitle} text={h.title} /> : null}
-          {has(h.context) ? <R style={st.highlightContext} text={h.context} /> : null}
+          {h.details.filter(has).map((x, j) => (
+            <View key={j} style={st.highlightDetailRow} wrap={false}>
+              <Text style={st.highlightDetailDot}>•</Text>
+              <R style={st.highlightDetailText} text={x} />
+            </View>
+          ))}
         </View>,
+        h.title,
+        h.details,
       ),
     );
 

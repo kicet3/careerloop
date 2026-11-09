@@ -8,6 +8,7 @@ import {
   type ResumeDocument,
   type ResumeExperience,
   type ResumeHeadingKey,
+  type ResumeHighlight,
   type ResumeProject,
   type ResumeSectionKey,
   type ResumeTemplateId,
@@ -21,6 +22,9 @@ const blank = (s: string) => s.trim().length === 0;
 export const isExperienceEmpty = (e: ResumeExperience) =>
   blank(e.company) && blank(e.title) && blank(e.department) && blank(e.scope) && e.bullets.every(blank);
 
+/** 핵심 성과 항목이 비었는가(성과 요약·상세 성과 줄 모두 빈 칸). 예전 칸 context는 보지 않는다(읽을 때 details로 옮긴다). */
+export const isHighlightEmpty = (h: Pick<ResumeHighlight, "title" | "details">) => blank(h.title) && h.details.every(blank);
+
 export const isProjectEmpty = (p: ResumeProject) =>
   [p.name, p.summary, p.problem, p.action, p.result, p.team, p.company].every(blank) && p.bullets.every(blank);
 
@@ -29,7 +33,7 @@ export function isSectionEmpty(doc: ResumeDocument, key: ResumeSectionKey): bool
     case "summary":
       return blank(doc.summary);
     case "highlights":
-      return doc.highlights.every((h) => blank(h.title) && blank(h.context));
+      return doc.highlights.every((h) => isHighlightEmpty(h));
     case "experience":
       return doc.experience.every((e) => isExperienceEmpty(e));
     case "projects":
@@ -156,9 +160,14 @@ export function resumeToText(doc: ResumeDocument, templateId: ResumeTemplateId):
         out.push(doc.summary.trim());
         break;
       case "highlights":
+        // 성과 요약 한 줄 아래 상세 성과를 들여 쓴 불릿으로(요약이 비면 상세 성과만 불릿으로).
         for (const h of doc.highlights) {
-          if (blank(h.title) && blank(h.context)) continue;
-          out.push(h.context.trim() ? `- ${h.title.trim()} (${h.context.trim()})` : `- ${h.title.trim()}`);
+          if (isHighlightEmpty(h)) continue;
+          const details = nonEmpty(h.details);
+          if (h.title.trim()) {
+            out.push(`- ${h.title.trim()}`);
+            for (const d of details) out.push(`  - ${d}`);
+          } else for (const d of details) out.push(`- ${d}`);
         }
         break;
       case "experience":

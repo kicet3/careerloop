@@ -116,4 +116,20 @@ describe("applyPatch", () => {
     expect(r.changes).toEqual([]);
     expect(r.rejected).toEqual([{ op: "replace", path: "projects[0].evidence", reason: "path_invalid" }]);
   });
+
+  it("핵심 성과 상세 성과 줄(details[n])은 고치고 넣을 수 있고, 예전 칸 context를 고치는 op는 버린다", () => {
+    const d = draft({ highlights: [{ title: "응답 800ms → 320ms", details: ["2023년 결제 API 대상으로 측정했습니다."], context: "" }] }, [{ path: "highlights[0]", refs: ["E1"], requirementIds: [] }]);
+    const r = applyPatch(
+      d,
+      [
+        op({ op: "replace", path: "highlights[0].details[0]", value: "2023년 1분기 결제 API 전체 요청을 대상으로 측정했습니다.", refs: ["E1"] }),
+        op({ op: "insert", path: "highlights[0].details[1]", value: "캐시 계층을 도입했습니다.", refs: ["E2"] }),
+        op({ op: "replace", path: "highlights[0].context", value: "예전 칸", refs: ["E1"] }),
+      ],
+      ctx,
+    );
+    expect(r.draft.document.highlights[0]!.details).toEqual(["2023년 1분기 결제 API 전체 요청을 대상으로 측정했습니다.", "캐시 계층을 도입했습니다."]);
+    expect(r.draft.document.highlights[0]!.context).toBe("");
+    expect(r.rejected).toEqual([{ op: "replace", path: "highlights[0].context", reason: "path_invalid" }]);
+  });
 });

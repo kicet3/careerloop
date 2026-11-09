@@ -16,7 +16,7 @@ export function honorificRuleFor(scope: string): string {
 }
 
 /** 이력서 생성 프롬프트 규칙(단일 초안·에이전트 v1/v2·심사위원 채팅 — writing-guide.ts 작성 기준에 들어간다). */
-export const HONORIFIC_RULE = honorificRuleFor("요약·한 줄 소개·경력 담당 범위와 불릿·프로젝트 요약·문제·개선·결과·직무 역량 설명·수상·기타 설명·지원 동기");
+export const HONORIFIC_RULE = honorificRuleFor("요약·한 줄 소개·핵심 성과 상세·경력 담당 범위와 불릿·프로젝트 요약·문제·개선·결과·직무 역량 설명·수상·기타 설명·지원 동기");
 
 /** 짧은 규칙(지원 동기 초안처럼 이미 '~습니다'를 정한 프롬프트에 덧붙인다). */
 export const HONORIFIC_ENDING_HINT = "문장 끝은 경어체('~했습니다/~합니다/~입니다')로 쓰고 평어체('~했다/~한다/~이다')로 끝내지 않는다.";
@@ -160,7 +160,7 @@ export interface DocumentHonorificResult {
 }
 
 /**
- * 문서의 서술 칸에 normalizeHonorific을 적용한다(입력은 바꾸지 않는다). 대상: basics.tagline, summary, highlights title·context,
+ * 문서의 서술 칸에 normalizeHonorific을 적용한다(입력은 바꾸지 않는다). 대상: basics.tagline, summary, highlights title·details(상세 성과 줄),
  * experience scope·bullets, projects summary·problem·action·result·bullets, skills detail, extras items, motivation.
  * 이름·직무명(headline·title·role)·회사·팀·기간·링크·기술명·학력·자격은 대상이 아니다.
  */
@@ -179,7 +179,7 @@ export function normalizeDocumentHonorific(doc: ResumeDocument): DocumentHonorif
   d.summary = fix("summary", d.summary);
   d.highlights.forEach((h, i) => {
     h.title = fix(`highlights[${i}].title`, h.title);
-    h.context = fix(`highlights[${i}].context`, h.context);
+    h.details = h.details.map((t, j) => fix(`highlights[${i}].details[${j}]`, t));
   });
   d.experience.forEach((e, i) => {
     e.scope = fix(`experience[${i}].scope`, e.scope);

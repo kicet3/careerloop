@@ -4,7 +4,8 @@
  *
  * ResumeDocument는 LLM 구조화 출력에도 그대로 쓰므로 선택 필드·유니온 없이 모든 필드를 필수로 둔다(값이 없으면 "" 또는 []).
  * 나중에 더한 필드(성과 중심 양식용: 총 경력·포트폴리오·핵심 성과·부서·담당 범위·문제/개선/결과 등)가 없는
- * 예전 저장본은 upgradeResumeDocument가 빈 값으로 채운 뒤 검증한다(parseResumeDocument).
+ * 예전 저장본은 upgradeResumeDocument가 빈 값으로 채운 뒤 검증한다(parseResumeDocument). 핵심 성과의 예전 한 칸(context)은
+ * 이때 상세 성과 줄(details)로 옮긴다(upgradeResumeHighlight).
  */
 import { z } from "zod";
 import { MAX_PORTFOLIO_TEXT_CHARS, PORTFOLIO_KINDS, type PortfolioInfo, type PortfolioKind } from "./portfolios";
@@ -53,6 +54,30 @@ const bullets = () => z.array(s(500)).max(15);
 export const RESUME_HEADING_KEYS = ["highlights", "experience", "projects", "skills", "education"] as const;
 export type ResumeHeadingKey = (typeof RESUME_HEADING_KEYS)[number];
 
+/** 핵심 성과 상한: 항목 수, 항목당 상세 성과 줄 수·줄 글자 수. */
+export const MAX_RESUME_HIGHLIGHTS = 8;
+export const MAX_HIGHLIGHT_DETAILS = 5;
+export const MAX_HIGHLIGHT_DETAIL_CHARS = 300;
+
+/**
+ * 핵심 성과 항목(LLM 출력 모양): 성과 요약(title) 한 줄 + 상세 성과(details) 여러 줄(줄마다 하나).
+ * 예전 문서의 '측정 기간·핵심 행동' 한 칸(context)은 저장 스키마에만 남기고(ResumeHighlightSchema) LLM 출력에는 두지 않는다.
+ */
+export const LlmResumeHighlightSchema = z.object({
+  title: s(200).describe("성과 요약 한 줄(명사형): 지표 기준값 → 개선값 · 개선 폭"),
+  details: z
+    .array(s(MAX_HIGHLIGHT_DETAIL_CHARS))
+    .max(MAX_HIGHLIGHT_DETAILS)
+    .describe("상세 성과 1~3줄(줄마다 하나): 측정 기간·대상 / 본인이 한 핵심 개선·판단 / 검증 방법 중 하나를 담은 경어체 문장(~했습니다)"),
+});
+/** LLM 출력용 핵심 성과 목록(구조화 출력 — 단일 초안·에이전트 v1/v2). */
+export const LlmResumeHighlightsSchema = z.array(LlmResumeHighlightSchema).max(MAX_RESUME_HIGHLIGHTS);
+
+/** 저장 문서의 핵심 성과 항목: LLM 모양 + 예전 문서 호환용 context(화면·PDF·텍스트·생성에서 쓰지 않는다 — 읽을 때 details로 옮긴다). */
+export const ResumeHighlightSchema = LlmResumeHighlightSchema.extend({
+  context: s(300).describe("쓰지 않는 칸(예전 문서 호환용 — 상세 성과는 details). 항상 빈 문자열"),
+});
+
 export const ResumeDocumentSchema = z.object({
   basics: z.object({
     name: s(80),
@@ -69,14 +94,7 @@ export const ResumeDocumentSchema = z.object({
   headings: z
     .object({ highlights: s(30), experience: s(30), projects: s(30), skills: s(30), education: s(30) })
     .describe("섹션 제목 바꾸기. 기본 제목을 쓰면 빈 문자열"),
-  highlights: z
-    .array(
-      z.object({
-        title: s(200).describe("핵심 성과 한 줄: 지표 기준값 → 개선값 · 개선 폭"),
-        context: s(300).describe("측정 기간·대상 / 본인이 한 핵심 행동"),
-      }),
-    )
-    .max(8),
+  highlights: z.array(ResumeHighlightSchema).max(MAX_RESUME_HIGHLIGHTS),
   experience: z
     .array(
       z.object({
@@ -146,7 +164,7 @@ export type ResumeCertification = ResumeDocument["certifications"][number];
 
 /** 빈 항목 생성기(편집 폼·성과 양식 편집·빈 문서 뼈대 공용). */
 export const EMPTY_RESUME_ITEM = {
-  highlight: (): ResumeHighlight => ({ title: "", context: "" }),
+  highlight: (): ResumeHighlight => ({ title: "", details: [], context: "" }),
   experience: (): ResumeExperience => ({
     company: "",
     department: "",
@@ -242,7 +260,8 @@ export function upgradeResumeDocument(raw: unknown): unknown {
   // 키가 아예 없으면(undefined·null) 빈 값으로 채운다. 다른 형식이면 그대로 넘겨 스키마가 거절하게 둔다.
   out.basics = withDefaults(raw.basics ?? {}, empty.basics);
   out.headings = withDefaults(raw.headings ?? {}, empty.headings);
-  out.highlights = eachWithDefaults(raw.highlights ?? [], EMPTY_RESUME_ITEM.highlight);
+  // 핵심 성과: 예전 한 칸(context)을 상세 성과 줄(details)로 옮긴다(upgradeResumeHighlight).
+  out.highlights = upgradeResumeHighlights(raw.highlights ?? []);
   out.experience = eachWithDefaults(raw.experience ?? [], EMPTY_RESUME_ITEM.experience);
   out.projects = eachWithDefaults(raw.projects ?? [], EMPTY_RESUME_ITEM.project);
   out.skills = eachWithDefaults(raw.skills ?? [], EMPTY_RESUME_ITEM.skill);
@@ -255,6 +274,52 @@ export function upgradeResumeDocument(raw: unknown): unknown {
   return out;
 }
 
+/** 상세 성과 줄로 나누기: 줄바꿈 기준, 앞뒤 공백을 빼고 빈 줄은 버린다. */
+export function splitHighlightDetails(text: string): string[] {
+  return text
+    .split(/\r?\n/)
+    .map((l) => l.trim())
+    .filter(Boolean);
+}
+
+/**
+ * 핵심 성과 항목 하나를 지금 모양으로 보정한다(순수, 입력을 바꾸지 않는다). 객체가 아니면 그대로(스키마가 거절한다).
+ * - details가 없으면 [].
+ * - 예전 칸 context에 글이 있으면 줄바꿈으로 나눠 details 뒤에 붙이고 context는 ""로 비운다
+ *   (상한 MAX_HIGHLIGHT_DETAILS 줄을 넘으면 남는 줄을 마지막 줄에 이어 붙인다 — 글을 버리지 않는다).
+ */
+export function upgradeResumeHighlight(raw: unknown): unknown {
+  if (!isObj(raw)) return raw;
+  const out: Loose = { title: "", ...raw };
+  const details = raw.details === undefined || raw.details === null ? [] : raw.details;
+  const context = raw.context === undefined || raw.context === null ? "" : raw.context;
+  out.details = details;
+  out.context = context;
+  if (typeof context === "string" && Array.isArray(details)) {
+    // 예전 칸에 글이 있을 때만 옮긴다(없으면 details는 그대로 — 상한 초과는 스키마가 거절한다).
+    if (context.trim()) {
+      const lines = [...details, ...splitHighlightDetails(context)];
+      if (lines.length > MAX_HIGHLIGHT_DETAILS) {
+        const tail = lines.splice(MAX_HIGHLIGHT_DETAILS - 1).filter((l) => typeof l === "string");
+        lines.push(tail.join(" ").slice(0, MAX_HIGHLIGHT_DETAIL_CHARS));
+      }
+      out.details = lines;
+    }
+    out.context = "";
+  }
+  return out;
+}
+
+/** 핵심 성과 목록 보정(배열이 아니면 그대로). 에이전트 단계 출력(저장된 구역 조각)을 다시 읽을 때도 쓴다. */
+export function upgradeResumeHighlights(raw: unknown): unknown {
+  return Array.isArray(raw) ? raw.map(upgradeResumeHighlight) : raw;
+}
+
+/** LLM 모양 핵심 성과 → 저장 모양(예전 칸 context는 빈 문자열). */
+export function toStoredHighlights(highlights: readonly { title: string; details: readonly string[] }[]): ResumeHighlight[] {
+  return highlights.map((h) => ({ title: h.title, details: [...h.details], context: "" }));
+}
+
 /** 저장본·API 입력 검증: 예전 형식을 보정한 뒤 ResumeDocumentSchema로 검증한다. */
 export const StoredResumeDocumentSchema = z.preprocess(upgradeResumeDocument, ResumeDocumentSchema);
 
@@ -263,12 +328,14 @@ export function parseResumeDocument(raw: unknown) {
 }
 
 /**
- * LLM 이력서 초안 출력(task 'resume-draft'). 구조화 출력용 JSON 스키마는 ResumeDocumentSchema(모든 필드 필수) 그대로이고,
+ * LLM 이력서 초안 출력(task 'resume-draft'). 구조화 출력용 JSON 스키마는 ResumeDocumentSchema(모든 필드 필수)에서 지원 동기를 빼고
+ * 핵심 성과를 LLM 모양(LlmResumeHighlightSchema — 예전 칸 context 없음)으로 바꾼 것이고,
  * 검증은 보정을 거친다 — 엔진이 새 필드 몇 개를 빠뜨려도 빈 값으로 받아들인다. 지원 동기(motivation)는 출력 스키마에 없다.
  */
 export const ResumeDraftOutputSchema = z.object({
   // 지원 동기는 사용자가 쓰는 칸이라 LLM 출력에서 뺀다(서버가 빈 문자열로 채운다 — draft.ts).
-  document: z.preprocess(upgradeResumeDocument, ResumeDocumentSchema.omit({ motivation: true })),
+  // 핵심 성과는 LLM 모양(성과 요약 + 상세 성과 줄) — 예전 칸 context는 출력에 없다(보정이 details로 옮긴 뒤 버린다). 저장 전에 toStoredHighlights.
+  document: z.preprocess(upgradeResumeDocument, ResumeDocumentSchema.omit({ motivation: true }).extend({ highlights: LlmResumeHighlightsSchema })),
   notes: z.array(z.string()).max(10).describe("초안을 쓰며 내린 판단·가정(한국어)"),
   missingInfo: z.array(z.string()).max(10).describe("채워야 할 정보에 대한 질문. 본문에는 [ADD: ...]로 남긴다"),
 });

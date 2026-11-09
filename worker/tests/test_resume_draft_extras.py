@@ -216,3 +216,28 @@ def test_project_evidence_cleared() -> None:
     assert [p["name"] for p in draft["document"]["projects"]] == ["정산", "결제"]
     assert [p["evidence"] for p in out["document"]["projects"]] == before  # 입력은 그대로
     assert "측정 자료명" not in SYSTEM and "결과와 근거" not in SYSTEM
+
+
+def test_highlights_details_postprocess() -> None:
+    """핵심 성과는 성과 요약 + 상세 성과 줄(details): LLM 출력에는 context가 없고, 저장 문서에는 빈 문자열로 들어간다."""
+    assert "context" not in RESUME_DRAFT_OUTPUT_SCHEMA.raw["properties"]["document"]["properties"]["highlights"]["items"]["properties"]
+    out = _llm_output(highlights=[{"title": "정산 4시간 → 40분", "details": ["2023년 월말 정산을 대상으로 측정했다.", " ", "배치를 병렬화했습니다."]}])
+    draft = postprocess_draft(out, BASE)
+    assert draft["document"]["highlights"] == [
+        {"title": "정산 4시간 → 40분", "details": ["2023년 월말 정산을 대상으로 측정했습니다.", "배치를 병렬화했습니다."], "context": ""}
+    ]
+    assert parse_resume_document(draft["document"], upgrade=False) is not None
+    assert "details(상세 성과)" in SYSTEM
+
+
+def test_legacy_highlight_context_upgraded() -> None:
+    """예전 저장본(context 한 칸, details 없음)은 읽을 때 줄바꿈 기준으로 details로 옮기고 context를 비운다(TS upgradeResumeHighlight)."""
+    doc = empty_resume_document()
+    doc["highlights"] = [{"title": "응답 40% 단축", "context": "2023년 결제 API\n\n 캐시 도입 "}, {"title": "빈 성과", "context": ""}]
+    parsed = parse_resume_document(doc, upgrade=True)
+    assert parsed is not None
+    assert parsed["highlights"] == [
+        {"title": "응답 40% 단축", "details": ["2023년 결제 API", "캐시 도입"], "context": ""},
+        {"title": "빈 성과", "details": [], "context": ""},
+    ]
+    assert doc["highlights"][0]["context"] == "2023년 결제 API\n\n 캐시 도입 "  # 입력은 그대로

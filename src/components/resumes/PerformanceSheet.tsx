@@ -14,14 +14,17 @@ import { MonthPickerButton } from "@/components/ui/MonthInput";
 import { CURRENT_TEXT } from "@/lib/dates/month-input";
 import {
   EMPTY_RESUME_ITEM,
+  MAX_HIGHLIGHT_DETAIL_CHARS,
   RESUME_SECTION_LABELS,
   type ResumeDocument,
   type ResumeExperience,
   type ResumeHeadingKey,
+  type ResumeHighlight,
   type ResumeProject,
 } from "@/lib/domain/resumes";
 import { motivationParagraphs, PERFORMANCE_HEADINGS, splitAddMarkers } from "@/lib/resumes/layout";
 import "./performance-sheet.css";
+import { highlightDetailRows, insertDetailLine, removeDetailLine } from "./highlight-details";
 import { itemKeys, patchItem, useAnnouncer, useReorder, type ReorderHandlers } from "./reorder";
 import { MOBILE_QUERY, SHEET_PAGE_GAP, useSheetPages } from "./sheet-pagination";
 
@@ -45,7 +48,7 @@ const css = {
   experience: "pf-experience",
   field: "pf-field",
   header: "pf-header",
-  highlightContext: "pf-highlight-context",
+  highlightDetails: "pf-highlight-details",
   highlightTitle: "pf-highlight-title",
   highlights: "pf-highlights",
   identityRow: "pf-identity-row",
@@ -104,7 +107,11 @@ const PH = {
   summary:
     "[주요 고객·업무의 문제]를 [핵심 방법]으로 개선하는 [직무명]입니다.\n[핵심 경험·도메인]에서 [담당 범위]를 맡아 [확인 가능한 결과]를 만들었습니다.",
   highlightTitle: ["[직무 KPI] [기준값] → [개선값] · [개선 폭과 단위]", "[대표 변화 또는 도입 결과] · [확인 가능한 규모]"],
-  highlightContext: ["[측정 기간·대상] / [본인이 수행한 핵심 행동]", "[적용 범위·확인 시점] / [조직에 남은 기여]"],
+  // 상세 성과 줄 안내: [첫 항목 줄들, 나머지 항목 줄들] — 줄 번호가 넘치면 마지막 문구.
+  highlightDetails: [
+    ["[측정 기간·대상]에서 [지표]를 측정했습니다.", "[본인이 한 핵심 개선·판단]을 적용했습니다.", "[검증 방법]으로 결과를 확인했습니다."],
+    ["[적용 범위·확인 시점]을 기준으로 확인했습니다.", "[본인이 바꾼 방법·구조]를 도입했습니다.", "[조직에 남은 기여]를 정착시켰습니다."],
+  ],
   company: ["[최근 회사명]", "[이전 회사명 또는 주요 활동]"],
   start: "[YYYY.MM]",
   end: ["[현재 / YYYY.MM]", "[YYYY.MM]"],
@@ -134,6 +141,8 @@ const PH = {
 } as const;
 
 const pick = (v: string | readonly string[], i: number): string => (typeof v === "string" ? v : (v[Math.min(i, v.length - 1)] ?? ""));
+/** 핵심 성과 i의 상세 성과 j번째 줄 안내 문구. */
+const pickDetail = (i: number, j: number): string => pick(PH.highlightDetails[Math.min(i, PH.highlightDetails.length - 1)]!, j);
 
 /** 원본 '작성 안내'. 버튼 이름만 이 화면에 맞게 바꿨다. */
 export const PERFORMANCE_NOTES = [
@@ -635,7 +644,23 @@ export function PerformanceSheet({
     </header>
   );
 
-  // ----- 핵심 성과
+  // ----- 핵심 성과: 성과 요약 한 줄 + 상세 성과 줄(Enter로 다음 줄, 빈 줄에서 Backspace로 지운다)
+  const upHighlight = (i: number, patch: Partial<ResumeHighlight>) => set({ highlights: upAt(doc.highlights, i, patch) });
+  const addDetail = (i: number, at: number) => {
+    const h = doc.highlights[i];
+    const r = h ? insertDetailLine(h.details, at) : null;
+    if (!r) return;
+    // 줄이 없을 때(안내 문구 한 줄만 보일 때)는 그 첫 줄로 포커스만 옮긴다.
+    if (r.details) upHighlight(i, { details: r.details });
+    setFocusPath(`highlights.${i}.details.${r.focus}`);
+  };
+  const removeDetail = (i: number, j: number) => {
+    const h = doc.highlights[i];
+    const r = h ? removeDetailLine(h.details, j) : null;
+    if (!r) return;
+    upHighlight(i, { details: r.details });
+    setFocusPath(r.focus === null ? `highlights.${i}.title` : `highlights.${i}.details.${r.focus}`);
+  };
   const highlights = (
     <Section
       id="highlights"
@@ -661,20 +686,31 @@ export function PerformanceSheet({
               path={`highlights.${i}.title`}
               value={h.title}
               placeholder={pick(PH.highlightTitle, i)}
-              label={`핵심 성과 ${i + 1}`}
+              label={`핵심 성과 ${i + 1}의 성과 요약`}
               max={200}
               onChange={on((v) => set({ highlights: upAt(doc.highlights, i, { title: v }) }))}
+              onEnter={() => addDetail(i, 0)}
             />
-            <Field
-              as="div"
-              className={css.highlightContext}
-              path={`highlights.${i}.context`}
-              value={h.context}
-              placeholder={pick(PH.highlightContext, i)}
-              label={`핵심 성과 ${i + 1}의 측정 기간·핵심 행동`}
-              max={300}
-              onChange={on((v) => set({ highlights: upAt(doc.highlights, i, { context: v }) }))}
-            />
+            {/* 상세 성과: 줄마다 하나(불릿). 편집 중 줄이 없으면 안내 문구 한 줄을 보인다(값이 아니라 저장·PDF에 들어가지 않는다).
+                보기(미리보기·인쇄)에서는 글이 있는 줄만 — PDF·텍스트 내보내기와 같게. */}
+            {(edit || h.details.some((x) => x.trim())) && (
+              <ul className={css.highlightDetails}>
+                {highlightDetailRows(h.details, !!edit).map(({ value: x, index: j }) => (
+                  <Field
+                    key={j}
+                    as="li"
+                    path={`highlights.${i}.details.${j}`}
+                    value={x}
+                    placeholder={pickDetail(i, j)}
+                    label={`핵심 성과 ${i + 1}의 상세 성과${h.details.length > 1 ? ` ${j + 1}` : ""}`}
+                    max={MAX_HIGHLIGHT_DETAIL_CHARS}
+                    onChange={on((v) => upHighlight(i, { details: h.details.length > 0 ? h.details.map((d, k) => (k === j ? v : d)) : [v] }))}
+                    onEnter={() => addDetail(i, j + 1)}
+                    onBackspaceEmpty={() => removeDetail(i, j)}
+                  />
+                ))}
+              </ul>
+            )}
             {edit && <RemoveButton label={`핵심 성과 ${i + 1} 삭제`} onClick={() => set({ highlights: removeAt(doc.highlights, i) })} />}
           </li>
         ))}

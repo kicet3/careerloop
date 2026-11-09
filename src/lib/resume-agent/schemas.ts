@@ -8,7 +8,7 @@
  */
 import { z } from "zod";
 import { NodeLabelSchema } from "@/lib/domain/graph";
-import { ResumeDocumentSchema, StoredResumeDocumentSchema } from "@/lib/domain/resumes";
+import { LlmResumeHighlightsSchema, ResumeDocumentSchema, StoredResumeDocumentSchema, upgradeResumeHighlights } from "@/lib/domain/resumes";
 import { FitItemSchema, JdAnalysisSchema, RequirementSchema, ReviewerIdSchema, SituationSchema } from "@/lib/domain/schemas";
 import { StoredMotivationSuggestionSchema } from "@/lib/domain/resume-motivation";
 import { SECTION_IDS, WRITING_SECTIONS } from "./job-types";
@@ -24,9 +24,12 @@ export const AGENT_SCHEMA_VERSION = 1;
 export const EvidenceRefSchema = z.string().regex(/^E\d{1,3}$/);
 export type EvidenceRef = z.infer<typeof EvidenceRefSchema>;
 
-/** 문서 경로(줄 단위). citations.ts가 문서에 실제로 있는 경로인지 확인한다. */
+/**
+ * 문서 경로(줄 단위). citations.ts가 문서에 실제로 있는 경로인지 확인한다.
+ * 핵심 성과 줄은 title(성과 요약)·details[n](상세 성과). context는 예전 단계 출력을 읽기 위한 호환 경로(지금 문서에는 그 줄이 없다).
+ */
 export const DOC_PATH_RE =
-  /^(summary|basics\.(tagline|totalExperience)|highlights\[\d+\]\.(title|context)|experience\[\d+\]\.(scope|bullets\[\d+\])|projects\[\d+\]\.(summary|problem|action|result|evidence|bullets\[\d+\])|skills\[\d+\]\.detail|extras\[\d+\]\.items\[\d+\]|education\[\d+\]\.note)$/;
+  /^(summary|basics\.(tagline|totalExperience)|highlights\[\d+\]\.(title|context|details\[\d+\])|experience\[\d+\]\.(scope|bullets\[\d+\])|projects\[\d+\]\.(summary|problem|action|result|evidence|bullets\[\d+\])|skills\[\d+\]\.detail|extras\[\d+\]\.items\[\d+\]|education\[\d+\]\.note)$/;
 export const DocPathSchema = z.string().regex(DOC_PATH_RE);
 export type DocPath = z.infer<typeof DocPathSchema>;
 
@@ -206,7 +209,8 @@ export type LlmBodyDraft = z.infer<typeof LlmBodyDraftSchema>;
 export const LlmTopDraftSchema = z.object({
   basics: Doc.shape.basics.pick({ headline: true, tagline: true, totalExperience: true }),
   summary: Doc.shape.summary,
-  highlights: Doc.shape.highlights,
+  // 핵심 성과는 LLM 모양(성과 요약 + 상세 성과 줄 — 예전 칸 context 없음). 문서에 합칠 때 toStoredHighlights.
+  highlights: LlmResumeHighlightsSchema,
   skills: Doc.shape.skills,
   citations: z.array(LlmCitationSchema).max(30),
   missingInfo: z.array(z.string().max(300)).max(10),
@@ -534,7 +538,8 @@ export type BriefStepOutput = z.infer<typeof BriefStepOutputSchema>;
 export const SectionFragmentSchema = z.object({
   experience: Doc.shape.experience.optional(),
   projects: Doc.shape.projects.optional(),
-  highlights: Doc.shape.highlights.optional(),
+  // 저장된 예전 조각(성과 요약 + context 한 칸)도 읽도록 상세 성과 줄로 보정한다.
+  highlights: z.preprocess(upgradeResumeHighlights, LlmResumeHighlightsSchema).optional(),
   skills: Doc.shape.skills.optional(),
   extras: Doc.shape.extras.optional(),
   education: Doc.shape.education.optional(),
@@ -552,7 +557,7 @@ const sectionCommon = {
 };
 export const LlmExperienceSectionSchema = z.object({ experience: Doc.shape.experience, ...sectionCommon });
 export const LlmProjectsSectionSchema = z.object({ projects: Doc.shape.projects, ...sectionCommon });
-export const LlmHighlightsSectionSchema = z.object({ highlights: Doc.shape.highlights, ...sectionCommon });
+export const LlmHighlightsSectionSchema = z.object({ highlights: LlmResumeHighlightsSchema, ...sectionCommon });
 export const LlmSkillsSectionSchema = z.object({ skills: Doc.shape.skills, ...sectionCommon });
 export const LlmExtrasSectionSchema = z.object({ extras: Doc.shape.extras, education: Doc.shape.education, certifications: Doc.shape.certifications, ...sectionCommon });
 export type LlmSectionOutput = { citations: z.infer<typeof LlmCitationSchema>[]; notes: string[]; missingInfo: string[]; needEvidence: { requirementId: string | null; query: string }[]; coveredRequirementIds: string[] } & SectionFragment;

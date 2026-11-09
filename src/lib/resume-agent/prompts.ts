@@ -205,7 +205,7 @@ export function buildWriteTopPrompt(
     "",
     "## 할 일",
     "- basics.headline은 plan.headline(직무명만). basics.tagline은 근거에 있는 사실로 한 문장. basics.totalExperience는 근거의 직무 기간으로 계산할 수 있을 때만(예: \"5년 3개월\").",
-    "- summary: strong 요건을 JD 용어로 앞에. highlights 2~3개: 수치가 있는 근거만 '기준값 → 개선값'으로, 없으면 산출물·범위.",
+    "- summary: strong 요건을 JD 용어로 앞에. highlights 2~3개: title(성과 요약)은 수치가 있는 근거만 '기준값 → 개선값'으로, 없으면 산출물·범위. details(상세 성과)는 1~3줄 — 줄마다 측정 기간·대상 / 본인이 한 핵심 개선·판단 / 검증 방법 중 하나를 경어체 문장(~했습니다)으로.",
     "- skills: category·detail·items. items는 근거의 기술 이름만.",
     '- citations: { path: "summary" | "highlights[0]" | "skills[0]", refs, requirementIds }. 요약·핵심 성과·기술 칸마다 단다.',
     "- missingInfo: gap 요건 질문과 확인이 필요한 정보(최대 10개). 흔히 쓰는 기타 정보(수상·어학 점수, 신입이면 교육 이수·병역)가 근거에 없으면 지어내지 말고 질문으로.",

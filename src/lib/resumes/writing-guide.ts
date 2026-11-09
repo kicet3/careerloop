@@ -91,7 +91,7 @@ export interface ResumeTipSignals {
 
 function bulletLines(doc: ResumeDocument): string[] {
   return [
-    ...doc.highlights.flatMap((h) => [h.title, h.context]),
+    ...doc.highlights.flatMap((h) => [h.title, ...h.details]),
     ...doc.experience.flatMap((e) => e.bullets),
     ...doc.projects.flatMap((p) => [p.result, p.action, ...p.bullets]),
   ]

@@ -13,7 +13,7 @@ import {
   type ResumeTemplate,
   type ResumeTemplateId,
 } from "@/lib/domain/resumes";
-import { isExperienceEmpty, isProjectEmpty, motivationParagraphs, period, projectStoryLines, RESUME_PHOTO_PT, resumeLayout, sectionTitle, splitAddMarkers } from "./layout";
+import { isExperienceEmpty, isHighlightEmpty, isProjectEmpty, motivationParagraphs, period, projectStoryLines, RESUME_PHOTO_PT, resumeLayout, sectionTitle, splitAddMarkers } from "./layout";
 import { A4, mayExceedPage } from "./pagination";
 import { NO_HYPHEN, PDF_FONT, registerResumeFonts } from "./pdf-fonts";
 import { PerformancePdfDocument } from "./pdf-performance";
@@ -202,16 +202,17 @@ function sectionItems({ s, doc, k, t, narrow }: { s: S; doc: ResumeDocument; k: 
     case "summary":
       return [{ el: <Rich s={s} text={doc.summary.trim()} />, texts: [doc.summary] }];
     case "highlights":
+      // 성과 요약 한 줄 + 상세 성과 불릿.
       return doc.highlights
-        .filter((h) => h.title.trim() || h.context.trim())
+        .filter((h) => !isHighlightEmpty(h))
         .map((h, i) => ({
           el: (
             <View key={i} style={{ marginBottom: 4 }}>
-              <Rich s={s} style={s.itemTitle} text={h.title} />
-              {h.context.trim() ? <Rich s={s} style={s.itemSub} text={h.context} /> : null}
+              {h.title.trim() ? <Rich s={s} style={s.itemTitle} text={h.title} /> : null}
+              <Bullets s={s} items={h.details} />
             </View>
           ),
-          texts: [h.title, h.context],
+          texts: [h.title, ...h.details],
         }));
     case "experience":
       return doc.experience

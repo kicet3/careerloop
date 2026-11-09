@@ -69,7 +69,7 @@ def _problems(validator: Any, value: Any) -> list[str]:
 # ---------------------------------------------------------------------------
 
 _EMPTY_ITEMS: dict[str, dict[str, Any]] = {
-    "highlights": {"title": "", "context": ""},
+    "highlights": {"title": "", "details": [], "context": ""},
     "experience": {"company": "", "department": "", "title": "", "startDate": "", "endDate": "", "location": "", "scope": "", "bullets": []},
     "projects": {
         "name": "",
@@ -117,6 +117,42 @@ def _each_with_defaults(v: Any, make: dict[str, Any]) -> Any:
     return [_with_defaults(x, make) for x in v] if isinstance(v, list) else v
 
 
+#: 핵심 성과 상한(TS MAX_HIGHLIGHT_DETAILS·MAX_HIGHLIGHT_DETAIL_CHARS).
+MAX_HIGHLIGHT_DETAILS = 5
+MAX_HIGHLIGHT_DETAIL_CHARS = 300
+
+
+def split_highlight_details(text: str) -> list[str]:
+    """TS splitHighlightDetails: 줄바꿈 기준, 앞뒤 공백을 빼고 빈 줄은 버린다."""
+    return [t for t in (js_trim(line) for line in re.split(r"\r?\n", text)) if t]
+
+
+def upgrade_resume_highlight(raw: Any) -> Any:
+    """TS upgradeResumeHighlight: 예전 칸 context를 상세 성과 줄(details) 뒤에 옮기고 context는 비운다. 입력을 바꾸지 않는다."""
+    if not isinstance(raw, dict):
+        return raw
+    out: dict[str, Any] = {"title": "", **raw}
+    details = [] if raw.get("details") is None else raw["details"]
+    context = "" if raw.get("context") is None else raw["context"]
+    out["details"] = details
+    out["context"] = context
+    if isinstance(context, str) and isinstance(details, list):
+        # 예전 칸에 글이 있을 때만 옮긴다(없으면 details는 그대로 — 상한 초과는 스키마가 거절한다).
+        if js_trim(context):
+            lines = [*details, *split_highlight_details(context)]
+            if len(lines) > MAX_HIGHLIGHT_DETAILS:
+                tail = [t for t in lines[MAX_HIGHLIGHT_DETAILS - 1 :] if isinstance(t, str)]
+                lines = [*lines[: MAX_HIGHLIGHT_DETAILS - 1], js_slice(" ".join(tail), 0, MAX_HIGHLIGHT_DETAIL_CHARS)]
+            out["details"] = lines
+        out["context"] = ""
+    return out
+
+
+def upgrade_resume_highlights(raw: Any) -> Any:
+    """TS upgradeResumeHighlights(배열이 아니면 그대로)."""
+    return [upgrade_resume_highlight(h) for h in raw] if isinstance(raw, list) else raw
+
+
 def upgrade_resume_document(raw: Any) -> Any:
     """필드가 늘기 전 형식의 문서에 새 필드를 빈 값으로 채운다(TS upgradeResumeDocument). 입력을 바꾸지 않는다."""
     if not isinstance(raw, dict):
@@ -128,7 +164,7 @@ def upgrade_resume_document(raw: Any) -> Any:
     out["basics"] = _with_defaults(pick("basics", {}), empty["basics"])
     out["headings"] = _with_defaults(pick("headings", {}), empty["headings"])
     for k, make in _EMPTY_ITEMS.items():
-        out[k] = _each_with_defaults(pick(k, []), make)
+        out[k] = upgrade_resume_highlights(pick(k, [])) if k == "highlights" else _each_with_defaults(pick(k, []), make)
     if out.get("summary") is None:
         out["summary"] = ""
     if out.get("motivation") is None:
@@ -149,6 +185,14 @@ DOCUMENT_SCHEMA["properties"]["motivation"] = {
     "description": "지원 동기(지원처별 이력서만, 사용자가 직접 쓴다). 없으면 빈 문자열",
 }
 DOCUMENT_SCHEMA["required"] = [*DOCUMENT_SCHEMA["required"], "motivation"]
+# 저장 문서의 핵심 성과 항목에는 예전 문서 호환용 칸 context가 있다(TS ResumeHighlightSchema — LLM 출력 스키마에는 없다).
+_HIGHLIGHT_ITEM: dict[str, Any] = DOCUMENT_SCHEMA["properties"]["highlights"]["items"]
+_HIGHLIGHT_ITEM["properties"]["context"] = {
+    "type": "string",
+    "maxLength": 300,
+    "description": "쓰지 않는 칸(예전 문서 호환용 — 상세 성과는 details). 항상 빈 문자열",
+}
+_HIGHLIGHT_ITEM["required"] = [*_HIGHLIGHT_ITEM["required"], "context"]
 _DOCUMENT_VALIDATOR = ZodLikeValidator(DOCUMENT_SCHEMA)
 
 
@@ -236,6 +280,8 @@ def postprocess_draft(output: dict[str, Any], ctx: DraftContext) -> dict[str, An
     doc = draft["document"]
     # 프로젝트 근거 칸(evidence)은 이력서에 쓰지 않는다 — 모델이 채워도 비운다(TS clearProjectEvidence).
     doc["projects"] = [{**p, "evidence": ""} for p in doc["projects"]]
+    # 핵심 성과는 성과 요약 + 상세 성과 줄(details) — 빈 줄은 버리고, 예전 칸 context는 빈 문자열로 저장한다(TS toStoredHighlights).
+    doc["highlights"] = [{"title": h["title"], "details": [d for d in h["details"] if js_trim(d)], "context": ""} for h in doc["highlights"]]
     extras = normalize_extras(doc["extras"], newcomer=is_newcomer_document(doc))
     doc["extras"] = extras.extras
     if extras.dropped:

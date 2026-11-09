@@ -204,11 +204,18 @@
   font-size: 10pt;
   line-height: 1.55;
 }
-.pf-highlight-context {
-  font-size: 8.5pt;
+/* 상세 성과: 성과 요약 아래 불릿 줄(줄마다 하나). */
+.pf-highlight-details {
+  padding: 0 0 0 14px;
+  margin: 2px 0 0;
+  list-style: disc;
+}
+.pf-highlight-details > li {
+  padding-left: 1px;
+  margin: 1px 0;
+  font-size: 8.8pt;
   color: var(--muted);
   line-height: 1.6;
-  margin-top: 1px;
 }
 
 .pf-entry + .pf-entry {
@@ -609,6 +616,10 @@
   }
   .pf-field:empty::before {
     content: none;
+  }
+  /* 편집 중 인쇄해도 빈 상세 성과 줄은 불릿만 남지 않게 숨긴다(PDF·텍스트 내보내기처럼 글 있는 줄만). */
+  .pf-highlight-details > li:empty {
+    display: none;
   }
   .pf-page-no {
     display: none;

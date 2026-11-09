@@ -19,6 +19,7 @@ import {
 } from "@/lib/domain/resumes";
 import {
   isExperienceEmpty,
+  isHighlightEmpty,
   isProjectEmpty,
   motivationParagraphs,
   period,
@@ -189,8 +190,9 @@ function pushSection(col: Column, doc: ResumeDocument, k: ResumeSectionKey, t: R
       return;
     }
     case "highlights":
+      // 성과 요약 한 줄 + 상세 성과 불릿.
       doc.highlights
-        .filter((h) => h.title.trim() || h.context.trim())
+        .filter((h) => !isHighlightEmpty(h))
         .forEach((h, i) => {
           const grp = `highlights:${i}`;
           if (h.title.trim())
@@ -201,14 +203,7 @@ function pushSection(col: Column, doc: ResumeDocument, k: ResumeSectionKey, t: R
                 <Rich text={h.title} />
               </p>,
             );
-          if (h.context.trim())
-            col.push(
-              `${grp}:c`,
-              grp,
-              <p style={s.sub}>
-                <Rich text={h.context} />
-              </p>,
-            );
+          bullets(`${grp}:d`, grp, h.details);
           col.addAfter(4);
         });
       return;

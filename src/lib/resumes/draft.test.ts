@@ -145,3 +145,31 @@ describe("generateResumeDraft — 프로젝트 근거 칸", () => {
     expect(system).not.toContain("결과와 근거");
   });
 });
+
+describe("generateResumeDraft — 핵심 성과 성과 요약·상세 성과", () => {
+  it("상세 성과 줄(details)을 저장 모양으로 받는다: 빈 줄은 버리고 경어체로 맞추며 예전 칸 context는 빈 문자열", async () => {
+    const client = new FakeLlmClient({ delayMs: 0 });
+    const { ResumeDraftOutputSchema } = await import("@/lib/domain/resumes");
+    const llm = {
+      name: "fake",
+      generate: vi.fn(async () => {
+        const out = await client.generate({ task: "resume-draft", system: "", user: "", schema: ResumeDraftOutputSchema, effort: "low" });
+        out.output.document.highlights = [{ title: "정산 4시간 → 40분 · 83% 단축", details: ["2023년 월말 정산 배치를 대상으로 측정했다.", " ", "배치를 병렬화했습니다."] }];
+        return out;
+      }),
+    };
+    const { draft } = await generateResumeDraft(llm as never, base);
+    expect(draft.document.highlights).toEqual([
+      { title: "정산 4시간 → 40분 · 83% 단축", details: ["2023년 월말 정산 배치를 대상으로 측정했습니다.", "배치를 병렬화했습니다."], context: "" },
+    ]);
+    expect(ResumeDocumentSchema.safeParse(draft.document).success).toBe(true);
+  });
+
+  it("초안 규칙은 성과 요약(title)·상세 성과(details) 1~3줄을 쓰라고 하고, 예전 칸 context를 말하지 않는다", () => {
+    const { system } = buildResumeDraftPrompt(base);
+    expect(system).toContain("title(성과 요약)");
+    expect(system).toContain("details(상세 성과)는 1~3줄");
+    expect(system).toContain("핵심 성과 상세");
+    expect(system).not.toContain("context는");
+  });
+});

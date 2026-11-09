@@ -35,7 +35,7 @@ export function resumeSourceLines(doc: ResumeDocument): InterviewSourceLine[] {
     .forEach((line, i) => push(`${RESUME_SECTION_LABELS.summary} ${i + 1}`, `summary.${i}`, line));
   doc.highlights.forEach((h, i) => {
     push(`${RESUME_SECTION_LABELS.highlights} ${i + 1}`, `highlights.${i}.title`, h.title);
-    push(`${RESUME_SECTION_LABELS.highlights} ${i + 1} · 근거`, `highlights.${i}.context`, h.context);
+    h.details.forEach((d, j) => push(`${RESUME_SECTION_LABELS.highlights} ${i + 1} · 상세 성과 ${j + 1}`, `highlights.${i}.details.${j}`, d));
   });
   doc.experience.forEach((e, i) => {
     const where = [e.company, e.title].filter(Boolean).join(" ") || `경력 ${i + 1}`;

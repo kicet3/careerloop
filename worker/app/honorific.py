@@ -15,7 +15,7 @@ from typing import Any
 from app.jsutil import js_len, js_slice, js_trim
 
 #: 프롬프트 규칙(TS HONORIFIC_RULE).
-HONORIFIC_RULE = "문체: 문장으로 끝나는 줄(요약·한 줄 소개·경력 담당 범위와 불릿·프로젝트 요약·문제·개선·결과·직무 역량 설명·수상·기타 설명·지원 동기)은 모두 경어체 '~했습니다/~합니다/~입니다'로 끝낸다. 평어체 '~했다/~한다/~이다/~였다/~있다'로 끝내지 않는다. 예: (틀림) '정산 배치 시간을 40% 줄였다.' → (맞음) '정산 배치 시간을 40% 줄였습니다.' / (틀림) '주문 API를 설계하고 운영한다.' → (맞음) '주문 API를 설계하고 운영합니다.' / (틀림) '결제 도메인 3년 차 백엔드 개발자이다.' → (맞음) '결제 도메인 3년 차 백엔드 개발자입니다.' 'API 응답 40% 개선'처럼 명사로 끝나는 개조식 줄은 그대로 둘 수 있다. 문체만 맞추고 뜻·수치·고유명사·[ADD: …] 자리표시는 바꾸지 않는다."
+HONORIFIC_RULE = "문체: 문장으로 끝나는 줄(요약·한 줄 소개·핵심 성과 상세·경력 담당 범위와 불릿·프로젝트 요약·문제·개선·결과·직무 역량 설명·수상·기타 설명·지원 동기)은 모두 경어체 '~했습니다/~합니다/~입니다'로 끝낸다. 평어체 '~했다/~한다/~이다/~였다/~있다'로 끝내지 않는다. 예: (틀림) '정산 배치 시간을 40% 줄였다.' → (맞음) '정산 배치 시간을 40% 줄였습니다.' / (틀림) '주문 API를 설계하고 운영한다.' → (맞음) '주문 API를 설계하고 운영합니다.' / (틀림) '결제 도메인 3년 차 백엔드 개발자이다.' → (맞음) '결제 도메인 3년 차 백엔드 개발자입니다.' 'API 응답 40% 개선'처럼 명사로 끝나는 개조식 줄은 그대로 둘 수 있다. 문체만 맞추고 뜻·수치·고유명사·[ADD: …] 자리표시는 바꾸지 않는다."
 
 _HANGUL_FIRST = 0xAC00
 _HANGUL_LAST = 0xD7A3
@@ -175,7 +175,7 @@ def normalize_document_honorific(doc: dict[str, Any]) -> DocumentHonorificResult
     d["summary"] = fix("summary", d["summary"])
     for i, h in enumerate(d["highlights"]):
         h["title"] = fix(f"highlights[{i}].title", h["title"])
-        h["context"] = fix(f"highlights[{i}].context", h["context"])
+        h["details"] = [fix(f"highlights[{i}].details[{j}]", t) for j, t in enumerate(h.get("details") or [])]
     for i, e in enumerate(d["experience"]):
         e["scope"] = fix(f"experience[{i}].scope", e["scope"])
         e["bullets"] = [fix(f"experience[{i}].bullets[{j}]", b) for j, b in enumerate(e["bullets"])]

@@ -194,7 +194,7 @@ describe("구역 공용 규칙", () => {
 
   it("핵심 성과: 본문 줄과 거의 같은 항목은 뺀다. 기타: 묶음 정리·인용 경로 재배치", () => {
     const h = highlightsAgent.postprocess!(
-      { highlights: [{ title: "주문 처리 시간 1200ms → 300ms", context: "" }, { title: "핵심 성과 — 캐시 계층", context: "" }] },
+      { highlights: [{ title: "주문 처리 시간 1200ms → 300ms", details: [] }, { title: "핵심 성과 — 캐시 계층", details: [] }] },
       [{ path: "highlights[0]", refs: ["E1"], requirementIds: [] }, { path: "highlights[1]", refs: ["E2"], requirementIds: [] }],
       { pack, others: { experience: [{ company: "", department: "", title: "", startDate: "", endDate: "", location: "", scope: "", bullets: ["주문 처리 시간 1200ms → 300ms"] }] } },
     );
@@ -501,7 +501,7 @@ describe("총괄 정리(리뷰 반영)", () => {
     const { draft, duplicates } = assembleSections(
       [
         { section: "experience", fragment: { experience: [{ company: "A", department: "", title: "개발", startDate: "", endDate: "", location: "", scope: "", bullets: [line] }] }, citations: [] },
-        { section: "highlights", fragment: { highlights: [{ title: line, context: "" }, { title: "캐시 계층 도입", context: "" }] }, citations: [{ path: "highlights[1]", refs: ["E4"], requirementIds: [] }] },
+        { section: "highlights", fragment: { highlights: [{ title: line, details: [] }, { title: "캐시 계층 도입", details: [] }] }, citations: [{ path: "highlights[1]", refs: ["E4"], requirementIds: [] }] },
       ],
       new Map(),
     );
@@ -534,5 +534,51 @@ describe("총괄 정리(리뷰 반영)", () => {
     expect(user.match(/<\/orchestrator_feedback>/g)).toHaveLength(1);
     expect(system).toBe(AGENT_SYSTEM_V2);
     expect(system).toContain("orchestrator_feedback");
+  });
+});
+
+describe("핵심 성과 조각: 성과 요약 + 상세 성과 줄(details)", () => {
+  const frag = {
+    highlights: [
+      { title: "응답 800ms → 320ms", details: ["2023년 결제 API 대상으로 측정했습니다.", "캐시 계층을 도입했습니다.", "부하 테스트로 검증했습니다."] },
+      { title: "정산 4시간 → 40분", details: ["월말 정산 배치를 대상으로 측정했습니다.", "배치를 병렬화했습니다."] },
+    ],
+  };
+  const cites: Citation[] = [
+    { path: "highlights[0]", refs: ["E1"], requirementIds: ["R1"] },
+    { path: "highlights[1]", refs: ["E2"], requirementIds: [] },
+  ];
+
+  it("조각 ↔ 문서: 문서에는 저장 모양(context 빈 문자열), 조각에는 LLM 모양(context 없음)", () => {
+    const doc = common.fragmentDoc(frag);
+    expect(doc.highlights[0]).toEqual({ ...frag.highlights[0], context: "" });
+    expect(common.pickFragment("highlights", doc)).toEqual(frag);
+    expect(common.fragmentChars(frag)).toBeGreaterThan(frag.highlights[0]!.title.length + frag.highlights[0]!.details[0]!.length);
+  });
+
+  it("분량 자르기: 항목당 줄은 상세 성과 줄 수, 글자 수가 넘으면 뒤 항목의 뒤 줄부터(항목마다 한 줄은 남긴다)", () => {
+    const lines = common.trimToBudget("highlights", frag, cites, { items: 3, linesPerItem: 2, chars: 0 }, ["R1"]);
+    expect(lines.fragment.highlights!.map((h) => h.details.length)).toEqual([2, 2]);
+    const chars = common.trimToBudget("highlights", frag, cites, { items: 3, linesPerItem: 3, chars: 90 }, ["R1"]);
+    expect(chars.fragment.highlights).toHaveLength(2);
+    expect(chars.fragment.highlights!.every((h) => h.details.length >= 1)).toBe(true);
+    expect(chars.fragment.highlights![1]!.details).toEqual(["월말 정산 배치를 대상으로 측정했습니다."]);
+  });
+
+  it("저장된 예전 조각(context 한 칸)도 읽는다 — 상세 성과 줄로 옮긴다", async () => {
+    const { SectionFragmentSchema } = await import("./schemas");
+    const r = SectionFragmentSchema.safeParse({ highlights: [{ title: "t", context: "a\nb" }] });
+    expect(r.success).toBe(true);
+    expect(r.data!.highlights).toEqual([{ title: "t", details: ["a", "b"] }]);
+  });
+
+  it("인용·수정 경로: 상세 성과 줄은 highlights[i].details[j], 예전 경로 context는 줄이 아니다", async () => {
+    const { linePaths, numberedDocText } = await import("./citations");
+    const { maxCharsFor } = await import("./patch");
+    const doc = common.fragmentDoc(frag);
+    const paths = linePaths(doc).map((l) => l.path).filter((p) => p.startsWith("highlights[0]"));
+    expect(paths).toEqual(["highlights[0].title", "highlights[0].details[0]", "highlights[0].details[1]", "highlights[0].details[2]"]);
+    expect(numberedDocText(doc)).toContain("[highlights[1].details[1]] 배치를 병렬화했습니다.");
+    expect(maxCharsFor("highlights[0].details[1]")).toBe(300);
   });
 });

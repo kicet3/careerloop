@@ -7,7 +7,7 @@
  * 지원 동기(motivation)는 대상이 아니다 — 지원 동기는 사용자가 쓰고 AI는 쓸 거리만 추천한다(resumes/motivation.ts). 다듬기로 대신 쓰지 않는다.
  */
 import { z } from "zod";
-import { ResumeDocumentSchema, type ResumeDocument } from "./resumes";
+import { MAX_HIGHLIGHT_DETAILS, ResumeDocumentSchema, type ResumeDocument } from "./resumes";
 import {
   isPolishItemSuggestion,
   MAX_DOC_ITEM_SUGGESTIONS,
@@ -27,7 +27,7 @@ export * from "./resume-polish-items";
 
 /** 다듬을 수 있는 칸. 이름·연락처·날짜 같은 사실 칸은 대상이 아니다. */
 export const POLISH_PATH_RE =
-  /^(summary|basics\.tagline|highlights\[\d{1,2}\]\.(title|context)|experience\[\d{1,2}\]\.(scope|bullets\[\d{1,2}\])|projects\[\d{1,2}\]\.(summary|problem|action|result|bullets\[\d{1,2}\])|skills\[\d{1,2}\]\.detail|extras\[\d{1,2}\]\.items\[\d{1,2}\])$/;
+  /^(summary|basics\.tagline|highlights\[\d{1,2}\]\.(title|details\[\d{1,2}\])|experience\[\d{1,2}\]\.(scope|bullets\[\d{1,2}\])|projects\[\d{1,2}\]\.(summary|problem|action|result|bullets\[\d{1,2}\])|skills\[\d{1,2}\]\.detail|extras\[\d{1,2}\]\.items\[\d{1,2}\])$/;
 
 export const PolishPathSchema = z.string().max(80).regex(POLISH_PATH_RE, "다듬을 수 없는 항목입니다.");
 
@@ -51,9 +51,23 @@ function parsePath(path: string): Seg[] | null {
   return segs;
 }
 
-/** 대상 칸의 글. 칸이 없거나 문자열이 아니면 null. */
+/**
+ * 핵심 성과 상세 성과의 '다음 줄' 자리(highlights[i].details[줄 수], 상한 미만)면 그 핵심 성과 번호. 아니면 null.
+ * 이 자리는 빈 칸("")으로 보고, 고치면 줄이 뒤에 붙는다 — 상세 성과가 없는 핵심 성과도 다듬기로 첫 줄을 채울 수 있게.
+ */
+function appendableDetailSlot(doc: ResumeDocument, path: string): number | null {
+  const m = /^highlights\[(\d{1,2})\]\.details\[(\d{1,2})\]$/.exec(path);
+  if (!m) return null;
+  const h = doc.highlights[Number(m[1])];
+  if (!h || !Array.isArray(h.details)) return null;
+  const j = Number(m[2]);
+  return j === h.details.length && j < MAX_HIGHLIGHT_DETAILS ? Number(m[1]) : null;
+}
+
+/** 대상 칸의 글. 칸이 없거나 문자열이 아니면 null(핵심 성과 상세 성과의 다음 줄 자리는 ""). */
 export function polishTargetText(doc: ResumeDocument, path: string): string | null {
   if (!isPolishPath(path)) return null;
+  if (appendableDetailSlot(doc, path) !== null) return "";
   let cur: unknown = doc;
   for (const s of parsePath(path) ?? []) {
     if (cur == null || typeof cur !== "object") return null;
@@ -66,9 +80,15 @@ export function polishTargetText(doc: ResumeDocument, path: string): string | nu
   return typeof cur === "string" ? cur : null;
 }
 
-/** 대상 칸을 바꾼 새 문서(원본은 그대로). 칸이 없으면 null. */
+/** 대상 칸을 바꾼 새 문서(원본은 그대로). 칸이 없으면 null. 상세 성과의 다음 줄 자리면 줄을 뒤에 붙인다(빈 글이면 그대로). */
 export function withPolishTarget(doc: ResumeDocument, path: string, value: string): ResumeDocument | null {
   if (polishTargetText(doc, path) === null) return null;
+  const slot = appendableDetailSlot(doc, path);
+  if (slot !== null) {
+    const next = structuredClone(doc);
+    if (value.trim()) next.highlights[slot]!.details.push(value);
+    return next;
+  }
   const next = structuredClone(doc);
   const segs = parsePath(path)!;
   let cur: Record<string, unknown> | unknown[] = next as unknown as Record<string, unknown>;
@@ -117,8 +137,7 @@ const SECTION_LABEL: Record<string, string> = {
   extras: "기타",
 };
 const FIELD_LABEL: Record<string, string> = {
-  title: "성과",
-  context: "근거",
+  title: "성과 요약",
   scope: "담당 범위",
   summary: "요약",
   problem: "문제",
@@ -142,7 +161,7 @@ export function polishTargetLabel(doc: ResumeDocument, path: string): string {
     (typeof item?.title === "string" && section !== "highlights" && item.title) ||
     "";
   const head = `${SECTION_LABEL[section!] ?? section} ${Number(i) + 1}${name ? ` · ${String(name).slice(0, 30)}` : ""}`;
-  const tail = j !== undefined ? `${field === "items" ? "항목" : "기여"} ${Number(j) + 1}` : (FIELD_LABEL[field!] ?? field);
+  const tail = j !== undefined ? `${field === "items" ? "항목" : field === "details" ? "상세 성과" : "기여"} ${Number(j) + 1}` : (FIELD_LABEL[field!] ?? field);
   return `${head} · ${tail}`;
 }
 
@@ -155,7 +174,12 @@ export interface PolishTarget {
 /** 문서의 다듬을 수 있는 칸 전체(문서 순서, 기본은 글이 있는 칸만 — includeEmpty면 빈 칸도). 지원 동기는 넣지 않는다. */
 export function polishTargets(doc: ResumeDocument, opts: { includeEmpty?: boolean } = {}): PolishTarget[] {
   const paths: string[] = ["basics.tagline", "summary"];
-  doc.highlights.forEach((_, i) => paths.push(`highlights[${i}].title`, `highlights[${i}].context`));
+  doc.highlights.forEach((h, i) => {
+    paths.push(`highlights[${i}].title`);
+    h.details.forEach((_, j) => paths.push(`highlights[${i}].details[${j}]`));
+    // 상세 성과가 없으면 첫 줄 자리를 빈 칸으로 낸다(includeEmpty일 때만 남는다 — 전체 다듬기가 채울 수 있게).
+    if (h.details.length === 0) paths.push(`highlights[${i}].details[0]`);
+  });
   doc.experience.forEach((e, i) => {
     paths.push(`experience[${i}].scope`);
     e.bullets.forEach((_, j) => paths.push(`experience[${i}].bullets[${j}]`));

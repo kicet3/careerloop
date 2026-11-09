@@ -270,6 +270,30 @@ const postprocessCases: { name: string; personName: string | null; personEmail: 
     personEmail: null,
     output: out({ ...baseDoc(), projects: [{ ...project("정산"), evidence: "정산 대시보드" }, { ...project("결제"), evidence: "https://example.com/report" }] }),
   },
+  {
+    // 핵심 성과: 성과 요약 + 상세 성과 줄(details). 상세 성과는 경어체로 맞추고, 저장 모양의 예전 칸 context는 빈 문자열.
+    name: "highlights-details",
+    personName: null,
+    personEmail: null,
+    output: out({
+      ...baseDoc(),
+      highlights: [{ title: "결제 API p95 800ms → 320ms · 60% 단축", details: ["2023년 결제 API 전체 요청을 대상으로 측정했다.", "캐시 계층을 도입했습니다.", "  "] }],
+    }),
+  },
+  {
+    // 예전 모양(context 한 칸, details 없음)으로 나와도 줄바꿈 기준으로 상세 성과 줄로 옮긴다.
+    name: "highlights-legacy-context",
+    personName: null,
+    personEmail: null,
+    output: out({ ...baseDoc(), highlights: [{ title: "정산 4시간 → 40분", context: "2023년 월말 정산 대상\n\n 배치를 병렬화했다. " }, { title: "빈 성과" }] }),
+  },
+  {
+    // 상세 성과 + 예전 칸이 5줄을 넘으면 남는 줄을 마지막 줄에 이어 붙인다.
+    name: "highlights-context-overflow",
+    personName: null,
+    personEmail: null,
+    output: out({ ...baseDoc(), highlights: [{ title: "t", details: ["a", "b", "c", "d"], context: "e\nf\ng" }] }),
+  },
   { name: "not-object", personName: null, personEmail: null, output: { document: "x", notes: [], missingInfo: [] } },
 ];
 

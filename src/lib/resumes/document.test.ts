@@ -9,6 +9,9 @@ import {
   RESUME_TEMPLATES,
   ResumeDocumentSchema,
   ResumeDraftOutputSchema,
+  splitHighlightDetails,
+  toStoredHighlights,
+  upgradeResumeHighlight,
 } from "@/lib/domain/resumes";
 import { toStrictJsonSchema } from "@/lib/llm/anthropic";
 import { SaveResumeVersionSchema } from "./types";
@@ -101,7 +104,7 @@ describe("성과 중심 양식", () => {
     expect(d.experience[1]!.bullets).toEqual([]);
     // 이미 있는 항목은 지우지 않고 모자란 만큼만 채운다
     const base = emptyResumeDocument();
-    base.highlights = [{ title: "a", context: "" }, { title: "b", context: "" }, { title: "c", context: "" }];
+    base.highlights = [{ title: "a", details: [], context: "" }, { title: "b", details: [], context: "" }, { title: "c", details: [], context: "" }];
     expect(performanceScaffold(base).highlights.map((h) => h.title)).toEqual(["a", "b", "c"]);
   });
 });
@@ -114,7 +117,8 @@ describe("초안 스키마(ResumeDraftOutputSchema)", () => {
     const docSchema = json.properties.document;
     expect(docSchema.required).toEqual(expect.arrayContaining(["basics", "summary", "headings", "highlights", "experience", "projects", "skills"]));
     expect(docSchema.properties.basics!.required).toEqual(expect.arrayContaining(["headline", "tagline", "totalExperience", "portfolioUrl"]));
-    expect(docSchema.properties.highlights!.items!.required).toEqual(["title", "context"]);
+    // 핵심 성과: 성과 요약 + 상세 성과 줄. 예전 칸 context는 LLM 출력 스키마에 없다(저장 스키마에만 남는다).
+    expect(docSchema.properties.highlights!.items!.required).toEqual(["title", "details"]);
     expect(docSchema.properties.experience!.items!.required).toEqual(expect.arrayContaining(["department", "scope"]));
     expect(docSchema.properties.projects!.items!.required).toEqual(
       expect.arrayContaining(["company", "team", "role", "problem", "action", "result", "evidence"]),
@@ -156,5 +160,51 @@ describe("지원 동기(motivation)", () => {
       expect(RESUME_TEMPLATES[id].sectionOrder.at(-1)).toBe("motivation");
       expect(draftSectionOrder(RESUME_TEMPLATES[id].sectionOrder)).not.toContain("motivation");
     }
+  });
+});
+
+describe("핵심 성과: 성과 요약 + 상세 성과 줄(details) — 예전 칸 context 보정", () => {
+  const legacy = (highlights: unknown[]) => ({ ...emptyResumeDocument(), highlights });
+
+  it("details 없이 context만 있는 예전 문서는 줄바꿈 기준으로 details에 옮기고 context를 비운다(입력은 그대로)", () => {
+    const raw = legacy([
+      { title: "정산 4시간 → 40분", context: "2023년 월말 정산 대상\r\n\n  배치를 병렬화했습니다.  " },
+      { title: "빈 성과", context: "" },
+      { title: "키 없음" },
+    ]);
+    const before = structuredClone(raw);
+    const r = parseResumeDocument(raw);
+    expect(r.success).toBe(true);
+    expect(r.data!.highlights).toEqual([
+      { title: "정산 4시간 → 40분", details: ["2023년 월말 정산 대상", "배치를 병렬화했습니다."], context: "" },
+      { title: "빈 성과", details: [], context: "" },
+      { title: "키 없음", details: [], context: "" },
+    ]);
+    expect(raw).toEqual(before);
+  });
+
+  it("details가 이미 있으면 그대로 두고, 남은 context 줄은 뒤에 붙인다. 5줄을 넘으면 남는 줄을 마지막 줄에 이어 붙인다", () => {
+    expect(upgradeResumeHighlight({ title: "t", details: ["a"], context: "" })).toEqual({ title: "t", details: ["a"], context: "" });
+    expect(upgradeResumeHighlight({ title: "t", details: ["a"], context: "b\nc" })).toEqual({ title: "t", details: ["a", "b", "c"], context: "" });
+    expect(upgradeResumeHighlight({ title: "t", details: ["a", "b", "c", "d"], context: "e\nf\ng" })).toEqual({ title: "t", details: ["a", "b", "c", "d", "e f g"], context: "" });
+    expect(splitHighlightDetails(" a \n\n b\r\nc ")).toEqual(["a", "b", "c"]);
+  });
+
+  it("형식이 아예 다르면 손대지 않아 스키마가 거절한다", () => {
+    expect(upgradeResumeHighlight("x")).toBe("x");
+    expect(parseResumeDocument(legacy([{ title: "t", details: "a" }])).success).toBe(false);
+    expect(parseResumeDocument(legacy([{ title: "t", details: Array.from({ length: 6 }, () => "x") }])).success).toBe(false);
+    expect(parseResumeDocument(legacy([{ title: "t", details: ["x".repeat(301)] }])).success).toBe(false);
+  });
+
+  it("LLM 초안 출력은 context 없는 모양으로 받고, 예전 모양(context)으로 와도 details로 옮긴다", () => {
+    const r = ResumeDraftOutputSchema.safeParse({ document: { ...LEGACY_DOC, highlights: [{ title: "t", context: "a\nb" }] }, notes: [], missingInfo: [] });
+    expect(r.success).toBe(true);
+    expect(r.data!.document.highlights).toEqual([{ title: "t", details: ["a", "b"] }]);
+    expect(toStoredHighlights(r.data!.document.highlights)).toEqual([{ title: "t", details: ["a", "b"], context: "" }]);
+    const strict = toStrictJsonSchema(ResumeDraftOutputSchema) as { properties: { document: { properties: { highlights: { items: { properties: Record<string, unknown> } } } } } };
+    expect(Object.keys(strict.properties.document.properties.highlights.items.properties)).toEqual(["title", "details"]);
+    // 저장 스키마에는 예전 칸이 남는다(빈 문자열).
+    expect(Object.keys(ResumeDocumentSchema.shape.highlights.element.shape)).toEqual(["title", "details", "context"]);
   });
 });

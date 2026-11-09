@@ -16,14 +16,14 @@ export function maxCharsFor(path: string): number {
   if (path === "basics.tagline") return 200;
   if (path === "basics.totalExperience") return 40;
   if (/^highlights\[\d+\]\.title$/.test(path)) return 200;
-  if (/^highlights\[\d+\]\.context$/.test(path)) return 300;
+  if (/^highlights\[\d+\]\.details\[\d+\]$/.test(path)) return 300;
   if (/^experience\[\d+\]\.scope$/.test(path)) return 600;
   if (/^projects\[\d+\]\.summary$/.test(path)) return 600;
   if (/^skills\[\d+\]\.detail$/.test(path) || /^extras\[\d+\]\.items\[\d+\]$/.test(path) || /^education\[\d+\]\.note$/.test(path)) return 300;
   return 500;
 }
 
-const MAX_ARRAY: Record<string, number> = { bullets: 15, items: 15 };
+const MAX_ARRAY: Record<string, number> = { bullets: 15, items: 15, details: 5 };
 const REORDER_SECTIONS = ["experience", "projects", "highlights", "skills"] as const;
 type ReorderSection = (typeof REORDER_SECTIONS)[number];
 
@@ -68,8 +68,8 @@ export function applyPatch(
   for (const op of ops) {
     const value = op.value.trim();
     if (op.op === "replace" || op.op === "insert" || op.op === "remove") {
-      // 프로젝트 근거 칸(evidence)은 이력서에 쓰지 않는다(clearProjectEvidence) — 그 칸을 고치는 op는 버린다.
-      if (!isDocPath(op.path) || /^projects\[\d+\]\.evidence$/.test(op.path)) {
+      // 프로젝트 근거 칸(evidence)·핵심 성과 예전 칸(context)은 이력서에 쓰지 않는다 — 그 칸을 고치는 op는 버린다(상세 성과는 details[n]).
+      if (!isDocPath(op.path) || /^projects\[\d+\]\.evidence$/.test(op.path) || /^highlights\[\d+\]\.context$/.test(op.path)) {
         reject(op, "path_invalid");
         continue;
       }

@@ -1226,7 +1226,7 @@ function fakeAgentTop(user: string): unknown {
   return {
     basics: { headline: plan?.headline ?? "", tagline: main ? `${main.name}을(를) 맡은 개발자` : "", totalExperience: "" },
     summary: main ? `${main.name}에서 ${main.props.action ?? main.name}` : "",
-    highlights: achievements.map((a) => ({ title: a.name, context: "" })),
+    highlights: achievements.map((a) => ({ title: a.name, details: [] })),
     skills: main ? [{ category: "기술", detail: "", items: main.techs }] : [],
     citations,
     missingInfo: [],
@@ -1501,7 +1501,7 @@ function fakeAgentSection(user: string): unknown {
   if (section === "highlights") {
     const achievements = ev.filter((e) => e.label === "성과" && /\d/.test(e.name) && !/다른 구역 담당/.test(e.line)).slice(0, 2);
     achievements.forEach((a, i) => citations.push({ path: `highlights[${i}]`, refs: [a.ref], requirementIds: [] }));
-    return { highlights: achievements.map((a) => ({ title: `핵심 성과 — ${a.name}`, context: "" })), ...common };
+    return { highlights: achievements.map((a) => ({ title: `핵심 성과 — ${a.name}`, details: [] })), ...common };
   }
   if (section === "skills") {
     const main = ev.find((e) => e.ref === plan?.include.projects[0]?.ref);

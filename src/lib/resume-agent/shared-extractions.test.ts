@@ -54,7 +54,7 @@ describe("패널 프롬프트(진단 경로) 불변", () => {
 });
 
 describe("단일 초안 프롬프트 불변", () => {
-  it("사실 규칙 추출 뒤에도 같다(새 자료 태그 이름 두 개만 INJECTION_RULE에 더해짐 · 대표 프로젝트 2~3개 규칙 11과 양식 메모 · 작성 기준의 경어체 규칙 · 프로젝트 근거 칸을 비우는 문구 · 문제·행동→문제·개선 라벨만 바뀜)", () => {
+  it("사실 규칙 추출 뒤에도 같다(새 자료 태그 이름 두 개만 INJECTION_RULE에 더해짐 · 대표 프로젝트 2~3개 규칙 11과 양식 메모 · 작성 기준의 경어체 규칙 · 프로젝트 근거 칸을 비우는 문구 · 문제·행동→문제·개선 라벨 · 핵심 성과 성과 요약·상세 성과 규칙만 바뀜)", () => {
     const d = buildResumeDraftPrompt({ company: "c", roleTitle: "r", jdText: "j", templateId: "performance", material: { kind: "graph", text: "g" } });
     const before = d.system
       .replace(", <resume_plan>, <requirement_candidates>", "")
@@ -63,6 +63,7 @@ describe("단일 초안 프롬프트 불변", () => {
       .replace(`\n- ${HONORIFIC_RULE}`, "")
       .replace("result(기간·대상과 지표 변화). evidence는 쓰지 않는 칸이라 빈 문자열로 둔다. 팀", "result(기간·대상과 지표 변화), evidence(측정 자료명·공개 링크). 팀")
       .replace("→ 문제와 판단 → 실행 → 결과.", "→ 문제와 판단 → 실행 → 결과와 근거.")
+      .replace("title(성과 요약)은 '지표 기준값 → 개선값 · 개선 폭' 같은 명사형 한 줄, details(상세 성과)는 1~3줄 — 줄마다 '측정 기간·대상', '본인이 한 핵심 개선·판단', '검증 방법' 중 하나를 담은 경어체 문장(~했습니다)으로 쓴다. 한 줄에 여러 내용을 몰아 쓰지 않는다. 수치는 자료에 있는 값만 쓰고, 없으면 확인", "title은 '지표 기준값 → 개선값 · 개선 폭', context는 '측정 기간·대상 / 본인이 한 핵심 행동'. 수치가 자료에 없으면 확인")
       .replaceAll("문제·개선", "문제·행동")
       .replaceAll("문제→개선", "문제→행동");
     expect(d.system).toContain(`\n- ${HONORIFIC_RULE}\n`);

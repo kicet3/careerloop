@@ -14,6 +14,7 @@ import {
   RESUME_SECTION_LABELS,
   RESUME_TEMPLATES,
   ResumeDraftOutputSchema,
+  toStoredHighlights,
   type ResumeDocument,
   type ResumeDraftOutput,
   type ResumeTemplateId,
@@ -120,7 +121,9 @@ export async function generateResumeDraft(client: LlmClient, ctx: DraftContext, 
   });
   // 지원 동기는 LLM이 쓰지 않는다(구조화 출력에도 없다). 추천은 /api/resumes/[id]/motivation/suggest가 따로 한다.
   // 프로젝트 근거 칸(evidence)은 이력서에 쓰지 않는다 — 모델이 채워도 비운다.
-  const draft: DraftOutput = { ...res.output, document: clearProjectEvidence({ ...res.output.document, motivation: "" }) };
+  // 핵심 성과는 성과 요약 + 상세 성과 줄(details)로 받는다 — 빈 줄은 버리고, 예전 칸 context는 빈 문자열로 저장한다.
+  const highlights = toStoredHighlights(res.output.document.highlights.map((h) => ({ ...h, details: h.details.filter((d) => d.trim()) })));
+  const draft: DraftOutput = { ...res.output, document: clearProjectEvidence({ ...res.output.document, highlights, motivation: "" }) };
   // 수상·기타 묶음 규칙과 사소한 일화 제거(extras-guide.ts — 에이전트와 같은 기준).
   const extras = normalizeExtras(draft.document.extras, { newcomer: isNewcomerDocument(draft.document) });
   draft.document.extras = extras.extras;

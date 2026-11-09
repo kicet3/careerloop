@@ -31,7 +31,8 @@ export const SUMMARY_CHARS: Record<1 | 2, number> = { 1: 200, 2: 250 };
 /** 구역별 기본 분량(설계 문서 §2.3 표). */
 export const DEFAULT_BUDGETS: Record<1 | 2, Record<WritingSection, SectionBudget>> = {
   1: {
-    highlights: { items: 3, linesPerItem: 1, chars: 280 },
+    // 핵심 성과: 항목당 줄 = 상세 성과 줄 수(성과 요약 한 줄은 따로).
+    highlights: { items: 3, linesPerItem: 2, chars: 400 },
     experience: { items: 4, linesPerItem: 4, chars: 700 },
     // 대표 프로젝트 기본 2~3개(project-count.ts) — 항목 상한 3.
     projects: { items: 3, linesPerItem: 3, chars: 600 },
@@ -39,7 +40,7 @@ export const DEFAULT_BUDGETS: Record<1 | 2, Record<WritingSection, SectionBudget
     extras: { items: 6, linesPerItem: 3, chars: 200 },
   },
   2: {
-    highlights: { items: 4, linesPerItem: 1, chars: 400 },
+    highlights: { items: 4, linesPerItem: 3, chars: 580 },
     experience: { items: 6, linesPerItem: 5, chars: 1500 },
     projects: { items: 3, linesPerItem: 5, chars: 1100 },
     skills: { items: 6, linesPerItem: 8, chars: 250 },

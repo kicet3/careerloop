@@ -40,7 +40,7 @@ function doc() {
   d.basics.headline = "결제 백엔드 개발자";
   d.basics.tagline = "정산 지연을 줄여 온 5년 차 (백엔드) 개발자";
   d.summary = "결제 시스템을 운영했습니다.\n장애 대응 경험이 있습니다.\n\n   ";
-  d.highlights = [{ title: "결제 API p95 800ms → 320ms 🚀", context: "[ADD: 측정 기간]" }];
+  d.highlights = [{ title: "결제 API p95 800ms → 320ms 🚀", details: ["[ADD: 측정 기간]"], context: "" }];
   d.experience = [
     {
       ...EMPTY_RESUME_ITEM.experience(),
@@ -202,7 +202,7 @@ function normalizeCases(): Record<string, { output: InterviewQuestionsOutput; li
   const d = emptyResumeDocument();
   d.basics.headline = "5년 차 백엔드 개발자";
   d.summary = "결제 시스템을 운영했습니다.\n장애 대응 경험이 있습니다.";
-  d.highlights = [{ title: "결제 API p95 800ms → 320ms", context: "[ADD: 측정 기간]" }];
+  d.highlights = [{ title: "결제 API p95 800ms → 320ms", details: ["[ADD: 측정 기간]"], context: "" }];
   d.experience = [{ ...EMPTY_RESUME_ITEM.experience(), company: "페이랩", title: "백엔드", bullets: ["정산 배치를 Kotlin으로 재작성", ""] }];
   d.projects = [{ ...EMPTY_RESUME_ITEM.project(), name: "정산 개편", problem: "배치가 4시간 걸렸다", result: "40분으로 단축" }];
   const lines = [...resumeSourceLines(d), ...textSourceLines("posting", JD_TEXT).lines, ...textSourceLines("portfolio", PORTFOLIO_TEXT).lines];

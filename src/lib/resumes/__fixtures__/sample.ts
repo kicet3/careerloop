@@ -16,7 +16,7 @@ export function makeSampleResume(): ResumeDocument {
     },
     summary: "결제·정산 도메인에서 5년간 백엔드를 맡았습니다. [ADD: 대표 성과 한 줄]",
     headings: { highlights: "", experience: "", projects: "", skills: "", education: "" },
-    highlights: [{ title: "정산 배치 처리 시간 4시간 → 40분 · 83% 단축", context: "2023년 월말 정산 / 배치 구조 재설계와 병렬화" }],
+    highlights: [{ title: "정산 배치 처리 시간 4시간 → 40분 · 83% 단축", details: ["2023년 월말 정산 배치 대상으로 측정했습니다.", "배치 구조를 재설계하고 병렬화했습니다."], context: "" }],
     experience: [
       {
         company: "페이랩",

@@ -2279,6 +2279,402 @@
       }
     },
     {
+      "name": "highlights-details",
+      "personName": null,
+      "personEmail": null,
+      "material": {
+        "kind": "graph",
+        "text": "g"
+      },
+      "output": {
+        "document": {
+          "basics": {
+            "name": "홍길동",
+            "headline": "백엔드 개발자",
+            "tagline": "",
+            "totalExperience": "",
+            "email": "work@corp.kr",
+            "phone": "",
+            "location": "",
+            "portfolioUrl": "",
+            "links": []
+          },
+          "summary": "결제 시스템을 만든 백엔드 개발자입니다.",
+          "headings": {
+            "highlights": "",
+            "experience": "",
+            "projects": "",
+            "skills": "",
+            "education": ""
+          },
+          "highlights": [
+            {
+              "title": "결제 API p95 800ms → 320ms · 60% 단축",
+              "details": [
+                "2023년 결제 API 전체 요청을 대상으로 측정했다.",
+                "캐시 계층을 도입했습니다.",
+                "  "
+              ]
+            }
+          ],
+          "experience": [
+            {
+              "company": "페이랩",
+              "department": "결제팀",
+              "title": "개발자",
+              "startDate": "2021.03",
+              "endDate": "현재",
+              "location": "",
+              "scope": "결제 API",
+              "bullets": [
+                "응답 시간 40% 단축"
+              ]
+            }
+          ],
+          "projects": [],
+          "skills": [],
+          "education": [],
+          "certifications": [],
+          "extras": []
+        },
+        "notes": [
+          "JD 대응: 충족 2개 / 확인 필요 1개"
+        ],
+        "missingInfo": [
+          "Kafka 경험이 있는지"
+        ]
+      },
+      "ok": true,
+      "draft": {
+        "document": {
+          "basics": {
+            "name": "홍길동",
+            "headline": "백엔드 개발자",
+            "tagline": "",
+            "totalExperience": "",
+            "email": "work@corp.kr",
+            "phone": "",
+            "location": "",
+            "portfolioUrl": "",
+            "links": []
+          },
+          "summary": "결제 시스템을 만든 백엔드 개발자입니다.",
+          "headings": {
+            "highlights": "",
+            "experience": "",
+            "projects": "",
+            "skills": "",
+            "education": ""
+          },
+          "highlights": [
+            {
+              "title": "결제 API p95 800ms → 320ms · 60% 단축",
+              "details": [
+                "2023년 결제 API 전체 요청을 대상으로 측정했습니다.",
+                "캐시 계층을 도입했습니다."
+              ],
+              "context": ""
+            }
+          ],
+          "experience": [
+            {
+              "company": "페이랩",
+              "department": "결제팀",
+              "title": "개발자",
+              "startDate": "2021.03",
+              "endDate": "현재",
+              "location": "",
+              "scope": "결제 API",
+              "bullets": [
+                "응답 시간 40% 단축"
+              ]
+            }
+          ],
+          "projects": [],
+          "skills": [],
+          "education": [],
+          "certifications": [],
+          "extras": [],
+          "motivation": ""
+        },
+        "notes": [
+          "JD 대응: 충족 2개 / 확인 필요 1개"
+        ],
+        "missingInfo": [
+          "Kafka 경험이 있는지",
+          "수상·어학 정보가 자료에 없어 '수상·기타'에 넣지 않았습니다. 해당하는 것이 있으면 날짜·기관과 함께 알려 주세요(없으면 그대로 두세요).",
+          "이 직무와 관련해 이력서에 더 넣을 프로젝트(이름·기간·내 역할·결과)가 있나요? 대표 프로젝트는 2~3개를 권장합니다."
+        ]
+      }
+    },
+    {
+      "name": "highlights-legacy-context",
+      "personName": null,
+      "personEmail": null,
+      "material": {
+        "kind": "graph",
+        "text": "g"
+      },
+      "output": {
+        "document": {
+          "basics": {
+            "name": "홍길동",
+            "headline": "백엔드 개발자",
+            "tagline": "",
+            "totalExperience": "",
+            "email": "work@corp.kr",
+            "phone": "",
+            "location": "",
+            "portfolioUrl": "",
+            "links": []
+          },
+          "summary": "결제 시스템을 만든 백엔드 개발자입니다.",
+          "headings": {
+            "highlights": "",
+            "experience": "",
+            "projects": "",
+            "skills": "",
+            "education": ""
+          },
+          "highlights": [
+            {
+              "title": "정산 4시간 → 40분",
+              "context": "2023년 월말 정산 대상\n\n 배치를 병렬화했다. "
+            },
+            {
+              "title": "빈 성과"
+            }
+          ],
+          "experience": [
+            {
+              "company": "페이랩",
+              "department": "결제팀",
+              "title": "개발자",
+              "startDate": "2021.03",
+              "endDate": "현재",
+              "location": "",
+              "scope": "결제 API",
+              "bullets": [
+                "응답 시간 40% 단축"
+              ]
+            }
+          ],
+          "projects": [],
+          "skills": [],
+          "education": [],
+          "certifications": [],
+          "extras": []
+        },
+        "notes": [
+          "JD 대응: 충족 2개 / 확인 필요 1개"
+        ],
+        "missingInfo": [
+          "Kafka 경험이 있는지"
+        ]
+      },
+      "ok": true,
+      "draft": {
+        "document": {
+          "basics": {
+            "name": "홍길동",
+            "headline": "백엔드 개발자",
+            "tagline": "",
+            "totalExperience": "",
+            "email": "work@corp.kr",
+            "phone": "",
+            "location": "",
+            "portfolioUrl": "",
+            "links": []
+          },
+          "summary": "결제 시스템을 만든 백엔드 개발자입니다.",
+          "headings": {
+            "highlights": "",
+            "experience": "",
+            "projects": "",
+            "skills": "",
+            "education": ""
+          },
+          "highlights": [
+            {
+              "title": "정산 4시간 → 40분",
+              "details": [
+                "2023년 월말 정산 대상",
+                "배치를 병렬화했습니다."
+              ],
+              "context": ""
+            },
+            {
+              "title": "빈 성과",
+              "details": [],
+              "context": ""
+            }
+          ],
+          "experience": [
+            {
+              "company": "페이랩",
+              "department": "결제팀",
+              "title": "개발자",
+              "startDate": "2021.03",
+              "endDate": "현재",
+              "location": "",
+              "scope": "결제 API",
+              "bullets": [
+                "응답 시간 40% 단축"
+              ]
+            }
+          ],
+          "projects": [],
+          "skills": [],
+          "education": [],
+          "certifications": [],
+          "extras": [],
+          "motivation": ""
+        },
+        "notes": [
+          "JD 대응: 충족 2개 / 확인 필요 1개"
+        ],
+        "missingInfo": [
+          "Kafka 경험이 있는지",
+          "수상·어학 정보가 자료에 없어 '수상·기타'에 넣지 않았습니다. 해당하는 것이 있으면 날짜·기관과 함께 알려 주세요(없으면 그대로 두세요).",
+          "이 직무와 관련해 이력서에 더 넣을 프로젝트(이름·기간·내 역할·결과)가 있나요? 대표 프로젝트는 2~3개를 권장합니다."
+        ]
+      }
+    },
+    {
+      "name": "highlights-context-overflow",
+      "personName": null,
+      "personEmail": null,
+      "material": {
+        "kind": "graph",
+        "text": "g"
+      },
+      "output": {
+        "document": {
+          "basics": {
+            "name": "홍길동",
+            "headline": "백엔드 개발자",
+            "tagline": "",
+            "totalExperience": "",
+            "email": "work@corp.kr",
+            "phone": "",
+            "location": "",
+            "portfolioUrl": "",
+            "links": []
+          },
+          "summary": "결제 시스템을 만든 백엔드 개발자입니다.",
+          "headings": {
+            "highlights": "",
+            "experience": "",
+            "projects": "",
+            "skills": "",
+            "education": ""
+          },
+          "highlights": [
+            {
+              "title": "t",
+              "details": [
+                "a",
+                "b",
+                "c",
+                "d"
+              ],
+              "context": "e\nf\ng"
+            }
+          ],
+          "experience": [
+            {
+              "company": "페이랩",
+              "department": "결제팀",
+              "title": "개발자",
+              "startDate": "2021.03",
+              "endDate": "현재",
+              "location": "",
+              "scope": "결제 API",
+              "bullets": [
+                "응답 시간 40% 단축"
+              ]
+            }
+          ],
+          "projects": [],
+          "skills": [],
+          "education": [],
+          "certifications": [],
+          "extras": []
+        },
+        "notes": [
+          "JD 대응: 충족 2개 / 확인 필요 1개"
+        ],
+        "missingInfo": [
+          "Kafka 경험이 있는지"
+        ]
+      },
+      "ok": true,
+      "draft": {
+        "document": {
+          "basics": {
+            "name": "홍길동",
+            "headline": "백엔드 개발자",
+            "tagline": "",
+            "totalExperience": "",
+            "email": "work@corp.kr",
+            "phone": "",
+            "location": "",
+            "portfolioUrl": "",
+            "links": []
+          },
+          "summary": "결제 시스템을 만든 백엔드 개발자입니다.",
+          "headings": {
+            "highlights": "",
+            "experience": "",
+            "projects": "",
+            "skills": "",
+            "education": ""
+          },
+          "highlights": [
+            {
+              "title": "t",
+              "details": [
+                "a",
+                "b",
+                "c",
+                "d",
+                "e f g"
+              ],
+              "context": ""
+            }
+          ],
+          "experience": [
+            {
+              "company": "페이랩",
+              "department": "결제팀",
+              "title": "개발자",
+              "startDate": "2021.03",
+              "endDate": "현재",
+              "location": "",
+              "scope": "결제 API",
+              "bullets": [
+                "응답 시간 40% 단축"
+              ]
+            }
+          ],
+          "projects": [],
+          "skills": [],
+          "education": [],
+          "certifications": [],
+          "extras": [],
+          "motivation": ""
+        },
+        "notes": [
+          "JD 대응: 충족 2개 / 확인 필요 1개"
+        ],
+        "missingInfo": [
+          "Kafka 경험이 있는지",
+          "수상·어학 정보가 자료에 없어 '수상·기타'에 넣지 않았습니다. 해당하는 것이 있으면 날짜·기관과 함께 알려 주세요(없으면 그대로 두세요).",
+          "이 직무와 관련해 이력서에 더 넣을 프로젝트(이름·기간·내 역할·결과)가 있나요? 대표 프로젝트는 2~3개를 권장합니다."
+        ]
+      }
+    },
+    {
       "name": "not-object",
       "personName": null,
       "personEmail": null,

@@ -28,10 +28,10 @@ function doc(): ResumeDocument {
 
 describe("다듬기 대상 경로", () => {
   it("다듬을 수 있는 칸만 허용한다(이름·연락처·날짜는 제외)", () => {
-    for (const p of ["summary", "basics.tagline", "experience[0].bullets[1]", "projects[2].result", "skills[0].detail", "extras[0].items[0]", "highlights[1].context"]) {
+    for (const p of ["summary", "basics.tagline", "experience[0].bullets[1]", "projects[2].result", "skills[0].detail", "extras[0].items[0]", "highlights[1].title", "highlights[1].details[0]"]) {
       expect(isPolishPath(p)).toBe(true);
     }
-    for (const p of ["basics.name", "basics.email", "experience[0].startDate", "experience[0].company", "__proto__", "summary.x", "experience[0].bullets", "motivation", "basics.motivation"]) {
+    for (const p of ["basics.name", "basics.email", "experience[0].startDate", "experience[0].company", "__proto__", "summary.x", "experience[0].bullets", "motivation", "basics.motivation", "highlights[1].context", "highlights[1].details"]) {
       expect(isPolishPath(p)).toBe(false);
     }
   });
@@ -66,6 +66,40 @@ describe("다듬기 대상 경로", () => {
     const targets = polishTargets(doc());
     expect(targets.map((t) => t.path)).toEqual(["basics.tagline", "summary", "experience[0].scope", "experience[0].bullets[0]", "skills[0].detail", "extras[0].items[0]"]);
     expect(targets.find((t) => t.path === "experience[0].bullets[0]")!.label).toBe("경력 1 · 페이랩 · 기여 1");
+  });
+
+  it("핵심 성과: 성과 요약과 상세 성과 줄마다 대상이 되고, 줄을 고치면 그 줄만 바뀐다", () => {
+    const d = emptyResumeDocument();
+    d.highlights = [{ title: "응답 800ms → 320ms", details: ["2023년 결제 API 대상으로 측정했습니다.", "캐시를 도입했습니다."], context: "" }];
+    const targets = polishTargets(d);
+    expect(targets.map((t) => [t.path, t.label])).toEqual([
+      ["highlights[0].title", "핵심 성과 1 · 성과 요약"],
+      ["highlights[0].details[0]", "핵심 성과 1 · 상세 성과 1"],
+      ["highlights[0].details[1]", "핵심 성과 1 · 상세 성과 2"],
+    ]);
+    expect(polishPathFromField("highlights.0.details.1")).toBe("highlights[0].details[1]");
+    expect(polishMaxChars("highlights[0].details[1]")).toBe(300);
+    expect(withPolishTarget(d, "highlights[0].details[1]", "캐시 계층을 도입했습니다.")!.highlights[0]!.details).toEqual(["2023년 결제 API 대상으로 측정했습니다.", "캐시 계층을 도입했습니다."]);
+    // 다음 줄 자리(details[줄 수])는 빈 칸이고 고치면 뒤에 붙는다. 그보다 뒤는 칸이 없다.
+    expect(polishTargetText(d, "highlights[0].details[2]")).toBe("");
+    expect(withPolishTarget(d, "highlights[0].details[2]", "x")!.highlights[0]!.details).toEqual(["2023년 결제 API 대상으로 측정했습니다.", "캐시를 도입했습니다.", "x"]);
+    expect(withPolishTarget(d, "highlights[0].details[3]", "x")).toBeNull();
+  });
+
+  it("핵심 성과: 상세 성과가 없으면 첫 줄 자리를 빈 칸으로 내고(includeEmpty), 다듬으면 첫 줄이 생긴다", () => {
+    const d = emptyResumeDocument();
+    d.highlights = [{ title: "응답 800ms → 320ms", details: [], context: "" }];
+    expect(polishTargets(d).map((t) => t.path)).toEqual(["highlights[0].title"]);
+    const empty = polishTargets(d, { includeEmpty: true }).find((t) => t.path === "highlights[0].details[0]");
+    expect(empty).toEqual({ path: "highlights[0].details[0]", label: "핵심 성과 1 · 상세 성과 1", text: "" });
+    expect(polishTargetText(d, "highlights[0].details[0]")).toBe("");
+    expect(withPolishTarget(d, "highlights[0].details[0]", "캐시를 도입했습니다.")!.highlights[0]!.details).toEqual(["캐시를 도입했습니다."]);
+    expect(withPolishTarget(d, "highlights[0].details[0]", "  ")!.highlights[0]!.details).toEqual([]);
+    expect(polishTargetText(d, "highlights[0].details[1]")).toBeNull();
+    expect(polishTargetText(d, "highlights[1].details[0]")).toBeNull();
+    // 상한(5줄)이 차면 다음 줄 자리는 없다.
+    d.highlights[0]!.details = ["a", "b", "c", "d", "e"];
+    expect(polishTargetText(d, "highlights[0].details[5]")).toBeNull();
   });
 
   it("글자 상한은 문서 스키마에서 읽는다", () => {

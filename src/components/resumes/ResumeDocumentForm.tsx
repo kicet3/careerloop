@@ -4,7 +4,14 @@ import { useId, useState, type ReactNode } from "react";
 import { Button } from "@/components/ui/Button";
 import { cn } from "@/components/ui/cn";
 import { MonthInput } from "@/components/ui/MonthInput";
-import { EMPTY_RESUME_ITEM, RESUME_SECTION_LABELS, type ResumeDocument, type ResumeSectionKey } from "@/lib/domain/resumes";
+import {
+  EMPTY_RESUME_ITEM,
+  MAX_HIGHLIGHT_DETAIL_CHARS,
+  MAX_HIGHLIGHT_DETAILS,
+  RESUME_SECTION_LABELS,
+  type ResumeDocument,
+  type ResumeSectionKey,
+} from "@/lib/domain/resumes";
 import { patchItem, useAnnouncer, useReorder } from "./reorder";
 import { labelClass, smallInputClass, smallTextareaClass } from "./styles";
 
@@ -115,6 +122,13 @@ function Area({
 const splitLines = (raw: string) => raw.split("\n").map((x) => x.trim()).filter(Boolean);
 const splitCommas = (raw: string) => raw.split(/[,\n]/).map((x) => x.trim()).filter(Boolean);
 
+/** 목록 칸 원문 → 값: 줄(Enter) 또는 쉼표마다 하나, 빈 줄은 버리고 줄 수·줄 글자 수 상한으로 자른다(상세 성과·불릿·기술 공용). */
+export function parseListText(raw: string, mode: "lines" | "commas", maxItems: number, maxLen: number): string[] {
+  return (mode === "lines" ? splitLines : splitCommas)(raw)
+    .slice(0, maxItems)
+    .map((x) => x.slice(0, maxLen));
+}
+
 /**
  * 문자열 배열을 줄(또는 쉼표) 단위로 편집한다. 입력 중인 원문을 따로 들고 있어서 빈 줄·쉼표를 치는 도중에 지워지지 않는다.
  * 바깥 값이 바뀌면(버전 복원 등) 원문을 다시 만든다.
@@ -161,7 +175,7 @@ function ListText({
           placeholder={placeholder}
           onChange={(e) => {
             setRaw(e.target.value);
-            onChange(parse(e.target.value).slice(0, maxItems).map((x) => x.slice(0, maxLen)));
+            onChange(parseListText(e.target.value, mode, maxItems, maxLen));
           }}
           className={`mt-1 ${smallTextareaClass}`}
         />
@@ -171,7 +185,7 @@ function ListText({
           placeholder={placeholder}
           onChange={(e) => {
             setRaw(e.target.value);
-            onChange(parse(e.target.value).slice(0, maxItems).map((x) => x.slice(0, maxLen)));
+            onChange(parseListText(e.target.value, mode, maxItems, maxLen));
           }}
           className={`mt-1 ${smallInputClass}`}
         />
@@ -335,18 +349,21 @@ export function ResumeDocumentForm({
         render={(x, up) => (
           <div className="space-y-3">
             <Text
-              label="성과"
+              label="성과 요약"
               value={x.title}
               max={200}
               placeholder="[직무 KPI] [기준값] → [개선값] · [개선 폭과 단위]"
               onChange={(v) => up({ title: v })}
             />
-            <Text
-              label="측정 기간·핵심 행동"
-              value={x.context}
-              max={300}
-              placeholder="[측정 기간·대상] / [본인이 수행한 핵심 행동]"
-              onChange={(v) => up({ context: v })}
+            <ListText
+              label="상세 성과"
+              mode="lines"
+              values={x.details}
+              maxItems={MAX_HIGHLIGHT_DETAILS}
+              maxLen={MAX_HIGHLIGHT_DETAIL_CHARS}
+              rows={3}
+              placeholder={"[측정 기간·대상]에서 [지표]를 측정했습니다.\n[본인이 한 핵심 개선·판단]을 했습니다.\n[검증 방법]으로 결과를 확인했습니다."}
+              onChange={(v) => up({ details: v })}
             />
           </div>
         )}

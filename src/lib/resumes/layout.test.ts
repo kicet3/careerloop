@@ -58,7 +58,7 @@ describe("텍스트 도우미", () => {
     expect([...order].sort((a, b) => a - b)).toEqual(order);
     expect(text).toContain("### 페이랩 | 결제플랫폼팀 | 백엔드 개발자 | 2021.03 – 현재 | 서울");
     expect(text).toContain("결제 API와 정산 배치의 설계·운영을 맡았습니다.");
-    expect(text).toContain("- 정산 배치 처리 시간 4시간 → 40분 · 83% 단축 (2023년 월말 정산 / 배치 구조 재설계와 병렬화)");
+    expect(text).toContain("- 정산 배치 처리 시간 4시간 → 40분 · 83% 단축\n  - 2023년 월말 정산 배치 대상으로 측정했습니다.\n  - 배치 구조를 재설계하고 병렬화했습니다.");
     expect(text).toContain("- 문제: 대사 오류 로그로 수기 정산 누락을 확인.");
     expect(text).toContain("- 결제 API 응답 시간을 40% 줄였습니다.");
     expect(text).toContain("- 백엔드: Kotlin, Spring, MySQL");

@@ -3,7 +3,7 @@
  * 구역마다 sections/<id>.ts에 프롬프트 규칙·LLM 스키마·조각 변환·후처리를 둔다(레지스트리 sections/index.ts).
  */
 import type { NodeLabel } from "@/lib/domain/graph";
-import { emptyResumeDocument, type ResumeDocument } from "@/lib/domain/resumes";
+import { emptyResumeDocument, toStoredHighlights, type ResumeDocument } from "@/lib/domain/resumes";
 import { PROJECT_COUNT_MIN } from "@/lib/resumes/project-count";
 import { compactKey } from "@/lib/skills/dictionary";
 import { arrayAt, arraySlot, excludedRefs, itemPathOf, lineValue, linePaths, requirementsForLine, setLine, shiftCitations } from "../citations";
@@ -59,7 +59,9 @@ export function fragmentDoc(fragment: SectionFragment): ResumeDocument {
   const doc = emptyResumeDocument();
   for (const s of Object.values(SECTION_FIELDS).flat()) {
     const v = fragment[s];
-    if (v !== undefined) (doc as Record<string, unknown>)[s] = structuredClone(v);
+    if (v === undefined) continue;
+    // 핵심 성과 조각은 LLM 모양(예전 칸 context 없음) — 문서에는 저장 모양으로 둔다.
+    (doc as Record<string, unknown>)[s] = s === "highlights" ? toStoredHighlights(fragment.highlights!) : structuredClone(v);
   }
   return doc;
 }
@@ -67,7 +69,10 @@ export function fragmentDoc(fragment: SectionFragment): ResumeDocument {
 /** 문서에서 이 구역 칸만 뽑는다. */
 export function pickFragment(section: WritingSection, doc: ResumeDocument): SectionFragment {
   const out: SectionFragment = {};
-  for (const f of SECTION_FIELDS[section]) (out as Record<string, unknown>)[f] = structuredClone(doc[f]);
+  for (const f of SECTION_FIELDS[section]) {
+    // 핵심 성과 조각은 LLM 모양(성과 요약 + 상세 성과 줄) — 예전 칸 context는 넣지 않는다.
+    (out as Record<string, unknown>)[f] = f === "highlights" ? doc.highlights.map((h) => ({ title: h.title, details: [...h.details] })) : structuredClone(doc[f]);
+  }
   return out;
 }
 
@@ -77,7 +82,7 @@ export function fragmentChars(fragment: SectionFragment): number {
   let c = 0;
   for (const e of fragment.experience ?? []) c += n([e.company, e.title, e.scope, ...e.bullets]);
   for (const p of fragment.projects ?? []) c += n([p.name, p.summary, p.problem, p.action, p.result, ...p.bullets]);
-  for (const h of fragment.highlights ?? []) c += n([h.title, h.context]);
+  for (const h of fragment.highlights ?? []) c += n([h.title, ...h.details]);
   for (const s of fragment.skills ?? []) c += n([s.category, s.items.join(", "), s.detail]);
   for (const x of fragment.extras ?? []) c += n([x.title, ...x.items]);
   for (const e of fragment.education ?? []) c += n([e.school, e.degree, e.major, e.note]);
@@ -117,7 +122,7 @@ function itemContainers(section: WritingSection, doc: ResumeDocument): { contain
     case "projects":
       return [{ container: "projects", lines: (i) => `projects[${i}].bullets` }];
     case "highlights":
-      return [{ container: "highlights", lines: () => null }];
+      return [{ container: "highlights", lines: (i) => `highlights[${i}].details` }];
     case "skills":
       return [{ container: "skills", lines: () => null }];
     case "extras":
@@ -171,11 +176,16 @@ export function trimToBudget(
       if (gi === undefined || !dropLast(`extras[${gi}].items`, 1)) break;
     }
   }
-  // 2) 항목당 줄.
+  // 2) 항목당 줄(핵심 성과는 상세 성과 줄).
   if (budget.linesPerItem > 0 && (section === "experience" || section === "projects")) {
     const items = section === "experience" ? doc.experience : doc.projects;
     items.forEach((_, i) => {
       while (items[i]!.bullets.length > budget.linesPerItem && dropLast(`${section}[${i}].bullets`, Math.max(1, budget.linesPerItem)));
+    });
+  }
+  if (budget.linesPerItem > 0 && section === "highlights") {
+    doc.highlights.forEach((h, i) => {
+      while (h.details.length > budget.linesPerItem && dropLast(`highlights[${i}].details`, Math.max(1, budget.linesPerItem)));
     });
   }
   // 3) 글자 수: 뒤 항목의 뒤 줄부터, 그다음 뒤 항목.
@@ -189,6 +199,10 @@ export function trimToBudget(
       if (!done) done = dropLast(section, section === "projects" ? PROJECT_COUNT_MIN : 1);
     } else if (section === "extras") {
       for (let gi = doc.extras.length - 1; gi >= 0 && !done; gi--) done = dropLast(`extras[${gi}].items`, 1);
+    } else if (section === "highlights") {
+      // 뒤 항목의 뒤 상세 성과 줄부터(항목마다 한 줄은 남긴다), 그다음 뒤 항목.
+      for (let i = doc.highlights.length - 1; i >= 0 && !done; i--) done = dropLast(`highlights[${i}].details`, 1);
+      if (!done) done = dropLast(section, 1);
     } else {
       done = dropLast(section, 1);
     }

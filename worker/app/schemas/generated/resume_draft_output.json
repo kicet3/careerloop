@@ -127,17 +127,21 @@
               "title": {
                 "type": "string",
                 "maxLength": 200,
-                "description": "핵심 성과 한 줄: 지표 기준값 → 개선값 · 개선 폭"
+                "description": "성과 요약 한 줄(명사형): 지표 기준값 → 개선값 · 개선 폭"
               },
-              "context": {
-                "type": "string",
-                "maxLength": 300,
-                "description": "측정 기간·대상 / 본인이 한 핵심 행동"
+              "details": {
+                "maxItems": 5,
+                "type": "array",
+                "items": {
+                  "type": "string",
+                  "maxLength": 300
+                },
+                "description": "상세 성과 1~3줄(줄마다 하나): 측정 기간·대상 / 본인이 한 핵심 개선·판단 / 검증 방법 중 하나를 담은 경어체 문장(~했습니다)"
               }
             },
             "required": [
               "title",
-              "context"
+              "details"
             ],
             "additionalProperties": false
           }

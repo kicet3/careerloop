@@ -4,7 +4,7 @@
  * - write_top: 헤드라인·요약·핵심 성과·기술 + 인용 → 본문과 합쳐 결정적 사실 검증(verifyDraft). 상단 칸의 인용이 25%를 넘게 빠지면 1회 재작성.
  * - 재작성 호출이 시간 상한·오류로 끝나지 못해도 첫 결과는 버리지 않는다(인용 없는 줄만 지우고 진행).
  */
-import { emptyResumeDocument } from "@/lib/domain/resumes";
+import { emptyResumeDocument, toStoredHighlights } from "@/lib/domain/resumes";
 import { usageOfError } from "@/lib/llm/types";
 import { parseCitations } from "../citations";
 import { parsedOutput } from "../next-step";
@@ -72,7 +72,7 @@ export async function runWriteTopStep(ctx: StepContext): Promise<StepResult<Writ
     document.basics.tagline = out.basics.tagline;
     document.basics.totalExperience = out.basics.totalExperience;
     document.summary = out.summary;
-    document.highlights = out.highlights;
+    document.highlights = toStoredHighlights(out.highlights);
     document.skills = out.skills;
     const top = parseCitations(out.citations, document, packRefs, requirementIds);
     const citations = [...body.draft.citations.filter((c) => !top.citations.some((t) => t.path === c.path)), ...top.citations];

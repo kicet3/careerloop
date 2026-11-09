@@ -98,7 +98,8 @@ export function linePaths(doc: ResumeDocument): { path: DocPath; value: string }
   out.push({ path: "basics.tagline", value: doc.basics.tagline });
   out.push({ path: "basics.totalExperience", value: doc.basics.totalExperience });
   doc.highlights.forEach((h, i) => {
-    out.push({ path: `highlights[${i}].title`, value: h.title }, { path: `highlights[${i}].context`, value: h.context });
+    out.push({ path: `highlights[${i}].title`, value: h.title });
+    h.details.forEach((d, j) => out.push({ path: `highlights[${i}].details[${j}]`, value: d }));
   });
   doc.experience.forEach((e, i) => {
     out.push({ path: `experience[${i}].scope`, value: e.scope });
@@ -207,7 +208,7 @@ export function numberedDocText(doc: ResumeDocument): string {
   add("summary", doc.summary);
   doc.highlights.forEach((h, i) => {
     add(`highlights[${i}].title`, h.title);
-    add(`highlights[${i}].context`, h.context);
+    h.details.forEach((d, j) => add(`highlights[${i}].details[${j}]`, d));
   });
   doc.experience.forEach((e, i) => {
     add(`experience[${i}]`, [e.company, e.department, e.title, `${e.startDate} ~ ${e.endDate}`].filter((x) => x.trim()).join(" | "));

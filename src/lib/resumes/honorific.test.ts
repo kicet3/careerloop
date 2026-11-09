@@ -106,7 +106,7 @@ function sampleDoc(): ResumeDocument {
   d.basics.headline = "백엔드 개발자이다";
   d.basics.tagline = "결제 지연을 줄여 온 백엔드 개발자이다.";
   d.summary = "결제 시스템을 운영했다.\n정산 배치를 개선한다.";
-  d.highlights = [{ title: "응답 시간 40% 단축", context: "2023년 / 캐시를 도입했다." }];
+  d.highlights = [{ title: "응답 시간 40% 단축", details: ["2023년 결제 API 대상으로 측정했다.", "캐시를 도입했다."], context: "" }];
   d.experience = [{ ...EMPTY_RESUME_ITEM.experience(), company: "주식회사 했다", title: "리드였다", startDate: "2021.03", endDate: "현재", scope: "결제 API를 담당한다.", bullets: ["장애를 줄였다.", "담당은 개발자다."] }];
   d.projects = [{ ...EMPTY_RESUME_ITEM.project(), name: "정산 개편이다", role: "설계를 맡았다", summary: "정산을 다시 만들었다.", problem: "지연이 있었다.", action: "큐를 도입했다.", result: "지연이 사라졌다.", evidence: "대시보드였다.", bullets: ["테스트를 늘렸다."], techs: ["Kafka다."] }];
   d.skills = [{ category: "백엔드다", detail: "대용량 API를 설계할 수 있다.", items: ["Kotlin"] }];
@@ -126,7 +126,7 @@ describe("normalizeDocumentHonorific", () => {
     expect(d.basics.headline).toBe("백엔드 개발자이다");
     expect(d.basics.tagline).toBe("결제 지연을 줄여 온 백엔드 개발자입니다.");
     expect(d.summary).toBe("결제 시스템을 운영했습니다.\n정산 배치를 개선합니다.");
-    expect(d.highlights[0]).toEqual({ title: "응답 시간 40% 단축", context: "2023년 / 캐시를 도입했습니다." });
+    expect(d.highlights[0]).toEqual({ title: "응답 시간 40% 단축", details: ["2023년 결제 API 대상으로 측정했습니다.", "캐시를 도입했습니다."], context: "" });
     expect(d.experience[0]!.company).toBe("주식회사 했다");
     expect(d.experience[0]!.title).toBe("리드였다");
     expect(d.experience[0]!.scope).toBe("결제 API를 담당합니다.");
@@ -146,7 +146,7 @@ describe("normalizeDocumentHonorific", () => {
     expect(d.extras[0]).toEqual({ title: "수상이다", items: ["2022 해커톤에서 대상을 받았습니다."] });
     expect(d.education[0]!.note).toBe("졸업했다.");
     expect(d.motivation).toBe("결제 안정성을 높여 왔습니다.");
-    expect(changed).toBe(14);
+    expect(changed).toBe(15); // 핵심 성과 상세 성과 두 줄 포함
     expect(leftovers).toEqual([{ path: "experience[0].bullets[1]", text: "담당은 개발자다" }]);
     expect(honorificLeftoverNote(leftovers)).toBe("문장 끝을 '~습니다'로 자동으로 바꾸지 못한 문장 1개가 있습니다. 직접 확인해 주세요: '담당은 개발자다'");
     expect(honorificLeftoverNote([])).toBeNull();
