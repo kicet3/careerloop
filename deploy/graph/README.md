@@ -1,5 +1,8 @@
 # 운영 그래프 서버 (Neo4j @ graph.example.com)
 
+> 이 문서의 `graph.example.com`·IP·경로는 자리표시자입니다. 실제 값은 저장소에 두지 않고 `deploy/graph/.env`(git 제외)에
+> `NEO4J_PASSWORD`, `GRAPH_HOST=<도메인>`, `LE_LIVE_DIR=<certbot>/conf/live/<도메인>`으로 넣습니다. `nginx-graph.conf`의 도메인은 붙여 넣을 때 바꿉니다.
+
 맥미니에서 띄우는 CareerLoop 운영용 Neo4j입니다. 개발용 Neo4j(루트 `docker-compose.yml`, 127.0.0.1:7687)와는 별개입니다.
 
 | 용도 | 주소 |

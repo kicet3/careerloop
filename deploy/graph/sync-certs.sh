@@ -3,7 +3,9 @@
 # 인증서 갱신(certbot renew) 뒤에도 다시 실행한다.
 set -euo pipefail
 cd "$(dirname "$0")"
-LIVE="${LE_LIVE_DIR:-/path/to/edge-proxy/infra/certbot/conf/live/graph.example.com}"
+# LE_LIVE_DIR(certbot live/<도메인> 폴더)는 환경 변수나 deploy/graph/.env에서 읽는다.
+if [ -f .env ]; then set -a; . ./.env; set +a; fi
+LIVE="${LE_LIVE_DIR:?LE_LIVE_DIR(예: <certbot>/conf/live/<도메인>)를 deploy/graph/.env에 넣어 주세요}"
 mkdir -p certs/bolt
 changed=0
 # live/는 archive/로 가는 심볼릭 링크라 -L로 실제 파일을 복사한다.

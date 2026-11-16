@@ -58,3 +58,9 @@ next-env.d.ts
 /worker/.pytest_cache/
 __pycache__/
 *.pyc
+
+# 개인 MCP 설정(프로젝트 ref 등 계정 식별 값이 들어간다)
+.mcp.json
+
+# 개인키
+*.key

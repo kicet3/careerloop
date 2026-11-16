@@ -11,7 +11,7 @@ services:
       NEO4J_dbms_ssl_policy_bolt_public__certificate: public.crt
       NEO4J_dbms_ssl_policy_bolt_client__auth: NONE
       # Neo4j Browser(https://graph.example.com)가 443 웹소켓으로 Bolt에 붙도록 알린다.
-      NEO4J_server_bolt_advertised__address: graph.example.com:443
+      NEO4J_server_bolt_advertised__address: ${GRAPH_HOST:?GRAPH_HOST(그래프 서버 도메인)를 deploy/graph/.env에 넣어 주세요}:443
     volumes:
       - ./certs/bolt:/ssl/bolt:ro
     networks:
