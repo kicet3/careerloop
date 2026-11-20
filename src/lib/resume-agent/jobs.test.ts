@@ -2,7 +2,7 @@
  * 그래프 이력서 에이전트 통합(PGlite + 로컬 저장소 + 가짜 LLM + 메모리 그래프 저장소, 세션은 가짜).
  * POST /api/resumes(mode agent) → 202 → after()로 이어 가기 → 단계별 저장 → 심사·수정 루프 → 이력서·리포트·알림.
  * 여러 호출에 나눠 실행, 동시 이어 가기(리스 하나), 실패 단계부터 다시 시도, 심사 실패 시 최선 초안 저장, 리스 만료 회수, 24시간 멈춤,
- * 그래프 부족, 동시 작업 1개·이력서 상한, 루프 종료(passed·plateau·max_rounds), "JD 요건 반영" 고정(§0.1).
+ * 그래프 부족, 동시 작업 3개·이력서 상한, 루프 종료(passed·plateau·max_rounds), "JD 요건 반영" 고정(§0.1).
  */
 import { mkdtempSync } from "node:fs";
 import { tmpdir } from "node:os";
@@ -529,27 +529,36 @@ describe("실패·다시 시도·대체 경로", () => {
 });
 
 describe("한도", () => {
-  it("동시 진행 1개: 두 번째 시작은 409 + 기존 작업 id", async () => {
-    const id = await start();
+  it("동시 진행 3개까지: 상한을 채운 뒤의 시작은 409 + 진행 중인 작업 id", async () => {
+    const ids: string[] = [];
+    for (let i = 0; i < jobs.MAX_ACTIVE_AGENT_JOBS; i++) ids.push(await start());
+    expect(jobs.MAX_ACTIVE_AGENT_JOBS).toBe(3);
     const res = await post(body());
     expect(res.status).toBe(409);
-    expect(await res.json()).toMatchObject({ code: "busy", agentJobId: id });
+    const data = (await res.json()) as { code: string; agentJobId: string; error: string };
+    expect(data.code).toBe("busy");
+    expect(ids).toContain(data.agentJobId);
+    expect(data.error).toMatch(/동시에 3개/);
+    expect(await tdb.prisma.resumeAgentJob.count()).toBe(jobs.MAX_ACTIVE_AGENT_JOBS);
+    // 하나가 끝나면 다시 시작할 수 있다.
+    await tdb.prisma.resumeAgentJob.update({ where: { id: ids[0]! }, data: { status: "canceled" } });
+    expect((await post(body())).status).toBe(202);
   });
 
-  it("동시 시작 요청 2개 → 하나만 성공", async () => {
-    const [a, b] = await Promise.all([post(body()), post(body())]);
-    expect([a.status, b.status].sort()).toEqual([202, 409]);
-    expect(await tdb.prisma.resumeAgentJob.count()).toBe(1);
+  it("동시에 온 시작 요청도 동시 작업 상한을 넘지 않는다", async () => {
+    const results = await Promise.all(Array.from({ length: jobs.MAX_ACTIVE_AGENT_JOBS + 2 }, () => post(body())));
+    expect(results.filter((r) => r.status === 202)).toHaveLength(jobs.MAX_ACTIVE_AGENT_JOBS);
+    expect(results.filter((r) => r.status === 409)).toHaveLength(2);
+    expect(await tdb.prisma.resumeAgentJob.count()).toBe(jobs.MAX_ACTIVE_AGENT_JOBS);
   });
 
-  it("하루 5회: 6번째 시작은 429", async () => {
-    for (let i = 0; i < 5; i++) {
+  it("하루 한도 없음: 여러 번 시작해도 429가 아니다", async () => {
+    for (let i = 0; i < 8; i++) {
       await start();
       await tdb.prisma.resumeAgentJob.updateMany({ data: { status: "canceled" } });
     }
-    const res = await post(body());
-    expect(res.status).toBe(429);
-    expect(res.headers.get("Retry-After")).toBeTruthy();
+    expect((await post(body())).status).toBe(202);
+    expect(await tdb.prisma.rateEvent.count({ where: { bucket: "resume-agent" } })).toBe(0);
   });
 
   it("이력서 수 상한은 진행 중(waiting 포함) 에이전트 작업도 센다", async () => {
@@ -568,7 +577,7 @@ describe("한도", () => {
     expect(await res.json()).toHaveProperty("draftJob");
   });
 
-  it("경험 그래프가 비어 있으면 에이전트를 시작하지 않고(JD 비용·하루 한도 안 씀) 빠른 초안 + modeFallback", async () => {
+  it("경험 그래프가 비어 있으면 에이전트를 시작하지 않고(JD 비용 안 씀) 빠른 초안 + modeFallback", async () => {
     state.graphs.set("ua", { person: { id: "me", name: null }, nodes: [], edges: [] });
     expect(await jobs.agentAvailableFor({ id: "ua", email: "ua@x.com" })).toBe(false);
     const res = await post(body({ mode: "agent" }));
@@ -596,5 +605,78 @@ describe("한도", () => {
     const { listVisibleDraftJobs } = await import("@/lib/resumes/draft-jobs");
     const list = await listVisibleDraftJobs("ua");
     expect(list.find((j) => j.id === id)).toMatchObject({ mode: "agent", href: `/app/resumes/agent/${id}`, status: "running" });
+  });
+});
+
+describe("동시 작업 이어 가기", () => {
+  it("agentJobsNeedingKick: 대기 중이고 리스가 없는 내 작업·리스가 만료된 작업만(exceptId 제외, 남의 작업 제외)", async () => {
+    const t = Date.now();
+    const row = (id: string, userId: string, extra: Record<string, unknown>) =>
+      tdb.prisma.resumeAgentJob.create({ data: { id, userId, runId: "r", label: "x", input: {}, status: "waiting", updatedAt: new Date(t - 10 * 60_000), ...extra } });
+    await row("k-wait", "ua", {});
+    await row("k-self", "ua", {});
+    await row("k-leased", "ua", { status: "running", leaseId: "l", leaseExpiresAt: new Date(t + 60_000) });
+    await row("k-lost", "ua", { status: "running", leaseId: "l", leaseExpiresAt: new Date(t - 60_000) });
+    await row("k-done", "ua", { status: "completed" });
+    await row("k-other", "ub", {});
+    expect((await jobs.agentJobsNeedingKick("ua", { exceptId: "k-self", now: t })).sort()).toEqual(["k-lost", "k-wait"]);
+  });
+});
+
+describe("실행기(맥미니)", () => {
+  const SECRET = "s".repeat(40);
+  it("handOffToRunner: 실행기 주소·비밀이 있고 202를 받으면 true, 없거나 실패하면 false(여기서 실행)", async () => {
+    const http = await import("./http");
+    const id = await start();
+    const { runId } = (await tdb.prisma.resumeAgentJob.findFirst({ where: { id } }))!;
+    const env = { RESUME_AGENT_CHAIN_SECRET: SECRET, RESUME_AGENT_RUNNER_URL: "https://agent.example.com" };
+    const calls: { id: string; runId: string }[] = [];
+    const ok = async (j: { id: string; runId: string }) => (calls.push(j), { ok: true as const });
+    expect(await http.handOffToRunner(id, { userId: "ua" }, { env, chain: ok })).toBe(true);
+    expect(calls).toEqual([{ id, runId }]);
+    expect(await http.handOffToRunner(id, { userId: "ub" }, { env, chain: ok })).toBe(false);
+    expect(await http.handOffToRunner(id, { runId }, { env, chain: async () => ({ ok: false, error: "status_502" }) })).toBe(false);
+    expect((await tdb.prisma.resumeAgentJob.findFirst({ where: { id } }))!.chainError).toBe("handoff:status_502");
+    expect(await http.handOffToRunner(id, { runId }, { env: { RESUME_AGENT_CHAIN_SECRET: SECRET }, chain: ok })).toBe(false);
+    expect(await http.handOffToRunner(id, { runId }, { env: { ...env, RESUME_AGENT_RUNNER: "1" }, chain: ok })).toBe(false);
+    expect(calls).toHaveLength(1);
+  });
+
+  it("sweepRunnerJobs: 이어 줄 호출이 없는 작업(대기 + 리스 없음, 리스 만료)만 전 사용자에서 주워 실행하고 동시 실행 수를 넘지 않는다", async () => {
+    const t = Date.now();
+    const row = (id: string, userId: string, extra: Record<string, unknown>) =>
+      tdb.prisma.resumeAgentJob.create({ data: { id, userId, runId: `run-${id}`, label: "x", input: {}, status: "waiting", updatedAt: new Date(t - 60_000), ...extra } });
+    await row("s-wait", "ua", { updatedAt: new Date(t - 90_000) });
+    await row("s-other", "ub", { updatedAt: new Date(t - 80_000) });
+    await row("s-lost", "ua", { status: "running", leaseId: "l", leaseExpiresAt: new Date(t - 1_000), updatedAt: new Date(t - 70_000) });
+    await row("s-fresh", "ua", { updatedAt: new Date(t - 1_000) });
+    await row("s-leased", "ua", { status: "running", leaseId: "l", leaseExpiresAt: new Date(t + 60_000) });
+    await row("s-done", "ua", { status: "completed" });
+    // 이 빌드보다 새 버전의 작업은 집지 않는다(실행기를 다시 빌드하기 전에는 Vercel이 실행한다).
+    await row("s-newer", "ua", { schemaVersion: 9999, updatedAt: new Date(t - 95_000) });
+    const started: string[] = [];
+    const release: (() => void)[] = [];
+    const advance = (jobId: string, o: { runId: string; deadlineAt: number }) => {
+      expect(o.runId).toBe(`run-${jobId}`);
+      expect(o.deadlineAt).toBe(t + jobs.SELF_HOSTED_AGENT_TIME_LIMIT_MS);
+      started.push(jobId);
+      return new Promise<void>((r) => release.push(r));
+    };
+    expect(await jobs.sweepRunnerJobs({ now: t, concurrency: 2, advance })).toBe(2);
+    expect(started).toEqual(["s-wait", "s-other"]);
+    // 자리가 찼으면 더 시작하지 않고, 실행 중인 작업을 다시 집지 않는다.
+    expect(await jobs.sweepRunnerJobs({ now: t, concurrency: 2, advance })).toBe(0);
+    expect(await jobs.sweepRunnerJobs({ now: t, concurrency: 3, advance })).toBe(1);
+    expect(started).toEqual(["s-wait", "s-other", "s-lost"]);
+    release.forEach((r) => r());
+    await new Promise((r) => setTimeout(r, 0));
+    await tdb.prisma.resumeAgentJob.updateMany({ where: { id: { in: started } }, data: { status: "completed" } });
+    // 실행기는 더 새 버전의 작업을 실패로 닫지 않고 그대로 둔다.
+    vi.stubEnv("RESUME_AGENT_RUNNER", "1");
+    vi.stubEnv("VERCEL", "");
+    await jobs.advanceAgentJob("s-newer");
+    vi.unstubAllEnvs();
+    expect((await tdb.prisma.resumeAgentJob.findFirst({ where: { id: "s-newer" } }))!.status).toBe("waiting");
+    expect(await jobs.sweepRunnerJobs({ now: t, concurrency: 3, advance })).toBe(0);
   });
 });

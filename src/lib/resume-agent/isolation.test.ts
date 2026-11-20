@@ -6,7 +6,7 @@
  * (아래 설정은 jobs.test.ts와 같다) 그래프 이력서 에이전트 통합(PGlite + 로컬 저장소 + 가짜 LLM + 메모리 그래프 저장소, 세션은 가짜).
  * POST /api/resumes(mode agent) → 202 → after()로 이어 가기 → 단계별 저장 → 심사·수정 루프 → 이력서·리포트·알림.
  * 여러 호출에 나눠 실행, 동시 이어 가기(리스 하나), 실패 단계부터 다시 시도, 심사 실패 시 최선 초안 저장, 리스 만료 회수, 24시간 멈춤,
- * 그래프 부족, 동시 작업 1개·이력서 상한, 루프 종료(passed·plateau·max_rounds), "JD 요건 반영" 고정(§0.1).
+ * 그래프 부족, 동시 작업 3개·이력서 상한, 루프 종료(passed·plateau·max_rounds), "JD 요건 반영" 고정(§0.1).
  */
 import { mkdtempSync } from "node:fs";
 import { tmpdir } from "node:os";

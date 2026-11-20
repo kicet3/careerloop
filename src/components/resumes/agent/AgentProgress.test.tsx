@@ -150,7 +150,7 @@ describe("AgentReport", () => {
     expect(html).toContain("Kafka 운영");
     expect(html).toContain("충족");
     expect(html).toMatch(/href="\/app\/graph\?ask=[^"]*AWS[^"]*#graph-chat"/);
-    expect(html).toContain("하루 한도(5회) 중 1회");
+    expect(html).toContain("새 이력서가 하나 더 생깁니다");
     expect(html).toContain("작성 시점");
     expect(html).toContain("수치 확인 필요 2건");
   });

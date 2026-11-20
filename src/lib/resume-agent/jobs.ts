@@ -39,7 +39,7 @@ import {
 } from "@/lib/resumes/regenerate";
 import { CreateResumeInputSchema, type CreateResumeInput } from "@/lib/resumes/types";
 import { agentEnabledFor, agentSettings, type AgentSettings } from "./config";
-import { chainEnabled, requestChain, type ChainResult } from "./chain";
+import { chainEnabled, isAgentRunner, requestChain, type ChainResult } from "./chain";
 import { hasAgentGraphMaterial, loadAgentGraph } from "./evidence";
 import { graphEvidenceSource, type EvidenceSource } from "./evidence-source";
 import { findReusableJdAnalysis } from "./jd-source";
@@ -85,7 +85,8 @@ export const AGENT_ROUTE_MAX_DURATION_SEC = 300;
 export const SELF_HOSTED_AGENT_TIME_LIMIT_MS = 20 * 60_000;
 export const LEASE_MS = 60_000;
 export const HEARTBEAT_MS = 20_000;
-export const MAX_ACTIVE_AGENT_JOBS = 1;
+/** 동시에 진행할 수 있는 에이전트 작업 수(사용자당, running·waiting — 새로 만들기·다시 생성·다시 시도를 함께 센다). */
+export const MAX_ACTIVE_AGENT_JOBS = 3;
 export const MAX_CONTINUATIONS = 20;
 /** v2는 순서 배치가 약 17~20개(웨이브·라운드·재작성 웨이브)라 상한을 따로 둔다. */
 export const MAX_CONTINUATIONS_V2 = 36;
@@ -134,7 +135,7 @@ export function agentDeadline(startedAt: number, env: Record<string, string | un
 
 export class AgentBusyError extends FeatureError {
   constructor(readonly jobId: string) {
-    super("진행 중인 에이전트 작업이 있습니다. 끝난 뒤 다시 시작하거나 진행 화면에서 확인해 주세요.", 409);
+    super(`에이전트 작성은 동시에 ${MAX_ACTIVE_AGENT_JOBS}개까지 진행할 수 있습니다. 진행 중인 작업이 끝난 뒤 다시 시작하거나 진행 화면에서 확인해 주세요.`, 409);
     this.name = "AgentBusyError";
   }
 }
@@ -357,13 +358,15 @@ async function lockAgentJobs(tx: Prisma.TransactionClient, userId: string): Prom
   await tx.$executeRaw`SELECT pg_advisory_xact_lock(hashtext(${`resume-agent:${userId}`}))`;
 }
 
-async function activeAgentJob(userId: string, db: Prisma.TransactionClient = prisma, exceptId?: string): Promise<string | null> {
-  const row = await db.resumeAgentJob.findFirst({
+/** 동시 작업 상한(MAX_ACTIVE_AGENT_JOBS)에 닿았으면 진행 중인 작업 중 가장 최근 것의 id(409 안내 링크용), 자리가 있으면 null. */
+async function busyAgentJob(userId: string, db: Prisma.TransactionClient = prisma, exceptId?: string): Promise<string | null> {
+  const rows = await db.resumeAgentJob.findMany({
     select: { id: true },
     where: { userId, status: { in: [...ACTIVE] }, ...(exceptId ? { id: { not: exceptId } } : {}) },
     orderBy: { createdAt: "desc" },
+    take: MAX_ACTIVE_AGENT_JOBS,
   });
-  return row?.id ?? null;
+  return rows.length >= MAX_ACTIVE_AGENT_JOBS ? rows[0]!.id : null;
 }
 
 /** 진행 중(running·waiting) 에이전트 작업 수 — 이력서 수 상한(assertResumeSlots)이 함께 센다. */
@@ -385,7 +388,7 @@ async function cleanupOldJobs(userId: string, now: number): Promise<void> {
 export interface StartAgentDeps {
   now?: () => number;
   resolveProvider?: (requested: string | null) => Promise<ProviderId>;
-  /** 레이트 리밋(다른 확인 뒤 — 잘못된 요청이 한도를 깎지 않게). */
+  /** 만들기 직전 확인(다른 확인 뒤에 부른다). 에이전트는 하루 한도가 없어 라우트는 넘기지 않는다. */
   beforeCreate?: () => Promise<void>;
   env?: Record<string, string | undefined>;
   /** '다시 생성': 새 이력서 대신 이 이력서(호출자가 소유권을 확인한 id)의 새 버전을 저장한다. label은 작업 표시 이름. */
@@ -404,9 +407,9 @@ export async function startResumeAgentJob(
   const env = deps.env ?? process.env;
   const provider = await (deps.resolveProvider ?? resolveRequestedProvider)(input.provider ?? null);
   const regen = deps.regenerate ?? null;
-  const busy = await activeAgentJob(user.id);
+  const busy = await busyAgentJob(user.id);
   if (busy) throw new AgentBusyError(busy);
-  // 다시 생성은 이력서 수를 늘리지 않는다(동시 작업 1개·하루 한도는 같이 센다).
+  // 다시 생성은 이력서 수를 늘리지 않는다(동시 작업 상한은 같이 센다).
   if (!regen) await assertResumeSlots(user.id, now);
   await deps.beforeCreate?.();
   await cleanupOldJobs(user.id, now);
@@ -418,7 +421,7 @@ export async function startResumeAgentJob(
     // 잠금 순서: 이력서별 다시 생성 잠금 → 사용자별 에이전트 잠금(초안 작업과 같은 순서 — 서로 기다리다 막히지 않게).
     if (regen) await assertRegenerateSlot(tx, user.id, regen.resumeId, { now });
     await lockAgentJobs(tx, user.id);
-    const again = await activeAgentJob(user.id, tx);
+    const again = await busyAgentJob(user.id, tx);
     if (again) throw new AgentBusyError(again);
     if (!regen) await assertResumeSlots(user.id, now, tx);
     return tx.resumeAgentJob.create({
@@ -610,6 +613,8 @@ export async function advanceAgentJob(jobId: string, opts: { userId?: string; ru
   });
   if (!job) return;
   if (job.schemaVersion !== AGENT_SCHEMA_VERSION) {
+    // 실행기 빌드가 앱 배포보다 오래됐으면(행이 더 새 버전) 건드리지 않는다 — 새 빌드(Vercel)가 실행한다. 실패로 닫지 않는다.
+    if (isAgentRunner() && job.schemaVersion > AGENT_SCHEMA_VERSION) return;
     await failJob(job, "schema_version", SCHEMA_ERROR, job.currentStep, now());
     return;
   }
@@ -1057,6 +1062,78 @@ export async function getAgentJob(userId: string, jobId: string, now: number = D
   return toAgentJobView(row, steps, now);
 }
 
+/**
+ * 화면이 이어 가기(POST …/advance)를 보내야 하는 내 진행 중 작업 id(toAgentJobView의 needsKick과 같은 조건).
+ * 동시 작업이 여러 개라 보고 있는 작업 말고도 밀어 줘야 한다 — 진행 화면 폴링(exceptId = 그 작업)과 이력서 목록 폴링이 쓴다.
+ */
+export async function agentJobsNeedingKick(userId: string, opts: { exceptId?: string; now?: number } = {}): Promise<string[]> {
+  const now = opts.now ?? Date.now();
+  const idleBefore = new Date(now - (chainEnabled() ? IDLE_KICK_MS : 0));
+  const rows = await prisma.resumeAgentJob.findMany({
+    select: { id: true },
+    where: {
+      userId,
+      ...(opts.exceptId ? { id: { not: opts.exceptId } } : {}),
+      OR: [
+        { status: "waiting", leaseId: null, updatedAt: { lt: idleBefore } },
+        { status: "running", leaseExpiresAt: { lt: new Date(now) } },
+      ],
+    },
+    orderBy: { createdAt: "asc" },
+    take: MAX_ACTIVE_AGENT_JOBS,
+  });
+  return rows.map((r) => r.id);
+}
+
+// ---------------------------------------------------------------------------
+// 실행기(맥미니) 주기 점검
+// ---------------------------------------------------------------------------
+
+/** 실행기의 주기 점검이 한 번에 실행하는 작업 수(전 사용자 합계 — 서명 호출로 바로 받은 작업은 따로다). RESUME_AGENT_RUNNER_CONCURRENCY(1~16), 기본 3. */
+export function runnerConcurrency(env: Record<string, string | undefined> = process.env): number {
+  const n = Number(env.RESUME_AGENT_RUNNER_CONCURRENCY);
+  return Number.isInteger(n) && n >= 1 && n <= 16 ? n : 3;
+}
+/** 대기 중인 작업을 실행기가 주워 가기 전 여유(방금 만든 작업의 서명 호출·방금 끝난 호출의 연쇄와 겹치지 않게). */
+export const RUNNER_PICKUP_IDLE_MS = 10_000;
+/** 이 프로세스의 주기 점검이 실행 중인 작업 id. */
+const runnerActive = new Set<string>();
+
+/**
+ * 실행기 주기 점검(runner-loop.ts): 이어 줄 호출이 없는 작업(대기 중 + 리스 없음, 또는 리스 만료)을 전 사용자에서 찾아 이 프로세스에서 실행한다.
+ * 서명 호출이 닿지 않았거나(네트워크·재시작) Vercel 쪽 실행이 시간 예산으로 멈춘 작업도 화면 없이 이어진다. 작업은 그 행의 userId로만 실행하고
+ * 리스가 중복 실행을 막는다. 기다리지 않고 시작만 한다 — 반환값은 이번에 시작한 작업 수.
+ */
+export async function sweepRunnerJobs(
+  opts: { now?: number; concurrency?: number; advance?: (jobId: string, o: { runId: string; deadlineAt: number }) => Promise<void> } = {},
+): Promise<number> {
+  const now = opts.now ?? Date.now();
+  const free = (opts.concurrency ?? runnerConcurrency()) - runnerActive.size;
+  if (free <= 0) return 0;
+  const rows = await prisma.resumeAgentJob.findMany({
+    select: { id: true, runId: true },
+    where: {
+      ...(runnerActive.size ? { id: { notIn: [...runnerActive] } } : {}),
+      // 이 빌드보다 새 버전의 작업은 집지 않는다(실행기를 다시 빌드하기 전에는 Vercel이 실행한다).
+      schemaVersion: { lte: AGENT_SCHEMA_VERSION },
+      OR: [
+        { status: "waiting", leaseId: null, updatedAt: { lt: new Date(now - RUNNER_PICKUP_IDLE_MS) } },
+        { status: "running", leaseExpiresAt: { lt: new Date(now) } },
+      ],
+    },
+    orderBy: { updatedAt: "asc" },
+    take: free,
+  });
+  const advance = opts.advance ?? ((jobId, o) => advanceAgentJob(jobId, o));
+  for (const r of rows) {
+    runnerActive.add(r.id);
+    void advance(r.id, { runId: r.runId, deadlineAt: now + SELF_HOSTED_AGENT_TIME_LIMIT_MS })
+      .catch(() => undefined)
+      .finally(() => runnerActive.delete(r.id));
+  }
+  return rows.length;
+}
+
 /** 이 이력서의 심사 리포트 목록 항목(최근 순). */
 export interface AgentReportHistoryItem {
   jobId: string;
@@ -1155,7 +1232,7 @@ export async function listVisibleAgentJobs(userId: string, now: number = Date.no
 
 /**
  * 다시 시도: 실패한 작업을 새 runId로 — 끝난 단계는 건너뛰고 실패한 단계부터(실패 단계 행만 pending·attempt 0).
- * from=jd면 처음부터(단계 행을 모두 지운다). 스키마 버전이 다르면 처음부터. beforeRestart(레이트 리밋)는 상태 확인 뒤.
+ * from=jd면 처음부터(단계 행을 모두 지운다). 스키마 버전이 다르면 처음부터. beforeRestart는 상태 확인 뒤(에이전트는 하루 한도가 없어 라우트는 넘기지 않는다).
  */
 export async function retryAgentJob(
   userId: string,
@@ -1172,7 +1249,7 @@ export async function retryAgentJob(
   if ((row.progress as Progress | null)?.errorCode === "insufficient_graph" && opts.from !== "jd") {
     throw new FeatureError("경험 그래프에 쓸 내용이 부족합니다. 그래프를 정리한 뒤 새로 만들거나 빠른 초안으로 만들어 주세요.", 409);
   }
-  const busy = await activeAgentJob(userId, prisma, row.id);
+  const busy = await busyAgentJob(userId, prisma, row.id);
   if (busy) throw new AgentBusyError(busy);
   if (!row.targetResumeId) await assertResumeSlots(userId, now);
   await opts.beforeRestart?.();
@@ -1181,7 +1258,10 @@ export async function retryAgentJob(
   const updated = await prisma.$transaction(async (tx) => {
     if (row.targetResumeId) await assertRegenerateSlot(tx, userId, row.targetResumeId, { now, exceptAgentJobId: row.id });
     await lockAgentJobs(tx, userId);
-    if (await activeAgentJob(userId, tx, row.id)) throw new AgentBusyError((await activeAgentJob(userId, tx, row.id))!);
+    const again = await busyAgentJob(userId, tx, row.id);
+    if (again) throw new AgentBusyError(again);
+    // 동시 작업이 여러 개라 잠금 안에서 이력서 수도 다시 센다(시작과 같다 — 이 행은 아직 failed·canceled라 세지 않는다).
+    if (!row.targetResumeId) await assertResumeSlots(userId, now, tx);
     const [next] = await tx.resumeAgentJob.updateManyAndReturn({
       where: { id: row.id, userId, runId: row.runId, status: row.status },
       data: {

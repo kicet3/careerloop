@@ -3,7 +3,7 @@
  * 이력서 편집 화면의 '심사 리포트' 카드(에이전트로 만든 이력서). ?report=1이면 펼친 채로 연다.
  * - 최종 심사: 심사위원 7명 판정(진단과 같은 "7명 중 n명 통과"), 라운드별 핵심 심사·적합도·바뀐 점(전/후).
  * - 요건 표: JD 요건마다 충족/부분/공백, 이력서 줄, 근거(그래프 노드 이름·경로). 작성 시점 기준 — 이후 고친 줄은 흐리게.
- * - 남은 공백: 그래프 채팅으로 답하기(/app/graph?ask=…#graph-chat). '그래프를 채운 뒤 다시 실행'은 새 이력서를 하나 더 만들고 하루 한도 1회를 쓴다.
+ * - 남은 공백: 그래프 채팅으로 답하기(/app/graph?ask=…#graph-chat). '그래프를 채운 뒤 다시 실행'은 새 이력서를 하나 더 만든다.
  * - 구역별 에이전트 리포트(version 2): '구역별 작성' 표(구역·담당 요건·재작성 횟수·분량/예산·최종 라운드), '총괄 피드백 기록',
  *   지원 동기 안내(초안의 [ADD] n곳을 채워 주세요), 바뀐 점에 구역 라벨.
  */
@@ -99,7 +99,6 @@ export function AgentReport({
       const data = (await res.json().catch(() => null)) as { agentJob?: { id: string }; draftJob?: { id: string }; error?: string; agentJobId?: string } | null;
       if (data?.agentJob) return router.push(`/app/resumes/agent/${encodeURIComponent(data.agentJob.id)}`);
       if (data?.draftJob) return router.push(`/app/resumes/drafts/${encodeURIComponent(data.draftJob.id)}`);
-      if (res.status === 409 && data?.agentJobId) return router.push(`/app/resumes/agent/${encodeURIComponent(data.agentJobId)}`);
       setError(data?.error ?? "다시 실행하지 못했습니다.");
     } catch {
       setError("서버에 연결하지 못했습니다.");
@@ -290,7 +289,7 @@ export function AgentReport({
                   <Button type="button" size="sm" variant="secondary" loading={starting} onClick={() => void startAgain()}>
                     그래프를 채운 뒤 다시 실행
                   </Button>
-                  <span className="text-xs text-slate-500">새 이력서가 하나 더 생기고 하루 한도(5회) 중 1회를 씁니다. 이 이력서를 새 버전으로 다시 쓰려면 편집 화면의 &lsquo;다시 생성&rsquo;을 쓰세요.</span>
+                  <span className="text-xs text-slate-500">새 이력서가 하나 더 생깁니다. 이 이력서를 새 버전으로 다시 쓰려면 편집 화면의 &lsquo;다시 생성&rsquo;을 쓰세요.</span>
                   {error && <span className="text-xs text-red-700">{error}</span>}
                 </div>
               )}

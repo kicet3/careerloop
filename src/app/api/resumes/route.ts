@@ -10,7 +10,7 @@ import { getPosting, POSTING_NOT_FOUND } from "@/lib/postings/service";
 import { parseJsonInput, readJsonBody } from "@/lib/resumes/http";
 import { listResumes, parseResumeStatusFilter } from "@/lib/resumes/service";
 import { CreateResumeInputSchema, type CreateResumeResponse } from "@/lib/resumes/types";
-import { agentErrorResponse, assertAgentLimit, scheduleAgentAdvance } from "@/lib/resume-agent/http";
+import { agentErrorResponse, scheduleAgentAdvance } from "@/lib/resume-agent/http";
 import { agentAvailableFor, startResumeAgentJob } from "@/lib/resume-agent/jobs";
 import type { StartResumeAgentResponse } from "@/lib/resume-agent/job-types";
 
@@ -61,7 +61,7 @@ export async function POST(req: Request) {
     if (input.source.kind === "graph" && !input.sourceResumeId && input.mode !== "single") {
       if (await agentAvailableFor(user)) {
         try {
-          const { job, runId } = await startResumeAgentJob(user, input, { beforeCreate: () => assertAgentLimit(user.id) });
+          const { job, runId } = await startResumeAgentJob(user, input);
           scheduleAgentAdvance(job.id, { startedAt, userId: user.id, runId });
           return Response.json({ agentJob: job } satisfies StartResumeAgentResponse, { status: 202, headers: noStore });
         } catch (err) {

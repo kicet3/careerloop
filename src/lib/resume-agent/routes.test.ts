@@ -139,7 +139,7 @@ describe("내부 연쇄 라우트", () => {
     const forged = await call({ jobId: "job1", runId: "run1", exp }, chain.signAdvance("x".repeat(48), "job1", "run1", exp));
     expect(forged.status).toBe(401);
     expect(await forged.text()).toBe("");
-    const old = Date.now() - 1000;
+    const old = Date.now() - 120_000; // 시계 오차 허용(60초)을 넘겨 만료된 서명
     expect((await call({ jobId: "job1", runId: "run1", exp: old }, chain.signAdvance(SECRET, "job1", "run1", old))).status).toBe(401);
     expect((await call({ jobId: "job1", runId: "run2", exp }, chain.signAdvance(SECRET, "job1", "run1", exp))).status).toBe(401);
     expect(state.advanced).toHaveLength(0);

@@ -5,7 +5,7 @@ import { parseJsonInput, readJsonInput, resumeNotFound } from "@/lib/resumes/htt
 import { findActiveRegenerate, RegenerateBusyError, regenerateInputFor, regenerateJobHref, regenerateLabel } from "@/lib/resumes/regenerate";
 import { getResumeMeta } from "@/lib/resumes/service";
 import { CreateResumeInputSchema, RegenerateResumeInputSchema, type RegenerateResumeResponse } from "@/lib/resumes/types";
-import { agentErrorResponse, assertAgentLimit, scheduleAgentAdvance } from "@/lib/resume-agent/http";
+import { agentErrorResponse, scheduleAgentAdvance } from "@/lib/resume-agent/http";
 import { agentAvailableFor, startResumeAgentJob } from "@/lib/resume-agent/jobs";
 
 export const runtime = "nodejs";
@@ -21,7 +21,7 @@ function busyResponse(err: RegenerateBusyError): Response {
 /**
  * 이미 만든 이력서 다시 생성(202): 결과는 이 이력서의 새 버전(source 'ai')으로 저장된다 — 새 이력서를 만들지 않는다.
  * mode 'agent'(기본, 쓸 수 있을 때) → 에이전트 작업, 'single' 또는 에이전트를 쓸 수 없으면 빠른 초안 작업(modeFallback 'agent_unavailable').
- * 하루 한도·동시 작업 수는 새로 만들기와 같이 센다. 같은 이력서를 다시 생성 중이면 409(code 'regenerating'), 남의·없는 이력서는 404.
+ * 동시 작업 수(빠른 초안은 하루 한도도)는 새로 만들기와 같이 센다. 에이전트는 하루 한도가 없다. 같은 이력서를 다시 생성 중이면 409(code 'regenerating'), 남의·없는 이력서는 404.
  */
 export async function POST(req: Request, { params }: Ctx) {
   const startedAt = Date.now();
@@ -45,7 +45,7 @@ export async function POST(req: Request, { params }: Ctx) {
         try {
           // 작업이 저장된 입력을 같은 스키마로 다시 읽으므로 여기서 먼저 검증한다(회사·직무가 빈 예전 이력서 등은 400).
           const input = parseJsonInput(CreateResumeInputSchema, regenerateInputFor(meta, body, "agent"));
-          const { job, runId } = await startResumeAgentJob(user, input, { beforeCreate: () => assertAgentLimit(user.id), regenerate });
+          const { job, runId } = await startResumeAgentJob(user, input, { regenerate });
           scheduleAgentAdvance(job.id, { startedAt, userId: user.id, runId });
           const res: RegenerateResumeResponse = { mode: "agent", jobId: job.id, href: regenerateJobHref({ mode: "agent", id: job.id }) };
           return Response.json({ ...res, agentJob: job }, { status: 202, headers: noStore });

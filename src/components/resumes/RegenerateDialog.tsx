@@ -114,7 +114,7 @@ export function RegenerateDialog({
         router.push(data.modeFallback === "agent_unavailable" ? `${data.href}?fallback=agent` : data.href);
         return;
       }
-      const href = data?.jobHref ?? (data?.agentJobId ? `/app/resumes/agent/${encodeURIComponent(data.agentJobId)}` : undefined);
+      const href = data?.jobHref ?? (data?.agentJobId ? "/app/resumes" : undefined); // 동시 작업 상한: 진행 중인 작업이 모두 보이는 목록으로
       setError({ message: data?.error ?? "다시 생성을 시작하지 못했습니다. 잠시 후 다시 시도해 주세요.", href });
     } catch {
       setError({ message: "서버에 연결하지 못했습니다. 네트워크를 확인해 주세요." });
@@ -162,7 +162,7 @@ export function RegenerateDialog({
             <span>
               AI 에이전트(심사위원 검토)
               <span className="block text-xs text-slate-500">
-                {agentAvailable ? "JD 요건별 근거를 고르고 심사위원 심사·수정을 거칩니다. 몇 분 걸리며 하루 5회까지." : "지금은 쓸 수 없습니다(경험 그래프가 비어 있거나 에이전트가 꺼져 있음)."}
+                {agentAvailable ? "JD 요건별 근거를 고르고 심사위원 심사·수정을 거칩니다. 몇 분 걸립니다." : "지금은 쓸 수 없습니다(경험 그래프가 비어 있거나 에이전트가 꺼져 있음)."}
               </span>
             </span>
           </label>

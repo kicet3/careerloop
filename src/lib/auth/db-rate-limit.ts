@@ -16,8 +16,6 @@ export type DbRateLimit = { bucket: string; limit: number; windowMs: number };
 /** AI 이력서 초안: 사용자당 24시간 30회. */
 export const RESUME_DRAFT_LIMIT: DbRateLimit = { bucket: "resume-draft", limit: 30, windowMs: 24 * 60 * 60_000 };
 /** 경험 그래프로 포트폴리오 만들기(다시 만들기·다시 시도 포함): 사용자당 24시간 20회. */
-/** 그래프 이력서 에이전트: 사용자당 24시간 5회(시작·사용자 재시도만 센다 — 자동 이어 가기·빠른 초안 전환은 세지 않는다). */
-export const RESUME_AGENT_LIMIT: DbRateLimit = { bucket: "resume-agent", limit: 5, windowMs: 24 * 60 * 60_000 };
 export const PORTFOLIO_DRAFT_LIMIT: DbRateLimit = { bucket: "portfolio-draft", limit: 20, windowMs: 24 * 60 * 60_000 };
 /** 그래프 채팅 전송·재시도: 사용자당 10분 30회. */
 export const GRAPH_CHAT_LIMIT: DbRateLimit = { bucket: "graph-chat", limit: 30, windowMs: 10 * 60_000 };

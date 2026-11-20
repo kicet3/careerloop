@@ -1,0 +1,37 @@
+# CareerLoop 에이전트 실행기(Next.js, next start) — 맥미니에서 띄운다(README.md).
+#   docker compose -p careerloop-agent up -d --build
+# 127.0.0.1:3100에만 열고, cbt-nginx가 cbt_bank_default 네트워크로 careerloop-agent:3000의
+# /api/internal/resume-agent/advance 한 경로만 프록시한다(nginx-agent.conf). 화면·다른 API는 밖에 열지 않는다.
+# 비밀값은 같은 폴더의 .env(권한 600, git 제외)에서 읽는다 — 이름은 .env.example.
+services:
+  agent:
+    build:
+      context: ../..
+      dockerfile: deploy/agent/Dockerfile
+    image: careerloop-agent:latest
+    container_name: careerloop-agent
+    restart: unless-stopped
+    env_file: .env
+    environment:
+      RESUME_AGENT_RUNNER: "1"
+      # 실행기 안에서 다음 호출을 여는 연쇄는 자기 자신에게 보낸다(한 호출 예산 20분을 넘길 때만 쓰인다).
+      APP_ORIGIN: http://127.0.0.1:3000
+    ports:
+      - "127.0.0.1:3100:3000"
+    networks:
+      - cbt_bank_default
+    # 진행 중인 단계가 끝나거나 리스를 내려놓을 시간을 준다(중단된 작업은 다시 뜬 뒤 주기 점검이 이어 간다).
+    stop_grace_period: 30s
+    cap_drop:
+      - ALL
+    security_opt:
+      - no-new-privileges:true
+    logging:
+      driver: json-file
+      options:
+        max-size: "10m"
+        max-file: "5"
+
+networks:
+  cbt_bank_default:
+    external: true

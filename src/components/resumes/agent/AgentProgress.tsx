@@ -30,6 +30,7 @@ import {
 } from "@/lib/resume-agent/job-types";
 import { formatElapsed } from "@/lib/resumes/draft-job-types";
 import { AgentRoundScores } from "./AgentRoundScores";
+import { kickAgentJobs } from "./kick";
 
 export const AGENT_POLL_MS = 2000;
 export const AGENT_POLL_SLOW_MS = 5000;
@@ -161,13 +162,15 @@ export function OrchestratorFeedback({ items }: { items: readonly OrchestratorFe
   );
 }
 
-async function fetchJob(id: string): Promise<ResumeAgentJobView | "gone" | "signed-out" | null> {
+/** kick: 이어 가기가 필요한 내 다른 진행 중 작업 id(서버가 함께 내려준다). */
+async function fetchJob(id: string): Promise<{ job: ResumeAgentJobView; kick: string[] } | "gone" | "signed-out" | null> {
   try {
     const res = await fetch(`/api/resumes/agent-jobs/${encodeURIComponent(id)}`, { cache: "no-store" });
     if (res.status === 404) return "gone";
     if (res.status === 401) return "signed-out";
     if (!res.ok) return null;
-    return ((await res.json()) as { agentJob: ResumeAgentJobView }).agentJob;
+    const data = (await res.json()) as { agentJob: ResumeAgentJobView; kick?: string[] };
+    return { job: data.agentJob, kick: data.kick ?? [] };
   } catch {
     return null;
   }
@@ -181,7 +184,6 @@ export function AgentProgress({ initialJob, autoOpen = true }: { initialJob: Res
   const [actionError, setActionError] = useState<string | null>(null);
   const [now, setNow] = useState(() => Date.now());
   const [showPreview, setShowPreview] = useState(false);
-  const kicking = useRef(false);
   const handled = useRef<string | null>(null);
   const active = job.status === "running" || job.status === "waiting";
 
@@ -194,17 +196,6 @@ export function AgentProgress({ initialJob, autoOpen = true }: { initialJob: Res
     const tick = setInterval(() => setNow(Date.now()), 1000);
     const schedule = () => {
       if (!stopped) timer = setTimeout(() => void poll(), agentPollMs(Date.now() - startedAt, failures));
-    };
-    const kick = async (id: string) => {
-      if (kicking.current) return;
-      kicking.current = true;
-      try {
-        await fetch(`/api/resumes/agent-jobs/${encodeURIComponent(id)}/advance`, { method: "POST" });
-      } catch {
-        // 다음 폴링에서 다시.
-      } finally {
-        kicking.current = false;
-      }
     };
     const poll = async () => {
       // 탭이 숨겨지면 폴링을 멈춘다(돌아오면 다시).
@@ -219,13 +210,15 @@ export function AgentProgress({ initialJob, autoOpen = true }: { initialJob: Res
       if (next === null) failures++;
       else {
         failures = 0;
-        setJob(next);
-        if (next.status !== "running" && next.status !== "waiting") return;
-        if (next.needsKick) void kick(next.id);
+        setJob(next.job);
+        // 동시에 진행 중인 내 다른 작업도 이 화면이 함께 이어 준다.
+        kickAgentJobs(next.kick);
+        if (next.job.status !== "running" && next.job.status !== "waiting") return;
+        if (next.job.needsKick) kickAgentJobs([next.job.id]);
       }
       schedule();
     };
-    if (initialJob.needsKick) void kick(job.id);
+    if (initialJob.needsKick) kickAgentJobs([job.id]);
     schedule();
     return () => {
       stopped = true;

@@ -106,7 +106,7 @@ export type WriteMode = "agent" | "single";
 export const WRITE_MODE_LABELS: Record<WriteMode, { name: string; description: string }> = {
   agent: {
     name: "AI 에이전트로 작성 (권장)",
-    description: "JD 요건별로 경험 그래프의 근거를 찾고, 심사위원 심사를 통과할 때까지 근거 안에서만 다듬습니다. 보통 8~15분, 하루 5회.",
+    description: "JD 요건별로 경험 그래프의 근거를 찾고, 심사위원 심사를 통과할 때까지 근거 안에서만 다듬습니다. 보통 8~15분.",
   },
   single: { name: "빠른 초안", description: "AI가 한 번에 초안을 씁니다. 1~3분." },
 };
@@ -297,15 +297,10 @@ export function NewResumeForm({
         router.push(`/app/resumes/agent/${encodeURIComponent(agentJobId)}`);
         return;
       }
-      if (res.status === 409 && data?.code === "busy" && data.agentJobId) {
-        setError(data.error ?? "진행 중인 에이전트 작업이 있습니다.");
-        setErrorLink({ href: `/app/resumes/agent/${encodeURIComponent(data.agentJobId)}`, label: "진행 중인 에이전트 작업 보기" });
-        setSubmitting(false);
-        return;
-      }
-      if (res.status === 429 && data?.code === "rate_limited") {
-        setError(data.error ?? "오늘 에이전트 작성 횟수를 모두 썼습니다.");
-        setWriteMode("single");
+      if (res.status === 409 && data?.code === "busy") {
+        setError(data.error ?? "진행 중인 에이전트 작업이 많습니다. 끝난 뒤 다시 시도해 주세요.");
+        // 동시 작업 상한(3개)이라 막은 작업이 하나가 아니다 — 진행 중인 작업이 모두 보이는 목록으로 보낸다.
+        setErrorLink({ href: "/app/resumes", label: "진행 중인 작업 목록 보기" });
         setSubmitting(false);
         return;
       }

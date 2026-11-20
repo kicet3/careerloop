@@ -31,7 +31,7 @@ export async function loadAgentGraph(job: { userId: string }): Promise<CareerGra
 
 /**
  * 에이전트를 쓸 만한 그래프인가(노드가 하나라도 있는가). 빈 그래프면 폼은 빠른 초안만 보이고, 시작 요청은 빠른 초안으로 넘긴다
- * (JD 단계 비용·하루 한도를 쓰고 나서 retrieve에서 실패하지 않게). 그래프 저장소 오류면 false. 그래프 내용은 어디에도 넘기지 않는다.
+ * (JD 단계 비용을 쓰고 나서 retrieve에서 실패하지 않게). 그래프 저장소 오류면 false. 그래프 내용은 어디에도 넘기지 않는다.
  */
 export async function hasAgentGraphMaterial(userId: string): Promise<boolean> {
   try {

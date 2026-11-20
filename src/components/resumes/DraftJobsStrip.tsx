@@ -9,6 +9,7 @@ import { useEffect, useRef, useState } from "react";
 import { pokeNotifications } from "@/components/notifications/store";
 import { Spinner } from "@/components/ui/Spinner";
 import { cn } from "@/components/ui/cn";
+import { kickAgentJobs } from "./agent/kick";
 import { draftJobHref, formatElapsed, RESUME_DRAFT_STEP_LABELS, type ResumeDraftJobView } from "@/lib/resumes/draft-job-types";
 
 export const DRAFT_LIST_POLL_MS = 4000;
@@ -34,7 +35,10 @@ export function DraftJobsStrip({ initialJobs }: { initialJobs: ResumeDraftJobVie
       try {
         const res = await fetch("/api/resumes/drafts", { cache: "no-store" });
         if (!res.ok || stopped) return;
-        const next = ((await res.json()) as { items: ResumeDraftJobView[] }).items;
+        const data = (await res.json()) as { items: ResumeDraftJobView[]; agentKicks?: string[] };
+        const next = data.items;
+        // 대기 중인 에이전트 작업은 이 화면이 이어 준다(연쇄가 꺼진 배포에서도 동시 작업이 함께 진행되게).
+        kickAgentJobs(data.agentKicks ?? []);
         const finished = anyJobFinished(jobsRef.current, next);
         jobsRef.current = next;
         setJobs(next);

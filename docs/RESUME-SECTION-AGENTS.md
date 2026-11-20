@@ -391,11 +391,11 @@ motivation: z.object({ drafted: z.boolean(), placeholders: z.number(), suggestio
 
 - 공통 맥락 접두 캐시(§3 프롬프트 순서): 같은 웨이브의 병렬 호출끼리는 캐시를 공유하지 못하지만, 웨이브 2·compose·재작성은 웨이브 1이 쓴 접두를 5분 안에 읽는다. 첫 웨이브의 호출 하나만 `cacheUser: true`(쓰기 할증 1회)로 보내고 나머지는 읽기만 — `LlmClient`의 캐시 지점이 user 전체 단위면 이 최적화는 공통 맥락을 별도 블록으로 보내는 지원이 필요하므로 측정 후 결정(예상 절감 15~20%, 표에는 반영 안 함).
 - 저장된 JD 분석 재사용으로 작업당 $0.09 절감.
-- 사용자 1명 하루 최대: 5회 × $3.5 ≈ $17.5(v1 $12). 추천 버튼은 기존 레이트 리밋 그대로.
+- 에이전트 하루 한도는 없다(작업당 약 $3.5, v1 $2.3 — 사용자별 하루 상한 없음). 추천 버튼은 기존 레이트 리밋 그대로.
 
 ### 7.2 한도
 - `AGENT_JOB_TOKEN_BUDGET_V2 = 700_000`(v1 500K). `STEP_TOKEN_ESTIMATE_V2`: brief 25K, 구역(experience·projects 18K, 그 외 10K), compose 14K, critique 20K, review·final_panel v1 값.
-- `RESUME_AGENT_LIMIT`(5회/일)·`MAX_ACTIVE_AGENT_JOBS = 1` 그대로. `RESUME_AGENT_MAX_REVISIONS`(0~2) 그대로 적용.
+- 하루 한도 없음·`MAX_ACTIVE_AGENT_JOBS = 3`. `RESUME_AGENT_MAX_REVISIONS`(0~2) 그대로 적용.
 - 비용 손잡이: `RESUME_AGENT_PARALLEL`, `RESUME_AGENT_MAX_REVISIONS=1`, `RESUME_AGENT_MOTIVATION=0`(파이프라인에서 지원 동기 두 에이전트 끄기).
 
 ### 7.3 LLM task·사용량

@@ -16,7 +16,7 @@
 | 연쇄 origin | `VERCEL_PROJECT_PRODUCTION_URL` 고정 | 운영은 운영 도메인, 미리보기는 `VERCEL_URL`+우회 비밀, **배포 id 기록**(§3.2) | 미리보기가 같은 DB를 쓰면 운영 코드가 미리보기 작업을 이어 실행하는 문제 |
 | 멈춤 판정 | waiting 15분 → failed | waiting은 **실패시키지 않고 다음 접속 때 이어감**, 24시간 지나면 failed. 리스 만료만 회수(§3.5) | 연쇄 비밀이 없거나 자기 호출이 막히면 사용자가 화면을 닫는 순간 정상 작업이 실패로 처리됨 |
 | 알림 sweep | sweep에서 kick | sweep은 **서명 fetch만** 보내고 단계는 실행하지 않음 | 알림 스트림 함수 수명 안에서 LLM 단계를 돌리면 스트림이 끊김 |
-| 한도·비용 | 하루 10회, 약 $2.1~3.1 | 하루 **5회**, 약 **$1.7~2.4**(§3.6) | Hobby 운영 비용 |
+| 한도·비용 | 하루 10회, 약 $2.1~3.1 | 하루 한도 없음(동시 3개), 작업당 약 **$1.7~2.4**(§3.6) | Hobby 운영 비용 |
 | 소요 시간 안내 | 5~10분 | **8~15분**(실측 전 추정, §3.3) | 단계 추정치 합산 결과와 일치시킴 |
 | 출시 | 이메일 해시 allowlist | 기존 `ADMIN_EMAILS`(`isAdminEmail`) 재사용 | 새 비밀·해시 관리 불필요 |
 | UX 상태 | 진행·완료·실패 | + `waiting`·취소·예산 중단·심사 미완료·동시 작업 있음·한도 초과·진행 중 최선 초안 미리 보기(§4.4) | 누락 상태 보완 |
@@ -128,7 +128,7 @@ round k:  (stop 판정) ─► revise(expand+patch+verify) ─► review        
   - `schemas.ts`(zod 계약, 클라이언트·서버 공용 순수) · `job-types.ts`(화면용 타입·단계 라벨)
   - `steps/jd.ts` · `steps/retrieve.ts` · `steps/plan.ts` · `steps/write.ts` · `steps/review.ts`(review·final_panel 공용) · `steps/revise.ts` · `steps/finalize.ts`
   - 순수 모듈: `evidence.ts`(근거 묶음 만들기·직렬화·expand) · `citations.ts`(경로·인용 검증) · `verify.ts`(`verifyDraft`) · `patch.ts`(수정 패치 적용) · `stop.ts`(종료 판정) · `next-step.ts` · `report.ts`(리포트 모델)
-  - `prompts.ts`(plan·write·revise 프롬프트) · `jobs.ts`(작업 행·리스·연쇄) · `chain.ts`(내부 호출 서명·origin) · `http.ts`(라우트 공용: 레이트 리밋, 예약)
+  - `prompts.ts`(plan·write·revise 프롬프트) · `jobs.ts`(작업 행·리스·연쇄) · `chain.ts`(내부 호출 서명·origin) · `http.ts`(라우트 공용: 동시 작업 409, 예약)
 
 ### 2.1 공통 계약(`src/lib/resume-agent/schemas.ts`)
 
@@ -599,9 +599,11 @@ RETURNING *;
 - 작업 전체 상한: 함수 호출 횟수 `MAX_CONTINUATIONS = 20`(전형 6~8회의 2.5배), 단계 `attempt` 3회. 넘으면 failed(무한 연쇄 방지). 벽시계 상한(v1의 45분)은 두지 않는다 — 화면을 닫은 정상 작업을 잘못 실패시키기 때문이다.
 
 ### 3.6 동시성·한도·비용
-- 사용자당 동시 진행 에이전트 작업 `MAX_ACTIVE_AGENT_JOBS = 1`(running·waiting 모두 셈, AI 초안 작업 3개와 별도). 이미 있으면 409 + 기존 작업 id를 돌려주고 폼은 "진행 중인 에이전트 작업 보기"로 안내한다. 이력서 수 상한 확인(`assertResumeSlots`)은 에이전트 진행 작업(running·waiting)도 센다.
-- 시작 예약은 트랜잭션 하나로: 레이트 리밋 소비 → 동시 작업 확인 → 슬롯 확인 → 작업 행·첫 단계 행 생성. 동시 요청 두 개가 둘 다 통과하지 않도록 `pg_advisory_xact_lock(hashtext('resume-agent:' || userId))`를 먼저 잡는다(기존 초안 작업 예약이 쓰는 방식이 있으면 그것을 재사용).
-- 레이트 리밋(`src/lib/auth/db-rate-limit.ts`): `RESUME_AGENT_LIMIT = { bucket: "resume-agent", limit: 5, windowMs: 24h }` — 시작·사용자 재시도만 센다(자동 이어하기·kick·`retry?mode=single`은 세지 않음 — 단일 초안은 기존 `RESUME_DRAFT_LIMIT`(30/일)으로 센다). 한도 초과 시 429 + "오늘은 빠른 초안으로 만들 수 있어요" 안내.
+- 사용자당 동시 진행 에이전트 작업 `MAX_ACTIVE_AGENT_JOBS = 3`(running·waiting 모두 셈, 새로 만들기·다시 생성·다시 시도를 함께 셈, AI 초안 작업 3개와 별도). 상한에 닿으면 409 + 진행 중인 작업 중 가장 최근 것의 id를 돌려주고 폼은 "진행 중인 에이전트 작업 보기"로 안내한다. 이력서 수 상한 확인(`assertResumeSlots`)은 에이전트 진행 작업(running·waiting)도 센다.
+- 실행기(맥미니): `RESUME_AGENT_RUNNER_URL`이 있으면 시작·다시 시도·이어 가기·연쇄가 모두 서명 호출로 실행기에 넘어가고(`http.ts` `handOffToRunner`, `chain.ts` `chainOrigin`), 202를 못 받을 때만 이 배포에서 실행한다. 실행기는 `sweepRunnerJobs`(10초 주기)로 놓친 작업도 주워 간다. 구성·배포는 `deploy/agent/README.md`.
+- 동시 작업 이어 가기: 진행 화면 폴링(`GET …/agent-jobs/[id]`의 `kick`)과 이력서 목록 폴링(`GET /api/resumes/drafts`의 `agentKicks`)이 이어 가기가 필요한 내 다른 작업 id(`agentJobsNeedingKick`)를 함께 받아 `POST …/advance`를 보낸다(`components/resumes/agent/kick.ts`, 작업당 한 번에 하나). 연쇄가 꺼진 배포에서도 화면에 없는 작업이 멈춰 자리를 차지하지 않게 하기 위해서다. 다시 시도도 잠금 안에서 이력서 수를 다시 센다.
+- 시작 예약은 트랜잭션 하나로: 동시 작업 확인 → 슬롯 확인 → 작업 행·첫 단계 행 생성. 동시 요청 두 개가 둘 다 통과하지 않도록 `pg_advisory_xact_lock(hashtext('resume-agent:' || userId))`를 먼저 잡는다(기존 초안 작업 예약이 쓰는 방식이 있으면 그것을 재사용).
+- 하루 한도 없음: 예전 `RESUME_AGENT_LIMIT`(24시간 5회)은 없앴다. 에이전트 시작·다시 시도는 동시 작업 상한과 이력서 수 상한만 본다. `retry?mode=single`(빠른 초안 전환)은 기존 `RESUME_DRAFT_LIMIT`(30/일)으로 센다.
 - 작업당 토큰 상한: `AGENT_JOB_TOKEN_BUDGET = 500_000`(입력+출력, 캐시 읽기 제외). 다음 단계 추정치(`STEP_TOKEN_ESTIMATE`)가 남은 예산을 넘으면 `budget`으로 멈추고 가장 좋은 라운드로 마무리(final_panel은 예산이 남을 때만, 아니면 리포트 `finalPanel = null`).
 - 비용 추정(기본 모델 `claude-opus-5-5`, `pricing.ts`: 입력 $4 / 출력 $20 / 캐시 읽기 $0.2 per MTok, 패널·plan·write system 프롬프트 캐시 적중 가정, 출력에는 effort에 따른 사고 토큰 포함):
 
@@ -617,7 +619,7 @@ RETURNING *;
 | **최대: 심사 3라운드(수정 2)** | 22 | | | **약 $2.3** |
 | 참고: v1(매 라운드 8회, LLM 검증 포함) | 22~31 | | | 약 $2.1~3.1 |
 
-  - 한도와 곱하면 사용자 1명 하루 최대 약 $12(5회 × $2.3). 관리자 사용량 화면에서 작업별 합계를 본다(§4.6).
+  - 하루 한도가 없으므로 사용자별 하루 비용 상한도 없다(동시 3개·작업당 토큰 상한만). 관리자 사용량 화면에서 작업별 합계를 본다(§4.6).
   - 추가 절감 손잡이: `RESUME_AGENT_MAX_REVISIONS=1`, `RESUME_AGENT_READER_EFFORT=low`(기본), `RESUME_AGENT_PANEL=full`(정확도 비교용으로만, 비용 ↑).
   - CLI 엔진(provider ≠ anthropic)은 비용 null(기존 `usage.ts`와 같음), 시간이 더 걸리므로 `STEP_ESTIMATE` ×1.5. CLI 엔진은 Vercel에서 쓸 수 없으므로(자체 호스팅 전용) 연쇄 경로와 무관하다.
 
@@ -716,7 +718,7 @@ model ResumeAgentStep {
 | `POST /api/resumes` | `src/app/api/resumes/route.ts`(분기 추가) | `mode=agent`면 `startResumeAgentJob` → 202 `{ agentJob }`, after()로 `advanceAgentJob` | 300 |
 | `GET /api/resumes/agent-jobs/[id]` | `…/[id]/route.ts` | 진행 상태(단계·라운드 점수·needsKick). 멈춤 판정 | – |
 | `POST /api/resumes/agent-jobs/[id]/advance` | `…/[id]/advance/route.ts` | 사용자 세션 + same-origin. 리스가 비어 있으면 이어서 실행(레이트 리밋 없음, 하루 continuations 상한) | 300 |
-| `POST /api/resumes/agent-jobs/[id]/retry` | `…/[id]/retry/route.ts` | 실패 단계부터 재시도(레이트 리밋 셈). `?from=jd` 처음부터, `?mode=single` 같은 입력으로 빠른 초안(§3.4) | 300 |
+| `POST /api/resumes/agent-jobs/[id]/retry` | `…/[id]/retry/route.ts` | 실패 단계부터 재시도(하루 한도 없음). `?from=jd` 처음부터, `?mode=single` 같은 입력으로 빠른 초안(§3.4) | 300 |
 | `POST /api/resumes/agent-jobs/[id]/cancel` | `…/[id]/cancel/route.ts` | 취소 | – |
 | `POST /api/internal/resume-agent/advance` | `src/app/api/internal/resume-agent/advance/route.ts` | HMAC 서명 내부 연쇄 | 300 |
 
@@ -727,13 +729,13 @@ model ResumeAgentStep {
 - 화면용 뷰 타입(`src/lib/resume-agent/job-types.ts`): `ResumeAgentJobView { id, status, label, currentStep, steps: AgentStepView[], rounds: RoundScoreView[], coverage, stopReason, error, canRetry, needsKick, resumeId, startedAt, … }`. 뷰에는 근거 텍스트·JD 원문·노드 id를 싣지 않는다.
 
 ### 4.4 UI 컴포넌트
-- `src/components/resumes/NewResumeForm.tsx`: 출처 `graph` 아래에 작성 방식 라디오(`AI 에이전트로 작성 — JD 요건별 근거를 찾고 심사위원 심사를 통과할 때까지 다듬습니다(보통 8~15분, 하루 5회)` / `빠른 초안 — 1~3분`). JD가 비어 있으면 "공고가 없으면 직무명으로 요건을 추정합니다" 보조 문구. 기본값: `graphAvailable && agentEnabled`. 202 응답의 `agentJob`이면 `/app/resumes/agent/[id]`로 이동.
+- `src/components/resumes/NewResumeForm.tsx`: 출처 `graph` 아래에 작성 방식 라디오(`AI 에이전트로 작성 — JD 요건별 근거를 찾고 심사위원 심사를 통과할 때까지 다듬습니다(보통 8~15분)` / `빠른 초안 — 1~3분`). JD가 비어 있으면 "공고가 없으면 직무명으로 요건을 추정합니다" 보조 문구. 기본값: `graphAvailable && agentEnabled`. 202 응답의 `agentJob`이면 `/app/resumes/agent/[id]`로 이동.
 - `src/app/app/resumes/agent/[id]/page.tsx` + `src/components/resumes/agent/AgentProgress.tsx`: 2초 폴링(30초 뒤 5초, 탭이 숨겨지면 폴링 중지 — `document.visibilityState`), `needsKick`이면 `POST …/advance`(한 번에 하나, 응답 전 재전송 없음). `DraftProgress.tsx`의 경과 시간·단계 표시(`formatElapsed`) 재사용.
   - **최선 초안 미리 보기**: round 0 `write_top`이 끝나면 뷰에 `previewText`(`resumeToText` 결과, 근거 텍스트·노드 id 없음)를 싣고 접힌 패널로 보여 준다. 사용자가 10분 넘게 빈 화면을 보지 않게 한다. 편집은 완료 후에만.
   - `AgentStepTimeline.tsx`: 단계별 상태·요약(근거 커버리지, 포지셔닝, 수치 확인 n건).
   - `AgentRoundScores.tsx`: 라운드 × 핵심 심사 3명 판정 칩 + 적합도 + panelScore, 목표선(ATS 통과·핵심 2/3·적합도 75). 최종 행에 7명 결과.
 - `src/components/resumes/agent/AgentReport.tsx`: 이력서 편집 화면(`ResumeEditor.tsx`)의 "심사 리포트" 카드/탭(`?report=1`이면 펼침).
-  - 요건 표(`RequirementCoverageTable.tsx`), 바뀐 점(`AgentChangeList.tsx`, 라운드별 전/후), 남은 공백(`AgentGapQuestions.tsx` — 각 질문에 `graphChatHref(chatPrompt)` 링크, "그래프를 채운 뒤 다시 실행" 버튼 → 같은 입력으로 새 작업. **새 이력서가 하나 더 생기고 하루 한도 1회를 쓴다**는 것을 버튼 옆에 적는다. 입력(JD)은 완료 때 지워지므로 이 버튼은 이력서의 `postingId`·회사·직무·현재 JD 칸 값으로 새 입력을 만든다), 제외 항목, 사실 검증 요약.
+  - 요건 표(`RequirementCoverageTable.tsx`), 바뀐 점(`AgentChangeList.tsx`, 라운드별 전/후), 남은 공백(`AgentGapQuestions.tsx` — 각 질문에 `graphChatHref(chatPrompt)` 링크, "그래프를 채운 뒤 다시 실행" 버튼 → 같은 입력으로 새 작업. **새 이력서가 하나 더 생긴다**는 것을 버튼 옆에 적는다. 입력(JD)은 완료 때 지워지므로 이 버튼은 이력서의 `postingId`·회사·직무·현재 JD 칸 값으로 새 입력을 만든다), 제외 항목, 사실 검증 요약.
   - 심사위원 이름·판정 라벨은 `src/lib/domain/reviewers.ts`(`REVIEWERS`, `verdictLabel`) 재사용.
 - `src/components/resumes/DraftJobsStrip.tsx`: 에이전트 작업도 띠에 표시(뷰의 `href`만 다름, §4.1).
 - 리포트 상단에 "작성 시점(generatedAt) 기준 — 이후 편집한 내용은 반영되지 않습니다" 한 줄. 사용자가 문서를 고친 뒤에는 `resumeLine`이 문서에 더 없으면 그 줄을 흐리게 표시한다.
@@ -744,8 +746,7 @@ model ResumeAgentStep {
 |---|---|---|
 | 진행 중 | `running` | 단계 타임라인 + 경과 시간 + 취소 |
 | 다음 단계 대기 | `waiting` | "다음 단계를 준비하고 있습니다. 화면을 닫아도 이어서 진행합니다." 연쇄 비밀이 없으면 "이 화면을 열어 두면 더 빨리 끝납니다" |
-| 동시 작업 있음 | 시작 409 | 폼에 "진행 중인 에이전트 작업이 있습니다 — [보기]" |
-| 한도 초과 | 시작 429 | "오늘 에이전트 작성 5회를 모두 썼습니다 — [빠른 초안으로 만들기]" |
+| 동시 작업 상한(3개) | 시작 409 | 폼에 "에이전트 작성은 동시에 3개까지 진행할 수 있습니다 — [보기]" |
 | 이력서 수 상한 | `assertResumeSlots` 실패 | 기존 문구 그대로 |
 | 그래프 부족 | retrieve `insufficient_graph` | "경험이 거의 없어 쓸 수 있는 내용이 적습니다 — [그래프 채팅으로 정리하기] [빠른 초안]" |
 | 실패(재시도 가능) | `failed` + `input` 있음 | 실패 단계·사유 + [실패한 단계부터 다시] [빠른 초안으로 만들기] |
@@ -796,7 +797,7 @@ model ResumeAgentStep {
 - 개인정보 처리방침의 "AI 처리" 항목에 "다단계 에이전트(같은 자료로 여러 번 호출)"를 덧붙일지 법무 메모(`docs/LEGAL-NOTES.md`)에 확인 항목으로 남긴다.
 
 ### 5.4 남용 방지
-- §3.6 한도(동시 1, 하루 5, 작업당 토큰 50만, 연쇄 20회, 단계 시도 3회, 24시간 멈춤 종료).
+- §3.6 한도(동시 3, 하루 한도 없음, 작업당 토큰 50만, 연쇄 20회, 단계 시도 3회, 24시간 멈춤 종료).
 - `advance` 라우트는 리스가 비어 있을 때만 실행하므로 반복 호출해도 LLM 호출이 늘지 않는다(리스 획득 실패 → 202 no-op). continuations는 **실제로 리스를 얻어 단계를 시작했을 때만** 올린다 — 빈 kick을 반복해 상한을 소진시켜 자기 작업을 실패시키는 경로를 막는다.
 - 내부 라우트(`/api/internal/...`)는 비밀이 설정되지 않은 배포에서 404를 돌려준다(존재 여부도 숨김).
 
@@ -823,7 +824,7 @@ model ResumeAgentStep {
   - 실행 중 다시 시도(새 runId) → 예전 실행의 늦은 쓰기가 0행, 이력서 중복 없음(`discardResume`).
   - 멈춤 판정 → failed + 알림, 재시도는 실패 단계부터(이미 done인 jd·retrieve는 LLM 호출 0회).
   - 심사 실패 시 최고 검증 초안 저장 + `stopReason: "review_failed"`.
-  - 레이트 리밋·동시 1개(동시 시작 요청 2개 → 1개만 성공)·이력서 상한(waiting 포함).
+  - 동시 3개(동시 시작 요청 5개 → 3개만 성공)·이력서 상한(waiting 포함).
   - 리스 만료 회수: 단계 도중 "함수 강제 종료"(하트비트 중단 주입) → 60초 뒤 다른 advance가 이어받아 같은 단계를 다시 실행, 결과 하나.
   - waiting 장기 방치: 23시간은 그대로, 24시간 넘으면 failed + 알림 1개.
   - **JD 요건 반영 고정(§0.1)**: 모든 must 요건이 리포트 `requirements`에 정확히 한 번, `met`/`partial`이면 `resumeLine`이 최종 문서 텍스트에 실제로 있음, gap 요건에 대한 질문이 `gaps`에 있음.

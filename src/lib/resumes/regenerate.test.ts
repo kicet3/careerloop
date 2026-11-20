@@ -448,19 +448,25 @@ describe("AI 에이전트로 다시 생성", () => {
     expect(await tdb.prisma.resumeVersion.count({ where: { resume: { userId: "ua" } } })).toBe(0);
   });
 
-  it("에이전트 하루 한도(5회)를 새로 만들기와 함께 쓴다(6번째는 429)", async () => {
-    const { RESUME_AGENT_LIMIT } = await import("@/lib/auth/db-rate-limit");
-    for (let i = 0; i < RESUME_AGENT_LIMIT.limit; i++) await tdb.prisma.rateEvent.create({ data: { bucket: RESUME_AGENT_LIMIT.bucket, key: "ua" } });
+  it("에이전트 다시 생성은 하루 한도가 없다(예전 한도 기록이 남아 있어도 시작한다)", async () => {
+    for (let i = 0; i < 10; i++) await tdb.prisma.rateEvent.create({ data: { bucket: "resume-agent", key: "ua" } });
     const res = await post(resumeId, { mode: "agent" });
-    expect(res.status).toBe(429);
-    expect(await tdb.prisma.resumeAgentJob.count()).toBe(0);
+    expect(res.status).toBe(202);
+    expect(await tdb.prisma.resumeAgentJob.count()).toBe(1);
   });
 
-  it("다른 에이전트 작업이 진행 중이면 409(동시 1개 — 새로 만들기와 함께 센다)", async () => {
-    await tdb.prisma.resumeAgentJob.create({ data: { id: "other", userId: "ua", runId: "r", status: "waiting", label: "x", input: {} } });
+  it("다른 에이전트 작업이 상한(동시 3개 — 새로 만들기와 함께 센다)만큼 진행 중이면 409, 그보다 적으면 시작한다", async () => {
+    const { MAX_ACTIVE_AGENT_JOBS } = agentJobs;
+    for (let i = 0; i < MAX_ACTIVE_AGENT_JOBS - 1; i++) {
+      await tdb.prisma.resumeAgentJob.create({ data: { id: `other${i}`, userId: "ua", runId: "r", status: "waiting", label: "x", input: {}, createdAt: new Date(Date.now() - (i + 1) * 1000) } });
+    }
+    const ok = await post(resumeId, { mode: "agent" });
+    expect(ok.status).toBe(202);
+    await tdb.prisma.resumeAgentJob.updateMany({ where: { targetResumeId: resumeId }, data: { status: "canceled" } });
+    await tdb.prisma.resumeAgentJob.create({ data: { id: "newest", userId: "ua", runId: "r", status: "running", label: "x", input: {}, createdAt: new Date(Date.now() + 60_000) } });
     const res = await post(resumeId, { mode: "agent" });
     expect(res.status).toBe(409);
-    expect(await res.json()).toMatchObject({ code: "busy", agentJobId: "other" });
+    expect(await res.json()).toMatchObject({ code: "busy", agentJobId: "newest" });
   });
 
   it("에이전트를 쓸 수 없으면(그래프 비어 있음) 빠른 초안으로 다시 생성하고 modeFallback을 알린다", async () => {

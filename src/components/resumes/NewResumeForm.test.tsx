@@ -119,7 +119,7 @@ describe("작성 방식(그래프 이력서 에이전트)", () => {
     const on = renderToStaticMarkup(<NewResumeForm providers={[]} defaultProvider={null} graphAvailable agentAvailable diagnoses={[]} />);
     expect(on).toContain("AI 에이전트로 작성 (권장)");
     expect(on).toContain(`name="writeMode" checked="" value="agent"`);
-    expect(on).toContain("하루 5회");
+    expect(on).not.toContain("하루 5회");
     const off = renderToStaticMarkup(<NewResumeForm providers={[]} defaultProvider={null} graphAvailable diagnoses={[]} />);
     expect(off).not.toContain("AI 에이전트로 작성");
   });
